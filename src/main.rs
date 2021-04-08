@@ -28,6 +28,7 @@ pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
     } else {
         match (lhs, rhs) {
             (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
+            (Type::Function(a, b), Type::Function(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             (Type::Var(i), rhs) => { inst[i] = rhs; true },
             _ => return false
         }
