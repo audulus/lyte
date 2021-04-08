@@ -29,6 +29,10 @@ impl TypeFactory {
         self.types.push(p.clone());
         return p
     }
+
+    pub fn tuple(&mut self, a: Rc<Type>, b: Rc<Type>) -> Rc<Type> {
+        self.unique(Type::Tuple(a, b))
+    }
 }
 
 fn main() {
@@ -43,8 +47,8 @@ fn main() {
 
     assert_ne!(t1, t2);
 
-    let t3 = f.unique(Type::Tuple(t2.clone(), t2.clone()));
-    let t4 = f.unique(Type::Tuple(t2.clone(), t2.clone()));
+    let t3 = f.tuple(t2.clone(), t2.clone());
+    let t4 = f.tuple(t2.clone(), t2.clone());
 
     assert_eq!(t3, t4);
 
