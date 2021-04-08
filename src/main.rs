@@ -38,6 +38,7 @@ pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
 fn main() {
     assert_eq!(Type::Void, Type::Void);
     assert_ne!(Type::Void, Type::Int8);
+    assert_eq!(Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)), Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)));
 
     let mut inst = vec![Type::Void];
     assert!(unify(Type::Void, Type::Void, &mut inst));
