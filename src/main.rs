@@ -35,15 +35,32 @@ pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_types() {
+        assert_eq!(Type::Void, Type::Void);
+        assert_ne!(Type::Void, Type::Int8);
+    }
+
+    #[test]
+    fn test_tuple() {
+        assert_eq!(Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)), Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)));
+    }
+
+    #[test]
+    fn test_unify() {
+        let mut inst = vec![Type::Void];
+        assert!(unify(Type::Void, Type::Void, &mut inst));
+        assert!(!unify(Type::Void, Type::Int8, &mut inst));
+    
+        assert!(unify(Type::Var(0), Type::Int8, &mut inst));
+        assert_eq!(inst[0], Type::Int8);
+    }
+}
+
 fn main() {
-    assert_eq!(Type::Void, Type::Void);
-    assert_ne!(Type::Void, Type::Int8);
-    assert_eq!(Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)), Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)));
-
-    let mut inst = vec![Type::Void];
-    assert!(unify(Type::Void, Type::Void, &mut inst));
-    assert!(!unify(Type::Void, Type::Int8, &mut inst));
-
-    assert!(unify(Type::Var(0), Type::Int8, &mut inst));
-    assert_eq!(inst[0], Type::Int8);
+    println!("yo")
 }
