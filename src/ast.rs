@@ -18,17 +18,19 @@ pub fn subst(t: &Type, inst: &Instance) -> Type {
     }
 }
 
-pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
+pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
     if lhs == rhs {
         true
     } else {
         match (lhs, rhs) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
+            (Type::Tuple(a, b), Type::Tuple(c, d)) => {
+				unify(a, c, inst) && unify(b, d, inst)
+			}
             (Type::Function(a, b), Type::Function(c, d)) => {
-                unify(*a, *c, inst) && unify(*b, *d, inst)
+                unify(a, c, inst) && unify(b, d, inst)
             }
             (Type::Var(i), rhs) => {
-                inst[i] = rhs;
+                inst[*i] = rhs.clone();
                 true
             }
             _ => return false,
@@ -66,10 +68,10 @@ mod tests {
     #[test]
     fn test_unify() {
         let mut inst = vec![Type::Void];
-        assert!(unify(Type::Void, Type::Void, &mut inst));
-        assert!(!unify(Type::Void, Type::Int8, &mut inst));
+        assert!(unify(&Type::Void, &Type::Void, &mut inst));
+        assert!(!unify(&Type::Void, &Type::Int8, &mut inst));
 
-        assert!(unify(Type::Var(0), Type::Int8, &mut inst));
+        assert!(unify(&Type::Var(0), &Type::Int8, &mut inst));
         assert_eq!(inst[0], Type::Int8);
     }
 
