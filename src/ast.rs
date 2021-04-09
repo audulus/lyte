@@ -5,7 +5,7 @@ pub enum Type {
     Int32,
     Tuple(Box<Type>, Box<Type>),
     Var(usize),
-    Function(Box<Type>, Box<Type>),
+    Func(Box<Type>, Box<Type>),
 }
 
 pub type Instance = Vec<Type>;
@@ -26,7 +26,7 @@ pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
             (Type::Tuple(a, b), Type::Tuple(c, d)) => {
 				unify(a, c, inst) && unify(b, d, inst)
 			}
-            (Type::Function(a, b), Type::Function(c, d)) => {
+            (Type::Func(a, b), Type::Func(c, d)) => {
                 unify(a, c, inst) && unify(b, d, inst)
             }
             (Type::Var(i), rhs) => {
@@ -41,7 +41,7 @@ pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
 pub fn solved(t: &Type) -> bool {
     match t {
         Type::Tuple(a, b) => solved(a) && solved(b),
-        Type::Function(a, b) => solved(a) && solved(b),
+        Type::Func(a, b) => solved(a) && solved(b),
         Type::Var(_) => false,
         _ => true,
     }
