@@ -57,3 +57,30 @@ mod tests {
         assert_eq!(inst[0], Type::Int8);
     }
 }
+
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+struct Loc {
+	pub file: String,
+	pub line: u32
+}
+
+type TypeNodeID = u32;
+
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+struct Constraint {
+    pub a: TypeNodeID,
+	pub b: TypeNodeID,
+	pub field: String,
+	pub loc: Loc
+}
+
+struct TypeNode {
+	pub possible: Vec<Type> 
+}
+
+struct TypeGraph {
+	pub nodes: Vec<TypeNode>,
+	pub constraints: Vec<Constraint>,
+	pub instance: Instance
+}
+
