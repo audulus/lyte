@@ -72,6 +72,12 @@ mod tests {
         assert!(unify(Type::Var(0), Type::Int8, &mut inst));
         assert_eq!(inst[0], Type::Int8);
     }
+
+	#[test]
+	fn test_solved() {
+		assert!(solved(&Type::Void));
+		assert!(!solved(&Type::Var(0)));
+	}
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
