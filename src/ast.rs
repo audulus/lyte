@@ -10,11 +10,11 @@ pub enum Type {
 
 pub type Instance = Vec<Type>;
 
-pub fn subst(t: Type, inst: &Instance) -> Type {
+pub fn subst(t: &Type, inst: &Instance) -> Type {
     match t {
-        Type::Tuple(a, b) => Type::Tuple(Box::new(subst(*a, inst)), Box::new(subst(*b, inst))),
-        Type::Var(i) => inst[i].clone(),
-        _ => t,
+        Type::Tuple(a, b) => Type::Tuple(Box::new(subst(a, inst)), Box::new(subst(b, inst))),
+        Type::Var(i) => inst[*i].clone(),
+        _ => t.clone(),
     }
 }
 
@@ -110,7 +110,7 @@ impl TypeGraph {
     pub fn subst(&mut self) {
         for n in &mut self.nodes {
             for t in &mut n.possible {
-                *t = subst(t.clone(), &self.inst);
+                *t = subst(t, &self.inst);
             }
         }
     }
