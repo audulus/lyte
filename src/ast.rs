@@ -34,8 +34,8 @@ pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
 
 pub fn solved(t: &Type) -> bool {
 	match t {
-		Type::Tuple(a,b) => solved(&*a) && solved(&*b),
-		Type::Function(a, b) => solved(&*a) && solved(&*b),
+		Type::Tuple(a,b) => solved(a) && solved(b),
+		Type::Function(a, b) => solved(a) && solved(b),
 		Type::Var(_) => false,
 		_ => true
 	}
