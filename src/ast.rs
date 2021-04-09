@@ -32,10 +32,10 @@ pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
     }
 }
 
-pub fn solved(t: Type) -> bool {
+pub fn solved(t: &Type) -> bool {
 	match t {
-		Type::Tuple(a,b) => solved(*a) && solved(*b),
-		Type::Function(a, b) => solved(*a) && solved(*b),
+		Type::Tuple(a,b) => solved(&*a) && solved(&*b),
+		Type::Function(a, b) => solved(&*a) && solved(&*b),
 		Type::Var(_) => false,
 		_ => true
 	}
@@ -104,7 +104,7 @@ impl TypeGraph {
 
 	pub fn solved(&self) -> bool {
 		for n in &self.nodes {
-			if n.possible.len() != 1 || !solved(n.possible[0].clone()) {
+			if n.possible.len() != 1 || !solved(&n.possible[0]) {
 				return false
 			}
 		}
