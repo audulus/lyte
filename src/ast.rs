@@ -32,6 +32,15 @@ pub fn unify(lhs: Type, rhs: Type, inst: &mut Instance) -> bool {
     }
 }
 
+pub fn solved(t: Type) -> bool {
+	match t {
+		Type::Tuple(a,b) => solved(*a) && solved(*b),
+		Type::Function(a, b) => solved(*a) && solved(*b),
+		Type::Var(_) => false,
+		_ => true
+	}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +90,24 @@ struct TypeNode {
 struct TypeGraph {
 	pub nodes: Vec<TypeNode>,
 	pub constraints: Vec<Constraint>,
-	pub instance: Instance
+	pub inst: Instance
 }
 
+impl TypeGraph {
+	pub fn subst(&mut self) {
+		for n in &mut self.nodes {
+			for t in &mut n.possible {
+				*t = subst(t.clone(), &self.inst);
+			}
+		}
+	}
+
+	pub fn solved(&self) -> bool {
+		for n in &self.nodes {
+			if n.possible.len() != 1 || !solved(n.possible[0].clone()) {
+				return false
+			}
+		}
+		return true
+	}
+}
