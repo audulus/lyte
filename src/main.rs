@@ -3,11 +3,11 @@
 // use std::collections::HashSet;
 
 pub mod ast;
-use ast::{unify, Type};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ast::{unify, Type};
 
     #[test]
     fn test_basic_types() {
