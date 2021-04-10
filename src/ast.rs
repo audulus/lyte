@@ -98,10 +98,12 @@ struct Constraint {
     pub loc: Loc,
 }
 
+#[derive(Clone, Eq, PartialEq, Debug)]
 struct TypeNode {
     pub possible: Vec<Type>,
 }
 
+#[derive(Clone, Eq, PartialEq, Debug)]
 struct TypeGraph {
     pub nodes: Vec<TypeNode>,
     pub constraints: Vec<Constraint>,
