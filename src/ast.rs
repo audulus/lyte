@@ -33,6 +33,10 @@ pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
                 inst[*i] = rhs.clone();
                 true
             }
+			(lhs, Type::Var(i)) => {
+                inst[*i] = lhs.clone();
+                true
+            }
             _ => return false,
         }
     }
