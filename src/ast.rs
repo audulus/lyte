@@ -128,3 +128,16 @@ impl TypeGraph {
         return true;
     }
 }
+
+fn prune(v: &Vec<Type>, t0: &Type) -> Vec<Type> {
+	let mut result = Vec::new();
+
+	for t in v {
+		let mut inst = Instance::new();
+		if unify(t, t0, &mut inst) {
+			result.push(t.clone());
+		}
+	}
+
+	return result;
+}
