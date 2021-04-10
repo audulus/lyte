@@ -1,19 +1,24 @@
+use std::collections::HashMap;
+
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
     Void,
     Int8,
     Int32,
     Tuple(Box<Type>, Box<Type>),
-    Var(usize),
+    Var(i32),
     Func(Box<Type>, Box<Type>),
 }
 
-pub type Instance = Vec<Type>;
+pub type Instance = HashMap<i32, Type>;
 
 pub fn subst(t: &Type, inst: &Instance) -> Type {
     match t {
         Type::Tuple(a, b) => Type::Tuple(Box::new(subst(a, inst)), Box::new(subst(b, inst))),
-        Type::Var(i) => inst[*i].clone(),
+        Type::Var(i) => match inst.get(i) {
+            Some(t0) => t0.clone(),
+            None => t.clone(),
+        },
         _ => t.clone(),
     }
 }
@@ -23,21 +28,17 @@ pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
         true
     } else {
         match (lhs, rhs) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => {
-				unify(a, c, inst) && unify(b, d, inst)
-			}
-            (Type::Func(a, b), Type::Func(c, d)) => {
-                unify(a, c, inst) && unify(b, d, inst)
-            }
+            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(a, c, inst) && unify(b, d, inst),
+            (Type::Func(a, b), Type::Func(c, d)) => unify(a, c, inst) && unify(b, d, inst),
             (Type::Var(i), rhs) => {
-                inst[*i] = rhs.clone();
+                inst.insert(*i, rhs.clone());
                 true
             }
-			(lhs, Type::Var(i)) => {
-                inst[*i] = lhs.clone();
+            (lhs, Type::Var(i)) => {
+                inst.insert(*i, lhs.clone());
                 true
             }
-            _ => return false,
+            _ => false,
         }
     }
 }
@@ -71,19 +72,23 @@ mod tests {
 
     #[test]
     fn test_unify() {
-        let mut inst = vec![Type::Void];
+        let mut inst = Instance::new();
         assert!(unify(&Type::Void, &Type::Void, &mut inst));
         assert!(!unify(&Type::Void, &Type::Int8, &mut inst));
 
         assert!(unify(&Type::Var(0), &Type::Int8, &mut inst));
-        assert_eq!(inst[0], Type::Int8);
+
+        match inst.get(&0) {
+            Some(t) => assert_eq!(*t, Type::Int8),
+            None => assert!(false),
+        }
     }
 
-	#[test]
-	fn test_solved() {
-		assert!(solved(&Type::Void));
-		assert!(!solved(&Type::Var(0)));
-	}
+    #[test]
+    fn test_solved() {
+        assert!(solved(&Type::Void));
+        assert!(!solved(&Type::Var(0)));
+    }
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -134,14 +139,14 @@ impl TypeGraph {
 }
 
 fn prune(v: &Vec<Type>, t0: &Type) -> Vec<Type> {
-	let mut result = Vec::new();
+    let mut result = Vec::new();
 
-	for t in v {
-		let mut inst = Instance::new();
-		if unify(t, t0, &mut inst) {
-			result.push(t.clone());
-		}
-	}
+    for t in v {
+        let mut inst = Instance::new();
+        if unify(t, t0, &mut inst) {
+            result.push(t.clone());
+        }
+    }
 
-	return result;
+    return result;
 }
