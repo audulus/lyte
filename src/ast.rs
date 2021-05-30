@@ -23,6 +23,15 @@ impl Type {
             _ => self.clone(),
         }
     }
+
+    pub fn solved(&self) -> bool {
+        match self {
+            Type::Tuple(a, b) => a.solved() && b.solved(),
+            Type::Func(a, b) => a.solved() && b.solved(),
+            Type::Var(_) => false,
+            _ => true,
+        }
+    }
 }
 
 pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
@@ -42,15 +51,6 @@ pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
             }
             _ => false,
         }
-    }
-}
-
-pub fn solved(t: &Type) -> bool {
-    match t {
-        Type::Tuple(a, b) => solved(a) && solved(b),
-        Type::Func(a, b) => solved(a) && solved(b),
-        Type::Var(_) => false,
-        _ => true,
     }
 }
 
@@ -88,8 +88,8 @@ mod tests {
 
     #[test]
     fn test_solved() {
-        assert!(solved(&Type::Void));
-        assert!(!solved(&Type::Var(0)));
+        assert!((&Type::Void).solved());
+        assert!(!(&Type::Var(0)).solved());
     }
 }
 
@@ -132,7 +132,7 @@ impl TypeGraph {
 
     pub fn solved(&self) -> bool {
         for n in &self.nodes {
-            if n.possible.len() != 1 || !solved(&n.possible[0]) {
+            if n.possible.len() != 1 || !(&n.possible[0]).solved() {
                 return false;
             }
         }
