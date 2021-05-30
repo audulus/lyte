@@ -3,59 +3,45 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
     Void,
     Int8,
     Int32,
-    Tuple(Rc<Type>, Rc<Type>),
-    Var(i32),
-    Func(Rc<Type>, Rc<Type>),
+    Tuple(u32, u32),
+    Var(u32),
+    Func(u32, u32),
 }
 
 pub struct Compiler {
-    types: HashMap<u64, Rc<Type>>,
+    types: Vec<Type>,
 }
 
-impl Type {
-    pub fn solved(&self) -> bool {
-        match self {
-            Type::Tuple(a, b) => a.solved() && b.solved(),
-            Type::Func(a, b) => a.solved() && b.solved(),
-            Type::Var(_) => false,
-            _ => true,
-        }
-    }
-}
-
-pub type Instance = HashMap<i32, Rc<Type>>;
+pub type Instance = HashMap<u32, u32>;
 
 impl Compiler {
     pub fn new() -> Compiler {
-        Compiler {
-            types: HashMap::new(),
-        }
+        Compiler { types: Vec::new() }
     }
 
-    pub fn mk_type(&mut self, proto: &Type) -> Rc<Type> {
-        let mut s = DefaultHasher::new();
-        proto.hash(&mut s);
-        let hash = s.finish();
-        match self.types.get(&hash) {
-            Some(t) => t.clone(),
-            None => {
-                let t = Rc::new(proto.clone());
-                self.types.insert(hash, t.clone());
-                t
+    pub fn mk_type(&mut self, proto: Type) -> u32 {
+        // Dumb linear search.
+        for i in 0..self.types.len() {
+            if self.types[i] == proto {
+                return i as u32;
             }
         }
+
+        let ix = self.types.len();
+        self.types.push(proto);
+        return ix as u32;
     }
 
-    pub fn subst(&mut self, t: Rc<Type>, inst: &Instance) -> Rc<Type> {
-        match &*t {
+    pub fn subst(&mut self, t: u32, inst: &Instance) -> u32 {
+        match self.types[t as usize] {
             Type::Tuple(a, b) => {
-                let nt = Type::Tuple(self.subst(a.clone(), inst), self.subst(b.clone(), inst));
-                self.mk_type(&nt)
+                let nt = Type::Tuple(self.subst(a, inst), self.subst(b, inst));
+                self.mk_type(nt)
             }
             Type::Var(i) => match inst.get(&i) {
                 Some(t0) => t0.clone(),
@@ -64,24 +50,35 @@ impl Compiler {
             _ => t,
         }
     }
-}
 
-pub fn unify(lhs: &Rc<Type>, rhs: &Rc<Type>, inst: &mut Instance) -> bool {
-    if lhs == rhs {
-        true
-    } else {
-        match (&**lhs, &**rhs) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(&a, &c, inst) && unify(&b, &d, inst),
-            (Type::Func(a, b), Type::Func(c, d)) => unify(&a, &c, inst) && unify(&b, &d, inst),
-            (Type::Var(i), _) => {
-                inst.insert(*i, rhs.clone());
-                true
+    pub fn solved(&self, t: u32) -> bool {
+        match self.types[t as usize] {
+            Type::Tuple(a, b) => self.solved(a) && self.solved(b),
+            Type::Func(a, b) => self.solved(a) && self.solved(b),
+            Type::Var(_) => false,
+            _ => true,
+        }
+    }
+
+    pub fn unify(&self, lhs: u32, rhs: u32, inst: &mut Instance) -> bool {
+        if lhs == rhs {
+            true
+        } else {
+            match (self.types[lhs as usize], self.types[rhs as usize]) {
+                (Type::Tuple(a, b), Type::Tuple(c, d)) => {
+                    self.unify(a, c, inst) && self.unify(b, d, inst)
+                }
+                (Type::Func(a, b), Type::Func(c, d)) => self.unify(a, c, inst) && self.unify(b, d, inst),
+                (Type::Var(i), _) => {
+                    inst.insert(i, rhs);
+                    true
+                }
+                (_, Type::Var(i)) => {
+                    inst.insert(i, lhs);
+                    true
+                }
+                _ => false,
             }
-            (_, Type::Var(i)) => {
-                inst.insert(*i, lhs.clone());
-                true
-            }
-            _ => false,
         }
     }
 }
@@ -93,11 +90,11 @@ mod tests {
     #[test]
     fn test_mk_type() {
         let mut compiler = Compiler::new();
-        let v0 = compiler.mk_type(&Type::Void);
-        let v1 = compiler.mk_type(&Type::Void);
+        let v0 = compiler.mk_type(Type::Void);
+        let v1 = compiler.mk_type(Type::Void);
         assert_eq!(v0, v1);
 
-        let i0 = compiler.mk_type(&Type::Int8);
+        let i0 = compiler.mk_type(Type::Int8);
         assert_ne!(v0, i0);
     }
 }
