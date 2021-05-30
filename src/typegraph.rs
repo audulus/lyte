@@ -28,6 +28,15 @@ impl TypeGraph {
 	pub fn add_constraint(&mut self, c: &Constraint) {
         self.constraints.push(c.clone())
     }
+
+    pub fn eq(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
+        self.add_constraint(&Constraint {
+            a: t0,
+            b: t1,
+            field: "".to_string(),
+            loc: loc.clone(),
+        })
+    }
 }
 
 impl Compiler {
@@ -51,35 +60,6 @@ impl Compiler {
 
 /*
 impl TypeGraph {
-    pub fn subst(&mut self) {
-        for n in &mut self.nodes {
-            for t in &mut n.possible {
-                *t = t.subst(&self.inst);
-            }
-        }
-    }
-
-    pub fn solved(&self) -> bool {
-        for n in &self.nodes {
-            if n.possible.len() != 1 || !(&n.possible[0]).solved() {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    pub fn add_constraint(&mut self, c: &Constraint) {
-        self.constraints.push(c.clone())
-    }
-
-    pub fn eq(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
-        self.add_constraint(&Constraint {
-            a: t0,
-            b: t1,
-            field: "".to_string(),
-            loc: loc.clone(),
-        })
-    }
 
     pub fn propagate_eq(&mut self, a: &mut TypeNode, b: &mut TypeNode) -> Result<(), String> {
         // If each node has one possible type, they better unify.
