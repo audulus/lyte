@@ -1,44 +1,56 @@
 use std::collections::{HashMap, HashSet};
-use bumpalo::Bump;
+use std::rc::Rc;
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
     Void,
     Int8,
     Int32,
-    Tuple(Box<Type>, Box<Type>),
+    Tuple(Rc<Type>, Rc<Type>),
     Var(i32),
-    Func(Box<Type>, Box<Type>),
+    Func(Rc<Type>, Rc<Type>),
 }
 
-pub struct Compiler<'a> {
-    bump: Bump,
-    types: HashSet<&'a Type>
+pub struct Compiler {
+    types: HashSet<Rc<Type>>,
 }
 
-impl<'a> Compiler<'a> {
-    pub fn new() -> Compiler<'static> {
-        return Compiler{
-            bump: Bump::new(),
-            types: HashSet::new()
+impl Compiler {
+    pub fn new() -> Compiler {
+        Compiler {
+            types: HashSet::new(),
         }
     }
 
-    pub fn mk_type(&'a mut self, proto: &Type) -> &'a Type {
-
-        match self.types.get(proto) {
-            Some(t) => t,
+    pub fn mk_type(&mut self, proto: &Type) -> Rc<Type> {
+        match self.types.get(&Rc::new(proto.clone())) {
+            Some(t) => t.clone(),
             None => {
-                let t = self.bump.alloc(proto.clone());
-                self.types.insert(t);
+                let t = Rc::new(proto.clone());
+                self.types.insert(t.clone());
                 t
             }
         }
-        
     }
-
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+     #[test]
+    fn test_mk_type() {
+        let mut compiler = Compiler::new();
+        let v0 = compiler.mk_type(&Type::Void);
+        let v1 = compiler.mk_type(&Type::Void);
+        assert_eq!(v0, v1);
+
+        let i0 = compiler.mk_type(&Type::Int8);
+        assert_ne!(v0, i0);
+    }
+}
+
+/*
 pub type Instance = HashMap<i32, Type>;
 
 impl Type {
@@ -121,10 +133,7 @@ mod tests {
         assert!(!(&Type::Var(0)).solved());
     }
 
-    #[test]
-    fn test_create_compiler() {
-        let compiler = Compiler::new();
-    }
+   
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -228,3 +237,4 @@ fn prune(v: &Vec<Type>, t0: &Type) -> Vec<Type> {
 
     return result;
 }
+*/
