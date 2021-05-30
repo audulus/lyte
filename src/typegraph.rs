@@ -24,6 +24,12 @@ struct TypeGraph {
     pub inst: Instance,
 }
 
+impl TypeGraph {
+	pub fn add_constraint(&mut self, c: &Constraint) {
+        self.constraints.push(c.clone())
+    }
+}
+
 impl Compiler {
     pub fn subst_graph(&mut self, g: &mut TypeGraph) {
         for n in &mut g.nodes {
