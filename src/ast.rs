@@ -12,14 +12,16 @@ pub enum Type {
 
 pub type Instance = HashMap<i32, Type>;
 
-pub fn subst(t: &Type, inst: &Instance) -> Type {
-    match t {
-        Type::Tuple(a, b) => Type::Tuple(Box::new(subst(a, inst)), Box::new(subst(b, inst))),
-        Type::Var(i) => match inst.get(i) {
-            Some(t0) => t0.clone(),
-            None => t.clone(),
-        },
-        _ => t.clone(),
+impl Type {
+    pub fn subst(&self, inst: &Instance) -> Self {
+        match self {
+            Type::Tuple(a, b) => Type::Tuple(Box::new(a.subst(inst)), Box::new(b.subst(inst))),
+            Type::Var(i) => match inst.get(i) {
+                Some(t0) => t0.clone(),
+                None => self.clone(),
+            },
+            _ => self.clone(),
+        }
     }
 }
 
