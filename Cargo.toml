@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 generational-arena = "0.2"
+bumpalo= "3.7.0"
