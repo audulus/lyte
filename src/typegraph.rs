@@ -1,7 +1,8 @@
 
-/*
+
 type TypeNodeID = u32;
 
+/*
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 struct Constraint {
     pub a: TypeNodeID,
@@ -9,7 +10,9 @@ struct Constraint {
     pub field: String,
     pub loc: Loc,
 }
+*/
 
+/*
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct TypeNode {
     pub possible: Vec<Type>,
