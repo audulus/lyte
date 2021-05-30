@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use bumpalo::Bump;
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
@@ -8,6 +9,20 @@ pub enum Type {
     Tuple(Box<Type>, Box<Type>),
     Var(i32),
     Func(Box<Type>, Box<Type>),
+}
+
+pub struct Compiler<'a> {
+    bump: Bump,
+    types: HashSet<&'a Type>
+}
+
+impl Compiler<'_> {
+    pub fn new() -> Compiler<'static> {
+        return Compiler{
+            bump: Bump::new(),
+            types: HashSet::new()
+        }
+    }
 }
 
 pub type Instance = HashMap<i32, Type>;
@@ -90,6 +105,11 @@ mod tests {
     fn test_solved() {
         assert!((&Type::Void).solved());
         assert!(!(&Type::Var(0)).solved());
+    }
+
+    #[test]
+    fn test_create_compiler() {
+        let compiler = Compiler::new();
     }
 }
 
