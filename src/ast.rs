@@ -18,6 +18,10 @@ pub enum Type {
     Func(TypeID, TypeID),
 }
 
+const void:TypeID = TypeID{index: 0};
+const int8:TypeID = TypeID{index: 1};
+const int32:TypeID = TypeID{index: 2};
+
 pub struct Compiler {
     types: Vec<Type>,
 }
@@ -26,7 +30,7 @@ pub type Instance = HashMap<u32, TypeID>;
 
 impl Compiler {
     pub fn new() -> Compiler {
-        Compiler { types: Vec::new() }
+        Compiler { types: vec!(Type::Void, Type::Int8, Type::Int32) }
     }
 
     pub fn mk_type(&mut self, proto: Type) -> TypeID {
@@ -106,10 +110,8 @@ mod tests {
     fn test_unify() {
         let mut inst = Instance::new();
         let mut compiler = Compiler::new();
-        let v = compiler.mk_type(Type::Void);
-        assert!(compiler.unify(v, v, &mut inst));
-        let int8 = compiler.mk_type(Type::Int8);
-        assert!(!compiler.unify(v, int8, &mut inst));
+        assert!(compiler.unify(void, void, &mut inst));
+        assert!(!compiler.unify(void, int8, &mut inst));
 
         let var = compiler.mk_type(Type::Var(0));
         assert!(compiler.unify(var, int8, &mut inst));
