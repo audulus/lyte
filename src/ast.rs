@@ -44,7 +44,7 @@ impl Compiler {
                 self.mk_type(nt)
             }
             Type::Var(i) => match inst.get(&i) {
-                Some(t0) => t0.clone(),
+                Some(t0) => *t0,
                 None => t,
             },
             _ => t,
