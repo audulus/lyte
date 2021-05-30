@@ -102,6 +102,23 @@ mod tests {
         let i0 = compiler.mk_type(Type::Int8);
         assert_ne!(v0, i0);
     }
+
+    fn test_unify() {
+        let mut inst = Instance::new();
+        let mut compiler = Compiler::new();
+        let v = compiler.mk_type(Type::Void);
+        assert!(compiler.unify(v, v, &mut inst));
+        let int8 = compiler.mk_type(Type::Int8);
+        assert!(!compiler.unify(v, int8, &mut inst));
+
+        let var = compiler.mk_type(Type::Var(0));
+        assert!(compiler.unify(var, int8, &mut inst));
+
+        match inst.get(&0) {
+            Some(t) => assert_eq!(*t, int8),
+            None => assert!(false),
+        }
+    }
 }
 
 /*
