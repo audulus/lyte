@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct TypeID {
-    index: u32
+    index: u32,
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
@@ -18,9 +18,9 @@ pub enum Type {
     Func(TypeID, TypeID),
 }
 
-const void:TypeID = TypeID{index: 0};
-const int8:TypeID = TypeID{index: 1};
-const int32:TypeID = TypeID{index: 2};
+const void: TypeID = TypeID { index: 0 };
+const int8: TypeID = TypeID { index: 1 };
+const int32: TypeID = TypeID { index: 2 };
 
 pub struct Compiler {
     types: Vec<Type>,
@@ -30,20 +30,22 @@ pub type Instance = HashMap<u32, TypeID>;
 
 impl Compiler {
     pub fn new() -> Compiler {
-        Compiler { types: vec!(Type::Void, Type::Int8, Type::Int32) }
+        Compiler {
+            types: vec![Type::Void, Type::Int8, Type::Int32],
+        }
     }
 
     pub fn mk_type(&mut self, proto: Type) -> TypeID {
         // Dumb linear search.
         for i in 0..self.types.len() {
             if self.types[i] == proto {
-                return TypeID{index: i as u32};
+                return TypeID { index: i as u32 };
             }
         }
 
         let ix = self.types.len();
         self.types.push(proto);
-        return TypeID{index: ix as u32};
+        return TypeID { index: ix as u32 };
     }
 
     pub fn subst(&mut self, t: TypeID, inst: &Instance) -> TypeID {
@@ -73,11 +75,16 @@ impl Compiler {
         if lhs == rhs {
             true
         } else {
-            match (self.types[lhs.index as usize], self.types[rhs.index as usize]) {
+            match (
+                self.types[lhs.index as usize],
+                self.types[rhs.index as usize],
+            ) {
                 (Type::Tuple(a, b), Type::Tuple(c, d)) => {
                     self.unify(a, c, inst) && self.unify(b, d, inst)
                 }
-                (Type::Func(a, b), Type::Func(c, d)) => self.unify(a, c, inst) && self.unify(b, d, inst),
+                (Type::Func(a, b), Type::Func(c, d)) => {
+                    self.unify(a, c, inst) && self.unify(b, d, inst)
+                }
                 (Type::Var(i), _) => {
                     inst.insert(i, rhs);
                     true

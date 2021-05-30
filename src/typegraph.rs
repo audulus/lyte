@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::ast::*;
+use crate::types::*;
 
 type TypeNodeID = u32;
 
@@ -10,7 +10,6 @@ struct Constraint {
     pub field: String,
     pub loc: Loc,
 }
-
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct TypeNode {
@@ -25,7 +24,7 @@ struct TypeGraph {
 }
 
 impl TypeGraph {
-	pub fn add_constraint(&mut self, c: &Constraint) {
+    pub fn add_constraint(&mut self, c: &Constraint) {
         self.constraints.push(c.clone())
     }
 
