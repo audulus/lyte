@@ -142,15 +142,18 @@ impl TypeGraph {
     }
 
     pub fn eq(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
-        self.add_constraint(&Constraint{a: t0, b: t1, field: "".to_string(), loc: loc.clone()})
+        self.add_constraint(&Constraint {
+            a: t0,
+            b: t1,
+            field: "".to_string(),
+            loc: loc.clone(),
+        })
     }
 
     pub fn propagate_eq(&mut self, a: &mut TypeNode, b: &mut TypeNode) -> Result<(), String> {
-
         // If each node has one possible type, they better unify.
         if a.possible.len() == 1 && b.possible.len() == 1 {
             if unify(&a.possible[0], &b.possible[0], &mut self.inst) {
-
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
                 self.subst();
@@ -174,7 +177,6 @@ impl TypeGraph {
         }
 
         return Ok(());
-
     }
 }
 
