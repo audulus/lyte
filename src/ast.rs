@@ -28,6 +28,8 @@ impl Type {
     }
 }
 
+pub type Instance = HashMap<i32, Rc<Type>>;
+
 impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
@@ -46,6 +48,20 @@ impl Compiler {
                 self.types.insert(hash, t.clone());
                 t
             }
+        }
+    }
+
+    pub fn subst(&mut self, t: Rc<Type>, inst: &Instance) -> Rc<Type> {
+        match &*t {
+            Type::Tuple(a, b) => {
+                let nt = Type::Tuple(self.subst(a.clone(), inst), self.subst(b.clone(), inst));
+                self.mk_type(&nt)
+            }
+            Type::Var(i) => match inst.get(&i) {
+                Some(t0) => t0.clone(),
+                None => t,
+            },
+            _ => t,
         }
     }
 }
