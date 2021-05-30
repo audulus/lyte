@@ -136,6 +136,38 @@ impl TypeGraph {
         }
         return true;
     }
+
+    pub fn propagate_eq(&mut self, a: &mut TypeNode, b: &mut TypeNode) -> Result<(), String> {
+
+        // If each node has one possible type, they better unify.
+        if a.possible.len() == 1 && b.possible.len() == 1 {
+            if unify(&a.possible[0], &b.possible[0], &mut self.inst) {
+
+                // We've narrowed down overloads and unified
+                // so this substituion applies to the whole graph.
+                self.subst();
+            } else {
+                return Err("type error".to_string());
+            }
+        }
+
+        if a.possible.len() == 1 {
+            b.possible = prune(&b.possible, &a.possible[0]);
+            if b.possible.len() == 0 {
+                return Err("type error".to_string());
+            }
+        }
+
+        if b.possible.len() == 1 {
+            a.possible = prune(&a.possible, &b.possible[0]);
+            if a.possible.len() == 0 {
+                return Err("type error".to_string());
+            }
+        }
+
+        return Ok(());
+
+    }
 }
 
 fn prune(v: &Vec<Type>, t0: &Type) -> Vec<Type> {
