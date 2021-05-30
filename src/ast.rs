@@ -105,50 +105,6 @@ mod tests {
 }
 
 /*
-pub type Instance = HashMap<i32, Type>;
-
-impl Type {
-    pub fn subst(&self, inst: &Instance) -> Self {
-        match self {
-            Type::Tuple(a, b) => Type::Tuple(Box::new(a.subst(inst)), Box::new(b.subst(inst))),
-            Type::Var(i) => match inst.get(i) {
-                Some(t0) => t0.clone(),
-                None => self.clone(),
-            },
-            _ => self.clone(),
-        }
-    }
-
-    pub fn solved(&self) -> bool {
-        match self {
-            Type::Tuple(a, b) => a.solved() && b.solved(),
-            Type::Func(a, b) => a.solved() && b.solved(),
-            Type::Var(_) => false,
-            _ => true,
-        }
-    }
-}
-
-pub fn unify(lhs: &Type, rhs: &Type, inst: &mut Instance) -> bool {
-    if lhs == rhs {
-        true
-    } else {
-        match (lhs, rhs) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(a, c, inst) && unify(b, d, inst),
-            (Type::Func(a, b), Type::Func(c, d)) => unify(a, c, inst) && unify(b, d, inst),
-            (Type::Var(i), rhs) => {
-                inst.insert(*i, rhs.clone());
-                true
-            }
-            (lhs, Type::Var(i)) => {
-                inst.insert(*i, lhs.clone());
-                true
-            }
-            _ => false,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
