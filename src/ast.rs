@@ -16,13 +16,27 @@ pub struct Compiler<'a> {
     types: HashSet<&'a Type>
 }
 
-impl Compiler<'_> {
+impl<'a> Compiler<'a> {
     pub fn new() -> Compiler<'static> {
         return Compiler{
             bump: Bump::new(),
             types: HashSet::new()
         }
     }
+
+    pub fn mk_type(&'a mut self, proto: &Type) -> &'a Type {
+
+        match self.types.get(proto) {
+            Some(t) => t,
+            None => {
+                let t = self.bump.alloc(proto.clone());
+                self.types.insert(t);
+                t
+            }
+        }
+        
+    }
+
 }
 
 pub type Instance = HashMap<i32, Type>;
