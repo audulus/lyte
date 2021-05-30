@@ -24,18 +24,18 @@ struct TypeGraph {
     pub inst: Instance,
 }
 
-impl TypeGraph {
-    pub fn subst(&mut self, c: &mut Compiler) {
-        for n in &mut self.nodes {
+impl Compiler {
+    pub fn subst_graph(&mut self, g: &mut TypeGraph) {
+        for n in &mut g.nodes {
             for t in &mut n.possible {
-                *t = c.subst(*t, &self.inst);
+                *t = self.subst(*t, &g.inst);
             }
         }
     }
 
-    pub fn solved(&self, c: &mut Compiler) -> bool {
-        for n in &self.nodes {
-            if n.possible.len() != 1 || !c.solved(n.possible[0]) {
+    pub fn solved_graph(&self, g: &mut TypeGraph) -> bool {
+        for n in &g.nodes {
+            if n.possible.len() != 1 || !self.solved(n.possible[0]) {
                 return false;
             }
         }
