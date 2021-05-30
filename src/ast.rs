@@ -137,6 +137,14 @@ impl TypeGraph {
         return true;
     }
 
+    pub fn add_constraint(&mut self, c: &Constraint) {
+        self.constraints.push(c.clone())
+    }
+
+    pub fn eq(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
+        self.add_constraint(&Constraint{a: t0, b: t1, field: "".to_string(), loc: loc.clone()})
+    }
+
     pub fn propagate_eq(&mut self, a: &mut TypeNode, b: &mut TypeNode) -> Result<(), String> {
 
         // If each node has one possible type, they better unify.
