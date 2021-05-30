@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -70,7 +70,7 @@ impl Compiler {
 mod tests {
     use super::*;
 
-     #[test]
+    #[test]
     fn test_mk_type() {
         let mut compiler = Compiler::new();
         let v0 = compiler.mk_type(&Type::Void);
@@ -165,7 +165,7 @@ mod tests {
         assert!(!(&Type::Var(0)).solved());
     }
 
-   
+
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
