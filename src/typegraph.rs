@@ -24,6 +24,25 @@ struct TypeGraph {
     pub inst: Instance,
 }
 
+impl TypeGraph {
+    pub fn subst(&mut self, c: &mut Compiler) {
+        for n in &mut self.nodes {
+            for t in &mut n.possible {
+                *t = c.subst(*t, &self.inst);
+            }
+        }
+    }
+
+    pub fn solved(&self, c: &mut Compiler) -> bool {
+        for n in &self.nodes {
+            if n.possible.len() != 1 || !c.solved(n.possible[0]) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
 /*
 impl TypeGraph {
     pub fn subst(&mut self) {
