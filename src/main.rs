@@ -1,7 +1,5 @@
-// use std::rc::Rc;
-// use std::collections::HashSet;
-
-pub mod ast;
+mod ast;
+mod typegraph;
 
 fn main() {
     println!("yo")
