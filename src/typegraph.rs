@@ -1,4 +1,5 @@
 use crate::types::*;
+use crate::ast::*;
 
 type TypeNodeID = u32;
 

@@ -22,12 +22,6 @@ const void:TypeID = TypeID{index: 0};
 const int8:TypeID = TypeID{index: 1};
 const int32:TypeID = TypeID{index: 2};
 
-#[derive(Clone, Hash, Eq, PartialEq, Debug)]
-pub struct Loc {
-    pub file: String,
-    pub line: u32,
-}
-
 pub struct Compiler {
     types: Vec<Type>,
 }
