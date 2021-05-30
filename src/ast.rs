@@ -124,47 +124,6 @@ mod tests {
 }
 
 /*
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_basic_types() {
-        assert_eq!(Type::Void, Type::Void);
-        assert_ne!(Type::Void, Type::Int8);
-    }
-
-    #[test]
-    fn test_tuple() {
-        assert_eq!(
-            Type::Tuple(Box::new(Type::Void), Box::new(Type::Void)),
-            Type::Tuple(Box::new(Type::Void), Box::new(Type::Void))
-        );
-    }
-
-    #[test]
-    fn test_unify() {
-        let mut inst = Instance::new();
-        assert!(unify(&Type::Void, &Type::Void, &mut inst));
-        assert!(!unify(&Type::Void, &Type::Int8, &mut inst));
-
-        assert!(unify(&Type::Var(0), &Type::Int8, &mut inst));
-
-        match inst.get(&0) {
-            Some(t) => assert_eq!(*t, Type::Int8),
-            None => assert!(false),
-        }
-    }
-
-    #[test]
-    fn test_solved() {
-        assert!((&Type::Void).solved());
-        assert!(!(&Type::Var(0)).solved());
-    }
-
-
-}
-
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 struct Loc {
     pub file: String,
