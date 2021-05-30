@@ -1,5 +1,5 @@
-mod ast;
-use ast::*;
+mod types;
+use types::*;
 mod typegraph;
 use typegraph::*;
 
