@@ -17,6 +17,17 @@ pub struct Compiler {
     types: HashMap<u64, Rc<Type>>,
 }
 
+impl Type {
+    pub fn solved(&self) -> bool {
+        match self {
+            Type::Tuple(a, b) => a.solved() && b.solved(),
+            Type::Func(a, b) => a.solved() && b.solved(),
+            Type::Var(_) => false,
+            _ => true,
+        }
+    }
+}
+
 impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
