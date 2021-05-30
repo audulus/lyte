@@ -11,10 +11,10 @@ struct Constraint {
     pub loc: Loc,
 }
 
-/*
+
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct TypeNode {
-    pub possible: Vec<Type>,
+    pub possible: Vec<TypeID>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -24,6 +24,7 @@ struct TypeGraph {
     pub inst: Instance,
 }
 
+/*
 impl TypeGraph {
     pub fn subst(&mut self) {
         for n in &mut self.nodes {
