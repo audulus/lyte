@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -12,22 +14,25 @@ pub enum Type {
 }
 
 pub struct Compiler {
-    types: HashSet<Rc<Type>>,
+    types: HashMap<u64, Rc<Type>>,
 }
 
 impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
-            types: HashSet::new(),
+            types: HashMap::new(),
         }
     }
 
     pub fn mk_type(&mut self, proto: &Type) -> Rc<Type> {
-        match self.types.get(&Rc::new(proto.clone())) {
+        let mut s = DefaultHasher::new();
+        proto.hash(&mut s);
+        let hash = s.finish();
+        match self.types.get(&hash) {
             Some(t) => t.clone(),
             None => {
                 let t = Rc::new(proto.clone());
-                self.types.insert(t.clone());
+                self.types.insert(hash, t.clone());
                 t
             }
         }
