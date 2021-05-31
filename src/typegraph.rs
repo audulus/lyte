@@ -55,32 +55,46 @@ impl Compiler {
         }
         return true;
     }
-}
 
-/*
-impl TypeGraph {
+    fn prune(&mut self, v: &Vec<TypeID>, t0: TypeID) -> Vec<TypeID> {
+        let mut result = Vec::new();
 
-    pub fn propagate_eq(&mut self, a: &mut TypeNode, b: &mut TypeNode) -> Result<(), String> {
+        for t in v {
+            let mut inst = Instance::new();
+            if self.unify(*t, t0, &mut inst) {
+                result.push(t.clone());
+            }
+        }
+
+        return result;
+    }
+
+    pub fn propagate_eq(
+        &mut self,
+        g: &mut TypeGraph,
+        a: &mut TypeNode,
+        b: &mut TypeNode,
+    ) -> Result<(), String> {
         // If each node has one possible type, they better unify.
         if a.possible.len() == 1 && b.possible.len() == 1 {
-            if unify(&a.possible[0], &b.possible[0], &mut self.inst) {
+            if self.unify(a.possible[0], b.possible[0], &mut g.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
-                self.subst();
+                self.subst_graph(g);
             } else {
                 return Err("type error".to_string());
             }
         }
 
         if a.possible.len() == 1 {
-            b.possible = prune(&b.possible, &a.possible[0]);
+            b.possible = self.prune(&b.possible, a.possible[0]);
             if b.possible.len() == 0 {
                 return Err("type error".to_string());
             }
         }
 
         if b.possible.len() == 1 {
-            a.possible = prune(&a.possible, &b.possible[0]);
+            a.possible = self.prune(&a.possible, b.possible[0]);
             if a.possible.len() == 0 {
                 return Err("type error".to_string());
             }
@@ -89,17 +103,3 @@ impl TypeGraph {
         return Ok(());
     }
 }
-
-fn prune(v: &Vec<Type>, t0: &Type) -> Vec<Type> {
-    let mut result = Vec::new();
-
-    for t in v {
-        let mut inst = Instance::new();
-        if unify(t, t0, &mut inst) {
-            result.push(t.clone());
-        }
-    }
-
-    return result;
-}
-*/
