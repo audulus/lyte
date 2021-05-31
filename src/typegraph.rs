@@ -62,7 +62,7 @@ impl Compiler {
         for t in v {
             let mut inst = Instance::new();
             if self.unify(*t, t0, &mut inst) {
-                result.push(t.clone());
+                result.push(*t);
             }
         }
 
