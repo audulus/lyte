@@ -18,9 +18,9 @@ pub enum Type {
     Func(TypeID, TypeID),
 }
 
-const VOID: TypeID = TypeID { index: 0 };
-const INT8: TypeID = TypeID { index: 1 };
-const INT32: TypeID = TypeID { index: 2 };
+pub const VOID: TypeID = TypeID { index: 0 };
+pub const INT8: TypeID = TypeID { index: 1 };
+pub const INT32: TypeID = TypeID { index: 2 };
 
 pub struct Compiler {
     types: Vec<Type>,
