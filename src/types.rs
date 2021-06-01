@@ -20,7 +20,7 @@ pub enum Type {
 
 const VOID: TypeID = TypeID { index: 0 };
 const INT8: TypeID = TypeID { index: 1 };
-const int32: TypeID = TypeID { index: 2 };
+const INT32: TypeID = TypeID { index: 2 };
 
 pub struct Compiler {
     types: Vec<Type>,
