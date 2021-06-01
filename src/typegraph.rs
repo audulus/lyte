@@ -132,5 +132,10 @@ mod tests {
         g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
 
         assert!(c.solved_graph(&mut g));
+
+        let v = g.add_node();
+        g.nodes[v as usize].possible.push(c.mk_type(Type::Var(0)));
+
+        assert!(!c.solved_graph(&mut g));
     }
 }
