@@ -141,7 +141,8 @@ mod tests {
 
         assert!(!c.solved_graph(&g));
 
-        c.propagate_eq(&mut g, b, v, &l);
+        let result = c.propagate_eq(&mut g, b, v, &l);
+        assert_eq!(Ok(()), result);
 
         assert!(c.solved_graph(&g));
     }
