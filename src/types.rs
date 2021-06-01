@@ -18,7 +18,7 @@ pub enum Type {
     Func(TypeID, TypeID),
 }
 
-const void: TypeID = TypeID { index: 0 };
+const VOID: TypeID = TypeID { index: 0 };
 const int8: TypeID = TypeID { index: 1 };
 const int32: TypeID = TypeID { index: 2 };
 
@@ -117,8 +117,8 @@ mod tests {
     fn test_unify() {
         let mut inst = Instance::new();
         let mut compiler = Compiler::new();
-        assert!(compiler.unify(void, void, &mut inst));
-        assert!(!compiler.unify(void, int8, &mut inst));
+        assert!(compiler.unify(VOID, VOID, &mut inst));
+        assert!(!compiler.unify(VOID, int8, &mut inst));
 
         let var = compiler.mk_type(Type::Var(0));
         assert!(compiler.unify(var, int8, &mut inst));
