@@ -1,7 +1,7 @@
 use crate::ast::*;
 use crate::types::*;
 
-type TypeNodeID = u32;
+type TypeNodeID = usize;
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct Constraint {
@@ -32,7 +32,7 @@ impl TypeGraph {
     pub fn add_node(&mut self) -> TypeNodeID {
         let ix = self.nodes.len();
         self.nodes.push( TypeNode{possible: Vec::new() } );
-        return ix as u32;
+        return ix;
     }
 
     pub fn add_constraint(&mut self, c: &Constraint) {
@@ -85,7 +85,8 @@ impl Compiler {
         g: &mut TypeGraph,
         a: &mut TypeNode,
         b: &mut TypeNode,
-    ) -> Result<(), String> {
+        loc: &Loc,
+    ) -> Result<(), Loc> {
         // If each node has one possible type, they better unify.
         if a.possible.len() == 1 && b.possible.len() == 1 {
             if self.unify(a.possible[0], b.possible[0], &mut g.inst) {
@@ -93,21 +94,21 @@ impl Compiler {
                 // so this substituion applies to the whole graph.
                 self.subst_graph(g);
             } else {
-                return Err("type error".to_string());
+                return Err(loc.clone());
             }
         }
 
         if a.possible.len() == 1 {
             b.possible = self.prune(&b.possible, a.possible[0]);
             if b.possible.len() == 0 {
-                return Err("type error".to_string());
+                return Err(loc.clone());
             }
         }
 
         if b.possible.len() == 1 {
             a.possible = self.prune(&a.possible, b.possible[0]);
             if a.possible.len() == 0 {
-                return Err("type error".to_string());
+                return Err(loc.clone());
             }
         }
 
@@ -121,21 +122,24 @@ mod tests {
 
     #[test]
     pub fn test_typegraph() {
+        let l = Loc{ file: "".to_string(), line: 0};
         let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 
         let a = g.add_node();
-        g.nodes[a as usize].possible.push( VOID );
+        g.nodes[a].possible.push( VOID );
         let b = g.add_node();
-        g.nodes[b as usize].possible.push( VOID );
+        g.nodes[b].possible.push( VOID );
         
-        g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
+        //g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
 
         assert!(c.solved_graph(&mut g));
 
         let v = g.add_node();
-        g.nodes[v as usize].possible.push(c.mk_type(Type::Var(0)));
+        g.nodes[v].possible.push(c.mk_type(Type::Var(0)));
 
         assert!(!c.solved_graph(&mut g));
+
+        // c.propagate_eq(g, b, v, &l);
     }
 }
