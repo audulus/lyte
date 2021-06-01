@@ -4,7 +4,7 @@ use crate::types::*;
 type TypeNodeID = u32;
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
-struct Constraint {
+pub struct Constraint {
     pub a: TypeNodeID,
     pub b: TypeNodeID,
     pub field: String,
@@ -12,12 +12,12 @@ struct Constraint {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-struct TypeNode {
+pub struct TypeNode {
     pub possible: Vec<TypeID>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-struct TypeGraph {
+pub struct TypeGraph {
     pub nodes: Vec<TypeNode>,
     pub constraints: Vec<Constraint>,
     pub inst: Instance,
