@@ -29,11 +29,17 @@ impl TypeGraph {
         return TypeGraph{ nodes: Vec::new(), constraints: Vec::new(), inst: Instance::new() }
     }
 
+    pub fn add_node(&mut self) -> TypeNodeID {
+        let ix = self.nodes.len();
+        self.nodes.push( TypeNode{possible: Vec::new() } );
+        return ix as u32;
+    }
+
     pub fn add_constraint(&mut self, c: &Constraint) {
         self.constraints.push(c.clone())
     }
 
-    pub fn eq(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
+    pub fn eq_constraint(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
         self.add_constraint(&Constraint {
             a: t0,
             b: t1,
@@ -115,7 +121,16 @@ mod tests {
 
     #[test]
     pub fn test_typegraph() {
-        let compiler = Compiler::new();
-        let g = TypeGraph::new();
+        let mut c = Compiler::new();
+        let mut g = TypeGraph::new();
+
+        let a = g.add_node();
+        g.nodes[a as usize].possible.push( VOID );
+        let b = g.add_node();
+        g.nodes[b as usize].possible.push( VOID );
+        
+        g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
+
+        assert!(c.solved_graph(&mut g));
     }
 }
