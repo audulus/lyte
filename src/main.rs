@@ -1,9 +1,11 @@
+#![allow(dead_code)]
+
 mod types;
-use types::*;
+//use types::*;
 mod ast;
-use ast::*;
+// use ast::*;
 mod typegraph;
-use typegraph::*;
+// use typegraph::*;
 
 fn main() {
     println!("yo")
