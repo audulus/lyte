@@ -24,6 +24,11 @@ pub struct TypeGraph {
 }
 
 impl TypeGraph {
+
+    pub fn new() -> TypeGraph {
+        return TypeGraph{ nodes: Vec::new(), constraints: Vec::new(), inst: Instance::new() }
+    }
+
     pub fn add_constraint(&mut self, c: &Constraint) {
         self.constraints.push(c.clone())
     }
@@ -101,5 +106,16 @@ impl Compiler {
         }
 
         return Ok(());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_typegraph() {
+        let compiler = Compiler::new();
+        let g = TypeGraph::new();
     }
 }
