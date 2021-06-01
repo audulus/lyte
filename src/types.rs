@@ -1,7 +1,7 @@
-use std::collections::hash_map::DefaultHasher;
+//use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+//use std::rc::Rc;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct TypeID {
