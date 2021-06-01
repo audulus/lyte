@@ -19,7 +19,7 @@ pub enum Type {
 }
 
 const VOID: TypeID = TypeID { index: 0 };
-const int8: TypeID = TypeID { index: 1 };
+const INT8: TypeID = TypeID { index: 1 };
 const int32: TypeID = TypeID { index: 2 };
 
 pub struct Compiler {
@@ -119,13 +119,13 @@ mod tests {
         let mut inst = Instance::new();
         let mut compiler = Compiler::new();
         assert!(compiler.unify(VOID, VOID, &mut inst));
-        assert!(!compiler.unify(VOID, int8, &mut inst));
+        assert!(!compiler.unify(VOID, INT8, &mut inst));
 
         let var = compiler.mk_type(Type::Var(0));
-        assert!(compiler.unify(var, int8, &mut inst));
+        assert!(compiler.unify(var, INT8, &mut inst));
 
         match inst.get(&0) {
-            Some(t) => assert_eq!(*t, int8),
+            Some(t) => assert_eq!(*t, INT8),
             None => assert!(false),
         }
     }
