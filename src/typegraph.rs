@@ -58,7 +58,7 @@ impl Compiler {
         }
     }
 
-    pub fn solved_graph(&self, g: &mut TypeGraph) -> bool {
+    pub fn solved_graph(&self, g: &TypeGraph) -> bool {
         for n in &g.nodes {
             if n.possible.len() != 1 || !self.solved(n.possible[0]) {
                 return false;
@@ -83,13 +83,14 @@ impl Compiler {
     pub fn propagate_eq(
         &mut self,
         g: &mut TypeGraph,
-        a: &mut TypeNode,
-        b: &mut TypeNode,
+        a: TypeNodeID,
+        b: TypeNodeID,
         loc: &Loc,
     ) -> Result<(), Loc> {
+
         // If each node has one possible type, they better unify.
-        if a.possible.len() == 1 && b.possible.len() == 1 {
-            if self.unify(a.possible[0], b.possible[0], &mut g.inst) {
+        if g.nodes[a].possible.len() == 1 && g.nodes[b].possible.len() == 1 {
+            if self.unify(g.nodes[a].possible[0], g.nodes[b].possible[0], &mut g.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
                 self.subst_graph(g);
@@ -98,16 +99,16 @@ impl Compiler {
             }
         }
 
-        if a.possible.len() == 1 {
-            b.possible = self.prune(&b.possible, a.possible[0]);
-            if b.possible.len() == 0 {
+        if g.nodes[a].possible.len() == 1 {
+            g.nodes[b].possible = self.prune(&g.nodes[b].possible, g.nodes[a].possible[0]);
+            if g.nodes[b].possible.len() == 0 {
                 return Err(loc.clone());
             }
         }
 
-        if b.possible.len() == 1 {
-            a.possible = self.prune(&a.possible, b.possible[0]);
-            if a.possible.len() == 0 {
+        if g.nodes[b].possible.len() == 1 {
+            g.nodes[a].possible = self.prune(&g.nodes[a].possible, g.nodes[b].possible[0]);
+            if g.nodes[a].possible.len() == 0 {
                 return Err(loc.clone());
             }
         }
@@ -133,13 +134,15 @@ mod tests {
         
         //g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
 
-        assert!(c.solved_graph(&mut g));
+        assert!(c.solved_graph(&g));
 
         let v = g.add_node();
         g.nodes[v].possible.push(c.mk_type(Type::Var(0)));
 
-        assert!(!c.solved_graph(&mut g));
+        assert!(!c.solved_graph(&g));
 
-        // c.propagate_eq(g, b, v, &l);
+        c.propagate_eq(&mut g, b, v, &l);
+
+        assert!(c.solved_graph(&g));
     }
 }
