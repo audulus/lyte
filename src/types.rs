@@ -114,6 +114,7 @@ mod tests {
         assert_ne!(v0, i0);
     }
 
+    #[test]
     fn test_unify() {
         let mut inst = Instance::new();
         let mut compiler = Compiler::new();
