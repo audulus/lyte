@@ -22,6 +22,7 @@ pub const INT32: TypeID = TypeID { index: 2 };
 
 pub struct Compiler {
     types: Vec<Type>,
+    var_index: u32
 }
 
 pub type Instance = HashMap<u32, TypeID>;
@@ -30,6 +31,7 @@ impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
             types: vec![Type::Void, Type::Int8, Type::Int32],
+            var_index: 0
         }
     }
 
@@ -44,6 +46,11 @@ impl Compiler {
         let ix = self.types.len();
         self.types.push(proto);
         return TypeID { index: ix as u32 };
+    }
+
+    pub fn fresh(&mut self) -> TypeID {
+        self.var_index += 1;
+        self.mk_type(Type::Var(self.var_index))
     }
 
     pub fn subst(&mut self, t: TypeID, inst: &Instance) -> TypeID {

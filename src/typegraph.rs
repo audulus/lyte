@@ -115,6 +115,14 @@ impl Compiler {
 
         return Ok(());
     }
+
+    pub fn propagate(&mut self, g: &mut TypeGraph) -> Result<(), Loc> {
+        for c in g.constraints.clone() {
+            self.propagate_eq(g, c.a, c.b, &c.loc)?
+        }
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
@@ -142,6 +150,28 @@ mod tests {
         assert!(!c.solved_graph(&g));
 
         let result = c.propagate_eq(&mut g, b, v, &l);
+        assert_eq!(Ok(()), result);
+
+        assert!(c.solved_graph(&g));
+    }
+
+    #[test]
+    pub fn test_propagate1() {
+        let l = Loc{ file: "".to_string(), line: 0};
+        let mut c = Compiler::new();
+        let mut g = TypeGraph::new();
+
+        let v = c.fresh();
+        let a = g.add_node();
+        g.nodes[a].possible.push(v);
+        let b = g.add_node();
+        g.nodes[b].possible.push(INT32);
+
+        g.eq_constraint(a, b, &l);
+
+        assert!(!c.solved_graph(&g));
+
+        let result = c.propagate(&mut g);
         assert_eq!(Ok(()), result);
 
         assert!(c.solved_graph(&g));
