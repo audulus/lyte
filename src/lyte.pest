@@ -7,6 +7,6 @@ digit = @{ '0'..'9' }
 ident = @{ alpha ~ (alpha | digit)* }
 
 typevar = { "⟨" ~ ident ~ "⟩" }
-array_type = { "[" ~ lyte_type ~ "]" }
-lyte_type = { "i8" | "u8" | "i32" | "u32" | "f32" | "f64" | ident | typevar | array_type }
+array_type = { "[" ~ ty ~ "]" }
+ty = { "i8" | "u8" | "i32" | "u32" | "f32" | "f64" | ident | typevar | array_type }
 

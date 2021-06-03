@@ -27,10 +27,10 @@ mod tests {
 
     #[test]
     pub fn test_parse_type() {
-        LyteParser::parse(Rule::lyte_type, &"i8").expect("parse");
-        LyteParser::parse(Rule::lyte_type, &"[i8]").expect("parse");
-        LyteParser::parse(Rule::lyte_type, &"[ i8 ]").expect("parse");
-        LyteParser::parse(Rule::lyte_type, &"MyType").expect("parse");
-        LyteParser::parse(Rule::lyte_type, &"⟨ T ⟩").expect("parse");
+        LyteParser::parse(Rule::ty, &"i8").expect("parse");
+        LyteParser::parse(Rule::ty, &"[i8]").expect("parse");
+        LyteParser::parse(Rule::ty, &"[ i8 ]").expect("parse");
+        LyteParser::parse(Rule::ty, &"MyType").expect("parse");
+        LyteParser::parse(Rule::ty, &"⟨ T ⟩").expect("parse");
     }
 }
