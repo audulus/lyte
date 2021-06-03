@@ -10,3 +10,20 @@ typevar = { "⟨" ~ ident ~ "⟩" }
 array_type = { "[" ~ ty ~ "]" }
 ty = { "i8" | "u8" | "i32" | "u32" | "f32" | "f64" | ident | typevar | array_type }
 
+atom = { ident
+       | "(" ~ expr ~ ")"
+       | block         // lambda without arguments
+       | "(" ~ expr ~ ")" ~ block   // lambda (args must be a list)
+       }
+
+suffix = { "(" ~ expr ~ ")"
+         | "[" ~ expr ~ "]"
+         | "." ~ ident
+         | ":" ~ ty
+         }
+
+prefix = { atom ~ (suffix)* }
+       
+expr = { prefix }
+     
+block  = { "{" ~ "}" }
