@@ -4,7 +4,7 @@ WHITESPACE = _{ " " | "\n" }
 alpha = @{ 'a'..'z' | 'A'..'Z' }
 digit = @{ '0'..'9' }
 
-ident = @{ alpha ~ (alpha | digit)+ }
+ident = @{ alpha ~ (alpha | digit)* }
 
 typevar = { "⟨" ~ ident ~ "⟩" }
 array_type = { "[" ~ lyte_type ~ "]" }
