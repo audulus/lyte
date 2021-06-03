@@ -34,4 +34,11 @@ mod tests {
         LyteParser::parse(Rule::ty, &"⟨ T ⟩").expect("parse");
         LyteParser::parse(Rule::ty, &"_foo").expect("parse");
     }
+
+    #[test]
+    pub fn test_parse_atom() {
+        LyteParser::parse(Rule::atom, &"x").expect("parse");
+        LyteParser::parse(Rule::atom, &"(x)").expect("parse");
+        LyteParser::parse(Rule::atom, &"{ }").expect("parse");
+    }
 }
