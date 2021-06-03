@@ -23,7 +23,11 @@ suffix = { "(" ~ expr ~ ")"
          }
 
 prefix = { atom ~ (suffix)* }
+
+factor = { prefix ~ ("*" ~ factor)* }
+
+term = { factor ~ ("+" ~ term)* }
        
-expr = { prefix }
+expr = { term }
      
 block  = { "{" ~ "}" }
