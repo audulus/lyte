@@ -1,7 +1,7 @@
 
 WHITESPACE = _{ " " | "\n" }
 
-alpha = @{ 'a'..'z' | 'A'..'Z' }
+alpha = @{ 'a'..'z' | 'A'..'Z' | "_" }
 digit = @{ '0'..'9' }
 
 ident = @{ alpha ~ (alpha | digit)* }

@@ -32,5 +32,6 @@ mod tests {
         LyteParser::parse(Rule::ty, &"[ i8 ]").expect("parse");
         LyteParser::parse(Rule::ty, &"MyType").expect("parse");
         LyteParser::parse(Rule::ty, &"⟨ T ⟩").expect("parse");
+        LyteParser::parse(Rule::ty, &"_foo").expect("parse");
     }
 }
