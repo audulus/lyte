@@ -27,10 +27,6 @@ mod tests {
 
     #[test]
     pub fn test_parse_type() {
-        let ty = LyteParser::parse(Rule::lyte_type, &"i8");
-        assert!(match ty {
-            Ok(_) => true,
-            Err(_) => false
-        });        
+        LyteParser::parse(Rule::lyte_type, &"i8").expect("parse");  
     }
 }
