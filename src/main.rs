@@ -39,6 +39,20 @@ mod tests {
     pub fn test_parse_atom() {
         LyteParser::parse(Rule::atom, &"x").expect("parse");
         LyteParser::parse(Rule::atom, &"(x)").expect("parse");
+        assert!(match LyteParser::parse(Rule::atom, &"(x") {
+            Ok(_) => false,
+            Err(_) => true
+        });
         LyteParser::parse(Rule::atom, &"{ }").expect("parse");
+        assert!(match LyteParser::parse(Rule::atom, &"?") {
+            Ok(_) => false,
+            Err(_) => true
+        });
+    }
+
+    #[test]
+    pub fn test_parse_prefix() {
+        LyteParser::parse(Rule::prefix, &"f(x)").expect("parse");
+        LyteParser::parse(Rule::prefix, &"a[i]").expect("parse");
     }
 }
