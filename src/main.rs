@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+mod defs;
+
 mod types;
 //use types::*;
 mod ast;

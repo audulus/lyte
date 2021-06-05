@@ -1,39 +1,13 @@
 use std::collections::HashMap;
-use std::hash::Hash;
-
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
-pub struct TypeID {
-    index: u32,
-}
-
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
-pub enum Type {
-    Void,
-    Int8,
-    Int32,
-    Tuple(TypeID, TypeID),
-    Var(u32),
-    Func(TypeID, TypeID),
-}
+use crate::defs::*;
 
 pub const VOID: TypeID = TypeID { index: 0 };
 pub const INT8: TypeID = TypeID { index: 1 };
 pub const INT32: TypeID = TypeID { index: 2 };
 
-pub struct Compiler {
-    types: Vec<Type>,
-    var_index: u32
-}
-
 pub type Instance = HashMap<u32, TypeID>;
 
 impl Compiler {
-    pub fn new() -> Compiler {
-        Compiler {
-            types: vec![Type::Void, Type::Int8, Type::Int32],
-            var_index: 0
-        }
-    }
 
     pub fn mk_type(&mut self, proto: Type) -> TypeID {
         // Dumb linear search.
