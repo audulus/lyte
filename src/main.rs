@@ -4,8 +4,6 @@ mod defs;
 
 mod types;
 //use types::*;
-mod ast;
-// use ast::*;
 mod typegraph;
 // use typegraph::*;
 
