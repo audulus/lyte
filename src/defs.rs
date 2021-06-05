@@ -27,13 +27,13 @@ pub struct Loc {
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
-pub enum ExprKind {
+pub enum Expr {
     Id,
     Int,
     Real,
     Call,
-    Binop,
-    Unop,
+    Binop(ExprID, ExprID),
+    Unop(ExprID),
     Lambda,
     String,
     Char,
@@ -49,7 +49,7 @@ pub enum ExprKind {
 pub struct Compiler {
     pub types: Vec<Type>,
     pub var_index: u32,
-    pub exprs: Vec<ExprKind>
+    pub exprs: Vec<Expr>
 }
 
 impl Compiler {
