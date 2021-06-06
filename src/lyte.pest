@@ -8,7 +8,11 @@ ident = @{ alpha ~ (alpha | digit)* }
 
 typevar = { "⟨" ~ ident ~ "⟩" }
 array_type = { "[" ~ ty ~ "]" }
-ty = { "i8" | "u8" | "i32" | "u32" | "f32" | "f64" | ident | typevar | array_type }
+int8 = { "i8" }
+uint8 = { "u8" }
+int32 = { "i32" }
+uint32 = { "u32" }
+ty = { int8 | uint8 | int32 | uint32 | "f32" | "f64" | ident | typevar | array_type }
 
 atom = { ident
        | "(" ~ expr ~ ")"

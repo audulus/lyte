@@ -24,10 +24,10 @@ fn main() {
 
 impl Compiler {
     fn build_type(&mut self, pair: pest::iterators::Pair<Rule>) -> TypeID {
-        match pair.as_str() {
-            "i8" => INT8,
-            "i32" => INT32,
-            "void" => VOID,
+        match pair.as_rule() {
+            Rule::ty => self.build_type(pair.into_inner().next().unwrap()),
+            Rule::int8 => INT8,
+            Rule::int32 => INT32,
             _ => TypeID{index: 0}
         }
     }
@@ -52,7 +52,6 @@ mod tests {
 
     #[test]
     pub fn test_parse_type() {
-        let mut compiler = Compiler::new();
         LyteParser::parse(Rule::ty, &"i8").expect("parse");
         LyteParser::parse(Rule::ty, &"[i8]").expect("parse");
         LyteParser::parse(Rule::ty, &"[ i8 ]").expect("parse");
