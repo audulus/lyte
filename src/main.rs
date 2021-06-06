@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
 mod defs;
+use defs::*;
 
 mod types;
-//use types::*;
+use types::*;
 mod typegraph;
 // use typegraph::*;
 
@@ -21,18 +22,46 @@ fn main() {
     println!("yo")
 }
 
+impl Compiler {
+    fn build_type(&mut self, pair: pest::iterators::Pair<Rule>) -> TypeID {
+        match pair.as_str() {
+            "i8" => INT8,
+            "i32" => INT32,
+            "void" => VOID,
+            _ => TypeID{index: 0}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn type_test(s: &str, t: TypeID) {
+        let mut compiler = Compiler::new();
+        let result = LyteParser::parse(Rule::ty, &s);
+        let mut tested = false;
+        for pairs in result {
+            for p in pairs {
+                tested = true;
+                assert_eq!(compiler.build_type(p), t);
+            }
+        }
+        assert!(tested);
+    }
+
     #[test]
     pub fn test_parse_type() {
+        let mut compiler = Compiler::new();
         LyteParser::parse(Rule::ty, &"i8").expect("parse");
         LyteParser::parse(Rule::ty, &"[i8]").expect("parse");
         LyteParser::parse(Rule::ty, &"[ i8 ]").expect("parse");
         LyteParser::parse(Rule::ty, &"MyType").expect("parse");
         LyteParser::parse(Rule::ty, &"⟨ T ⟩").expect("parse");
         LyteParser::parse(Rule::ty, &"_foo").expect("parse");
+
+        type_test("i8", INT8);
+        type_test("i32", INT32);
     }
 
     #[test]
