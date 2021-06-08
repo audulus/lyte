@@ -31,6 +31,9 @@ impl Compiler {
             Rule::array_type => {
                 let id = self.build_type(pair.into_inner().next().unwrap());
                 self.mk_type(Type::Array(id))
+            },
+            Rule::typevar => {
+                self.mk_type(Type::Var(0))
             }
             _ => TypeID{index: 0}
         }
@@ -70,6 +73,9 @@ mod tests {
 
         let id = compiler.mk_type(Type::Array(INT8));
         type_test("[i8]", id, &mut compiler);
+
+        let id2 = compiler.mk_type(Type::Var(0));
+        type_test("⟨T⟩", id2, &mut compiler);
     }
 
     #[test]
