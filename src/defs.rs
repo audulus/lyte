@@ -13,6 +13,7 @@ pub enum Type {
     Tuple(TypeID, TypeID),
     Var(u32),
     Func(TypeID, TypeID),
+    Array(TypeID)
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]

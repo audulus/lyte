@@ -28,6 +28,10 @@ impl Compiler {
             Rule::ty => self.build_type(pair.into_inner().next().unwrap()),
             Rule::int8 => INT8,
             Rule::int32 => INT32,
+            Rule::array_type => {
+                let id = self.build_type(pair.into_inner().next().unwrap());
+                self.mk_type(Type::Array(id))
+            }
             _ => TypeID{index: 0}
         }
     }
@@ -37,8 +41,8 @@ impl Compiler {
 mod tests {
     use super::*;
 
-    fn type_test(s: &str, t: TypeID) {
-        let mut compiler = Compiler::new();
+    fn type_test(s: &str, t: TypeID, compiler: &mut Compiler) {
+        
         let result = LyteParser::parse(Rule::ty, &s);
         let mut tested = false;
         for pairs in result {
@@ -59,8 +63,13 @@ mod tests {
         LyteParser::parse(Rule::ty, &"⟨ T ⟩").expect("parse");
         LyteParser::parse(Rule::ty, &"_foo").expect("parse");
 
-        type_test("i8", INT8);
-        type_test("i32", INT32);
+        let mut compiler = Compiler::new();
+
+        type_test("i8", INT8, &mut compiler);
+        type_test("i32", INT32, &mut compiler);
+
+        let id = compiler.mk_type(Type::Array(INT8));
+        type_test("[i8]", id, &mut compiler);
     }
 
     #[test]
