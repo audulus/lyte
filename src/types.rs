@@ -28,6 +28,14 @@ impl Compiler {
     }
 
     pub fn typevar(&mut self, name: &str) -> TypeID {
+
+        // Dumb linear search.
+        for i in 0..self.typevar_names.len() {
+            if self.typevar_names[i] == name {
+                return self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32));
+            }
+        }
+
         self.typevar_names.push(name.to_string());
         self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32))
     }
