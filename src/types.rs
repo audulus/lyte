@@ -22,6 +22,19 @@ impl Compiler {
         return TypeID { index: ix as u32 };
     }
 
+    pub fn mk_str(&mut self, name: &str) -> u32 {
+        // Dumb linear search.
+        for i in 0..self.names.len() {
+            if self.names[i] == name {
+                return i as u32;
+            }
+        }
+
+        let ix = self.names.len();
+        self.names.push(name.to_string());
+        return ix as u32;
+    }
+
     pub fn fresh(&mut self) -> TypeID {
         self.typevar_names.push("anonymous".to_string());
         self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32))
