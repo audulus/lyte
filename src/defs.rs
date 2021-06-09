@@ -27,11 +27,11 @@ pub struct Loc {
     pub line: u32,
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Expr {
     Id,
-    Int,
-    Real,
+    Int(i64),
+    Real(f64),
     Call,
     Binop(ExprID, ExprID),
     Unop(ExprID),
