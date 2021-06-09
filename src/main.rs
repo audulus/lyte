@@ -38,6 +38,19 @@ impl Compiler {
             _ => TypeID{index: 0}
         }
     }
+
+    fn mk_expr(&mut self, expr: Expr) -> ExprID {
+        let ix = self.exprs.len();
+        self.exprs.push(expr);
+        return ExprID{index: ix as u32};
+    }
+
+    fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> ExprID {
+        match pair.as_rule() {
+            Rule::ident => ExprID{index: 0},
+            _ => ExprID{index: 0}
+        }
+    }
 }
 
 #[cfg(test)]

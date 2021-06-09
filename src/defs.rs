@@ -18,7 +18,7 @@ pub enum Type {
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct ExprID {
-    index: u32,
+    pub index: u32,
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
