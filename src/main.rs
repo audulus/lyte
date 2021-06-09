@@ -47,7 +47,10 @@ impl Compiler {
 
     fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> ExprID {
         match pair.as_rule() {
-            Rule::ident => ExprID{index: 0},
+            Rule::ident => {
+                let ix = self.mk_str(pair.as_str());
+                self.mk_expr(Expr::Id(ix))
+            },
             _ => ExprID{index: 0}
         }
     }
@@ -94,6 +97,19 @@ mod tests {
         type_test("⟨ T ⟩", id2, &mut compiler);
     }
 
+    fn expr_test(s: &str, e: ExprID, compiler: &mut Compiler) {
+        
+        let result = LyteParser::parse(Rule::expr, &s);
+        let mut tested = false;
+        for pairs in result {
+            for p in pairs {
+                tested = true;
+                assert_eq!(compiler.build_expr(p), e);
+            }
+        }
+        assert!(tested);
+    }
+
     #[test]
     pub fn test_parse_atom() {
         LyteParser::parse(Rule::atom, &"x").expect("parse");
@@ -107,6 +123,11 @@ mod tests {
             Ok(_) => false,
             Err(_) => true
         });
+
+        let mut compiler = Compiler::new();
+
+        let id = compiler.mk_expr(Expr::Id(0));
+        expr_test("x", id, &mut compiler);
     }
 
     #[test]

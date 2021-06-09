@@ -29,7 +29,7 @@ pub struct Loc {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Expr {
-    Id,
+    Id(u32),
     Int(i64),
     Real(f64),
     Call,
