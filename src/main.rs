@@ -33,7 +33,7 @@ impl Compiler {
                 self.mk_type(Type::Array(id))
             },
             Rule::typevar => {
-                self.mk_type(Type::Var(0))
+                self.typevar(pair.into_inner().as_str())
             }
             _ => TypeID{index: 0}
         }
@@ -76,6 +76,7 @@ mod tests {
 
         let id2 = compiler.mk_type(Type::Var(0));
         type_test("⟨T⟩", id2, &mut compiler);
+        assert_eq!(compiler.typevar_names[0], "T");
     }
 
     #[test]

@@ -23,8 +23,13 @@ impl Compiler {
     }
 
     pub fn fresh(&mut self) -> TypeID {
-        self.var_index += 1;
-        self.mk_type(Type::Var(self.var_index))
+        self.typevar_names.push("anonymous".to_string());
+        self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32))
+    }
+
+    pub fn typevar(&mut self, name: &str) -> TypeID {
+        self.typevar_names.push(name.to_string());
+        self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32))
     }
 
     pub fn subst(&mut self, t: TypeID, inst: &Instance) -> TypeID {
