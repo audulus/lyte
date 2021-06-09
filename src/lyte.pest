@@ -20,8 +20,10 @@ atom = { ident
        | "(" ~ expr ~ ")" ~ block   // lambda (args must be a list)
        }
 
+index = { "[" ~ expr ~ "]" }
+
 suffix = { "(" ~ expr ~ ")"
-         | "[" ~ expr ~ "]"
+         | index
          | "." ~ ident
          | ":" ~ ty
          }

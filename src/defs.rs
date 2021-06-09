@@ -41,7 +41,7 @@ pub enum Expr {
     Subscript,
     Cast,
     Field,
-    Array,
+    Array(ExprID, ExprID),
     New,
     True,
     False
