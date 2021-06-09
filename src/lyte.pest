@@ -34,4 +34,4 @@ term = { factor ~ ("+" ~ term)* }
        
 expr = { term }
      
-block  = { "{" ~ "}" }
+block  = { "{" ~ expr* ~ "}" }
