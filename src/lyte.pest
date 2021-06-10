@@ -25,12 +25,9 @@ atom = { ident
 index = { "[" ~ expr ~ "]" }
 field = { "." ~ ident }
 call = { "(" ~ expr ~ ")" }
+as_ty = { ":" ~ ty }
 
-suffix = { call
-         | index
-         | field
-         | ":" ~ ty
-         }
+suffix = { call | index | field | as_ty }
 
 prefix = { atom ~ (suffix)* }
 
