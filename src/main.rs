@@ -51,6 +51,12 @@ impl Compiler {
                 let ix = self.mk_str(pair.as_str());
                 self.mk_expr(Expr::Id(ix))
             },
+            Rule::index => {
+                let mut inner = pair.into_inner();
+                let lhs = self.build_expr(inner.next().unwrap());
+                let rhs = self.build_expr(inner.next().unwrap());
+                self.mk_expr(Expr::Array(lhs, rhs))
+            },
             _ => ExprID{index: 0}
         }
     }
@@ -128,6 +134,8 @@ mod tests {
 
         let id = compiler.mk_expr(Expr::Id(0));
         expr_test("x", id, &mut compiler);
+
+        expr_test("x[y]", ExprID{index: 0}, &mut compiler);
     }
 
     #[test]
