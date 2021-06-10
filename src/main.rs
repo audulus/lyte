@@ -63,7 +63,33 @@ impl Compiler {
                 let ix = self.mk_str(inner.next().unwrap().as_str());
                 self.mk_expr(Expr::Field(ix))
             },
-            _ => ExprID{index: 0}
+            Rule::suffix => {
+                self.build_expr(pair.into_inner().next().unwrap())
+            },
+            Rule::prefix => {
+                let mut inner = pair.into_inner();
+                let mut e = self.build_expr(inner.next().unwrap());
+                while let Some(pair) = inner.next() {
+                    match pair.as_rule() {
+
+                        _ => ()
+                    }
+                }
+                e
+            },
+            Rule::atom => {
+                self.build_expr(pair.into_inner().next().unwrap())
+            },
+            Rule::factor => {
+                self.build_expr(pair.into_inner().next().unwrap())
+            },
+            Rule::term => {
+                self.build_expr(pair.into_inner().next().unwrap())
+            },
+            Rule::expr => {
+                self.build_expr(pair.into_inner().next().unwrap())
+            },
+            unknown_term => panic!("Unexpected term: {:?}", unknown_term),
         }
     }
 }
@@ -122,6 +148,19 @@ mod tests {
         assert!(tested);
     }
 
+    fn suffix_test(s: &str, e: ExprID, compiler: &mut Compiler) {
+        
+        let result = LyteParser::parse(Rule::suffix, &s);
+        let mut tested = false;
+        for pairs in result {
+            for p in pairs {
+                tested = true;
+                assert_eq!(compiler.build_expr(p), e);
+            }
+        }
+        assert!(tested);
+    }
+
     #[test]
     pub fn test_parse_atom() {
         LyteParser::parse(Rule::atom, &"x").expect("parse");
@@ -137,10 +176,7 @@ mod tests {
         });
 
         let mut compiler = Compiler::new();
-
-        let id = compiler.mk_expr(Expr::Id(0));
-        expr_test("x", id, &mut compiler);
-
+        expr_test("x", ExprID { index: 0 }, &mut compiler);
         
     }
 
