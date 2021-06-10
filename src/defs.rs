@@ -40,7 +40,7 @@ pub enum Expr {
     Char,
     Subscript,
     Cast,
-    Field,
+    Field(u32),
     Array(ExprID, ExprID),
     New,
     True,

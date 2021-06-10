@@ -57,6 +57,12 @@ impl Compiler {
                 let rhs = self.build_expr(inner.next().unwrap());
                 self.mk_expr(Expr::Array(lhs, rhs))
             },
+            Rule::field => {
+                let mut inner = pair.into_inner();
+                inner.next(); // skip the dot
+                let ix = self.mk_str(inner.next().unwrap().as_str());
+                self.mk_expr(Expr::Field(ix))
+            },
             _ => ExprID{index: 0}
         }
     }
@@ -135,7 +141,19 @@ mod tests {
         let id = compiler.mk_expr(Expr::Id(0));
         expr_test("x", id, &mut compiler);
 
+        
+    }
+
+    #[test]
+    pub fn test_parse_array() {
+        let mut compiler = Compiler::new();
         expr_test("x[y]", ExprID{index: 0}, &mut compiler);
+    }
+
+    #[test]
+    pub fn test_parse_field() {
+        let mut compiler = Compiler::new();
+        expr_test("x.y", ExprID{index: 0}, &mut compiler);
     }
 
     #[test]

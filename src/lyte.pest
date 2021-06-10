@@ -21,10 +21,11 @@ atom = { ident
        }
 
 index = { "[" ~ expr ~ "]" }
+field = { "." ~ ident }
 
 suffix = { "(" ~ expr ~ ")"
          | index
-         | "." ~ ident
+         | field
          | ":" ~ ty
          }
 
