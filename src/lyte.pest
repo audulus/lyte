@@ -22,8 +22,9 @@ atom = { ident
 
 index = { "[" ~ expr ~ "]" }
 field = { "." ~ ident }
+call = { "(" ~ expr ~ ")" }
 
-suffix = { "(" ~ expr ~ ")"
+suffix = { call
          | index
          | field
          | ":" ~ ty
