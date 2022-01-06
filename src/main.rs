@@ -202,6 +202,11 @@ mod tests {
     }
 
     #[test]
+    pub fn test_parse_factor() {
+        LyteParser::parse(Rule::factor, &"x+y").expect("parse");
+    }
+
+    #[test]
     pub fn test_parse_block() {
         // LyteParser::parse(Rule::block, &"{f()}").expect("parse");
     }
