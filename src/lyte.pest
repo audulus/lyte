@@ -39,3 +39,11 @@ term = { factor ~ ("+" ~ term)* }
 expr = { term }
      
 block  = { "{" ~ expr* ~ "}" }
+
+decl = { ident ~ "(" ~ expr ~ ")" ~ block                      // function
+       | ident ~ "(" ~ expr ~ ")" ~ "->" ~ ty ~ block          // function with return type
+       | "struct" ~ ident ~ "{" ~ (ident ~ ":" ~ ty)* ~ "}"    // struct
+       | "enum" ~ ident ~ "{" ~ ident* ~ "}"                   // enums
+       }
+     
+program = { decl* }
