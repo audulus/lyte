@@ -40,7 +40,8 @@ expr = { term }
      
 block  = { "{" ~ expr* ~ "}" }
 
-decl = { id ~ "(" ~ expr ~ ")" ~ block                   // function
+decl = { id ~ "(" ~ ")" ~ block                          // function with no arguments
+       | id ~ "(" ~ expr ~ ")" ~ block                   // function
        | id ~ "(" ~ expr ~ ")" ~ "->" ~ ty ~ block       // function with return type
        | "struct" ~ id ~ "{" ~ (id ~ ":" ~ ty)* ~ "}"    // struct
        | "enum" ~ id ~ "{" ~ id* ~ "}"                   // enums
