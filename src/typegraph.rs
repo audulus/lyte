@@ -53,14 +53,14 @@ impl Compiler {
     pub fn subst_graph(&mut self, g: &mut TypeGraph) {
         for n in &mut g.nodes {
             for t in &mut n.possible {
-                *t = self.subst(*t, &g.inst);
+                *t = subst(*t, &g.inst);
             }
         }
     }
 
     pub fn solved_graph(&self, g: &TypeGraph) -> bool {
         for n in &g.nodes {
-            if n.possible.len() != 1 || !self.solved(n.possible[0]) {
+            if n.possible.len() != 1 || !solved(n.possible[0]) {
                 return false;
             }
         }
@@ -72,7 +72,7 @@ impl Compiler {
 
         for t in v {
             let mut inst = Instance::new();
-            if self.unify(*t, t0, &mut inst) {
+            if unify(*t, t0, &mut inst) {
                 result.push(*t);
             }
         }
@@ -90,7 +90,7 @@ impl Compiler {
 
         // If each node has one possible type, they better unify.
         if g.nodes[a].possible.len() == 1 && g.nodes[b].possible.len() == 1 {
-            if self.unify(g.nodes[a].possible[0], g.nodes[b].possible[0], &mut g.inst) {
+            if unify(g.nodes[a].possible[0], g.nodes[b].possible[0], &mut g.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
                 self.subst_graph(g);
@@ -135,17 +135,19 @@ mod tests {
         let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 
+        let vd = mk_type(Type::Void);
+
         let a = g.add_node();
-        g.nodes[a].possible.push( VOID );
+        g.nodes[a].possible.push( vd );
         let b = g.add_node();
-        g.nodes[b].possible.push( VOID );
+        g.nodes[b].possible.push( vd );
         
         //g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
 
         assert!(c.solved_graph(&g));
 
         let v = g.add_node();
-        g.nodes[v].possible.push(c.mk_type(Type::Var(0)));
+        g.nodes[v].possible.push(mk_type(Type::Var(0)));
 
         assert!(!c.solved_graph(&g));
 
@@ -161,11 +163,13 @@ mod tests {
         let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 
-        let v = c.fresh();
+        let int32 = mk_type(Type::Int32);
+
+        let v = mk_type(Type::Var(0));
         let a = g.add_node();
         g.nodes[a].possible.push(v);
         let b = g.add_node();
-        g.nodes[b].possible.push(INT32);
+        g.nodes[b].possible.push(int32);
 
         g.eq_constraint(a, b, &l);
 

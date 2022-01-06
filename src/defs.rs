@@ -1,9 +1,6 @@
+use internment::Intern;
 
-
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
-pub struct TypeID {
-    pub index: u32,
-}
+pub type TypeID = Intern<Type>;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
@@ -29,7 +26,7 @@ pub struct Loc {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Expr {
-    Id(u32),
+    Id(Intern<String>),
     Int(i64),
     Real(f64),
     Call,
@@ -40,7 +37,7 @@ pub enum Expr {
     Char,
     Subscript,
     Cast,
-    Field(u32),
+    Field(Intern<String>),
     Array(ExprID, ExprID),
     New,
     True,

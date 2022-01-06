@@ -12,6 +12,8 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
+use internment::Intern;
+
 use pest::Parser;
 
 #[derive(Parser)]
@@ -26,16 +28,16 @@ impl Compiler {
     fn build_type(&mut self, pair: pest::iterators::Pair<Rule>) -> TypeID {
         match pair.as_rule() {
             Rule::ty => self.build_type(pair.into_inner().next().unwrap()),
-            Rule::int8 => INT8,
-            Rule::int32 => INT32,
+            Rule::int8 => mk_type(Type::Int8),
+            Rule::int32 => mk_type(Type::Int32),
             Rule::array_type => {
                 let id = self.build_type(pair.into_inner().next().unwrap());
-                self.mk_type(Type::Array(id))
+                mk_type(Type::Array(id))
             },
             Rule::typevar => {
-                self.typevar(pair.into_inner().as_str())
+                mk_type(Type::Var(0)) // XXX: for now
             }
-            _ => TypeID{index: 0}
+            _ => mk_type(Type::Void)
         }
     }
 
@@ -48,7 +50,7 @@ impl Compiler {
     fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> ExprID {
         match pair.as_rule() {
             Rule::id => {
-                let ix = self.mk_str(pair.as_str());
+                let ix = Intern::new(String::from(pair.as_str()));
                 self.mk_expr(Expr::Id(ix))
             },
             Rule::index => {
@@ -60,7 +62,7 @@ impl Compiler {
             Rule::field => {
                 let mut inner = pair.into_inner();
                 inner.next(); // skip the dot
-                let ix = self.mk_str(inner.next().unwrap().as_str());
+                let ix = Intern::new(String::from(inner.next().unwrap().as_str()));
                 self.mk_expr(Expr::Field(ix))
             },
             Rule::suffix => {
@@ -120,15 +122,18 @@ mod tests {
         LyteParser::parse(Rule::ty, &"⟨ T ⟩").expect("parse");
         LyteParser::parse(Rule::ty, &"_foo").expect("parse");
 
+        let int8 = mk_type(Type::Int8);
+        let int32 = mk_type(Type::Int32);
+
         let mut compiler = Compiler::new();
 
-        type_test("i8", INT8, &mut compiler);
-        type_test("i32", INT32, &mut compiler);
+        type_test("i8", int8, &mut compiler);
+        type_test("i32", int32, &mut compiler);
 
-        let id = compiler.mk_type(Type::Array(INT8));
+        let id = mk_type(Type::Array(int8));
         type_test("[i8]", id, &mut compiler);
 
-        let id2 = compiler.mk_type(Type::Var(0));
+        let id2 = mk_type(Type::Var(0));
         type_test("⟨T⟩", id2, &mut compiler);
         assert_eq!(compiler.typevar_names[0], "T");
 
