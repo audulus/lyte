@@ -211,4 +211,10 @@ mod tests {
     pub fn test_parse_block() {
         // LyteParser::parse(Rule::block, &"{f()}").expect("parse");
     }
+
+    #[test]
+    pub fn test_parse_program() {
+        let result = LyteParser::parse(Rule::program, &"f() {}");
+        println!("{:?}", result);
+    }
 }
