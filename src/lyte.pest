@@ -4,9 +4,9 @@ WHITESPACE = _{ " " | "\n" }
 alpha = @{ 'a'..'z' | 'A'..'Z' | "_" }
 digit = @{ '0'..'9' }
 
-ident = @{ alpha ~ (alpha | digit)* }
+id = @{ alpha ~ (alpha | digit)* }
 
-typevar = { "⟨" ~ ident ~ "⟩" }
+typevar = { "⟨" ~ id ~ "⟩" }
 array_type = { "[" ~ ty ~ "]" }
 int8 = { "i8" }
 uint8 = { "u8" }
@@ -14,9 +14,9 @@ int32 = { "i32" }
 uint32 = { "u32" }
 float32 = { "f32" }
 float64 = { "f64" }
-ty = { int8 | uint8 | int32 | uint32 | float32 | float64 | ident | typevar | array_type }
+ty = { int8 | uint8 | int32 | uint32 | float32 | float64 | id | typevar | array_type }
 
-atom = { ident
+atom = { id
        | "(" ~ expr ~ ")"
        | block         // lambda without arguments
        | "(" ~ expr ~ ")" ~ block   // lambda (args must be a list)
@@ -24,7 +24,7 @@ atom = { ident
        }
 
 index = { "[" ~ expr ~ "]" }
-field = { "." ~ ident }
+field = { "." ~ id }
 call = { "(" ~ expr ~ ")" }
 as_ty = { ":" ~ ty }
 
@@ -40,10 +40,10 @@ expr = { term }
      
 block  = { "{" ~ expr* ~ "}" }
 
-decl = { ident ~ "(" ~ expr ~ ")" ~ block                      // function
-       | ident ~ "(" ~ expr ~ ")" ~ "->" ~ ty ~ block          // function with return type
-       | "struct" ~ ident ~ "{" ~ (ident ~ ":" ~ ty)* ~ "}"    // struct
-       | "enum" ~ ident ~ "{" ~ ident* ~ "}"                   // enums
+decl = { id ~ "(" ~ expr ~ ")" ~ block                      // function
+       | id ~ "(" ~ expr ~ ")" ~ "->" ~ ty ~ block          // function with return type
+       | "struct" ~ id ~ "{" ~ (id ~ ":" ~ ty)* ~ "}"    // struct
+       | "enum" ~ id ~ "{" ~ id* ~ "}"                   // enums
        }
      
 program = { decl* }

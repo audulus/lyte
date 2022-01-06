@@ -47,7 +47,7 @@ impl Compiler {
 
     fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> ExprID {
         match pair.as_rule() {
-            Rule::ident => {
+            Rule::id => {
                 let ix = self.mk_str(pair.as_str());
                 self.mk_expr(Expr::Id(ix))
             },
