@@ -11,7 +11,7 @@ pub enum Type {
     Int8,
     Int32,
     Tuple(TypeID, TypeID),
-    Var(u32),
+    Var(usize),
     Func(TypeID, TypeID),
     Array(TypeID)
 }

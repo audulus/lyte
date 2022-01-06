@@ -5,7 +5,7 @@ pub const VOID: TypeID = TypeID { index: 0 };
 pub const INT8: TypeID = TypeID { index: 1 };
 pub const INT32: TypeID = TypeID { index: 2 };
 
-pub type Instance = HashMap<u32, TypeID>;
+pub type Instance = HashMap<usize, TypeID>;
 
 impl Compiler {
 
@@ -37,7 +37,7 @@ impl Compiler {
 
     pub fn fresh(&mut self) -> TypeID {
         self.typevar_names.push("anonymous".to_string());
-        self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32))
+        self.mk_type(Type::Var( self.typevar_names.len() - 1))
     }
 
     pub fn typevar(&mut self, name: &str) -> TypeID {
@@ -45,12 +45,12 @@ impl Compiler {
         // Dumb linear search.
         for i in 0..self.typevar_names.len() {
             if self.typevar_names[i] == name {
-                return self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32));
+                return self.mk_type(Type::Var( self.typevar_names.len() - 1 ));
             }
         }
 
         self.typevar_names.push(name.to_string());
-        self.mk_type(Type::Var( (self.typevar_names.len() - 1) as u32))
+        self.mk_type(Type::Var( self.typevar_names.len() - 1) )
     }
 
     pub fn subst(&mut self, t: TypeID, inst: &Instance) -> TypeID {
