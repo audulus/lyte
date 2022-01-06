@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     pub fn test_parse_factor() {
-        LyteParser::parse(Rule::factor, &"x+y").expect("parse");
+        LyteParser::parse(Rule::factor, &"x*y").expect("parse");
     }
 
     #[test]
