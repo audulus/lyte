@@ -46,4 +46,4 @@ decl = { id ~ "(" ~ expr ~ ")" ~ block                      // function
        | "enum" ~ id ~ "{" ~ id* ~ "}"                   // enums
        }
      
-program = { decl* }
+program = { SOI ~ decl* ~ EOI }
