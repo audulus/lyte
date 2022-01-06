@@ -68,7 +68,7 @@ impl Compiler {
             },
             Rule::prefix => {
                 let mut inner = pair.into_inner();
-                let mut e = self.build_expr(inner.next().unwrap());
+                let e = self.build_expr(inner.next().unwrap());
                 while let Some(pair) = inner.next() {
                     match pair.as_rule() {
 
