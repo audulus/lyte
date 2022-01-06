@@ -196,5 +196,13 @@ mod tests {
     pub fn test_parse_prefix() {
         LyteParser::parse(Rule::prefix, &"f(x)").expect("parse");
         LyteParser::parse(Rule::prefix, &"a[i]").expect("parse");
+        LyteParser::parse(Rule::factor, &"a[i]").expect("parse");
+        LyteParser::parse(Rule::term, &"a[i]").expect("parse");
+        LyteParser::parse(Rule::expr, &"a[i]").expect("parse");
+    }
+
+    #[test]
+    pub fn test_parse_block() {
+        // LyteParser::parse(Rule::block, &"{f()}").expect("parse");
     }
 }
