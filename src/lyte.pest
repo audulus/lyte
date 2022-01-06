@@ -20,6 +20,7 @@ atom = { ident
        | "(" ~ expr ~ ")"
        | block         // lambda without arguments
        | "(" ~ expr ~ ")" ~ block   // lambda (args must be a list)
+       | "if" ~ expr ~ block ~ "else" ~ block
        }
 
 index = { "[" ~ expr ~ "]" }
