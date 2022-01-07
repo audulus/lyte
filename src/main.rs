@@ -135,8 +135,6 @@ mod tests {
 
         let id2 = mk_type(Type::Var(0));
         type_test("⟨T⟩", id2, &mut compiler);
-        assert_eq!(compiler.typevar_names[0], "T");
-
         type_test("⟨ T ⟩", id2, &mut compiler);
     }
 
