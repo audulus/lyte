@@ -78,6 +78,9 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
                     Rule::times => {
                         e = Expr::Binop(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
                     },
+                    Rule::div => {
+                        e = Expr::Binop(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                    },
                     _ => ()
                 }
             }
