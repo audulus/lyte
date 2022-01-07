@@ -24,15 +24,15 @@ atom = { id
        }
 
 call = { "(" ~ expr ~ ")" }
-as_ty = { ":" ~ ty }
 
 // suffix = { call | index | field | as_ty }
 
 lbracket = { "[" }
 rbracket = { "]" }
 dot = { "." }
+colon = { ":" }
 
-prefix = { atom ~ ( lbracket ~ expr ~ rbracket | dot ~ id )* }
+prefix = { atom ~ ( lbracket ~ expr ~ rbracket | dot ~ id | colon ~ ty )* }
 
 factor = { prefix ~ ("*" ~ factor)* }
 
