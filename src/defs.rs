@@ -47,7 +47,6 @@ pub enum Expr {
 pub struct Compiler {
     pub names: Vec<String>,
     pub types: Vec<Type>,
-    pub typevar_names: Vec<String>,
     pub exprs: Vec<Expr>
 }
 
@@ -56,7 +55,6 @@ impl Compiler {
         Compiler {
             names: Vec::new(),
             types: vec![Type::Void, Type::Int8, Type::Int32],
-            typevar_names: Vec::new(),
             exprs: Vec::new()
         }
     }
