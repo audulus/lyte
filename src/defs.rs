@@ -38,6 +38,7 @@ pub enum Expr {
     True,
     False,
     AsTy(Box<Expr>, TypeID),
+    Block(Vec<Expr>)
 }
 
 pub struct Compiler {
