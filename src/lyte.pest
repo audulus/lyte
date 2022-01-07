@@ -54,9 +54,11 @@ block  = { "{" ~ expr* ~ "}" }
 structdef = { "struct "}
 enumdef = { "enum" }
 
+arrow = { "->" }
+
 decl = { id ~ "(" ~ ")" ~ block                          // function with no arguments
        | id ~ "(" ~ expr ~ ")" ~ block                   // function
-       | id ~ "(" ~ expr ~ ")" ~ "->" ~ ty ~ block       // function with return type
+       | id ~ "(" ~ expr ~ ")" ~ arrow ~ ty ~ block       // function with return type
        | structdef ~ id ~ "{" ~ (id ~ ":" ~ ty)* ~ "}"   // struct
        | enumdef ~ id ~ "{" ~ id* ~ "}"                  // enums
        }
