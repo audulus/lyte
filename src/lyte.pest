@@ -16,11 +16,13 @@ float32 = { "f32" }
 float64 = { "f64" }
 ty = { int8 | uint8 | int32 | uint32 | float32 | float64 | id | typevar | array_type }
 
+cond = { "if" }
+
 atom = { id
        | "(" ~ expr ~ ")"
        | block         // lambda without arguments
        | "(" ~ expr ~ ")" ~ block   // lambda (args must be a list)
-       | "if" ~ expr ~ block ~ "else" ~ block
+       | cond ~ expr ~ block ~ "else" ~ block
        }
 
 lbracket = { "[" }
