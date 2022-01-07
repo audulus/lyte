@@ -21,7 +21,7 @@ use pest::Parser;
 struct LyteParser;
 
 fn main() {
-    println!("yo")
+    println!("🎸")
 }
 
 fn mk_id(s: &str) -> Expr {
