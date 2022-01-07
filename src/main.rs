@@ -76,9 +76,6 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
         Rule::term => {
             build_expr(pair.into_inner().next().unwrap())
         },
-        Rule::expr => {
-            build_expr(pair.into_inner().next().unwrap())
-        },
         unknown_term => panic!("Unexpected term: {:?}", unknown_term),
     }
 }

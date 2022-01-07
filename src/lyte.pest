@@ -39,7 +39,7 @@ factor = { prefix ~ ("*" ~ factor)* }
 
 term = { factor ~ ("+" ~ term)* }
        
-expr = { term }
+expr = _{ term }
      
 block  = { "{" ~ expr* ~ "}" }
 
