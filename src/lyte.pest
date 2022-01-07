@@ -35,9 +35,13 @@ prefix = { atom ~ ( lparen ~ expr ~ rparen
                   | dot ~ id
                   | colon ~ ty )* }
 
-factor = { prefix ~ ("*" ~ factor)* }
+times = { "*" }
 
-term = { factor ~ ("+" ~ term)* }
+factor = { prefix ~ (times ~ factor)* }
+
+plus = { "+" }
+
+term = { factor ~ (plus ~ term)* }
        
 expr = _{ term }
      
