@@ -23,16 +23,14 @@ atom = { id
        | "if" ~ expr ~ block ~ "else" ~ block
        }
 
-call = { "(" ~ expr ~ ")" }
-
-// suffix = { call | index | field | as_ty }
-
 lbracket = { "[" }
 rbracket = { "]" }
 dot = { "." }
 colon = { ":" }
+lparen = { "(" }
+rparen = { ")" }
 
-prefix = { atom ~ ( lbracket ~ expr ~ rbracket | dot ~ id | colon ~ ty )* }
+prefix = { atom ~ ( lparen ~ expr ~ rparen | lbracket ~ expr ~ rbracket | dot ~ id | colon ~ ty )* }
 
 factor = { prefix ~ ("*" ~ factor)* }
 
