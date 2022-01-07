@@ -70,7 +70,6 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             let mut inner = pair.into_inner();
             let mut e = build_expr(inner.next().unwrap());
             while let Some(pair) = inner.next() {
-                println!("{:?}", pair);
                 match pair.as_rule() {
                     Rule::lbracket => {
                         e = Expr::Array(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
