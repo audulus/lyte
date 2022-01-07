@@ -28,70 +28,68 @@ fn mk_id(s: &str) -> Expr {
     Expr::Id(Intern::new(String::from(s)))
 }
 
-impl Compiler {
-    fn build_type(&mut self, pair: pest::iterators::Pair<Rule>) -> TypeID {
-        match pair.as_rule() {
-            Rule::ty => self.build_type(pair.into_inner().next().unwrap()),
-            Rule::int8 => mk_type(Type::Int8),
-            Rule::int32 => mk_type(Type::Int32),
-            Rule::array_type => {
-                let id = self.build_type(pair.into_inner().next().unwrap());
-                mk_type(Type::Array(id))
-            },
-            Rule::typevar => {
-                mk_type(Type::Var(0)) // XXX: for now
-            }
-            _ => mk_type(Type::Void)
+fn build_type(pair: pest::iterators::Pair<Rule>) -> TypeID {
+    match pair.as_rule() {
+        Rule::ty => build_type(pair.into_inner().next().unwrap()),
+        Rule::int8 => mk_type(Type::Int8),
+        Rule::int32 => mk_type(Type::Int32),
+        Rule::array_type => {
+            let id = build_type(pair.into_inner().next().unwrap());
+            mk_type(Type::Array(id))
+        },
+        Rule::typevar => {
+            mk_type(Type::Var(0)) // XXX: for now
         }
+        _ => mk_type(Type::Void)
     }
+}
 
-    fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> Expr {
-        match pair.as_rule() {
-            Rule::id => {
-                let ix = Intern::new(String::from(pair.as_str()));
-                Expr::Id(ix)
-            },
-            Rule::index => {
-                let mut inner = pair.into_inner();
-                let lhs = self.build_expr(inner.next().unwrap());
-                let rhs = self.build_expr(inner.next().unwrap());
-                Expr::Array(Box::new(lhs), Box::new(rhs))
-            },
-            Rule::field => {
-                let mut inner = pair.into_inner();
-                let lhs = self.build_expr(inner.next().unwrap());
-                inner.next(); // skip the dot
-                let ix = Intern::new(String::from(inner.next().unwrap().as_str()));
-                Expr::Field(Box::new(lhs), ix)
-            },
-            Rule::suffix => {
-                self.build_expr(pair.into_inner().next().unwrap())
-            },
-            Rule::prefix => {
-                let mut inner = pair.into_inner();
-                let e = self.build_expr(inner.next().unwrap());
-                while let Some(pair) = inner.next() {
-                    match pair.as_rule() {
+fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
+    match pair.as_rule() {
+        Rule::id => {
+            let ix = Intern::new(String::from(pair.as_str()));
+            Expr::Id(ix)
+        },
+        Rule::index => {
+            let mut inner = pair.into_inner();
+            let lhs = build_expr(inner.next().unwrap());
+            let rhs = build_expr(inner.next().unwrap());
+            Expr::Array(Box::new(lhs), Box::new(rhs))
+        },
+        Rule::field => {
+            let mut inner = pair.into_inner();
+            let lhs = build_expr(inner.next().unwrap());
+            inner.next(); // skip the dot
+            let ix = Intern::new(String::from(inner.next().unwrap().as_str()));
+            Expr::Field(Box::new(lhs), ix)
+        },
+        Rule::suffix => {
+            build_expr(pair.into_inner().next().unwrap())
+        },
+        Rule::prefix => {
+            let mut inner = pair.into_inner();
+            let e = build_expr(inner.next().unwrap());
+            while let Some(pair) = inner.next() {
+                match pair.as_rule() {
 
-                        _ => ()
-                    }
+                    _ => ()
                 }
-                e
-            },
-            Rule::atom => {
-                self.build_expr(pair.into_inner().next().unwrap())
-            },
-            Rule::factor => {
-                self.build_expr(pair.into_inner().next().unwrap())
-            },
-            Rule::term => {
-                self.build_expr(pair.into_inner().next().unwrap())
-            },
-            Rule::expr => {
-                self.build_expr(pair.into_inner().next().unwrap())
-            },
-            unknown_term => panic!("Unexpected term: {:?}", unknown_term),
-        }
+            }
+            e
+        },
+        Rule::atom => {
+            build_expr(pair.into_inner().next().unwrap())
+        },
+        Rule::factor => {
+            build_expr(pair.into_inner().next().unwrap())
+        },
+        Rule::term => {
+            build_expr(pair.into_inner().next().unwrap())
+        },
+        Rule::expr => {
+            build_expr(pair.into_inner().next().unwrap())
+        },
+        unknown_term => panic!("Unexpected term: {:?}", unknown_term),
     }
 }
 
@@ -99,14 +97,14 @@ impl Compiler {
 mod tests {
     use super::*;
 
-    fn type_test(s: &str, t: TypeID, compiler: &mut Compiler) {
+    fn type_test(s: &str, t: TypeID) {
         
         let result = LyteParser::parse(Rule::ty, &s);
         let mut tested = false;
         for pairs in result {
             for p in pairs {
                 tested = true;
-                assert_eq!(compiler.build_type(p), t);
+                assert_eq!(build_type(p), t);
             }
         }
         assert!(tested);
@@ -124,40 +122,38 @@ mod tests {
         let int8 = mk_type(Type::Int8);
         let int32 = mk_type(Type::Int32);
 
-        let mut compiler = Compiler::new();
-
-        type_test("i8", int8, &mut compiler);
-        type_test("i32", int32, &mut compiler);
+        type_test("i8", int8);
+        type_test("i32", int32);
 
         let id = mk_type(Type::Array(int8));
-        type_test("[i8]", id, &mut compiler);
+        type_test("[i8]", id);
 
         let id2 = mk_type(Type::Var(0));
-        type_test("⟨T⟩", id2, &mut compiler);
-        type_test("⟨ T ⟩", id2, &mut compiler);
+        type_test("⟨T⟩", id2);
+        type_test("⟨ T ⟩", id2);
     }
 
-    fn expr_test(s: &str, e: Expr, compiler: &mut Compiler) {
+    fn expr_test(s: &str, e: Expr) {
         
         let result = LyteParser::parse(Rule::expr, &s);
         let mut tested = false;
         for pairs in result {
             for p in pairs {
                 tested = true;
-                assert_eq!(compiler.build_expr(p), e);
+                assert_eq!(build_expr(p), e);
             }
         }
         assert!(tested);
     }
 
-    fn suffix_test(s: &str, e: Expr, compiler: &mut Compiler) {
+    fn suffix_test(s: &str, e: Expr) {
         
         let result = LyteParser::parse(Rule::suffix, &s);
         let mut tested = false;
         for pairs in result {
             for p in pairs {
                 tested = true;
-                assert_eq!(compiler.build_expr(p), e);
+                assert_eq!(build_expr(p), e);
             }
         }
         assert!(tested);
@@ -177,21 +173,18 @@ mod tests {
             Err(_) => true
         });
 
-        let mut compiler = Compiler::new();
-        expr_test("x", Expr::Id(Intern::new(String::from("x"))), &mut compiler);
+        expr_test("x", Expr::Id(Intern::new(String::from("x"))));
         
     }
 
     #[test]
     pub fn test_parse_array() {
-        let mut compiler = Compiler::new();
-        expr_test("x[y]", Expr::Array(Box::new(mk_id("x")), Box::new(mk_id("y"))), &mut compiler);
+        expr_test("x[y]", Expr::Array(Box::new(mk_id("x")), Box::new(mk_id("y"))));
     }
 
     #[test]
     pub fn test_parse_field() {
-        let mut compiler = Compiler::new();
-        expr_test("x.y", Expr::Field(Box::new(mk_id("x")), Intern::new(String::from("y"))), &mut compiler);
+        expr_test("x.y", Expr::Field(Box::new(mk_id("x")), Intern::new(String::from("y"))));
     }
 
     #[test]
