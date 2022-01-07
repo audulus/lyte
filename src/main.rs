@@ -68,6 +68,10 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
                         let field = Intern::new(String::from(inner.next().unwrap().as_str()));
                         e = Expr::Field(Box::new(e), field);
                     }
+                    Rule::colon => {
+                        let ty = build_type(inner.next().unwrap());
+                        e = Expr::AsTy(Box::new(e), ty);
+                    }
                     _ => (),
                 }
             }
