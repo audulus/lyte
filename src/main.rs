@@ -24,6 +24,10 @@ fn main() {
     println!("yo")
 }
 
+fn mk_id(s: &str) -> Expr {
+    Expr::Id(Intern::new(String::from(s)))
+}
+
 impl Compiler {
     fn build_type(&mut self, pair: pest::iterators::Pair<Rule>) -> TypeID {
         match pair.as_rule() {
@@ -41,29 +45,24 @@ impl Compiler {
         }
     }
 
-    fn mk_expr(&mut self, expr: Expr) -> ExprID {
-        let ix = self.exprs.len();
-        self.exprs.push(expr);
-        return ExprID{index: ix as u32};
-    }
-
-    fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> ExprID {
+    fn build_expr(&mut self, pair: pest::iterators::Pair<Rule>) -> Expr {
         match pair.as_rule() {
             Rule::id => {
                 let ix = Intern::new(String::from(pair.as_str()));
-                self.mk_expr(Expr::Id(ix))
+                Expr::Id(ix)
             },
             Rule::index => {
                 let mut inner = pair.into_inner();
                 let lhs = self.build_expr(inner.next().unwrap());
                 let rhs = self.build_expr(inner.next().unwrap());
-                self.mk_expr(Expr::Array(lhs, rhs))
+                Expr::Array(Box::new(lhs), Box::new(rhs))
             },
             Rule::field => {
                 let mut inner = pair.into_inner();
+                let lhs = self.build_expr(inner.next().unwrap());
                 inner.next(); // skip the dot
                 let ix = Intern::new(String::from(inner.next().unwrap().as_str()));
-                self.mk_expr(Expr::Field(ix))
+                Expr::Field(Box::new(lhs), ix)
             },
             Rule::suffix => {
                 self.build_expr(pair.into_inner().next().unwrap())
@@ -138,7 +137,7 @@ mod tests {
         type_test("⟨ T ⟩", id2, &mut compiler);
     }
 
-    fn expr_test(s: &str, e: ExprID, compiler: &mut Compiler) {
+    fn expr_test(s: &str, e: Expr, compiler: &mut Compiler) {
         
         let result = LyteParser::parse(Rule::expr, &s);
         let mut tested = false;
@@ -151,7 +150,7 @@ mod tests {
         assert!(tested);
     }
 
-    fn suffix_test(s: &str, e: ExprID, compiler: &mut Compiler) {
+    fn suffix_test(s: &str, e: Expr, compiler: &mut Compiler) {
         
         let result = LyteParser::parse(Rule::suffix, &s);
         let mut tested = false;
@@ -179,20 +178,20 @@ mod tests {
         });
 
         let mut compiler = Compiler::new();
-        expr_test("x", ExprID { index: 0 }, &mut compiler);
+        expr_test("x", Expr::Id(Intern::new(String::from("x"))), &mut compiler);
         
     }
 
     #[test]
     pub fn test_parse_array() {
         let mut compiler = Compiler::new();
-        expr_test("x[y]", ExprID{index: 0}, &mut compiler);
+        expr_test("x[y]", Expr::Array(Box::new(mk_id("x")), Box::new(mk_id("y"))), &mut compiler);
     }
 
     #[test]
     pub fn test_parse_field() {
         let mut compiler = Compiler::new();
-        expr_test("x.y", ExprID{index: 0}, &mut compiler);
+        expr_test("x.y", Expr::Field(Box::new(mk_id("x")), Intern::new(String::from("y"))), &mut compiler);
     }
 
     #[test]

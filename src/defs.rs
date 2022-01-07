@@ -13,32 +13,27 @@ pub enum Type {
     Array(TypeID)
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
-pub struct ExprID {
-    pub index: u32,
-}
-
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct Loc {
     pub file: String,
     pub line: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     Id(Intern<String>),
     Int(i64),
-    Real(f64),
+   // Real(f64),
     Call,
-    Binop(ExprID, ExprID),
-    Unop(ExprID),
+    Binop(Box<Expr>, Box<Expr>),
+    Unop(Box<Expr>),
     Lambda,
     String,
     Char,
     Subscript,
     Cast,
-    Field(Intern<String>),
-    Array(ExprID, ExprID),
+    Field(Box<Expr>, Intern<String>),
+    Array(Box<Expr>, Box<Expr>),
     New,
     True,
     False
