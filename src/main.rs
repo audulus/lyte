@@ -94,7 +94,22 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             }
             e
         }
-        Rule::term => build_expr(pair.into_inner().next().unwrap()),
+        Rule::term => {
+            let mut inner = pair.into_inner();
+            let mut e = build_expr(inner.next().unwrap());
+            while let Some(pair) = inner.next() {
+                match pair.as_rule() {
+                    Rule::plus => {
+                        e = Expr::Binop(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                    }
+                    Rule::minus => {
+                        e = Expr::Binop(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                    }
+                    _ => (),
+                }
+            }
+            e
+        }
         unknown_term => panic!("Unexpected term: {:?}", unknown_term),
     }
 }
