@@ -56,7 +56,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             while let Some(pair) = inner.next() {
                 match pair.as_rule() {
                     Rule::lbracket => {
-                        e = Expr::Array(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                        e = Expr::Subscript(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
                     },
                     Rule::dot => {
                         let field = Intern::new(String::from(inner.next().unwrap().as_str()));
@@ -152,8 +152,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_parse_array() {
-        expr_test("x[y]", Expr::Array(Box::new(mk_id("x")), Box::new(mk_id("y"))));
+    pub fn test_parse_subscript() {
+        expr_test("x[y]", Expr::Subscript(Box::new(mk_id("x")), Box::new(mk_id("y"))));
     }
 
     #[test]

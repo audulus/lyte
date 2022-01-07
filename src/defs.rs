@@ -30,7 +30,7 @@ pub enum Expr {
     Lambda,
     String,
     Char,
-    Subscript,
+    Subscript(Box<Expr>, Box<Expr>),
     Cast,
     Field(Box<Expr>, Intern<String>),
     Array(Box<Expr>, Box<Expr>),
