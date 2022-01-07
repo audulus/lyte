@@ -75,6 +75,10 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
                     "[" => {
                         e = Expr::Array(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
                     },
+                    "." => {
+                        let field = Intern::new(String::from(inner.next().unwrap().as_str()));
+                        e = Expr::Field(Box::new(e), field);
+                    }
                     _ => ()
                 }
             }
