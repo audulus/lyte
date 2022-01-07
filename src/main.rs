@@ -71,11 +71,11 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             let mut e = build_expr(inner.next().unwrap());
             while let Some(pair) = inner.next() {
                 println!("{:?}", pair);
-                match pair.as_str() {
-                    "[" => {
+                match pair.as_rule() {
+                    Rule::lbracket => {
                         e = Expr::Array(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
                     },
-                    "." => {
+                    Rule::dot => {
                         let field = Intern::new(String::from(inner.next().unwrap().as_str()));
                         e = Expr::Field(Box::new(e), field);
                     }
