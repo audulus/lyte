@@ -36,12 +36,14 @@ prefix = { atom ~ ( lparen ~ expr ~ rparen
                   | colon ~ ty )* }
 
 times = { "*" }
+div = { "/" }
 
-factor = { prefix ~ (times ~ factor)* }
+factor = { prefix ~ (times ~ factor | div ~ factor)* }
 
 plus = { "+" }
+minus = { "-" }
 
-term = { factor ~ (plus ~ term)* }
+term = { factor ~ (plus ~ term | minus ~ term)* }
        
 expr = _{ term }
      
