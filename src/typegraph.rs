@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::defs::*;
+use crate::types::*;
 
 type TypeNodeID = usize;
 
@@ -24,14 +24,19 @@ pub struct TypeGraph {
 }
 
 impl TypeGraph {
-
     pub fn new() -> TypeGraph {
-        return TypeGraph{ nodes: Vec::new(), constraints: Vec::new(), inst: Instance::new() }
+        return TypeGraph {
+            nodes: Vec::new(),
+            constraints: Vec::new(),
+            inst: Instance::new(),
+        };
     }
 
     pub fn add_node(&mut self) -> TypeNodeID {
         let ix = self.nodes.len();
-        self.nodes.push( TypeNode{possible: Vec::new() } );
+        self.nodes.push(TypeNode {
+            possible: Vec::new(),
+        });
         return ix;
     }
 
@@ -87,7 +92,6 @@ impl Compiler {
         b: TypeNodeID,
         loc: &Loc,
     ) -> Result<(), Loc> {
-
         // If each node has one possible type, they better unify.
         if g.nodes[a].possible.len() == 1 && g.nodes[b].possible.len() == 1 {
             if unify(g.nodes[a].possible[0], g.nodes[b].possible[0], &mut g.inst) {
@@ -122,7 +126,6 @@ impl Compiler {
         }
         Ok(())
     }
-
 }
 
 #[cfg(test)]
@@ -131,17 +134,20 @@ mod tests {
 
     #[test]
     pub fn test_typegraph() {
-        let l = Loc{ file: "".to_string(), line: 0};
+        let l = Loc {
+            file: "".to_string(),
+            line: 0,
+        };
         let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 
         let vd = mk_type(Type::Void);
 
         let a = g.add_node();
-        g.nodes[a].possible.push( vd );
+        g.nodes[a].possible.push(vd);
         let b = g.add_node();
-        g.nodes[b].possible.push( vd );
-        
+        g.nodes[b].possible.push(vd);
+
         //g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
 
         assert!(c.solved_graph(&g));
@@ -159,7 +165,10 @@ mod tests {
 
     #[test]
     pub fn test_propagate1() {
-        let l = Loc{ file: "".to_string(), line: 0};
+        let l = Loc {
+            file: "".to_string(),
+            line: 0,
+        };
         let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 

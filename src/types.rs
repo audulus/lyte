@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::defs::*;
+use std::collections::HashMap;
 
 pub type Instance = HashMap<usize, TypeID>;
 
@@ -36,16 +36,9 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     if lhs == rhs {
         true
     } else {
-        match (
-            *lhs,
-            *rhs,
-        ) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => {
-                unify(a, c, inst) && unify(b, d, inst)
-            }
-            (Type::Func(a, b), Type::Func(c, d)) => {
-                unify(a, c, inst) && unify(b, d, inst)
-            }
+        match (*lhs, *rhs) {
+            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(a, c, inst) && unify(b, d, inst),
+            (Type::Func(a, b), Type::Func(c, d)) => unify(a, c, inst) && unify(b, d, inst),
             (Type::Var(i), _) => {
                 inst.insert(i, rhs);
                 true

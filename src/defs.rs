@@ -10,7 +10,7 @@ pub enum Type {
     Tuple(TypeID, TypeID),
     Var(usize),
     Func(TypeID, TypeID),
-    Array(TypeID)
+    Array(TypeID),
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -23,7 +23,7 @@ pub struct Loc {
 pub enum Expr {
     Id(Intern<String>),
     Int(i64),
-   // Real(f64),
+    // Real(f64),
     Call(Box<Expr>, Box<Expr>),
     Binop(Box<Expr>, Box<Expr>),
     Unop(Box<Expr>),
@@ -37,7 +37,7 @@ pub enum Expr {
     New,
     True,
     False,
-    AsTy(Box<Expr>, TypeID)
+    AsTy(Box<Expr>, TypeID),
 }
 
 pub struct Compiler {
@@ -46,8 +46,6 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new() -> Compiler {
-        Compiler {
-            names: Vec::new(),
-        }
+        Compiler { names: Vec::new() }
     }
 }
