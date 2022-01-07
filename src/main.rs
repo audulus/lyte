@@ -71,7 +71,17 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             build_expr(pair.into_inner().next().unwrap())
         },
         Rule::factor => {
-            build_expr(pair.into_inner().next().unwrap())
+            let mut inner = pair.into_inner();
+            let mut e = build_expr(inner.next().unwrap());
+            while let Some(pair) = inner.next() {
+                match pair.as_rule() {
+                    Rule::times => {
+                        e = Expr::Binop(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                    },
+                    _ => ()
+                }
+            }
+            e
         },
         Rule::term => {
             build_expr(pair.into_inner().next().unwrap())
