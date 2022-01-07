@@ -51,11 +51,14 @@ expr = _{ term }
      
 block  = { "{" ~ expr* ~ "}" }
 
+structdef = { "struct "}
+enumdef = { "enum" }
+
 decl = { id ~ "(" ~ ")" ~ block                          // function with no arguments
        | id ~ "(" ~ expr ~ ")" ~ block                   // function
        | id ~ "(" ~ expr ~ ")" ~ "->" ~ ty ~ block       // function with return type
-       | "struct" ~ id ~ "{" ~ (id ~ ":" ~ ty)* ~ "}"    // struct
-       | "enum" ~ id ~ "{" ~ id* ~ "}"                   // enums
+       | structdef ~ id ~ "{" ~ (id ~ ":" ~ ty)* ~ "}"   // struct
+       | enumdef ~ id ~ "{" ~ id* ~ "}"                  // enums
        }
      
 program = { SOI ~ decl* ~ EOI }
