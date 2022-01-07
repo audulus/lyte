@@ -36,7 +36,8 @@ pub enum Expr {
     Array(Box<Expr>, Box<Expr>),
     New,
     True,
-    False
+    False,
+    AsTy(Box<Expr>, TypeID)
 }
 
 pub struct Compiler {
