@@ -68,10 +68,13 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
         },
         Rule::prefix => {
             let mut inner = pair.into_inner();
-            let e = build_expr(inner.next().unwrap());
+            let mut e = build_expr(inner.next().unwrap());
             while let Some(pair) = inner.next() {
-                match pair.as_rule() {
-
+                println!("{:?}", pair);
+                match pair.as_str() {
+                    "[" => {
+                        e = Expr::Array(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                    },
                     _ => ()
                 }
             }

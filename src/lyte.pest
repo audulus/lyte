@@ -30,7 +30,10 @@ as_ty = { ":" ~ ty }
 
 suffix = { call | index | field | as_ty }
 
-prefix = { atom ~ (suffix)* }
+lbracket = { "[" }
+rbracket = { "]" }
+
+prefix = { atom ~ ( lbracket ~ expr ~ rbracket | "." ~ id )* }
 
 factor = { prefix ~ ("*" ~ factor)* }
 
