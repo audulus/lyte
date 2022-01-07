@@ -50,22 +50,6 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             let ix = Intern::new(String::from(pair.as_str()));
             Expr::Id(ix)
         },
-        Rule::index => {
-            let mut inner = pair.into_inner();
-            let lhs = build_expr(inner.next().unwrap());
-            let rhs = build_expr(inner.next().unwrap());
-            Expr::Array(Box::new(lhs), Box::new(rhs))
-        },
-        Rule::field => {
-            let mut inner = pair.into_inner();
-            let lhs = build_expr(inner.next().unwrap());
-            inner.next(); // skip the dot
-            let ix = Intern::new(String::from(inner.next().unwrap().as_str()));
-            Expr::Field(Box::new(lhs), ix)
-        },
-        Rule::suffix => {
-            build_expr(pair.into_inner().next().unwrap())
-        },
         Rule::prefix => {
             let mut inner = pair.into_inner();
             let mut e = build_expr(inner.next().unwrap());
@@ -142,19 +126,6 @@ mod tests {
     fn expr_test(s: &str, e: Expr) {
         
         let result = LyteParser::parse(Rule::expr, &s);
-        let mut tested = false;
-        for pairs in result {
-            for p in pairs {
-                tested = true;
-                assert_eq!(build_expr(p), e);
-            }
-        }
-        assert!(tested);
-    }
-
-    fn suffix_test(s: &str, e: Expr) {
-        
-        let result = LyteParser::parse(Rule::suffix, &s);
         let mut tested = false;
         for pairs in result {
             for p in pairs {

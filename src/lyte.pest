@@ -23,12 +23,10 @@ atom = { id
        | "if" ~ expr ~ block ~ "else" ~ block
        }
 
-index = { "[" ~ expr ~ "]" }
-field = { "." ~ id }
 call = { "(" ~ expr ~ ")" }
 as_ty = { ":" ~ ty }
 
-suffix = { call | index | field | as_ty }
+// suffix = { call | index | field | as_ty }
 
 lbracket = { "[" }
 rbracket = { "]" }
