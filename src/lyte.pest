@@ -30,7 +30,10 @@ colon = { ":" }
 lparen = { "(" }
 rparen = { ")" }
 
-prefix = { atom ~ ( lparen ~ expr ~ rparen | lbracket ~ expr ~ rbracket | dot ~ id | colon ~ ty )* }
+prefix = { atom ~ ( lparen ~ expr ~ rparen
+                  | lbracket ~ expr ~ rbracket
+                  | dot ~ id
+                  | colon ~ ty )* }
 
 factor = { prefix ~ ("*" ~ factor)* }
 
