@@ -248,6 +248,6 @@ mod tests {
     #[test]
     pub fn test_parse_program() {
         let result = LyteParser::parse(Rule::program, &"f(x) { g(x) }");
-        println!("{:?}", result);
+        println!("{:#?}", result);
     }
 }
