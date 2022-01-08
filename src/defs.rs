@@ -38,12 +38,12 @@ pub enum Expr {
     True,
     False,
     AsTy(Box<Expr>, TypeID),
-    Block(Vec<Expr>)
+    Block(Vec<Expr>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {
-    pub exprs: Vec<Expr>
+    pub exprs: Vec<Expr>,
 }
 
 impl Block {
@@ -54,7 +54,7 @@ impl Block {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Decl {
-    Func(Intern<String>, Block)
+    Func(Intern<String>, Block),
 }
 
 pub struct Compiler {
