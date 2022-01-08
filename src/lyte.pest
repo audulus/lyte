@@ -58,10 +58,7 @@ arrow = { "->" }
 
 exprlist = { (expr ~ ",")* ~ expr }
 
-fndecl = { id ~ "(" ~ ")" ~ block
-         | id ~ "(" ~ exprlist ~ ")" ~ block
-         | id ~ "(" ~ exprlist ~ ")" ~ arrow ~ ty ~ block
-         }
+fndecl = { id ~ "(" ~ exprlist? ~ ")" ~ (arrow ~ ty )? ~ block }
 
 decl = { fndecl
        | structdef ~ id ~ "{" ~ (id ~ ":" ~ ty)* ~ "}"   // struct
