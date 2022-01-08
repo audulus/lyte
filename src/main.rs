@@ -40,7 +40,7 @@ fn build_type(pair: pest::iterators::Pair<Rule>) -> TypeID {
         Rule::typevar => {
             mk_type(Type::Var(0)) // XXX: for now
         }
-        _ => mk_type(Type::Void),
+        _ => unreachable!(),
     }
 }
 
