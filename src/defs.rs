@@ -41,6 +41,11 @@ pub enum Expr {
     Block(Vec<Expr>)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Stmt {
+    Func(Intern<String>, Expr)
+}
+
 pub struct Compiler {
     pub names: Vec<String>,
 }
