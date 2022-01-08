@@ -56,9 +56,11 @@ enumdef = { "enum" }
 
 arrow = { "->" }
 
+exprlist = { (expr ~ ",")* ~ expr }
+
 fndecl = { id ~ "(" ~ ")" ~ block
-         | id ~ "(" ~ expr ~ ")" ~ block
-         | id ~ "(" ~ expr ~ ")" ~ arrow ~ ty ~ block
+         | id ~ "(" ~ exprlist ~ ")" ~ block
+         | id ~ "(" ~ exprlist ~ ")" ~ arrow ~ ty ~ block
          }
 
 decl = { fndecl
