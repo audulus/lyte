@@ -249,5 +249,8 @@ mod tests {
     pub fn test_parse_program() {
         let result = LyteParser::parse(Rule::program, &"f(x) { g(x) }");
         println!("{:#?}", result);
+
+        let result2 = LyteParser::parse(Rule::program, &"f() { g(x) }");
+        println!("{:#?}", result2);
     }
 }
