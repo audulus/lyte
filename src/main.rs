@@ -114,6 +114,34 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
     }
 }
 
+fn build_block(pair: pest::iterators::Pair<Rule>) -> Block {
+
+    let mut block = Block::new();
+    let mut inner = pair.into_inner();
+    while let Some(pair) = inner.next() {
+        match pair.as_rule() {
+            Rule::expr => {
+                block.exprs.push(build_expr(pair));
+            }
+            _ => unreachable!()
+        }
+    }
+
+    block
+}
+
+fn build_fndecl(pair: pest::iterators::Pair<Rule>) -> Decl {
+    let mut inner = pair.into_inner();
+
+    let name = inner.next().unwrap().as_str();
+    let block = match inner.next().unwrap().as_rule() {
+        Rule::block => build_block(inner.next().unwrap()),
+        _ => unreachable!()
+    };
+
+    Decl::Func(Intern::new(String::from(name)), block)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

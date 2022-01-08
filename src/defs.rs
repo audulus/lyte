@@ -42,8 +42,19 @@ pub enum Expr {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Stmt {
-    Func(Intern<String>, Expr)
+pub struct Block {
+    pub exprs: Vec<Expr>
+}
+
+impl Block {
+    pub fn new() -> Block {
+        Block { exprs: vec![] }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Decl {
+    Func(Intern<String>, Block)
 }
 
 pub struct Compiler {
