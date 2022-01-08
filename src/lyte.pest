@@ -32,7 +32,7 @@ colon = { ":" }
 lparen = { "(" }
 rparen = { ")" }
 
-prefix = { atom ~ ( lparen ~ expr ~ rparen
+prefix = { atom ~ ( lparen ~ exprlist? ~ rparen
                   | lbracket ~ expr ~ rbracket
                   | dot ~ id
                   | colon ~ ty )* }
