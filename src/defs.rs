@@ -6,6 +6,7 @@ pub type TypeID = Intern<Type>;
 pub enum Type {
     Void,
     Int8,
+    UInt8,
     Int32,
     Tuple(TypeID, TypeID),
     Var(usize),
