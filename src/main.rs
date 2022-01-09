@@ -11,6 +11,11 @@ mod lexer;
 
 mod pest_parser;
 
+#[macro_use]
+extern crate lalrpop_util;
+
+mod lalrpop_parser_tests;
+
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;

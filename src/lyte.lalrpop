@@ -1,8 +1,10 @@
 
 use std::str::FromStr;
+use crate::types::*;
+use crate::defs::*;
 
 grammar;
 
-pub Type: TypeID = {
+pub Ty: TypeID = {
     "i8" => mk_type(Type::Int8)
 }
