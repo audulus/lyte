@@ -7,5 +7,6 @@ grammar;
 
 pub Ty: TypeID = {
     "i8" => mk_type(Type::Int8),
-    "u8" => mk_type(Type::UInt8)
+    "u8" => mk_type(Type::UInt8),
+    r"[a-z]+" => mk_type(Type::Var(0))
 }
