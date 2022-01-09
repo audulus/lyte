@@ -1,0 +1,8 @@
+
+use std::str::FromStr;
+
+grammar;
+
+pub Type: TypeID = {
+    "i8" => mk_type(Type::Int8)
+}
