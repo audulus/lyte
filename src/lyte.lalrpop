@@ -6,5 +6,6 @@ use crate::defs::*;
 grammar;
 
 pub Ty: TypeID = {
-    "i8" => mk_type(Type::Int8)
+    "i8" => mk_type(Type::Int8),
+    "u8" => mk_type(Type::UInt8)
 }
