@@ -6,6 +6,8 @@ mod types;
 //use types::*;
 mod typegraph;
 // use typegraph::*;
+mod lexer;
+// use lexer::*;
 
 mod pest_parser;
 
@@ -20,4 +22,3 @@ struct LyteParser;
 fn main() {
     println!("🎸")
 }
-
