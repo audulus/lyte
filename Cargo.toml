@@ -6,6 +6,9 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[build-dependencies]
+lalrpop = "0.19.6"
+
 [dependencies]
 generational-arena = "0.2"
 bumpalo= "3.7.0"
@@ -13,3 +16,5 @@ pest= "2.0"
 pest_derive= "2.0"
 # inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm12-0"] }
 internment = "0.5.5"
+lalrpop-util = "0.19.6"
+regex = "1"
