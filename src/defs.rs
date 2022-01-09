@@ -19,13 +19,21 @@ pub struct Loc {
     pub line: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Binop {
+    Plus,
+    Minus,
+    Times,
+    Div
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     Id(Intern<String>),
     Int(i64),
     // Real(f64),
     Call(Box<Expr>, Box<Expr>),
-    Binop(Box<Expr>, Box<Expr>),
+    Binop(Binop, Box<Expr>, Box<Expr>),
     Unop(Box<Expr>),
     Lambda,
     String,
