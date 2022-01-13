@@ -42,6 +42,22 @@ fn int8ty(input: &str) -> IResult<&str, TypeID> {
     map_res(tag("i8"), mkint8)(input)
 }
 
+fn mkint32(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
+    Ok(mk_type(Type::Int32))
+}
+
+fn int32ty(input: &str) -> IResult<&str, TypeID> {
+    map_res(tag("i32"), mkint32)(input)
+}
+
+fn mkfloat32(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
+    Ok(mk_type(Type::Float32))
+}
+
+fn float32ty(input: &str) -> IResult<&str, TypeID> {
+    map_res(tag("f32"), mkfloat32)(input)
+}
+
 fn mkarrayty(input: TypeID) -> Result<TypeID, std::num::ParseIntError> {
     Ok(mk_type(Type::Array(input)))
 }
@@ -54,7 +70,7 @@ fn arrayty(input: &str) -> IResult<&str, TypeID> {
 }
 
 fn ty(input: &str) -> IResult<&str, TypeID> {
-    alt((int8ty, typevar, arrayty))(input)
+    alt((int8ty, int32ty, float32ty, int32ty, typevar, arrayty))(input)
 }
 
 #[cfg(test)]
