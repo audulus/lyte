@@ -42,8 +42,19 @@ fn int8ty(input: &str) -> IResult<&str, TypeID> {
     map_res(tag("i8"), mkint8)(input)
 }
 
+fn mkarrayty(input: TypeID) -> Result<TypeID, std::num::ParseIntError> {
+    Ok(mk_type(Type::Array(input)))
+}
+
+fn arrayty(input: &str) -> IResult<&str, TypeID> {
+    map_res(
+        delimited(tag("["), ty, tag("]")),
+        mkarrayty
+    )(input)
+}
+
 fn ty(input: &str) -> IResult<&str, TypeID> {
-    alt((int8ty, typevar))(input)
+    alt((int8ty, typevar, arrayty))(input)
 }
 
 #[cfg(test)]
@@ -66,5 +77,6 @@ mod tests {
     pub fn test_parse_type() {
         assert!(ty("i8").is_ok());
         assert!(ty("⟨T⟩").is_ok());
+        // assert!(ty("[T]").is_ok());
     }
 }
