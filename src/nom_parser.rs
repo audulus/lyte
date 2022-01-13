@@ -82,6 +82,14 @@ fn ty(input: &str) -> IResult<&str, TypeID> {
     alt((int8ty, int32ty, float32ty, namedty, typevar, arrayty))(input)
 }
 
+fn mkid(input: &str) -> Result<Expr, std::num::ParseIntError> {
+    Ok(Expr::Id(Intern::new( String::from(input))))
+}
+
+fn idexp(input: &str) -> IResult<&str, Expr> {
+    map_res(identifier, mkid)(input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +120,10 @@ mod tests {
         assert!(ty("[ i8 ]").is_ok());
         assert!(ty("[ ⟨i8⟩ ]").is_ok());
         assert!(ty("foo").is_ok());
+    }
+
+    #[test]
+    pub fn test_parse_idexp() {
+        assert!(idexp("foo").is_ok());
     }
 }
