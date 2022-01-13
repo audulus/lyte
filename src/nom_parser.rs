@@ -41,5 +41,6 @@ mod tests {
     #[test]
     pub fn test_parse_typevar() {
         assert!(typevar("⟨T⟩").is_ok());
+        assert!(typevar("⟨T").is_err());
     }
 }
