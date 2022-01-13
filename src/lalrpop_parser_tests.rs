@@ -1,6 +1,3 @@
-
-
-
 lalrpop_mod!(pub lyte); // synthesized by LALRPOP
 
 #[test]

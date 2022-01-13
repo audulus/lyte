@@ -25,7 +25,7 @@ pub enum Binop {
     Plus,
     Minus,
     Times,
-    Div
+    Div,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

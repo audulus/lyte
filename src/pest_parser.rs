@@ -71,10 +71,18 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             while let Some(pair) = inner.next() {
                 match pair.as_rule() {
                     Rule::times => {
-                        e = Expr::Binop(Binop::Times, Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                        e = Expr::Binop(
+                            Binop::Times,
+                            Box::new(e),
+                            Box::new(build_expr(inner.next().unwrap())),
+                        )
                     }
                     Rule::div => {
-                        e = Expr::Binop(Binop::Div, Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                        e = Expr::Binop(
+                            Binop::Div,
+                            Box::new(e),
+                            Box::new(build_expr(inner.next().unwrap())),
+                        )
                     }
                     _ => (),
                 }
@@ -87,10 +95,18 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             while let Some(pair) = inner.next() {
                 match pair.as_rule() {
                     Rule::plus => {
-                        e = Expr::Binop(Binop::Plus, Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                        e = Expr::Binop(
+                            Binop::Plus,
+                            Box::new(e),
+                            Box::new(build_expr(inner.next().unwrap())),
+                        )
                     }
                     Rule::minus => {
-                        e = Expr::Binop(Binop::Minus, Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                        e = Expr::Binop(
+                            Binop::Minus,
+                            Box::new(e),
+                            Box::new(build_expr(inner.next().unwrap())),
+                        )
                     }
                     _ => (),
                 }
