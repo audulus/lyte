@@ -74,6 +74,11 @@ mod tests {
     }
 
     #[test]
+    pub fn test_parse_array_type() {
+        // assert!(arrayty("[T]").is_ok());
+    }
+
+    #[test]
     pub fn test_parse_type() {
         assert!(ty("i8").is_ok());
         assert!(ty("⟨T⟩").is_ok());
