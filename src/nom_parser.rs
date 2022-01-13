@@ -62,6 +62,15 @@ fn mkarrayty(input: TypeID) -> Result<TypeID, std::num::ParseIntError> {
     Ok(mk_type(Type::Array(input)))
 }
 
+fn mknamedty(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
+    // XXX
+    Ok(mk_type(Type::Name(0)))
+}
+
+fn namedty(input: &str) -> IResult<&str, TypeID> {
+    map_res(identifier, mknamedty)(input)
+}
+
 fn arrayty(input: &str) -> IResult<&str, TypeID> {
     map_res(
         delimited(tag("["), delimited(space0, ty, space0), tag("]")),
@@ -70,7 +79,7 @@ fn arrayty(input: &str) -> IResult<&str, TypeID> {
 }
 
 fn ty(input: &str) -> IResult<&str, TypeID> {
-    alt((int8ty, int32ty, float32ty, int32ty, typevar, arrayty))(input)
+    alt((int8ty, int32ty, float32ty, namedty, typevar, arrayty))(input)
 }
 
 #[cfg(test)]
@@ -102,5 +111,6 @@ mod tests {
         assert!(ty("[i8]").is_ok());
         assert!(ty("[ i8 ]").is_ok());
         assert!(ty("[ ⟨i8⟩ ]").is_ok());
+        assert!(ty("foo").is_ok());
     }
 }
