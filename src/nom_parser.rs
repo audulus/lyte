@@ -42,6 +42,10 @@ fn int8ty(input: &str) -> IResult<&str, TypeID> {
     map_res(tag("i8"), mkint8)(input)
 }
 
+fn ty(input: &str) -> IResult<&str, TypeID> {
+    alt((int8ty, typevar))(input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +60,11 @@ mod tests {
     pub fn test_parse_basic_type() {
         assert!(int8ty("i8").is_ok());
         assert!(int8ty("i32").is_err());
+    }
+
+    #[test]
+    pub fn test_parse_type() {
+        assert!(ty("i8").is_ok());
+        assert!(ty("⟨T⟩").is_ok());
     }
 }
