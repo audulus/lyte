@@ -48,7 +48,7 @@ fn mkarrayty(input: TypeID) -> Result<TypeID, std::num::ParseIntError> {
 
 fn arrayty(input: &str) -> IResult<&str, TypeID> {
     map_res(
-        delimited(tag("["), ty, tag("]")),
+        delimited(tag("["), delimited(space0, ty, space0), tag("]")),
         mkarrayty
     )(input)
 }
@@ -84,6 +84,6 @@ mod tests {
         assert!(ty("i8").is_ok());
         assert!(ty("⟨T⟩").is_ok());
         assert!(ty("[i8]").is_ok());
-        // assert!(ty("[ i8 ]").is_ok());
+        assert!(ty("[ i8 ]").is_ok());
     }
 }
