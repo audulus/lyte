@@ -1,6 +1,7 @@
 extern crate nom;
 use crate::defs::*;
 use crate::types::*;
+use internment::Intern;
 
 use nom::{
     branch::alt,
@@ -62,9 +63,8 @@ fn mkarrayty(input: TypeID) -> Result<TypeID, std::num::ParseIntError> {
     Ok(mk_type(Type::Array(input)))
 }
 
-fn mknamedty(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
-    // XXX
-    Ok(mk_type(Type::Name(0)))
+fn mknamedty(input: &str) -> Result<TypeID, std::num::ParseIntError> {
+    Ok(mk_type(Type::Name(Intern::new( String::from(input)))))
 }
 
 fn namedty(input: &str) -> IResult<&str, TypeID> {

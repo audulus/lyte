@@ -1,6 +1,7 @@
 use internment::Intern;
 
 pub type TypeID = Intern<Type>;
+pub type Name = Intern<String>;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
@@ -13,7 +14,7 @@ pub enum Type {
     Var(usize),
     Func(TypeID, TypeID),
     Array(TypeID),
-    Name(usize)
+    Name(Name)
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
