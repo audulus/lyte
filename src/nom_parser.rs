@@ -5,7 +5,7 @@ use crate::types::*;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, alphanumeric1},
+    character::complete::{alpha1, alphanumeric1, space0},
     combinator::recognize,
     combinator::map_res,
     multi::many0,
@@ -29,7 +29,7 @@ fn ty_from_id(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
 
 fn typevar(input: &str) -> IResult<&str, TypeID> {
     map_res(
-        delimited(tag("⟨"), identifier, tag("⟩")),
+        delimited(tag("⟨"), delimited(space0, identifier, space0), tag("⟩")),
         ty_from_id
     )(input)
 }
@@ -65,6 +65,7 @@ mod tests {
     pub fn test_parse_typevar() {
         assert!(typevar("⟨T⟩").is_ok());
         assert!(typevar("⟨T").is_err());
+        assert!(typevar("⟨ T ⟩").is_ok());
     }
 
     #[test]
@@ -83,5 +84,6 @@ mod tests {
         assert!(ty("i8").is_ok());
         assert!(ty("⟨T⟩").is_ok());
         assert!(ty("[i8]").is_ok());
+        // assert!(ty("[ i8 ]").is_ok());
     }
 }
