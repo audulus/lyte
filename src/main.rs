@@ -8,6 +8,7 @@ mod typegraph;
 // use typegraph::*;
 mod lexer;
 // use lexer::*;
+mod nom_parser;
 
 mod pest_parser;
 
