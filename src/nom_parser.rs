@@ -29,7 +29,17 @@ fn ty_from_id(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
 
 pub fn typevar(input: &str) -> IResult<&str, TypeID> {
     map_res(
-        delimited(tag("⟨"), tag("abc"), tag("⟩")),
+        delimited(tag("⟨"), identifier, tag("⟩")),
         ty_from_id
     )(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_parse_typevar() {
+        assert!(typevar("⟨T⟩").is_ok());
+    }
 }
