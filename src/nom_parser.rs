@@ -34,6 +34,14 @@ pub fn typevar(input: &str) -> IResult<&str, TypeID> {
     )(input)
 }
 
+fn mkint8(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
+    Ok(mk_type(Type::Int8))
+}
+
+fn int8ty(input: &str) -> IResult<&str, TypeID> {
+    map_res(tag("i8"), mkint8)(input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -42,5 +50,11 @@ mod tests {
     pub fn test_parse_typevar() {
         assert!(typevar("⟨T⟩").is_ok());
         assert!(typevar("⟨T").is_err());
+    }
+
+    #[test]
+    pub fn test_parse_basic_type() {
+        assert!(int8ty("i8").is_ok());
+        assert!(int8ty("i32").is_err());
     }
 }
