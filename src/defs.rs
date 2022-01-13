@@ -8,6 +8,7 @@ pub enum Type {
     Int8,
     UInt8,
     Int32,
+    Float32,
     Tuple(TypeID, TypeID),
     Var(usize),
     Func(TypeID, TypeID),
