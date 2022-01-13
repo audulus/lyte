@@ -85,5 +85,6 @@ mod tests {
         assert!(ty("⟨T⟩").is_ok());
         assert!(ty("[i8]").is_ok());
         assert!(ty("[ i8 ]").is_ok());
+        assert!(ty("[ ⟨i8⟩ ]").is_ok());
     }
 }
