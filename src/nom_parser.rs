@@ -6,13 +6,13 @@ use internment::Intern;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, alphanumeric1, space0, one_of},
-    combinator::recognize,
+    character::complete::{alpha1, alphanumeric1, one_of, space0},
     combinator::map_res,
+    combinator::recognize,
     multi::many0,
+    sequence::delimited,
     sequence::pair,
     IResult,
-    sequence::delimited,
 };
 
 // https://github.com/Geal/nom/blob/main/doc/choosing_a_combinator.md
@@ -33,7 +33,7 @@ fn ty_from_id(_input: &str) -> Result<TypeID, std::num::ParseIntError> {
 fn typevar(input: &str) -> IResult<&str, TypeID> {
     map_res(
         delimited(tag("⟨"), delimited(space0, identifier, space0), tag("⟩")),
-        ty_from_id
+        ty_from_id,
     )(input)
 }
 
@@ -66,7 +66,7 @@ fn mkarrayty(input: TypeID) -> Result<TypeID, std::num::ParseIntError> {
 }
 
 fn mknamedty(input: &str) -> Result<TypeID, std::num::ParseIntError> {
-    Ok(mk_type(Type::Name(Intern::new( String::from(input)))))
+    Ok(mk_type(Type::Name(Intern::new(String::from(input)))))
 }
 
 fn namedty(input: &str) -> IResult<&str, TypeID> {
@@ -76,7 +76,7 @@ fn namedty(input: &str) -> IResult<&str, TypeID> {
 fn arrayty(input: &str) -> IResult<&str, TypeID> {
     map_res(
         delimited(tag("["), delimited(space0, ty, space0), tag("]")),
-        mkarrayty
+        mkarrayty,
     )(input)
 }
 
@@ -85,7 +85,7 @@ fn ty(input: &str) -> IResult<&str, TypeID> {
 }
 
 fn mkid(input: &str) -> Result<Expr, std::num::ParseIntError> {
-    Ok(Expr::Id(Intern::new( String::from(input))))
+    Ok(Expr::Id(Intern::new(String::from(input))))
 }
 
 fn idexp(input: &str) -> IResult<&str, Expr> {
@@ -93,15 +93,15 @@ fn idexp(input: &str) -> IResult<&str, Expr> {
 }
 
 fn atom(input: &str) -> IResult<&str, Expr> {
-    alt((idexp,idexp))(input)
+    alt((idexp, idexp))(input)
 }
 
 fn fold_binop(initial: Expr, remainder: Vec<(Binop, Expr)>) -> Expr {
     remainder.into_iter().fold(initial, |acc, pair| {
-      let (oper, expr) = pair;
-      Expr::Binop(oper, Box::new(acc), Box::new(expr))
+        let (oper, expr) = pair;
+        Expr::Binop(oper, Box::new(acc), Box::new(expr))
     })
-  }
+}
 
 fn prefix(input: &str) -> IResult<&str, Expr> {
     let (i, lhs) = atom(input)?;
@@ -109,10 +109,16 @@ fn prefix(input: &str) -> IResult<&str, Expr> {
     let (i2, t) = one_of("([.:")(i)?;
 
     match t {
-        '.' => map_res(identifier, |fieldname| -> Result<Expr, std::num::ParseIntError> {
-            Ok(Expr::Field(Box::new(lhs.clone()), Intern::new( String::from(fieldname))))
-        })(i2),
-        _ => unreachable!() // XXX for now
+        '.' => map_res(
+            identifier,
+            |fieldname| -> Result<Expr, std::num::ParseIntError> {
+                Ok(Expr::Field(
+                    Box::new(lhs.clone()),
+                    Intern::new(String::from(fieldname)),
+                ))
+            },
+        )(i2),
+        _ => unreachable!(), // XXX for now
     }
 }
 
