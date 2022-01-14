@@ -14,7 +14,7 @@ pub enum Type {
     Var(usize),
     Func(TypeID, TypeID),
     Array(TypeID),
-    Name(Name)
+    Name(Name),
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
