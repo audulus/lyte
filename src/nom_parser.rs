@@ -17,6 +17,8 @@ use nom::{
 
 // https://github.com/Geal/nom/blob/main/doc/choosing_a_combinator.md
 
+// https://github.com/Geal/nom/blob/main/tests/arithmetic_ast.rs
+
 fn identifier(input: &str) -> IResult<&str, &str> {
     recognize(pair(
         alt((alpha1, tag("_"))),
