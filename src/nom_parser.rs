@@ -6,7 +6,7 @@ use internment::Intern;
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{alpha1, alphanumeric1, space0},
+    character::complete::{alpha1, alphanumeric1, space0, one_of},
     combinator::recognize,
     combinator::map_res,
     multi::many0,
@@ -88,6 +88,23 @@ fn mkid(input: &str) -> Result<Expr, std::num::ParseIntError> {
 
 fn idexp(input: &str) -> IResult<&str, Expr> {
     map_res(identifier, mkid)(input)
+}
+
+fn atom(input: &str) -> IResult<&str, Expr> {
+    alt((idexp,idexp))(input)
+}
+
+fn prefix(input: &str) -> IResult<&str, Expr> {
+    let (i, lhs) = atom(input)?;
+
+    let (i2, t) = one_of("([.:")(i)?;
+
+    match t {
+        '.' => map_res(identifier, |fieldname| -> Result<Expr, std::num::ParseIntError> {
+            Ok(Expr::Field(Box::new(lhs.clone()), Intern::new( String::from(fieldname))))
+        })(i2),
+        _ => unreachable!() // XXX for now
+    }
 }
 
 #[cfg(test)]
