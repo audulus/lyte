@@ -96,6 +96,13 @@ fn atom(input: &str) -> IResult<&str, Expr> {
     alt((idexp,idexp))(input)
 }
 
+fn fold_binop(initial: Expr, remainder: Vec<(Binop, Expr)>) -> Expr {
+    remainder.into_iter().fold(initial, |acc, pair| {
+      let (oper, expr) = pair;
+      Expr::Binop(oper, Box::new(acc), Box::new(expr))
+    })
+  }
+
 fn prefix(input: &str) -> IResult<&str, Expr> {
     let (i, lhs) = atom(input)?;
 
