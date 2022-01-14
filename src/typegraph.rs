@@ -24,12 +24,12 @@ pub struct TypeGraph {
 }
 
 impl TypeGraph {
-    pub fn new() -> TypeGraph {
-        return TypeGraph {
-            nodes: Vec::new(),
-            constraints: Vec::new(),
+    pub fn new() -> Self {
+        Self {
+            nodes: vec![],
+            constraints: vec![],
             inst: Instance::new(),
-        };
+        }
     }
 
     pub fn add_node(&mut self) -> TypeNodeID {
@@ -37,7 +37,7 @@ impl TypeGraph {
         self.nodes.push(TypeNode {
             possible: Vec::new(),
         });
-        return ix;
+        ix
     }
 
     pub fn add_constraint(&mut self, c: &Constraint) {
@@ -64,16 +64,17 @@ impl Compiler {
     }
 
     pub fn solved_graph(&self, g: &TypeGraph) -> bool {
-        for n in &g.nodes {
-            if n.possible.len() != 1 || !solved(n.possible[0]) {
-                return false;
-            }
-        }
-        return true;
+        g.nodes.iter().all(|n| n.possible.len() == 1 && solved(n.possible[0]))
+        // for n in &g.nodes {
+        //     if n.possible.len() != 1 || !solved(n.possible[0]) {
+        //         return false;
+        //     }
+        // }
+        // return true;
     }
 
-    fn prune(&mut self, v: &Vec<TypeID>, t0: TypeID) -> Vec<TypeID> {
-        let mut result = Vec::new();
+    fn prune(&mut self, v: &[TypeID], t0: TypeID) -> Vec<TypeID> {
+        let mut result = vec![];
 
         for t in v {
             let mut inst = Instance::new();
@@ -82,7 +83,7 @@ impl Compiler {
             }
         }
 
-        return result;
+        result
     }
 
     pub fn propagate_eq(
@@ -117,7 +118,7 @@ impl Compiler {
             }
         }
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn propagate(&mut self, g: &mut TypeGraph) -> Result<(), Loc> {

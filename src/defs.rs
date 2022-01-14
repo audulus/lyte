@@ -59,8 +59,8 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn new() -> Block {
-        Block { exprs: vec![] }
+    pub fn new() -> Self {
+        Self { exprs: vec![] }
     }
 }
 
@@ -74,7 +74,7 @@ pub struct Compiler {
 }
 
 impl Compiler {
-    pub fn new() -> Compiler {
-        Compiler { names: Vec::new() }
+    pub fn new() -> Self {
+        Self { names: vec![] }
     }
 }

@@ -12,8 +12,8 @@ mod nom_parser;
 
 mod pest_parser;
 
-#[macro_use]
-extern crate lalrpop_util;
+// #[macro_use]
+// extern crate lalrpop_util;
 
 mod lalrpop_parser_tests;
 
