@@ -32,9 +32,9 @@ pub enum Token {
     TokMod,
     Lmath,
     Rmath,
-    TokIf,
-    TokElse,
-    TokWhile,
+    If,
+    Else,
+    While,
     TokAs,
     TokVar,
     TokLet,
@@ -102,7 +102,14 @@ impl Lexer {
                 id.push(bytes[self.i] as char);
                 self.i += 1;
             }
-            return Token::Id(id);
+
+            // Check against keywords.
+            return match id.as_str() {
+                "if" => Token::If,
+                "else" => Token::Else,
+                "while" => Token::While,
+                _ => Token::Id(id)
+            };
         }
 
         // Numbers.
