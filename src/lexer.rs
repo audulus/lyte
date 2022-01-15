@@ -222,6 +222,7 @@ mod tests {
         use Token::*;
         assert_eq!(tokens(""), vec![]);
         assert_eq!(tokens(" "), vec![]);
+        assert_eq!(tokens("\n"), vec![]);
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
         assert_eq!(tokens("42"), vec![Real(42.0)]);
