@@ -1,5 +1,5 @@
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Id(String),
     Integer(i64),
@@ -195,4 +195,48 @@ impl Lexer {
         self.tok = self._next();
         self.tok.clone()
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    fn tokens(expr: &str) -> Vec<Token> {
+        let mut lex = Lexer::new(&String::from(expr));
+
+        let mut toks = vec![];
+        let mut tok = lex.next();
+        while tok != Token::End {
+            toks.push(tok);
+            tok = lex.next();
+        }
+        toks
+    }
+
+    fn id(s: &str) -> Token {
+        Token::Id(String::from(s))
+    }
+
+    #[test]
+    fn test_lexer() {
+
+        use Token::*;
+        assert_eq!(tokens(""), vec![]);
+        assert_eq!(tokens(" "), vec![]);
+        assert_eq!(tokens("x"), vec![id("x")]);
+        assert_eq!(tokens(" x "), vec![id("x")]);
+        assert_eq!(tokens("42"), vec![Real(42.0)]);
+        assert_eq!(tokens("3.14159"), vec![Real(3.14159)]);
+        assert_eq!(tokens(".5"), vec![Real(0.5)]);
+        assert_eq!(tokens("2 + 2"), vec![ Real(2.0), Plus, Real(2.0)]);
+        assert_eq!(tokens("foo()"), vec![ id("foo"), Lparen, Rparen]);
+        assert_eq!(tokens("x <= y"), vec![ id("x"), Leq, id("y")]);
+        assert_eq!(tokens("x >= y"), vec![ id("x"), Geq, id("y")]);
+        assert_eq!(tokens("x != y"), vec![ id("x"), NotEqual, id("y")]);
+        assert_eq!(tokens("."), vec![Dot]);
+        assert_eq!(tokens("((x))"), vec![Lparen, Lparen, id("x"), Rparen, Rparen]);
+        assert_eq!(tokens("1x"), vec![ Real(1.0), id("x")]);
+    }
+
 }
