@@ -144,6 +144,10 @@ impl Lexer {
         return match c {
             '(' => Token::Lparen,
             ')' => Token::Rparen,
+            '[' => Token::Lbracket,
+            ']' => Token::Rbracket,
+            '{' => Token::Lbrace,
+            '}' => Token::Rbrace,
             ',' => Token::Comma,
             '+' => Token::Plus,
             '-' => Token::Minus,
