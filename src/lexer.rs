@@ -66,16 +66,16 @@ pub enum Token {
 }
 
 pub struct Lexer {
-    expr: String,
+    code: String,
     pub i: usize,
     pub tok: Token
 }
 
 impl Lexer {
 
-    pub fn new(expr: &String) -> Self {
+    pub fn new(code: &String) -> Self {
         Lexer {
-            expr: expr.clone(),
+            code: code.clone(),
             i: 0,
             tok: Token::Error
         }
@@ -83,7 +83,7 @@ impl Lexer {
 
     fn _next(&mut self) -> Token {
 
-        let bytes = self.expr.as_bytes();
+        let bytes = self.code.as_bytes();
 
         // Skip whitespace
         while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
@@ -98,7 +98,7 @@ impl Lexer {
         // Identifier.
         if bytes[self.i].is_ascii_alphabetic() {
             let mut id = String::new();
-            while self.i < self.expr.len() && bytes[self.i].is_ascii_alphanumeric() {
+            while self.i < self.code.len() && bytes[self.i].is_ascii_alphanumeric() {
                 id.push(bytes[self.i] as char);
                 self.i += 1;
             }
@@ -114,11 +114,11 @@ impl Lexer {
 
         // Numbers.
         if bytes[self.i].is_ascii_digit()
-        || (bytes[self.i] == ('.' as u8) && self.i+1 < self.expr.len() && bytes[self.i+1].is_ascii_digit()) {
+        || (bytes[self.i] == ('.' as u8) && self.i+1 < self.code.len() && bytes[self.i+1].is_ascii_digit()) {
             let start = self.i;
             let mut fraction = false;
             
-            while self.i < self.expr.len() {
+            while self.i < self.code.len() {
                 if bytes[self.i] == ('.' as u8) {
                     if fraction {
                         break
@@ -131,7 +131,7 @@ impl Lexer {
                 self.i += 1;
             }
 
-            let sl = &self.expr[start..self.i];
+            let sl = &self.code[start..self.i];
             let x = sl.parse::<f64>();
             if x.is_err() {
                 return Token::Error;
