@@ -188,6 +188,21 @@ impl Lexer {
                     Token::Error
                 }
             }
+            '\u{e2}' => {
+                if bytes[self.i] == 159 {
+                    if bytes[self.i+1] == 168 {
+                        self.i += 2;
+                        Token::Lmath
+                    } else if bytes[self.i+1] == 169 {
+                        self.i += 2;
+                        Token::Rmath
+                    } else {
+                        Token::Error
+                    }
+                } else {
+                    Token::Error
+                }
+            }
             _ => Token::Error
         }
     }
@@ -242,7 +257,8 @@ mod tests {
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
         assert_eq!(tokens("i32"), vec![Int32]);
-        // assert_eq!(tokens("⟨"), vec![Lmath]);
+        assert_eq!(tokens("⟨"), vec![Lmath]);
+        assert_eq!(tokens("⟩"), vec![Rmath]);
     }
 
 }
