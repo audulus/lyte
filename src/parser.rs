@@ -20,7 +20,7 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
 
 fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
 
-    Ok(mk_type(match lexer.tok {
+    Ok(mk_type(match &lexer.tok {
         Token::Void => Type::Void,
         Token::Int8 => Type::Int8,
         Token::Int32 => Type::Int32,
@@ -45,6 +45,9 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             expect(lexer, Token::Rbracket)?;
             Type::Array(r)
         },
+        Token::Id(name) => {
+            Type::Name(Intern::new(name.clone()))
+        }
         _ => unreachable!()
     }))
 }
