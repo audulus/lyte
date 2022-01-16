@@ -16,3 +16,21 @@ fn parse_basic_type(lexer: &mut Lexer) -> TypeID {
         _ => unreachable!()
     })
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    fn type_parser(string: &str) -> TypeID {
+        let mut lexer = Lexer::new(&String::from(string));
+        lexer.next();
+        parse_basic_type(&mut lexer)
+    }
+
+    #[test]
+    fn test_parse_type() {
+        assert_eq!(type_parser("void"), mk_type(Type::Void));
+    }
+
+}
