@@ -1,4 +1,3 @@
-
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Id(String),
@@ -66,21 +65,19 @@ pub enum Token {
 pub struct Lexer {
     code: String,
     pub i: usize,
-    pub tok: Token
+    pub tok: Token,
 }
 
 impl Lexer {
-
     pub fn new(code: &String) -> Self {
         Lexer {
             code: code.clone(),
             i: 0,
-            tok: Token::Error
+            tok: Token::Error,
         }
     }
 
     fn _next(&mut self) -> Token {
-
         let bytes = self.code.as_bytes();
 
         // Skip whitespace
@@ -109,24 +106,27 @@ impl Lexer {
                 "void" => Token::Void,
                 "i8" => Token::Int8,
                 "i32" => Token::Int32,
-                _ => Token::Id(id)
+                _ => Token::Id(id),
             };
         }
 
         // Numbers.
         if bytes[self.i].is_ascii_digit()
-        || (bytes[self.i] == ('.' as u8) && self.i+1 < self.code.len() && bytes[self.i+1].is_ascii_digit()) {
+            || (bytes[self.i] == ('.' as u8)
+                && self.i + 1 < self.code.len()
+                && bytes[self.i + 1].is_ascii_digit())
+        {
             let start = self.i;
             let mut fraction = false;
-            
+
             while self.i < self.code.len() {
                 if bytes[self.i] == ('.' as u8) {
                     if fraction {
-                        break
+                        break;
                     }
                     fraction = true
                 } else if !bytes[self.i].is_ascii_digit() {
-                    break
+                    break;
                 }
 
                 self.i += 1;
@@ -190,10 +190,10 @@ impl Lexer {
             }
             '\u{e2}' => {
                 if bytes[self.i] == 159 {
-                    if bytes[self.i+1] == 168 {
+                    if bytes[self.i + 1] == 168 {
                         self.i += 2;
                         Token::Lmath
-                    } else if bytes[self.i+1] == 169 {
+                    } else if bytes[self.i + 1] == 169 {
                         self.i += 2;
                         Token::Rmath
                     } else {
@@ -203,8 +203,8 @@ impl Lexer {
                     Token::Error
                 }
             }
-            _ => Token::Error
-        }
+            _ => Token::Error,
+        };
     }
 
     pub fn next(&mut self) -> Token {
@@ -236,7 +236,6 @@ mod tests {
 
     #[test]
     fn test_lexer() {
-
         use Token::*;
         assert_eq!(tokens(""), vec![]);
         assert_eq!(tokens(" "), vec![]);
@@ -246,19 +245,21 @@ mod tests {
         assert_eq!(tokens("42"), vec![Real(42.0)]);
         assert_eq!(tokens("3.14159"), vec![Real(3.14159)]);
         assert_eq!(tokens(".5"), vec![Real(0.5)]);
-        assert_eq!(tokens("2 + 2"), vec![ Real(2.0), Plus, Real(2.0)]);
-        assert_eq!(tokens("foo()"), vec![ id("foo"), Lparen, Rparen]);
-        assert_eq!(tokens("x <= y"), vec![ id("x"), Leq, id("y")]);
-        assert_eq!(tokens("x >= y"), vec![ id("x"), Geq, id("y")]);
-        assert_eq!(tokens("x != y"), vec![ id("x"), NotEqual, id("y")]);
+        assert_eq!(tokens("2 + 2"), vec![Real(2.0), Plus, Real(2.0)]);
+        assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
+        assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
+        assert_eq!(tokens("x >= y"), vec![id("x"), Geq, id("y")]);
+        assert_eq!(tokens("x != y"), vec![id("x"), NotEqual, id("y")]);
         assert_eq!(tokens("."), vec![Dot]);
-        assert_eq!(tokens("((x))"), vec![Lparen, Lparen, id("x"), Rparen, Rparen]);
-        assert_eq!(tokens("1x"), vec![ Real(1.0), id("x")]);
+        assert_eq!(
+            tokens("((x))"),
+            vec![Lparen, Lparen, id("x"), Rparen, Rparen]
+        );
+        assert_eq!(tokens("1x"), vec![Real(1.0), id("x")]);
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
         assert_eq!(tokens("i32"), vec![Int32]);
         assert_eq!(tokens("⟨"), vec![Lmath]);
         assert_eq!(tokens("⟩"), vec![Rmath]);
     }
-
 }
