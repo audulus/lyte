@@ -242,6 +242,7 @@ mod tests {
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
         assert_eq!(tokens("i32"), vec![Int32]);
+        // assert_eq!(tokens("⟨"), vec![Lmath]);
     }
 
 }
