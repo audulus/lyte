@@ -38,6 +38,13 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             }
             
         },
+        Token::Lbracket => {
+            lexer.next();
+            let r = parse_basic_type(lexer)?;
+            lexer.next();
+            expect(lexer, Token::Rbracket)?;
+            Type::Array(r)
+        },
         _ => unreachable!()
     }))
 }
@@ -59,6 +66,7 @@ mod tests {
         assert_eq!(type_parser("i8"), mk_type(Type::Int8));
         assert_eq!(type_parser("i32"), mk_type(Type::Int32));
         assert_eq!(type_parser("⟨T⟩"), typevar("T"));
+        assert_eq!(type_parser("[i32]"), mk_type(Type::Array(mk_type(Type::Int32))));
     }
 
 }
