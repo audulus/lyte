@@ -1,7 +1,7 @@
 use crate::defs::*;
 use std::collections::HashMap;
 
-pub type Instance = HashMap<Name, TypeID>;
+pub type Instance = HashMap<String, TypeID>;
 
 use internment::Intern;
 
@@ -19,7 +19,7 @@ pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
             let nt = Type::Tuple(subst(a, inst), subst(b, inst));
             mk_type(nt)
         }
-        Type::Var(i) => match inst.get(&i) {
+        Type::Var(i) => match inst.get(i.as_ref()) {
             Some(t0) => *t0,
             None => t,
         },
@@ -44,11 +44,11 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
             (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(a, c, inst) && unify(b, d, inst),
             (Type::Func(a, b), Type::Func(c, d)) => unify(a, c, inst) && unify(b, d, inst),
             (Type::Var(i), _) => {
-                inst.insert(i, rhs);
+                inst.insert(i.as_ref().clone(), rhs);
                 true
             }
             (_, Type::Var(i)) => {
-                inst.insert(i, lhs);
+                inst.insert(i.as_ref().clone(), lhs);
                 true
             }
             _ => false,
@@ -81,11 +81,9 @@ mod tests {
         let var = typevar("T");
         assert!(unify(var, int8, &mut inst));
 
-        /*
-        match inst.get(&var) {
+        match inst.get("T") {
             Some(t) => assert_eq!(*t, int8),
             None => assert!(false),
         }
-        */
     }
 }
