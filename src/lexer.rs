@@ -106,6 +106,7 @@ impl Lexer {
                 "if" => Token::If,
                 "else" => Token::Else,
                 "while" => Token::While,
+                "void" => Token::Void,
                 _ => Token::Id(id)
             };
         }
@@ -236,6 +237,7 @@ mod tests {
         assert_eq!(tokens("."), vec![Dot]);
         assert_eq!(tokens("((x))"), vec![Lparen, Lparen, id("x"), Rparen, Rparen]);
         assert_eq!(tokens("1x"), vec![ Real(1.0), id("x")]);
+        assert_eq!(tokens("void"), vec![Void]);
     }
 
 }
