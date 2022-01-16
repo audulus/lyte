@@ -31,6 +31,7 @@ mod tests {
     #[test]
     fn test_parse_type() {
         assert_eq!(type_parser("void"), mk_type(Type::Void));
+        assert_eq!(type_parser("i8"), mk_type(Type::Int8));
     }
 
 }
