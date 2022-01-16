@@ -108,6 +108,7 @@ impl Lexer {
                 "while" => Token::While,
                 "void" => Token::Void,
                 "i8" => Token::Int8,
+                "i32" => Token::Int32,
                 _ => Token::Id(id)
             };
         }
@@ -240,6 +241,7 @@ mod tests {
         assert_eq!(tokens("1x"), vec![ Real(1.0), id("x")]);
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
+        assert_eq!(tokens("i32"), vec![Int32]);
     }
 
 }
