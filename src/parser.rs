@@ -2,6 +2,7 @@
 use crate::defs::*;
 use crate::lexer::*;
 use crate::types::*;
+use internment::Intern;
 
 #[derive(Clone, Debug)]
 struct ParseError {
@@ -26,16 +27,16 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         Token::Lmath => {
 
             lexer.next();
-            if let Token::Id(_name) = &lexer.tok {
+            if let Token::Id(name) = lexer.tok.clone() {
+                lexer.next();
 
+                expect(lexer, Token::Rmath)?;
+                
+                return Ok(typevar(&name));
             } else {
                 return Err(ParseError{location: lexer.i, message: String::from("Expected identifier")});
             }
-
-            lexer.next();
-
-            expect(lexer, Token::Rmath)?;
-            Type::Var(0)
+            
         },
         _ => unreachable!()
     }))
@@ -57,7 +58,7 @@ mod tests {
         assert_eq!(type_parser("void"), mk_type(Type::Void));
         assert_eq!(type_parser("i8"), mk_type(Type::Int8));
         assert_eq!(type_parser("i32"), mk_type(Type::Int32));
-        assert_eq!(type_parser("⟨T⟩"), mk_type(Type::Var(0)));
+        assert_eq!(type_parser("⟨T⟩"), typevar("T"));
     }
 
 }

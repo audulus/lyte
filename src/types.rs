@@ -1,12 +1,16 @@
 use crate::defs::*;
 use std::collections::HashMap;
 
-pub type Instance = HashMap<usize, TypeID>;
+pub type Instance = HashMap<Name, TypeID>;
 
 use internment::Intern;
 
 pub fn mk_type(proto: Type) -> TypeID {
     Intern::new(proto)
+}
+
+pub fn typevar(name: &str) -> TypeID {
+    mk_type(Type::Var(Intern::from(&String::from(name))))
 }
 
 pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
@@ -74,12 +78,14 @@ mod tests {
         assert!(unify(vd, vd, &mut inst));
         assert!(!unify(vd, int8, &mut inst));
 
-        let var = mk_type(Type::Var(0));
+        let var = typevar("T");
         assert!(unify(var, int8, &mut inst));
 
-        match inst.get(&0) {
+        /*
+        match inst.get(&var) {
             Some(t) => assert_eq!(*t, int8),
             None => assert!(false),
         }
+        */
     }
 }

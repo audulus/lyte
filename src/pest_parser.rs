@@ -25,7 +25,7 @@ fn build_type(pair: pest::iterators::Pair<Rule>) -> TypeID {
             mk_type(Type::Array(id))
         }
         Rule::typevar => {
-            mk_type(Type::Var(0)) // XXX: for now
+            typevar("T") // XXX: for now
         }
         _ => unreachable!(),
     }
@@ -178,7 +178,7 @@ mod tests {
         let id = mk_type(Type::Array(int8));
         type_test("[i8]", id);
 
-        let id2 = mk_type(Type::Var(0));
+        let id2 = typevar("T");
         type_test("⟨T⟩", id2);
         type_test("⟨ T ⟩", id2);
     }

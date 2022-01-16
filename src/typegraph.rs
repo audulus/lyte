@@ -154,7 +154,7 @@ mod tests {
         assert!(c.solved_graph(&g));
 
         let v = g.add_node();
-        g.nodes[v].possible.push(mk_type(Type::Var(0)));
+        g.nodes[v].possible.push(typevar("T"));
 
         assert!(!c.solved_graph(&g));
 
@@ -175,7 +175,7 @@ mod tests {
 
         let int32 = mk_type(Type::Int32);
 
-        let v = mk_type(Type::Var(0));
+        let v = typevar("T");
         let a = g.add_node();
         g.nodes[a].possible.push(v);
         let b = g.add_node();

@@ -11,7 +11,7 @@ pub enum Type {
     Int32,
     Float32,
     Tuple(TypeID, TypeID),
-    Var(usize),
+    Var(Name),
     Func(TypeID, TypeID),
     Array(TypeID),
     Name(Name),
