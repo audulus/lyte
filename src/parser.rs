@@ -26,6 +26,11 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         Token::Lmath => {
 
             lexer.next();
+            if let Token::Id(_name) = &lexer.tok {
+
+            } else {
+                return Err(ParseError{location: lexer.i, message: String::from("Expected identifier")});
+            }
 
             lexer.next();
 
