@@ -57,6 +57,44 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     }))
 }
 
+fn parse_rel(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let mut lhs = parse_sum(lexer)?;
+
+    while lexer.tok == Token::Leq || lexer.tok == Token::Geq || lexer.tok == Token::Less ||
+           lexer.tok == Token::Greater {
+        let t = lexer.tok.clone();
+        lexer.next();
+        let rhs = parse_sum(lexer)?;
+
+        let op = match t {
+            Token::Leq => Binop::Leq,
+            Token::Geq => Binop::Geq,
+            Token::Less => Binop::Less,
+            Token::Greater => Binop::Greater,
+            _ => unreachable!()
+        };
+
+        lhs = Expr::Binop(op, Box::new(lhs), Box::new(rhs))
+    }
+
+    Ok(lhs)
+}
+
+fn parse_sum(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let mut lhs = parse_term(lexer)?;
+
+    while lexer.tok == Token::Plus || lexer.tok == Token::Minus {
+        let t = lexer.tok.clone();
+        lexer.next();
+        let rhs = parse_term(lexer)?;
+
+        lhs = Expr::Binop(if t == Token::Plus { Binop::Plus } else { Binop::Minus },
+                          Box::new(lhs), Box::new(rhs))
+    }
+
+    Ok(lhs)
+}
+
 fn parse_term(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     let mut lhs = parse_exp(lexer)?;
 
