@@ -180,6 +180,16 @@ fn parse_factor(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     Ok(match &lexer.tok {
         Token::Id(id) => Expr::Id(Intern::new(id.clone())),
+        Token::Lparen => {
+
+            lexer.next();
+            let rr = parse_expr(lexer)?;
+            expect(lexer, Token::Rparen)?;
+
+            lexer.next();
+            rr
+
+        },
         _ => return Err(ParseError {
             location: lexer.i,
             message: String::from("Expected expression")
