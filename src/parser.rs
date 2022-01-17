@@ -57,6 +57,35 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     }))
 }
 
+fn parse_term(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let mut lhs = parse_exp(lexer)?;
+
+    while lexer.tok == Token::Mult || lexer.tok == Token::Div {
+        let t = lexer.tok.clone();
+        lexer.next();
+        let rhs = parse_exp(lexer)?;
+
+        lhs = Expr::Binop(if t == Token::Mult { Binop::Times } else { Binop::Div},
+                          Box::new(lhs), Box::new(rhs))
+    }
+
+    Ok(lhs)
+}
+
+fn parse_exp(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let mut lhs = parse_factor(lexer)?;
+    
+    while lexer.tok == Token::Power {
+        lexer.next();
+
+        let rhs = parse_factor(lexer)?;
+
+        lhs = Expr::Binop(Binop::Pow, Box::new(lhs), Box::new(rhs))
+    }
+
+    Ok(lhs)
+}
+
 fn parse_factor(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     if lexer.tok == Token::Minus {
         lexer.next();
