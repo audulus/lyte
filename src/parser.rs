@@ -57,6 +57,24 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     }))
 }
 
+fn binop(tok: &Token, lhs: Expr, rhs: Expr) -> Expr {
+
+    let op = match tok {
+        Token::Plus => Binop::Plus,
+        Token::Minus => Binop::Minus,
+        Token::Leq => Binop::Leq,
+        Token::Geq => Binop::Geq,
+        Token::Less => Binop::Less,
+        Token::Greater => Binop::Greater,
+        Token::Equal => Binop::Equal,
+        Token::NotEqual => Binop::NotEqual,
+        Token::Power => Binop::Pow,
+        _ => unreachable!()
+    };
+
+    Expr::Binop(op, Box::new(lhs), Box::new(rhs))
+}
+
 fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     let mut r = parse_eq(lexer)?;
 
@@ -68,7 +86,7 @@ fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
 
         let if_false = parse_expr(lexer)?;
-        r = Expr::Binop(Binop::Cond, Box::new(if_true), Box::new(if_false))
+        r = binop(&Token::Cond, if_true, if_false);
     }
 
     Ok(r)
@@ -82,13 +100,7 @@ fn parse_eq(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let rhs = parse_rel(lexer)?;
 
-        let op = match t {
-            Token::Equal => Binop::Equal,
-            Token::NotEqual => Binop::NotEqual,
-            _ => unreachable!()
-        };
-
-        lhs = Expr::Binop(op, Box::new(lhs), Box::new(rhs))
+        lhs = binop(&t, lhs, rhs)
     }
 
     Ok(lhs)
@@ -103,15 +115,7 @@ fn parse_rel(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let rhs = parse_sum(lexer)?;
 
-        let op = match t {
-            Token::Leq => Binop::Leq,
-            Token::Geq => Binop::Geq,
-            Token::Less => Binop::Less,
-            Token::Greater => Binop::Greater,
-            _ => unreachable!()
-        };
-
-        lhs = Expr::Binop(op, Box::new(lhs), Box::new(rhs))
+        lhs = binop(&t, lhs, rhs)
     }
 
     Ok(lhs)
@@ -125,8 +129,7 @@ fn parse_sum(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let rhs = parse_term(lexer)?;
 
-        lhs = Expr::Binop(if t == Token::Plus { Binop::Plus } else { Binop::Minus },
-                          Box::new(lhs), Box::new(rhs))
+        lhs = binop(&t, lhs, rhs)
     }
 
     Ok(lhs)
@@ -140,8 +143,7 @@ fn parse_term(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let rhs = parse_exp(lexer)?;
 
-        lhs = Expr::Binop(if t == Token::Mult { Binop::Times } else { Binop::Div},
-                          Box::new(lhs), Box::new(rhs))
+        lhs = binop(&t, lhs, rhs)
     }
 
     Ok(lhs)
@@ -155,7 +157,7 @@ fn parse_exp(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
         let rhs = parse_factor(lexer)?;
 
-        lhs = Expr::Binop(Binop::Pow, Box::new(lhs), Box::new(rhs))
+        lhs = binop(&Token::Power, lhs, rhs)
     }
 
     Ok(lhs)
