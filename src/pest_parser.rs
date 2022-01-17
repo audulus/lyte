@@ -43,7 +43,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
             while let Some(pair) = inner.next() {
                 match pair.as_rule() {
                     Rule::lparen => {
-                        e = Expr::Call(Box::new(e), Box::new(build_expr(inner.next().unwrap())))
+                        e = Expr::Call(Box::new(e), vec![])
                     }
                     Rule::lbracket => {
                         e = Expr::Subscript(

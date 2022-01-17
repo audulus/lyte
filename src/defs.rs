@@ -44,7 +44,7 @@ pub enum Expr {
     Id(Intern<String>),
     Int(i64),
     // Real(f64),
-    Call(Box<Expr>, Box<Expr>),
+    Call(Box<Expr>, Vec<Expr>),
     Binop(Binop, Box<Expr>, Box<Expr>),
     Unop(Box<Expr>),
     Lambda,
