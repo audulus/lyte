@@ -57,6 +57,43 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     }))
 }
 
+fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let mut r = parse_eq(lexer)?;
+
+    while lexer.tok == Token::Cond {
+        lexer.next();
+        let if_true = parse_expr(lexer)?;
+
+        expect(lexer, Token::Colon)?;
+        lexer.next();
+
+        let if_false = parse_expr(lexer)?;
+        r = Expr::Binop(Binop::Cond, Box::new(if_true), Box::new(if_false))
+    }
+
+    Ok(r)
+}
+
+fn parse_eq(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let mut lhs = parse_rel(lexer)?;
+
+    while lexer.tok == Token::Equal || lexer.tok == Token::NotEqual {
+        let t = lexer.tok.clone();
+        lexer.next();
+        let rhs = parse_rel(lexer)?;
+
+        let op = match t {
+            Token::Equal => Binop::Equal,
+            Token::NotEqual => Binop::NotEqual,
+            _ => unreachable!()
+        };
+
+        lhs = Expr::Binop(op, Box::new(lhs), Box::new(rhs))
+    }
+
+    Ok(lhs)
+}
+
 fn parse_rel(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     let mut lhs = parse_sum(lexer)?;
 
