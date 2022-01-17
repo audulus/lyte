@@ -50,7 +50,10 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             Type::Array(r)
         }
         Token::Id(name) => Type::Name(Intern::new(name.clone())),
-        _ => unreachable!(),
+        _ => return Err(ParseError {
+            location: lexer.i,
+            message: String::from("Expected type")
+        })
     }))
 }
 
