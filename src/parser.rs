@@ -174,7 +174,20 @@ fn parse_factor(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         return parse_atom(lexer);
     }
 
-    parse_atom(lexer)
+    parse_postfix(lexer)
+}
+
+fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    let lhs = parse_atom(lexer)?;
+
+    if lexer.tok == Token::Lparen {
+        lexer.next();
+        let args = parse_exprlist(lexer)?;
+        expect(lexer, Token::Rparen)?;
+        Ok(Expr::Call(Box::new(lhs), args))
+    } else {
+        Ok(lhs)
+    }
 }
 
 fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
