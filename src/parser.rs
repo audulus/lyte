@@ -197,6 +197,21 @@ fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     })
 }
 
+fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
+    let mut r = vec![];
+    
+    loop {
+        lexer.next();
+        r.push(parse_expr(lexer)?);
+        
+        if lexer.tok != Token::Comma {
+            break
+        }
+    }
+
+    Ok(r)
+}
+
 #[cfg(test)]
 mod tests {
 
