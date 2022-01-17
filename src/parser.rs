@@ -57,6 +57,20 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     }))
 }
 
+fn parse_factor(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    if lexer.tok == Token::Minus {
+        lexer.next();
+        return Ok(Expr::Unop(Box::new(parse_atom(lexer)?)));
+    }
+
+    if lexer.tok == Token::Plus {
+        lexer.next();
+        return parse_atom(lexer);
+    }
+
+    parse_atom(lexer)
+}
+
 fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     Ok(match &lexer.tok {
         Token::Id(id) => Expr::Id(Intern::new(id.clone())),
