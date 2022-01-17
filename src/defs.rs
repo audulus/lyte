@@ -31,10 +31,12 @@ pub enum Binop {
     Div,
     Pow,
     Equal,
+    NotEqual,
     Less,
     Greater,
     Leq,
-    Geq
+    Geq,
+    Cond
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
