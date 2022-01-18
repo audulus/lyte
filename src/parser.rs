@@ -246,6 +246,7 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                     lexer.next();
                     let r = Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?));
                     expect(lexer, Token::Rparen)?;
+                    lexer.next();
                     r
                 },
                 Token::Equal => {
@@ -324,5 +325,6 @@ mod tests {
         assert!(parse_fn("f(x, y)", parse_expr).is_ok());
         assert!(parse_fn("f(x) + g(x)", parse_expr).is_ok());
         assert!(parse_fn("x = y", parse_stmt).is_ok());
+        assert!(parse_fn("f(x)", parse_stmt).is_ok());
     }
 }
