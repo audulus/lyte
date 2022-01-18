@@ -259,7 +259,7 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                 })
             }
         },
-        Token::Var => {
+        Token::Var | Token::Let => {
             lexer.next();
             match &lexer.tok {
                 Token::Id(name) => {
@@ -343,5 +343,6 @@ mod tests {
         assert!(parse_fn("x = y", parse_stmt).is_ok());
         assert!(parse_fn("f(x)", parse_stmt).is_ok());
         assert!(parse_fn("var x = y", parse_stmt).is_ok());
+        assert!(parse_fn("let x = y", parse_stmt).is_ok());
     }
 }
