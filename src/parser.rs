@@ -224,7 +224,6 @@ fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     let mut r = vec![];
     
     loop {
-        println!("token: {:?}", lexer.tok);
         r.push(parse_expr(lexer)?);
         
         if lexer.tok != Token::Comma {
