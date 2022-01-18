@@ -243,9 +243,13 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             let n = Intern::new(name);
             match lexer.tok {
                 Token::Lparen => {
-                    Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?))
+                    lexer.next();
+                    let r = Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?));
+                    expect(lexer, Token::Rparen)?;
+                    r
                 },
                 Token::Equal => {
+                    lexer.next();
                     Ok(Expr::Assign(n, Box::new(parse_expr(lexer)?)))
                 },
                 _ => Err(ParseError {
@@ -319,5 +323,6 @@ mod tests {
         assert!(parse_fn("f(x)", parse_expr).is_ok());
         assert!(parse_fn("f(x, y)", parse_expr).is_ok());
         assert!(parse_fn("f(x) + g(x)", parse_expr).is_ok());
+        assert!(parse_fn("x = y", parse_stmt).is_ok());
     }
 }
