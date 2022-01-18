@@ -342,5 +342,6 @@ mod tests {
         assert!(parse_fn("f(x) + g(x)", parse_expr).is_ok());
         assert!(parse_fn("x = y", parse_stmt).is_ok());
         assert!(parse_fn("f(x)", parse_stmt).is_ok());
+        assert!(parse_fn("var x = y", parse_stmt).is_ok());
     }
 }
