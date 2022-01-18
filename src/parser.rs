@@ -247,4 +247,16 @@ mod tests {
             mk_type(Type::Array(mk_type(Type::Int32)))
         );
     }
+
+    fn test_parse_fn(string: &str, f: fn(&mut Lexer) -> Result<Expr, ParseError>) -> Result<Expr, ParseError> {
+        let mut lexer = Lexer::new(&String::from(string));
+        lexer.next();
+        f(&mut lexer)
+    }
+
+    #[test]
+    fn test_parse_atom() {
+        assert!(test_parse_fn("x", parse_atom).is_ok());
+        // assert!(test_parse_fn("(x)", parse_atom).is_ok());
+    }
 }
