@@ -59,6 +59,9 @@ pub enum Expr {
     False,
     AsTy(Box<Expr>, TypeID),
     Block(Vec<Expr>),
+    Assign(Name, Box<Expr>),
+    Let(Name, Box<Expr>),
+    Var(Name, Box<Expr>)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
