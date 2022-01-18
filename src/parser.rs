@@ -189,6 +189,7 @@ fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let args = parse_exprlist(lexer)?;
         expect(lexer, Token::Rparen)?;
+        lexer.next();
         Ok(Expr::Call(Box::new(lhs), args))
     } else {
         Ok(lhs)
@@ -223,12 +224,14 @@ fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     let mut r = vec![];
     
     loop {
-        lexer.next();
+        println!("token: {:?}", lexer.tok);
         r.push(parse_expr(lexer)?);
         
         if lexer.tok != Token::Comma {
             break
         }
+
+        lexer.next();
     }
 
     Ok(r)
@@ -272,6 +275,6 @@ mod tests {
         assert!(parse_fn("x*y", parse_term).is_ok());
         assert!(parse_fn("x+y", parse_sum).is_ok());
         assert!(parse_fn("x-y", parse_sum).is_ok());
-        //assert!(parse_fn("f(x)", parse_expr).is_ok());
+        assert!(parse_fn("f(x)", parse_expr).is_ok());
     }
 }
