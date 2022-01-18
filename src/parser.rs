@@ -192,7 +192,11 @@ fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
 fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     Ok(match &lexer.tok {
-        Token::Id(id) => Expr::Id(Intern::new(id.clone())),
+        Token::Id(id) => {
+            let e = Expr::Id(Intern::new(id.clone()));
+            lexer.next();
+            e
+        }
         Token::Lparen => {
 
             lexer.next();
@@ -251,12 +255,14 @@ mod tests {
     fn parse_fn(string: &str, f: fn(&mut Lexer) -> Result<Expr, ParseError>) -> Result<Expr, ParseError> {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
-        f(&mut lexer)
+        let r = f(&mut lexer)?;
+        expect(&lexer, Token::End)?;
+        Ok(r)
     }
 
     #[test]
     fn test_parse_atom() {
         assert!(parse_fn("x", parse_atom).is_ok());
-        // assert!(test_parse_fn("(x)", parse_atom).is_ok());
+        assert!(parse_fn("(x)", parse_atom).is_ok());
     }
 }
