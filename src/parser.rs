@@ -248,7 +248,7 @@ mod tests {
         );
     }
 
-    fn test_parse_fn(string: &str, f: fn(&mut Lexer) -> Result<Expr, ParseError>) -> Result<Expr, ParseError> {
+    fn parse_fn(string: &str, f: fn(&mut Lexer) -> Result<Expr, ParseError>) -> Result<Expr, ParseError> {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
         f(&mut lexer)
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_parse_atom() {
-        assert!(test_parse_fn("x", parse_atom).is_ok());
+        assert!(parse_fn("x", parse_atom).is_ok());
         // assert!(test_parse_fn("(x)", parse_atom).is_ok());
     }
 }
