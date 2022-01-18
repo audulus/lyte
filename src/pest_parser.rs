@@ -72,7 +72,7 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
                 match pair.as_rule() {
                     Rule::times => {
                         e = Expr::Binop(
-                            Binop::Times,
+                            Binop::Mult,
                             Box::new(e),
                             Box::new(build_expr(inner.next().unwrap())),
                         )

@@ -27,7 +27,7 @@ pub struct Loc {
 pub enum Binop {
     Plus,
     Minus,
-    Times,
+    Mult,
     Div,
     Pow,
     Equal,
