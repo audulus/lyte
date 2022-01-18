@@ -272,5 +272,6 @@ mod tests {
         assert!(parse_fn("x*y", parse_term).is_ok());
         assert!(parse_fn("x+y", parse_sum).is_ok());
         assert!(parse_fn("x-y", parse_sum).is_ok());
+        //assert!(parse_fn("f(x)", parse_expr).is_ok());
     }
 }
