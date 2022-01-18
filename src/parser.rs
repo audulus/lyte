@@ -259,6 +259,22 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                 })
             }
         },
+        Token::Var => {
+            lexer.next();
+            match &lexer.tok {
+                Token::Id(name) => {
+                    let n = Intern::new(name.clone());
+                    lexer.next();
+                    expect(lexer, Token::Equal)?;
+                    lexer.next();
+                    Ok(Expr::Var(n, Box::new(parse_expr(lexer)?)))
+                },
+                _ => Err(ParseError {
+                    location: lexer.i,
+                    message: String::from("Expected assignment or function call")
+                })
+            }
+        }
         _ => Err(ParseError {
             location: lexer.i,
             message: String::from("Expected statement")
