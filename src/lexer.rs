@@ -107,6 +107,7 @@ impl Lexer {
                 "i8" => Token::Int8,
                 "i32" => Token::Int32,
                 "var" => Token::Var,
+                "let" => Token::Let,
                 _ => Token::Id(id),
             };
         }
