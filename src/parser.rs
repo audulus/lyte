@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_atom() {
+    fn test_parse() {
         assert!(parse_fn("x", parse_atom).is_ok());
         assert!(parse_fn("(x)", parse_atom).is_ok());
         assert!(parse_fn("x*y", parse_term).is_ok());
