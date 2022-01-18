@@ -236,6 +236,48 @@ fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     Ok(r)
 }
 
+fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+    match lexer.tok.clone() {
+        Token::Id(name) => {
+            lexer.next();
+            let n = Intern::new(name);
+            match lexer.tok {
+                Token::Lparen => {
+                    Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?))
+                },
+                Token::Equal => {
+                    Ok(Expr::Assign(n, Box::new(parse_expr(lexer)?)))
+                },
+                _ => Err(ParseError {
+                    location: lexer.i,
+                    message: String::from("Expected assignment or function call")
+                })
+            }
+        },
+        _ => Err(ParseError {
+            location: lexer.i,
+            message: String::from("Expected statement")
+        })
+    }
+}
+
+fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
+    let mut r = vec![];
+    expect(lexer, Token::Lbrace)?;
+
+    loop {
+        lexer.next();
+
+        r.push(parse_stmt(lexer)?);
+
+        if lexer.tok == Token::Rbrace {
+            break
+        }
+    }
+
+    Ok(r)
+}
+
 #[cfg(test)]
 mod tests {
 
