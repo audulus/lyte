@@ -312,9 +312,26 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
             let params = parse_exprlist(lexer)?;
             expect(lexer, Token::Rparen)?;
             lexer.next();
-            Ok(Decl::Func{name: Intern::new(name),
-                          params: params,
-                          body: parse_block(lexer)?})
+
+            match lexer.tok.clone() {
+                Token::Lbrace => {
+                    Ok(Decl::Func{name: Intern::new(name),
+                        params: params,
+                        body: parse_block(lexer)?})
+                },
+                Token::Arrow => {
+                    lexer.next();
+                    let _t = parse_basic_type(lexer)?;
+                    Ok(Decl::Func{name: Intern::new(name),
+                        params: params,
+                        body: parse_block(lexer)?})
+                },
+                _ => Err(ParseError {
+                    location: lexer.i,
+                    message: String::from("Expected return type or function body")
+                })
+            }
+            
         }
         _ => Err(ParseError {
             location: lexer.i,
