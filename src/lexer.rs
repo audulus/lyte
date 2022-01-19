@@ -62,6 +62,7 @@ pub enum Token {
     Error,
 }
 
+#[derive(Debug)]
 pub struct Lexer {
     code: String,
     pub i: usize,
