@@ -351,5 +351,6 @@ mod tests {
         assert!(parse_fn("{ f(x) }", parse_block).is_ok());
         assert!(parse_fn("{ x = y z = w }", parse_block).is_ok());
         assert!(parse_fn("{ f(x) g(y) }", parse_block).is_ok());
+        assert!(parse_fn("{ var x = y var z = w }", parse_block).is_ok());
     }
 }
