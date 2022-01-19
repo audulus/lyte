@@ -286,8 +286,9 @@ fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     let mut r = vec![];
     expect(lexer, Token::Lbrace)?;
 
+    lexer.next();
+
     loop {
-        lexer.next();
 
         r.push(parse_stmt(lexer)?);
 
@@ -348,5 +349,6 @@ mod tests {
         assert!(parse_fn("let x = y", parse_stmt).is_ok());
         assert!(parse_fn("{ x = y }", parse_block).is_ok());
         assert!(parse_fn("{ f(x) }", parse_block).is_ok());
+        assert!(parse_fn("{ x = y z = w }", parse_block).is_ok());
     }
 }
