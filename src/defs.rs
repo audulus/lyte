@@ -77,7 +77,7 @@ impl Block {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Decl {
-    Func(Intern<String>, Block),
+    Func{ name: Intern<String>, params: Vec<Expr>, body: Vec<Expr>},
 }
 
 pub struct Compiler {

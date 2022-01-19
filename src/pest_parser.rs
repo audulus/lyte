@@ -117,13 +117,13 @@ fn build_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
     }
 }
 
-fn build_block(pair: pest::iterators::Pair<Rule>) -> Block {
-    let mut block = Block::new();
+fn build_block(pair: pest::iterators::Pair<Rule>) -> Vec<Expr> {
+    let mut block = Vec::new();
     let mut inner = pair.into_inner();
     while let Some(pair) = inner.next() {
         match pair.as_rule() {
             Rule::expr => {
-                block.exprs.push(build_expr(pair));
+                block.push(build_expr(pair));
             }
             _ => unreachable!(),
         }
@@ -141,7 +141,10 @@ fn build_fndecl(pair: pest::iterators::Pair<Rule>) -> Decl {
         _ => unreachable!(),
     };
 
-    Decl::Func(Intern::new(String::from(name)), block)
+    Decl::Func{
+        name: Intern::new(String::from(name)),
+        params: vec![],
+        body: block}
 }
 
 #[cfg(test)]

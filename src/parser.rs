@@ -302,6 +302,27 @@ fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     Ok(r)
 }
 
+fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
+    match lexer.tok.clone() {
+        Token::Id(name) => {
+            // Function declaration.
+            lexer.next();
+            expect(lexer, Token::Lparen)?;
+            lexer.next();
+            let params = parse_exprlist(lexer)?;
+            expect(lexer, Token::Rparen)?;
+            lexer.next();
+            Ok(Decl::Func{name: Intern::new(name),
+                          params: params,
+                          body: parse_block(lexer)?})
+        }
+        _ => Err(ParseError {
+            location: lexer.i,
+            message: String::from("Expected declaration")
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
