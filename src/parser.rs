@@ -322,6 +322,7 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
                 Token::Arrow => {
                     lexer.next();
                     let _t = parse_basic_type(lexer)?;
+                    lexer.next();
                     Ok(Decl::Func{name: Intern::new(name),
                         params: params,
                         body: parse_block(lexer)?})
@@ -391,5 +392,6 @@ mod tests {
         assert!(parse_fn("{ f(x) g(y) }", parse_block).is_ok());
         assert!(parse_fn("{ var x = y var z = w }", parse_block).is_ok());
         assert!(parse_fn("f(x) { g(x) }", parse_decl).is_ok());
+        assert!(parse_fn("f(x) -> i8 { g(x) }", parse_decl).is_ok());
     }
 }
