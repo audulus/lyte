@@ -191,6 +191,11 @@ fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         expect(lexer, Token::Rparen)?;
         lexer.next();
         Ok(Expr::Call(Box::new(lhs), args))
+    } else if lexer.tok == Token::Colon {
+        lexer.next();
+        let t = parse_basic_type(lexer)?;
+        lexer.next();
+        Ok(Expr::AsTy(Box::new(lhs), t))
     } else {
         Ok(lhs)
     }
