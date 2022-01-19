@@ -153,7 +153,14 @@ impl Lexer {
             '}' => Token::Rbrace,
             ',' => Token::Comma,
             '+' => Token::Plus,
-            '-' => Token::Minus,
+            '-' => {
+                if self.i < bytes.len() && bytes[self.i] == ('>' as u8) {
+                    self.i += 1;
+                    Token::Arrow
+                } else {
+                    Token::Minus
+                }
+            }
             '*' => Token::Mult,
             '/' => Token::Div,
             '^' => Token::Power,
@@ -263,5 +270,7 @@ mod tests {
         assert_eq!(tokens("i32"), vec![Int32]);
         assert_eq!(tokens("⟨"), vec![Lmath]);
         assert_eq!(tokens("⟩"), vec![Rmath]);
+        assert_eq!(tokens("-"), vec![Minus]);
+        assert_eq!(tokens("->"), vec![Arrow]);
     }
 }
