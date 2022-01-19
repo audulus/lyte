@@ -399,5 +399,6 @@ mod tests {
         assert!(parse_fn("f(x) { g(x) }", parse_decl).is_ok());
         assert!(parse_fn("f(x) -> i8 { g(x) }", parse_decl).is_ok());
         assert!(parse_fn("f(x, y) { g(x) }", parse_decl).is_ok());
+        assert!(parse_fn("f(x: i8, y: i8) { g(x) }", parse_decl).is_ok());
     }
 }
