@@ -322,7 +322,7 @@ mod tests {
         );
     }
 
-    fn parse_fn(string: &str, f: fn(&mut Lexer) -> Result<Expr, ParseError>) -> Result<Expr, ParseError> {
+    fn parse_fn<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) -> Result<T, ParseError> {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
         let r = f(&mut lexer)?;
@@ -344,5 +344,6 @@ mod tests {
         assert!(parse_fn("f(x)", parse_stmt).is_ok());
         assert!(parse_fn("var x = y", parse_stmt).is_ok());
         assert!(parse_fn("let x = y", parse_stmt).is_ok());
+        // assert!(parse_fn("{ x = y }", parse_block).is_ok());
     }
 }
