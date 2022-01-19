@@ -296,6 +296,8 @@ fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
         }
     }
 
+    lexer.next();
+
     Ok(r)
 }
 
@@ -344,6 +346,6 @@ mod tests {
         assert!(parse_fn("f(x)", parse_stmt).is_ok());
         assert!(parse_fn("var x = y", parse_stmt).is_ok());
         assert!(parse_fn("let x = y", parse_stmt).is_ok());
-        // assert!(parse_fn("{ x = y }", parse_block).is_ok());
+        assert!(parse_fn("{ x = y }", parse_block).is_ok());
     }
 }
