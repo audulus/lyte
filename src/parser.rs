@@ -413,6 +413,7 @@ mod tests {
         test("f(x)", parse_stmt);
         test("var x = y", parse_stmt);
         test("let x = y", parse_stmt);
+        test("if x { }", parse_stmt);
         test("{ }", parse_block);
         test("{ x = y }", parse_block);
         test("{ f(x) }", parse_block);
