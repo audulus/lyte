@@ -383,26 +383,26 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert!(parse_fn("x", parse_atom).is_ok());
-        assert!(parse_fn("(x)", parse_atom).is_ok());
-        assert!(parse_fn("x*y", parse_term).is_ok());
-        assert!(parse_fn("x+y", parse_sum).is_ok());
-        assert!(parse_fn("x-y", parse_sum).is_ok());
-        assert!(parse_fn("f(x)", parse_expr).is_ok());
-        assert!(parse_fn("f(x, y)", parse_expr).is_ok());
-        assert!(parse_fn("f(x) + g(x)", parse_expr).is_ok());
-        assert!(parse_fn("x = y", parse_stmt).is_ok());
-        assert!(parse_fn("f(x)", parse_stmt).is_ok());
-        assert!(parse_fn("var x = y", parse_stmt).is_ok());
-        assert!(parse_fn("let x = y", parse_stmt).is_ok());
-        assert!(parse_fn("{ x = y }", parse_block).is_ok());
-        assert!(parse_fn("{ f(x) }", parse_block).is_ok());
-        assert!(parse_fn("{ x = y z = w }", parse_block).is_ok());
-        assert!(parse_fn("{ f(x) g(y) }", parse_block).is_ok());
-        assert!(parse_fn("{ var x = y var z = w }", parse_block).is_ok());
-        assert!(parse_fn("f(x) { g(x) }", parse_decl).is_ok());
-        assert!(parse_fn("f(x) -> i8 { g(x) }", parse_decl).is_ok());
-        assert!(parse_fn("f(x, y) { g(x) }", parse_decl).is_ok());
-        assert!(parse_fn("f(x: i8, y: i8) { g(x) }", parse_decl).is_ok());
+        test("x", parse_atom);
+        test("(x)", parse_atom);
+        test("x*y", parse_term);
+        test("x+y", parse_sum);
+        test("x-y", parse_sum);
+        test("f(x)", parse_expr);
+        test("f(x, y)", parse_expr);
+        test("f(x) + g(x)", parse_expr);
+        test("x = y", parse_stmt);
+        test("f(x)", parse_stmt);
+        test("var x = y", parse_stmt);
+        test("let x = y", parse_stmt);
+        test("{ x = y }", parse_block);
+        test("{ f(x) }", parse_block);
+        test("{ x = y z = w }", parse_block);
+        test("{ f(x) g(y) }", parse_block);
+        test("{ var x = y var z = w }", parse_block);
+        test("f(x) { g(x) }", parse_decl);
+        test("f(x) -> i8 { g(x) }", parse_decl);
+        test("f(x, y) { g(x) }", parse_decl);
+        test("f(x: i8, y: i8) { g(x) }", parse_decl);
     }
 }
