@@ -377,6 +377,10 @@ mod tests {
         Ok(r)
     }
 
+    fn test<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) {
+        assert!(parse_fn(string, f).is_ok());
+    }
+
     #[test]
     fn test_parse() {
         assert!(parse_fn("x", parse_atom).is_ok());
