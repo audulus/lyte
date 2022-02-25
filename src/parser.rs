@@ -279,6 +279,18 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                     message: String::from("Expected assignment or function call")
                 })
             }
+        },
+        Token::If => {
+            lexer.next();
+            let cond = parse_expr(lexer)?;
+            let then = parse_block(lexer)?;
+            let els = if lexer.tok == Token::Else {
+                lexer.next();
+                Some(parse_block(lexer)?)
+            } else {
+                None
+            };
+            Ok(Expr::If(Box::new(cond), then, els))
         }
         _ => Err(ParseError {
             location: lexer.i,
@@ -287,7 +299,7 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     }
 }
 
-fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
+fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
     let mut r = vec![];
     expect(lexer, Token::Lbrace)?;
 
@@ -304,7 +316,7 @@ fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
 
     lexer.next();
 
-    Ok(r)
+    Ok(Block::new(r))
 }
 
 fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
