@@ -374,16 +374,17 @@ mod tests {
         parse_basic_type(&mut lexer).unwrap()
     }
 
+    fn test_type(string: &str, ty: TypeID) {
+        assert_eq!(type_parser(string), ty);
+    }
+
     #[test]
     fn test_parse_type() {
-        assert_eq!(type_parser("void"), mk_type(Type::Void));
-        assert_eq!(type_parser("i8"), mk_type(Type::Int8));
-        assert_eq!(type_parser("i32"), mk_type(Type::Int32));
-        assert_eq!(type_parser("⟨T⟩"), typevar("T"));
-        assert_eq!(
-            type_parser("[i32]"),
-            mk_type(Type::Array(mk_type(Type::Int32)))
-        );
+        test_type("void", mk_type(Type::Void));
+        test_type("i8", mk_type(Type::Int8));
+        test_type("i32", mk_type(Type::Int32));
+        test_type("⟨T⟩", typevar("T"));
+        test_type("[i32]", mk_type(Type::Array(mk_type(Type::Int32))));
     }
 
     fn parse_fn<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) -> Result<T, ParseError> {
