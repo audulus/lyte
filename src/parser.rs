@@ -312,12 +312,11 @@ fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
     lexer.next();
 
     loop {
-
-        r.push(parse_stmt(lexer)?);
-
         if lexer.tok == Token::Rbrace {
             break
         }
+
+        r.push(parse_stmt(lexer)?);
     }
 
     lexer.next();
@@ -414,6 +413,7 @@ mod tests {
         test("f(x)", parse_stmt);
         test("var x = y", parse_stmt);
         test("let x = y", parse_stmt);
+        test("{ }", parse_block);
         test("{ x = y }", parse_block);
         test("{ f(x) }", parse_block);
         test("{ x = y z = w }", parse_block);
