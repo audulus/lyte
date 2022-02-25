@@ -187,9 +187,15 @@ fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
     if lexer.tok == Token::Lparen {
         lexer.next();
-        let args = parse_exprlist(lexer)?;
-        expect(lexer, Token::Rparen)?;
-        lexer.next();
+        let args = if lexer.tok != Token::Rparen {
+            let args = parse_exprlist(lexer)?;
+            expect(lexer, Token::Rparen)?;
+            lexer.next();
+            args
+        } else {
+            lexer.next();
+            vec![]
+        };
         Ok(Expr::Call(Box::new(lhs), args))
     } else if lexer.tok == Token::Colon {
         lexer.next();
@@ -400,6 +406,7 @@ mod tests {
         test("x*y", parse_term);
         test("x+y", parse_sum);
         test("x-y", parse_sum);
+        test("f()", parse_expr);
         test("f(x)", parse_expr);
         test("f(x, y)", parse_expr);
         test("f(x) + g(x)", parse_expr);
