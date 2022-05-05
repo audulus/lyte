@@ -59,6 +59,7 @@ pub enum Token {
     Char,
     String,
     Pipe,
+    Endl,
     End,
     Error,
 }
@@ -82,14 +83,22 @@ impl Lexer {
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
 
-        // Skip whitespace
-        while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-            self.i += 1;
-        }
-
         // End of string.
         if self.i == bytes.len() {
             return Token::End;
+        }
+
+        // For newlines, skip whitespace and return enline token.
+        if bytes[self.i] == b'\n' {
+            while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
+                self.i += 1;
+            }
+            return Token::Endl;
+        }
+
+        // Skip whitespace
+        while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
+            self.i += 1;
         }
 
         // Identifier.
