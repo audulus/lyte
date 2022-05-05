@@ -349,6 +349,12 @@ fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
         }
 
         r.push(parse_stmt(lexer)?);
+
+        if lexer.tok != Token::Endl {
+            break
+        }
+
+        lexer.next();
     }
 
     lexer.next();
@@ -468,12 +474,12 @@ mod tests {
         test("x", parse_stmt);
         test("{ x }", parse_stmt);
         test("{ }", parse_block);
-        test("{ x x }", parse_block);
+        test("{ x\n x }", parse_block);
         test("{ x = y }", parse_block);
         test("{ f(x) }", parse_block);
-        test("{ x = y z = w }", parse_block);
-        test("{ f(x) g(y) }", parse_block);
-        test("{ var x = y var z = w }", parse_block);
+        test("{ x = y\n z = w }", parse_block);
+        test("{ f(x)\n g(y) }", parse_block);
+        test("{ var x = y\n var z = w }", parse_block);
         test("f(){}", parse_decl);
         test("f(x: i8) { g(x) }", parse_decl);
         test("f(x: i8) -> i8 { g(x) }", parse_decl);
