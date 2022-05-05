@@ -17,8 +17,8 @@ use std::fs;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(short, long)]
-    name: String,
+    #[clap()]
+    file: String,
 }
 
 impl Compiler {
@@ -32,7 +32,7 @@ fn main() {
 
     let args = Args::parse();
 
-    if let Ok(string) = fs::read_to_string(args.name) {
+    if let Ok(string) = fs::read_to_string(args.file) {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
     } else {
