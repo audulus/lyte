@@ -73,9 +73,9 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn new(code: &String) -> Self {
+    pub fn new(code: &str) -> Self {
         Lexer {
-            code: code.clone(),
+            code: String::from(code),
             i: 0,
             tok: Token::Error,
         }
