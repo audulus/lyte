@@ -25,6 +25,7 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
 fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     Ok(mk_type(match &lexer.tok {
         Token::Void => Type::Void,
+        Token::Bool => Type::Bool,
         Token::Int8 => Type::Int8,
         Token::Int32 => Type::Int32,
         Token::Lmath => {

@@ -6,6 +6,7 @@ pub type Name = Intern<String>;
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
     Void,
+    Bool,
     Int8,
     UInt8,
     Int32,
