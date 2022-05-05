@@ -478,6 +478,7 @@ mod tests {
         test("f(x: i8) { g(x) }", parse_decl);
         test("f(x: i8) -> i8 { g(x) }", parse_decl);
         test("f(x: i8, y: i8) { g(x) }", parse_decl);
+        test("", parse_program);
         test("f(){} g(){}", parse_program);
     }
 }
