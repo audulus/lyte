@@ -40,11 +40,11 @@ pub enum Binop {
     Cond,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     Id(Intern<String>),
     Int(i64),
-    // Real(f64),
+    Real(f64),
     Call(Box<Expr>, Vec<Expr>),
     Binop(Binop, Box<Expr>, Box<Expr>),
     Unop(Box<Expr>),
@@ -72,7 +72,7 @@ pub struct Param {
     pub ty: TypeID,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Block {
     pub exprs: Vec<Expr>,
 }
@@ -83,7 +83,7 @@ impl Block {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Decl {
     Func {
         name: Intern<String>,
