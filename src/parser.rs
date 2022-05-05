@@ -501,6 +501,16 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_atom() {
+        test_strings(parse_atom, &[
+            "x",
+            "(x)",
+            "42",
+            "3.14159"
+        ]);
+    }
+
+    #[test]
     fn test_parse_stmt() {
         test_strings(parse_stmt, &[
             "x = y",
