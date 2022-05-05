@@ -23,7 +23,7 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
 }
 
 fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
-    Ok(mk_type(match &lexer.tok {
+    let t = Ok(mk_type(match &lexer.tok {
         Token::Void => Type::Void,
         Token::Bool => Type::Bool,
         Token::Int8 => Type::Int8,
@@ -46,7 +46,6 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         Token::Lbracket => {
             lexer.next();
             let r = parse_basic_type(lexer)?;
-            lexer.next();
             expect(lexer, Token::Rbracket)?;
             Type::Array(r)
         }
@@ -57,7 +56,23 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 message: String::from("Expected type"),
             })
         }
-    }))
+    }));
+    lexer.next();
+    t
+}
+
+fn parse_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
+
+    let mut lhs = parse_basic_type(lexer)?;
+
+    while lexer.tok == Token::Arrow {
+        lexer.next();
+        let rhs = parse_basic_type(lexer)?;
+
+        lhs = mk_type(Type::Func(lhs, rhs));
+    }
+
+    Ok(lhs)
 }
 
 fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
@@ -69,8 +84,7 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
             lexer.next();
             expect(lexer, Token::Colon)?;
             lexer.next();
-            let ty = parse_basic_type(lexer)?;
-            lexer.next();
+            let ty = parse_type(lexer)?;
             r.push(Param { name, ty })
         }
 
@@ -247,8 +261,7 @@ fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         Ok(Expr::Call(Box::new(lhs), args))
     } else if lexer.tok == Token::Colon {
         lexer.next();
-        let t = parse_basic_type(lexer)?;
-        lexer.next();
+        let t = parse_type(lexer)?;
         Ok(Expr::AsTy(Box::new(lhs), t))
     } else {
         Ok(lhs)
@@ -397,8 +410,7 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
                 }),
                 Token::Arrow => {
                     lexer.next();
-                    let _t = parse_basic_type(lexer)?;
-                    lexer.next();
+                    let _t = parse_type(lexer)?;
                     Ok(Decl::Func {
                         name: Intern::new(name),
                         params: params,
@@ -445,7 +457,7 @@ mod tests {
     fn type_parser(string: &str) -> TypeID {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
-        parse_basic_type(&mut lexer).unwrap()
+        parse_type(&mut lexer).unwrap()
     }
 
     fn test_type(string: &str, ty: TypeID) {
@@ -454,11 +466,13 @@ mod tests {
 
     #[test]
     fn test_parse_type() {
+        let int8 = mk_type(Type::Int8);
         test_type("void", mk_type(Type::Void));
-        test_type("i8", mk_type(Type::Int8));
+        test_type("i8", int8);
         test_type("i32", mk_type(Type::Int32));
         test_type("⟨T⟩", typevar("T"));
         test_type("[i32]", mk_type(Type::Array(mk_type(Type::Int32))));
+        test_type("i8 -> i8", mk_type(Type::Func(int8, int8)));
     }
 
     fn parse_fn<T: std::fmt::Debug>(
