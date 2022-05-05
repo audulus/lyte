@@ -67,12 +67,6 @@ impl Compiler {
         g.nodes
             .iter()
             .all(|n| n.possible.len() == 1 && solved(n.possible[0]))
-        // for n in &g.nodes {
-        //     if n.possible.len() != 1 || !solved(n.possible[0]) {
-        //         return false;
-        //     }
-        // }
-        // return true;
     }
 
     fn prune(&mut self, v: &[TypeID], t0: TypeID) -> Vec<TypeID> {
