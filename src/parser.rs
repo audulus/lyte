@@ -79,6 +79,8 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
         }
 
         lexer.next();
+
+        skip_newlines(lexer);
     }
 
     Ok(r)
@@ -493,6 +495,7 @@ mod tests {
         test("f(x: i8) { g(x) }", parse_decl);
         test("f(x: i8) -> i8 { g(x) }", parse_decl);
         test("f(x: i8, y: i8) { g(x) }", parse_decl);
+        test("f(x: i8,\n y: i8) { g(x) }", parse_decl);
     }
 
     fn test_block(strings: &[&str]) {
