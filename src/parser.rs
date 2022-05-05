@@ -125,7 +125,6 @@ fn parse_cond(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     if lexer.tok == Token::If {
         lexer.next();
         let cond = parse_expr(lexer)?;
-        println!("token: {:?}", lexer.tok);
         let then = parse_block(lexer)?;
         expect(lexer, Token::Else)?;
         lexer.next();
