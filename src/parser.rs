@@ -486,17 +486,23 @@ mod tests {
         test("f(x) + g(x)", parse_expr);
         test("|| x", parse_lambda);
         test("|x: i8| x", parse_lambda);
-        test("x = y", parse_stmt);
-        test("f(x)", parse_stmt);
-        test("var x = y", parse_stmt);
-        test("let x = y", parse_stmt);
-        test("let x = || x", parse_stmt);
-        test("let x = if x { a } else { b }", parse_stmt);
-        test("let x = if x { a+b } else { b }", parse_stmt);
-        test("if x { }", parse_stmt);
-        test("if x { } else { }", parse_stmt);
-        test("x", parse_stmt);
-        test("{ x }", parse_stmt);
+    }
+
+    #[test]
+    fn test_parse_stmt() {
+        test_strings(parse_stmt, &[
+            "x = y",
+            "f(x)",
+            "var x = y",
+            "let x = y",
+            "let x = || x",
+            "let x = if x { a } else { b }",
+            "let x = if x { a+b } else { b }",
+            "if x { }",
+            "if x { } else { }",
+            "x",
+            "{ x }"
+        ]);
     }
 
     #[test]
