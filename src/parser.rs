@@ -451,6 +451,7 @@ mod tests {
         test("f(x, y)", parse_expr);
         test("f(x) + g(x)", parse_expr);
         test("|| x", parse_lambda);
+        test("|x: i8| x", parse_lambda);
         test("x = y", parse_stmt);
         test("f(x)", parse_stmt);
         test("var x = y", parse_stmt);
