@@ -91,8 +91,3 @@ pub struct Compiler {
     pub names: Vec<String>,
 }
 
-impl Compiler {
-    pub fn new() -> Self {
-        Self { names: vec![] }
-    }
-}
