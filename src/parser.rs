@@ -266,7 +266,10 @@ fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             lexer.next();
             rr
 
-        },
+        }
+        Token::Lbrace => {
+            Expr::Block(parse_block(lexer)?)
+        }
         _ => return Err(ParseError {
             location: lexer.i,
             message: String::from("Expected expression")
@@ -328,9 +331,6 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                     message: String::from("Expected assignment or function call")
                 })
             }
-        },
-        Token::Lbrace => {
-            Ok(Expr::Block(parse_block(lexer)?))
         }
         _ => parse_expr(lexer)
     }
