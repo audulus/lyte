@@ -375,6 +375,8 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
             expect(lexer, Token::Rparen)?;
             lexer.next();
 
+            skip_newlines(lexer);
+
             match lexer.tok.clone() {
                 Token::Lbrace => Ok(Decl::Func {
                     name: Intern::new(name),
@@ -527,7 +529,8 @@ mod tests {
         test_program(&[
             "",
             "f(){} g(){}",
-            "f(){}\n g(){}"
+            "f(){}\n g(){}",
+            "f()\n{}",
         ]);
     }
 }
