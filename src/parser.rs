@@ -342,27 +342,6 @@ fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
 
 fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     match lexer.tok.clone() {
-        // Token::Id(name) => {
-        //     lexer.next();
-        //     let n = Intern::new(name);
-        //     match lexer.tok {
-        //         Token::Lparen => {
-        //             lexer.next();
-        //             let r = Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?));
-        //             expect(lexer, Token::Rparen)?;
-        //             lexer.next();
-        //             r
-        //         },
-        //         Token::Equal => {
-        //             lexer.next();
-        //             Ok(Expr::Assign(n, Box::new(parse_lambda(lexer)?)))
-        //         },
-        //         _ => Err(ParseError {
-        //             location: lexer.i,
-        //             message: String::from("Expected assignment or function call")
-        //         })
-        //     }
-        // },
         Token::Var | Token::Let => {
             lexer.next();
             match &lexer.tok {
