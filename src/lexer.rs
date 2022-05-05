@@ -23,6 +23,7 @@ pub enum Token {
     Rshift,
     Cond,
     Colon,
+    Semi,
     Equal,
     NotEqual,
     Assign,
@@ -177,6 +178,7 @@ impl Lexer {
             '^' => Token::Power,
             '?' => Token::Cond,
             ':' => Token::Colon,
+            ';' => Token::Semi,
             '.' => Token::Dot,
             '|' => Token::Pipe,
             '<' => {
