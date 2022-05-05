@@ -379,6 +379,11 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                 }),
             }
         }
+        Token::Return => {
+            lexer.next();
+            let e = parse_expr(lexer)?;
+            Ok(Expr::Return(Box::new(e)))
+        }
         _ => parse_expr(lexer),
     }
 }

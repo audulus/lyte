@@ -64,6 +64,7 @@ pub enum Expr {
     Var(Name, Box<Expr>),
     If(Box<Expr>, Block, Option<Block>),
     Block(Block),
+    Return(Box<Expr>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
