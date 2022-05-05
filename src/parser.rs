@@ -467,6 +467,12 @@ mod tests {
         assert!(parse_fn(string, f).is_ok());
     }
 
+    fn test_strings<T: std::fmt::Debug>(f: fn(&mut Lexer) -> Result<T, ParseError>, strings: &[&str]) {
+        for string in strings {
+            assert!(parse_fn(string, f).is_ok());
+        }
+    }
+
     #[test]
     fn test_parse() {
         test("x", parse_atom);
@@ -493,15 +499,9 @@ mod tests {
         test("{ x }", parse_stmt);
     }
 
-    fn test_block(strings: &[&str]) {
-        for string in strings {
-            assert!(parse_fn(string, parse_block).is_ok());
-        }
-    }
-
     #[test]
     fn test_parse_block() {
-        test_block(&[
+        test_strings(parse_block, &[
             "{ }",
             "{ \n }",
             "{ x }",
@@ -516,15 +516,9 @@ mod tests {
         ]);
     }
 
-    fn test_decl(strings: &[&str]) {
-        for string in strings {
-            assert!(parse_fn(string, parse_decl).is_ok());
-        }
-    }
-
     #[test]
     fn test_parse_decl() {
-        test_decl(&[
+        test_strings(parse_decl, &[
             "f(){}",
             "f(x: i8) { g(x) }",
             "f(x: i8) -> i8 { g(x) }",
@@ -533,15 +527,9 @@ mod tests {
         ]);
     }
 
-    fn test_program(strings: &[&str]) {
-        for string in strings {
-            assert!(parse_fn(string, parse_program).is_ok());
-        }
-    }
-
     #[test]
     fn test_parse_program() {
-        test_program(&[
+        test_strings(parse_program, &[
             "",
             "f(){} g(){}",
             "f(){}\n g(){}",
