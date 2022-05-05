@@ -470,6 +470,7 @@ mod tests {
         test("let x = y", parse_stmt);
         test("let x = || x", parse_stmt);
         test("let x = if x { a } else { b }", parse_stmt);
+        test("let x = if x { a+b } else { b }", parse_stmt);
         test("if x { }", parse_stmt);
         test("if x { } else { }", parse_stmt);
         test("x", parse_stmt);
