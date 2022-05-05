@@ -58,10 +58,10 @@ pub enum Expr {
     True,
     False,
     AsTy(Box<Expr>, TypeID),
-    Block(Vec<Expr>),
     Assign(Name, Box<Expr>),
     Let(Name, Box<Expr>),
-    Var(Name, Box<Expr>)
+    Var(Name, Box<Expr>),
+    If(Box<Expr>, Block, Option<Block>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,14 +70,14 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn new() -> Self {
-        Self { exprs: vec![] }
+    pub fn new(exprs: Vec<Expr>) -> Self {
+        Self { exprs }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Decl {
-    Func{ name: Intern<String>, params: Vec<Expr>, body: Vec<Expr>},
+    Func{ name: Intern<String>, params: Vec<Expr>, body: Block },
 }
 
 pub struct Compiler {

@@ -187,9 +187,15 @@ fn parse_postfix(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
     if lexer.tok == Token::Lparen {
         lexer.next();
-        let args = parse_exprlist(lexer)?;
-        expect(lexer, Token::Rparen)?;
-        lexer.next();
+        let args = if lexer.tok != Token::Rparen {
+            let args = parse_exprlist(lexer)?;
+            expect(lexer, Token::Rparen)?;
+            lexer.next();
+            args
+        } else {
+            lexer.next();
+            vec![]
+        };
         Ok(Expr::Call(Box::new(lhs), args))
     } else if lexer.tok == Token::Colon {
         lexer.next();
@@ -279,6 +285,18 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                     message: String::from("Expected assignment or function call")
                 })
             }
+        },
+        Token::If => {
+            lexer.next();
+            let cond = parse_expr(lexer)?;
+            let then = parse_block(lexer)?;
+            let els = if lexer.tok == Token::Else {
+                lexer.next();
+                Some(parse_block(lexer)?)
+            } else {
+                None
+            };
+            Ok(Expr::If(Box::new(cond), then, els))
         }
         _ => Err(ParseError {
             location: lexer.i,
@@ -287,24 +305,23 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     }
 }
 
-fn parse_block(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
+fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
     let mut r = vec![];
     expect(lexer, Token::Lbrace)?;
 
     lexer.next();
 
     loop {
-
-        r.push(parse_stmt(lexer)?);
-
         if lexer.tok == Token::Rbrace {
             break
         }
+
+        r.push(parse_stmt(lexer)?);
     }
 
     lexer.next();
 
-    Ok(r)
+    Ok(Block::new(r))
 }
 
 fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
@@ -357,16 +374,17 @@ mod tests {
         parse_basic_type(&mut lexer).unwrap()
     }
 
+    fn test_type(string: &str, ty: TypeID) {
+        assert_eq!(type_parser(string), ty);
+    }
+
     #[test]
     fn test_parse_type() {
-        assert_eq!(type_parser("void"), mk_type(Type::Void));
-        assert_eq!(type_parser("i8"), mk_type(Type::Int8));
-        assert_eq!(type_parser("i32"), mk_type(Type::Int32));
-        assert_eq!(type_parser("⟨T⟩"), typevar("T"));
-        assert_eq!(
-            type_parser("[i32]"),
-            mk_type(Type::Array(mk_type(Type::Int32)))
-        );
+        test_type("void", mk_type(Type::Void));
+        test_type("i8", mk_type(Type::Int8));
+        test_type("i32", mk_type(Type::Int32));
+        test_type("⟨T⟩", typevar("T"));
+        test_type("[i32]", mk_type(Type::Array(mk_type(Type::Int32))));
     }
 
     fn parse_fn<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) -> Result<T, ParseError> {
@@ -377,28 +395,36 @@ mod tests {
         Ok(r)
     }
 
+    fn test<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) {
+        assert!(parse_fn(string, f).is_ok());
+    }
+
     #[test]
     fn test_parse() {
-        assert!(parse_fn("x", parse_atom).is_ok());
-        assert!(parse_fn("(x)", parse_atom).is_ok());
-        assert!(parse_fn("x*y", parse_term).is_ok());
-        assert!(parse_fn("x+y", parse_sum).is_ok());
-        assert!(parse_fn("x-y", parse_sum).is_ok());
-        assert!(parse_fn("f(x)", parse_expr).is_ok());
-        assert!(parse_fn("f(x, y)", parse_expr).is_ok());
-        assert!(parse_fn("f(x) + g(x)", parse_expr).is_ok());
-        assert!(parse_fn("x = y", parse_stmt).is_ok());
-        assert!(parse_fn("f(x)", parse_stmt).is_ok());
-        assert!(parse_fn("var x = y", parse_stmt).is_ok());
-        assert!(parse_fn("let x = y", parse_stmt).is_ok());
-        assert!(parse_fn("{ x = y }", parse_block).is_ok());
-        assert!(parse_fn("{ f(x) }", parse_block).is_ok());
-        assert!(parse_fn("{ x = y z = w }", parse_block).is_ok());
-        assert!(parse_fn("{ f(x) g(y) }", parse_block).is_ok());
-        assert!(parse_fn("{ var x = y var z = w }", parse_block).is_ok());
-        assert!(parse_fn("f(x) { g(x) }", parse_decl).is_ok());
-        assert!(parse_fn("f(x) -> i8 { g(x) }", parse_decl).is_ok());
-        assert!(parse_fn("f(x, y) { g(x) }", parse_decl).is_ok());
-        assert!(parse_fn("f(x: i8, y: i8) { g(x) }", parse_decl).is_ok());
+        test("x", parse_atom);
+        test("(x)", parse_atom);
+        test("x*y", parse_term);
+        test("x+y", parse_sum);
+        test("x-y", parse_sum);
+        test("f()", parse_expr);
+        test("f(x)", parse_expr);
+        test("f(x, y)", parse_expr);
+        test("f(x) + g(x)", parse_expr);
+        test("x = y", parse_stmt);
+        test("f(x)", parse_stmt);
+        test("var x = y", parse_stmt);
+        test("let x = y", parse_stmt);
+        test("if x { }", parse_stmt);
+        test("if x { } else { }", parse_stmt);
+        test("{ }", parse_block);
+        test("{ x = y }", parse_block);
+        test("{ f(x) }", parse_block);
+        test("{ x = y z = w }", parse_block);
+        test("{ f(x) g(y) }", parse_block);
+        test("{ var x = y var z = w }", parse_block);
+        test("f(x) { g(x) }", parse_decl);
+        test("f(x) -> i8 { g(x) }", parse_decl);
+        test("f(x, y) { g(x) }", parse_decl);
+        test("f(x: i8, y: i8) { g(x) }", parse_decl);
     }
 }

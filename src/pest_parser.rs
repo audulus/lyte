@@ -144,7 +144,7 @@ fn build_fndecl(pair: pest::iterators::Pair<Rule>) -> Decl {
     Decl::Func{
         name: Intern::new(String::from(name)),
         params: vec![],
-        body: block}
+        body: Block::new(block)}
 }
 
 #[cfg(test)]
