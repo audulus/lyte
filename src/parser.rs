@@ -475,15 +475,16 @@ mod tests {
     fn test_parse_type() {
         let int8 = mk_type(Type::Int8);
         let int32 = mk_type(Type::Int32);
+        let func = mk_type(Type::Func(int8, int8));
         test_type("void", mk_type(Type::Void));
         test_type("i8", int8);
         test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
         test_type("[i32]", mk_type(Type::Array(int32)));
-        test_type("i8 -> i8", mk_type(Type::Func(int8, int8)));
+        test_type("i8 -> i8", func);
         test_type("(i32)", int32);
-        test_type("(i8 -> i8)", mk_type(Type::Func(int8, int8)));
-        test_type("[i8 -> i8]", mk_type(Type::Array(mk_type(Type::Func(int8, int8)))));
+        test_type("(i8 -> i8)", func);
+        test_type("[i8 -> i8]", mk_type(Type::Array(func)));
     }
 
     fn parse_fn<T: std::fmt::Debug>(
