@@ -8,24 +8,8 @@ mod typegraph;
 // use typegraph::*;
 mod lexer;
 // use lexer::*;
-mod nom_parser;
-
-mod pest_parser;
 
 mod parser;
-
-// #[macro_use]
-// extern crate lalrpop_util;
-
-mod lalrpop_parser_tests;
-
-extern crate pest;
-#[macro_use]
-extern crate pest_derive;
-
-#[derive(Parser)]
-#[grammar = "lyte.pest"]
-struct LyteParser;
 
 fn main() {
     println!("🎸")
