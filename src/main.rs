@@ -7,9 +7,19 @@ mod types;
 mod typegraph;
 // use typegraph::*;
 mod lexer;
-// use lexer::*;
+use lexer::*;
 
 mod parser;
+
+use clap::Parser;
+use std::fs;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    #[clap(short, long)]
+    name: String,
+}
 
 impl Compiler {
     pub fn new() -> Self {
@@ -18,5 +28,14 @@ impl Compiler {
 }
 
 fn main() {
-    println!("🎸")
+    println!("🎸");
+
+    let args = Args::parse();
+
+    if let Ok(string) = fs::read_to_string(args.name) {
+        let mut lexer = Lexer::new(&String::from(string));
+        lexer.next();
+    } else {
+        println!("error reading file");
+    }
 }
