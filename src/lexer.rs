@@ -126,7 +126,7 @@ impl Lexer {
 
         // Numbers.
         if bytes[self.i].is_ascii_digit()
-            || (bytes[self.i] == ('.' as u8)
+            || (bytes[self.i] == b'.'
                 && self.i + 1 < self.code.len()
                 && bytes[self.i + 1].is_ascii_digit())
         {
@@ -134,7 +134,7 @@ impl Lexer {
             let mut fraction = false;
 
             while self.i < self.code.len() {
-                if bytes[self.i] == ('.' as u8) {
+                if bytes[self.i] == b'.' {
                     if fraction {
                         break;
                     }
