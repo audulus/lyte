@@ -110,6 +110,7 @@ fn parse_lambda(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let params = parse_paramlist(lexer)?;
         expect(lexer, Token::Pipe)?;
+        lexer.next();
 
         let body = Box::new(parse_lambda(lexer)?);
 
@@ -449,6 +450,7 @@ mod tests {
         test("f(x)", parse_expr);
         test("f(x, y)", parse_expr);
         test("f(x) + g(x)", parse_expr);
+        test("|| x", parse_lambda);
         test("x = y", parse_stmt);
         test("f(x)", parse_stmt);
         test("var x = y", parse_stmt);
