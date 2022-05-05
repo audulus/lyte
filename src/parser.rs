@@ -57,6 +57,30 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     }))
 }
 
+fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
+    let mut r = vec![];
+    
+    loop {
+        if let Token::Id(name) = &lexer.tok {
+            let name = name.clone();
+            lexer.next();
+            expect(lexer, Token::Colon)?;
+            lexer.next();
+            let ty = parse_basic_type(lexer)?;
+            lexer.next();
+            r.push(Param{ name, ty })
+        }
+        
+        if lexer.tok != Token::Comma {
+            break
+        }
+
+        lexer.next();
+    }
+
+    Ok(r)
+}
+
 fn binop(tok: &Token, lhs: Expr, rhs: Expr) -> Expr {
 
     let op = match tok {
@@ -78,6 +102,21 @@ fn binop(tok: &Token, lhs: Expr, rhs: Expr) -> Expr {
     };
 
     Expr::Binop(op, Box::new(lhs), Box::new(rhs))
+}
+
+fn parse_lambda(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+
+    if lexer.tok == Token::Pipe {
+        lexer.next();
+        let params = parse_paramlist(lexer)?;
+        expect(lexer, Token::Pipe)?;
+
+        let body = Box::new(parse_lambda(lexer)?);
+
+        Ok(Expr::Lambda{ params, body })
+    } else {
+        parse_expr(lexer)
+    }
 }
 
 fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
@@ -217,7 +256,7 @@ fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         Token::Lparen => {
 
             lexer.next();
-            let rr = parse_expr(lexer)?;
+            let rr = parse_lambda(lexer)?;
             expect(lexer, Token::Rparen)?;
 
             lexer.next();
@@ -235,7 +274,7 @@ fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     let mut r = vec![];
     
     loop {
-        r.push(parse_expr(lexer)?);
+        r.push(parse_lambda(lexer)?);
         
         if lexer.tok != Token::Comma {
             break
@@ -262,7 +301,7 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                 },
                 Token::Equal => {
                     lexer.next();
-                    Ok(Expr::Assign(n, Box::new(parse_expr(lexer)?)))
+                    Ok(Expr::Assign(n, Box::new(parse_lambda(lexer)?)))
                 },
                 _ => Err(ParseError {
                     location: lexer.i,
@@ -278,7 +317,7 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                     lexer.next();
                     expect(lexer, Token::Equal)?;
                     lexer.next();
-                    Ok(Expr::Var(n, Box::new(parse_expr(lexer)?)))
+                    Ok(Expr::Var(n, Box::new(parse_lambda(lexer)?)))
                 },
                 _ => Err(ParseError {
                     location: lexer.i,
@@ -331,7 +370,7 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
             lexer.next();
             expect(lexer, Token::Lparen)?;
             lexer.next();
-            let params = parse_exprlist(lexer)?;
+            let params = parse_paramlist(lexer)?;
             expect(lexer, Token::Rparen)?;
             lexer.next();
 
@@ -422,9 +461,9 @@ mod tests {
         test("{ x = y z = w }", parse_block);
         test("{ f(x) g(y) }", parse_block);
         test("{ var x = y var z = w }", parse_block);
-        test("f(x) { g(x) }", parse_decl);
-        test("f(x) -> i8 { g(x) }", parse_decl);
-        test("f(x, y) { g(x) }", parse_decl);
+        test("f(){}", parse_decl);
+        test("f(x: i8) { g(x) }", parse_decl);
+        test("f(x: i8) -> i8 { g(x) }", parse_decl);
         test("f(x: i8, y: i8) { g(x) }", parse_decl);
     }
 }
