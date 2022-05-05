@@ -62,6 +62,7 @@ pub enum Expr {
     Let(Name, Box<Expr>),
     Var(Name, Box<Expr>),
     If(Box<Expr>, Block, Option<Block>),
+    Block(Block),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

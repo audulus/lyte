@@ -336,6 +336,9 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             };
             Ok(Expr::If(Box::new(cond), then, els))
         }
+        Token::Lbrace => {
+            Ok(Expr::Block(parse_block(lexer)?))
+        }
         _ => parse_expr(lexer)
     }
 }
@@ -458,6 +461,7 @@ mod tests {
         test("if x { }", parse_stmt);
         test("if x { } else { }", parse_stmt);
         test("x", parse_stmt);
+        test("{ x }", parse_stmt);
         test("{ }", parse_block);
         test("{ x x }", parse_block);
         test("{ x = y }", parse_block);
