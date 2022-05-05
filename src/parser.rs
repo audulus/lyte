@@ -45,11 +45,18 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         }
         Token::Lbracket => {
             lexer.next();
-            let r = parse_basic_type(lexer)?;
+            let r = parse_type(lexer)?;
             expect(lexer, Token::Rbracket)?;
             Type::Array(r)
         }
         Token::Id(name) => Type::Name(Intern::new(name.clone())),
+        Token::Lparen => {
+            lexer.next();
+            let t = parse_type(lexer)?;
+            expect(lexer, Token::Rparen)?;
+            lexer.next();
+            return Ok(t);
+        }
         _ => {
             return Err(ParseError {
                 location: lexer.i,
@@ -467,12 +474,16 @@ mod tests {
     #[test]
     fn test_parse_type() {
         let int8 = mk_type(Type::Int8);
+        let int32 = mk_type(Type::Int32);
         test_type("void", mk_type(Type::Void));
         test_type("i8", int8);
-        test_type("i32", mk_type(Type::Int32));
+        test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
-        test_type("[i32]", mk_type(Type::Array(mk_type(Type::Int32))));
+        test_type("[i32]", mk_type(Type::Array(int32)));
         test_type("i8 -> i8", mk_type(Type::Func(int8, int8)));
+        test_type("(i32)", int32);
+        test_type("(i8 -> i8)", mk_type(Type::Func(int8, int8)));
+        test_type("[i8 -> i8]", mk_type(Type::Array(mk_type(Type::Func(int8, int8)))));
     }
 
     fn parse_fn<T: std::fmt::Debug>(
