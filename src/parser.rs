@@ -262,6 +262,16 @@ fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             lexer.next();
             e
         }
+        Token::Integer(x) => {
+            let e = Expr::Int(*x);
+            lexer.next();
+            e
+        }
+        Token::Real(x) => {
+            let e = Expr::Real(*x);
+            lexer.next();
+            e
+        }
         Token::Lparen => {
             lexer.next();
             let rr = parse_lambda(lexer)?;
@@ -477,6 +487,8 @@ mod tests {
     fn test_parse() {
         test("x", parse_atom);
         test("(x)", parse_atom);
+        test("42", parse_atom);
+        test("3.14159", parse_atom);
         test("x*y", parse_term);
         test("x+y", parse_sum);
         test("x-y", parse_sum);
