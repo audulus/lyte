@@ -116,11 +116,11 @@ fn parse_lambda(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
         Ok(Expr::Lambda{ params, body })
     } else {
-        parse_cond(lexer)
+        parse_expr(lexer)
     }
 }
 
-fn parse_cond(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
     if lexer.tok == Token::If {
         lexer.next();
@@ -131,25 +131,8 @@ fn parse_cond(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         let els = parse_block(lexer)?;
         Ok(Expr::If(Box::new(cond), then, Some(els)))
     } else {
-        parse_expr(lexer)
+        parse_eq(lexer)
     }
-}
-
-fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
-    let mut r = parse_eq(lexer)?;
-
-    while lexer.tok == Token::Cond {
-        lexer.next();
-        let if_true = parse_expr(lexer)?;
-
-        expect(lexer, Token::Colon)?;
-        lexer.next();
-
-        let if_false = parse_expr(lexer)?;
-        r = binop(&Token::Cond, if_true, if_false);
-    }
-
-    Ok(r)
 }
 
 fn parse_eq(lexer: &mut Lexer) -> Result<Expr, ParseError> {
