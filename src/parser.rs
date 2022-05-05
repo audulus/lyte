@@ -401,12 +401,21 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
     }
 }
 
+fn skip_newlines(lexer: &mut Lexer) {
+    while lexer.tok == Token::Endl {
+        lexer.next();
+    }
+}
+
 fn parse_program(lexer: &mut Lexer) -> Result<Vec<Decl>, ParseError> {
 
     let mut decls = vec![];
 
+    skip_newlines(lexer);
+
     while lexer.tok != Token::End {
-        decls.push(parse_decl(lexer)?)
+        decls.push(parse_decl(lexer)?);
+        skip_newlines(lexer);
     }
 
     Ok(decls)
@@ -486,5 +495,6 @@ mod tests {
         test("f(x: i8, y: i8) { g(x) }", parse_decl);
         test("", parse_program);
         test("f(){} g(){}", parse_program);
+        test("f(){}\n g(){}", parse_program);
     }
 }
