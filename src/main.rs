@@ -17,7 +17,6 @@ use std::fs;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap()]
     file: String,
 }
 
