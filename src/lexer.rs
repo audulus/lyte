@@ -58,6 +58,7 @@ pub enum Token {
     Not,
     Char,
     String,
+    Pipe,
     End,
     Error,
 }
@@ -168,6 +169,7 @@ impl Lexer {
             '?' => Token::Cond,
             ':' => Token::Colon,
             '.' => Token::Dot,
+            '|' => Token::Pipe,
             '<' => {
                 if bytes[self.i] == ('=' as u8) {
                     self.i += 1;
@@ -273,5 +275,6 @@ mod tests {
         assert_eq!(tokens("⟩"), vec![Rmath]);
         assert_eq!(tokens("-"), vec![Minus]);
         assert_eq!(tokens("->"), vec![Arrow]);
+        assert_eq!(tokens("|"), vec![Pipe]);
     }
 }
