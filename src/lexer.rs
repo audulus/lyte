@@ -83,17 +83,17 @@ impl Lexer {
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
 
-        // For newlines, skip whitespace and return enline token.
-        if self.i < bytes.len() && bytes[self.i] == b'\n' {
-            while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-                self.i += 1;
+        // Skip whitespace
+        let mut has_newline = false;
+        while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
+            if bytes[self.i] == b'\n' {
+                has_newline = true;
             }
-            return Token::Endl;
+            self.i += 1;
         }
 
-        // Skip whitespace
-        while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-            self.i += 1;
+        if has_newline {
+            return Token::Endl;
         }
 
         // End of string.
@@ -261,6 +261,7 @@ mod tests {
         assert_eq!(tokens(""), vec![]);
         assert_eq!(tokens(" "), vec![]);
         assert_eq!(tokens("\n"), vec![Endl]);
+        assert_eq!(tokens("\n    \n"), vec![Endl]);
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
         assert_eq!(tokens("42"), vec![Real(42.0)]);
