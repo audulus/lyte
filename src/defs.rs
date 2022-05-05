@@ -14,7 +14,7 @@ pub enum Type {
     Tuple(TypeID, TypeID),
     Var(Name),
     Func(TypeID, TypeID),
-    Array(TypeID),
+    Array(TypeID, i64),
     Name(Name),
 }
 

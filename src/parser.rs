@@ -46,8 +46,22 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         Token::Lbracket => {
             lexer.next();
             let r = parse_type(lexer)?;
-            expect(lexer, Token::Rbracket)?;
-            Type::Array(r)
+            if lexer.tok == Token::Semi {
+                lexer.next();
+                if let Token::Real(n) = lexer.tok {
+                    lexer.next();
+                    expect(lexer, Token::Rbracket)?;
+                    Type::Array(r, n as i64)
+                } else {
+                    return Err(ParseError {
+                        location: lexer.i,
+                        message: String::from("Expected integer array size"),
+                    });
+                }
+            } else {
+                expect(lexer, Token::Rbracket)?;
+                Type::Array(r, 0)
+            }
         }
         Token::Id(name) => Type::Name(Intern::new(name.clone())),
         Token::Lparen => {
@@ -480,11 +494,12 @@ mod tests {
         test_type("i8", int8);
         test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
-        test_type("[i32]", mk_type(Type::Array(int32)));
+        test_type("[i32]", mk_type(Type::Array(int32, 0)));
+        test_type("[i32; 4]", mk_type(Type::Array(int32, 4)));
         test_type("i8 -> i8", func);
         test_type("(i32)", int32);
         test_type("(i8 -> i8)", func);
-        test_type("[i8 -> i8]", mk_type(Type::Array(func)));
+        test_type("[i8 -> i8]", mk_type(Type::Array(func, 0)));
     }
 
     fn parse_fn<T: std::fmt::Debug>(
