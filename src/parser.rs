@@ -126,10 +126,15 @@ fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
         lexer.next();
         let cond = parse_expr(lexer)?;
         let then = parse_block(lexer)?;
-        expect(lexer, Token::Else)?;
-        lexer.next();
-        let els = parse_block(lexer)?;
-        Ok(Expr::If(Box::new(cond), then, Some(els)))
+
+        let els = if lexer.tok == Token::Else {
+            lexer.next();
+            Some(parse_block(lexer)?)
+        } else {
+            None
+        };
+
+        Ok(Expr::If(Box::new(cond), then, els))
     } else {
         parse_eq(lexer)
     }
