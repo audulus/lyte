@@ -102,14 +102,14 @@ impl Compiler {
 
         if g.nodes[a].possible.len() == 1 {
             g.nodes[b].possible = self.prune(&g.nodes[b].possible, g.nodes[a].possible[0]);
-            if g.nodes[b].possible.len() == 0 {
+            if g.nodes[b].possible.is_empty() {
                 return Err(loc.clone());
             }
         }
 
         if g.nodes[b].possible.len() == 1 {
             g.nodes[a].possible = self.prune(&g.nodes[a].possible, g.nodes[b].possible[0]);
-            if g.nodes[a].possible.len() == 0 {
+            if g.nodes[a].possible.is_empty() {
                 return Err(loc.clone());
             }
         }

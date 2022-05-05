@@ -29,7 +29,7 @@ impl Compiler {
     pub fn parse_file(&mut self, path: &Path) {
         if let Ok(string) = fs::read_to_string(path) {
             println!("parsing file: {:?}", path);
-            let mut lexer = Lexer::new(&String::from(string));
+            let mut lexer = Lexer::new(&string);
             lexer.next();
         } else {
             println!("error reading file: {:?}", path);
@@ -48,7 +48,7 @@ fn main() {
             compiler.parse_file(&path.unwrap().path());
         }
     } else {
-        let file = args.file.clone();
-        compiler.parse_file(&Path::new(&file));
+        let file = args.file;
+        compiler.parse_file(Path::new(&file));
     }
 }

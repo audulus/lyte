@@ -156,7 +156,7 @@ impl Lexer {
 
         let c = bytes[self.i] as char;
         self.i += 1;
-        return match c {
+        match c {
             '(' => Token::Lparen,
             ')' => Token::Rparen,
             '[' => Token::Lbracket,
@@ -227,7 +227,7 @@ impl Lexer {
                 }
             }
             _ => Token::Error,
-        };
+        }
     }
 
     pub fn next(&mut self) -> Token {

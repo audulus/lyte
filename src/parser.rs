@@ -17,7 +17,7 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
         println!("{:?}", message);
         Err(ParseError {
             location: lexer.i,
-            message: message,
+            message,
         })
     }
 }
@@ -426,7 +426,7 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
             match lexer.tok.clone() {
                 Token::Lbrace => Ok(Decl::Func {
                     name: Intern::new(name),
-                    params: params,
+                    params,
                     body: parse_block(lexer)?,
                 }),
                 Token::Arrow => {
@@ -434,7 +434,7 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
                     let _t = parse_type(lexer)?;
                     Ok(Decl::Func {
                         name: Intern::new(name),
-                        params: params,
+                        params,
                         body: parse_block(lexer)?,
                     })
                 }
