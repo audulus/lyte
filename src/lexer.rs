@@ -166,7 +166,7 @@ impl Lexer {
             ',' => Token::Comma,
             '+' => Token::Plus,
             '-' => {
-                if self.i < bytes.len() && bytes[self.i] == ('>' as u8) {
+                if self.i < bytes.len() && bytes[self.i] == b'>' {
                     self.i += 1;
                     Token::Arrow
                 } else {
@@ -182,7 +182,7 @@ impl Lexer {
             '.' => Token::Dot,
             '|' => Token::Pipe,
             '<' => {
-                if bytes[self.i] == ('=' as u8) {
+                if bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Leq
                 } else {
@@ -190,7 +190,7 @@ impl Lexer {
                 }
             }
             '>' => {
-                if bytes[self.i] == ('=' as u8) {
+                if bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Geq
                 } else {
@@ -198,13 +198,13 @@ impl Lexer {
                 }
             }
             '=' => {
-                if bytes[self.i] == ('=' as u8) {
+                if bytes[self.i] == b'=' {
                     self.i += 1
                 }
                 Token::Equal
             }
             '!' => {
-                if bytes[self.i] == ('=' as u8) {
+                if bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::NotEqual
                 } else {
