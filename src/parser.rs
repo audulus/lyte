@@ -422,15 +422,16 @@ mod tests {
         test_type("[i32]", mk_type(Type::Array(mk_type(Type::Int32))));
     }
 
-    fn parse_fn<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) -> Result<T, ParseError> {
+    fn parse_fn<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) -> Result<T, ParseError> {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
         let r = f(&mut lexer)?;
+        println!("{} ==> {:?}", string, r);
         expect(&lexer, Token::End)?;
         Ok(r)
     }
 
-    fn test<T>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) {
+    fn test<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) {
         assert!(parse_fn(string, f).is_ok());
     }
 
