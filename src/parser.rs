@@ -116,6 +116,22 @@ fn parse_lambda(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
         Ok(Expr::Lambda{ params, body })
     } else {
+        parse_cond(lexer)
+    }
+}
+
+fn parse_cond(lexer: &mut Lexer) -> Result<Expr, ParseError> {
+
+    if lexer.tok == Token::If {
+        lexer.next();
+        let cond = parse_expr(lexer)?;
+        println!("token: {:?}", lexer.tok);
+        let then = parse_block(lexer)?;
+        expect(lexer, Token::Else)?;
+        lexer.next();
+        let els = parse_block(lexer)?;
+        Ok(Expr::If(Box::new(cond), then, Some(els)))
+    } else {
         parse_expr(lexer)
     }
 }
@@ -289,27 +305,27 @@ fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
 
 fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     match lexer.tok.clone() {
-        Token::Id(name) => {
-            lexer.next();
-            let n = Intern::new(name);
-            match lexer.tok {
-                Token::Lparen => {
-                    lexer.next();
-                    let r = Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?));
-                    expect(lexer, Token::Rparen)?;
-                    lexer.next();
-                    r
-                },
-                Token::Equal => {
-                    lexer.next();
-                    Ok(Expr::Assign(n, Box::new(parse_lambda(lexer)?)))
-                },
-                _ => Err(ParseError {
-                    location: lexer.i,
-                    message: String::from("Expected assignment or function call")
-                })
-            }
-        },
+        // Token::Id(name) => {
+        //     lexer.next();
+        //     let n = Intern::new(name);
+        //     match lexer.tok {
+        //         Token::Lparen => {
+        //             lexer.next();
+        //             let r = Ok(Expr::Call(Box::new(Expr::Id(n)), parse_exprlist(lexer)?));
+        //             expect(lexer, Token::Rparen)?;
+        //             lexer.next();
+        //             r
+        //         },
+        //         Token::Equal => {
+        //             lexer.next();
+        //             Ok(Expr::Assign(n, Box::new(parse_lambda(lexer)?)))
+        //         },
+        //         _ => Err(ParseError {
+        //             location: lexer.i,
+        //             message: String::from("Expected assignment or function call")
+        //         })
+        //     }
+        // },
         Token::Var | Token::Let => {
             lexer.next();
             match &lexer.tok {
@@ -338,10 +354,7 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             };
             Ok(Expr::If(Box::new(cond), then, els))
         }
-        _ => Err(ParseError {
-            location: lexer.i,
-            message: String::from("Expected statement")
-        })
+        _ => parse_expr(lexer)
     }
 }
 
@@ -457,9 +470,12 @@ mod tests {
         test("var x = y", parse_stmt);
         test("let x = y", parse_stmt);
         test("let x = || x", parse_stmt);
+        test("let x = if x { a } else { b }", parse_stmt);
         test("if x { }", parse_stmt);
         test("if x { } else { }", parse_stmt);
+        test("x", parse_stmt);
         test("{ }", parse_block);
+        test("{ x x }", parse_block);
         test("{ x = y }", parse_block);
         test("{ f(x) }", parse_block);
         test("{ x = y z = w }", parse_block);
