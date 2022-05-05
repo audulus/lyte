@@ -544,7 +544,8 @@ mod tests {
             "if x { }",
             "if x { } else { }",
             "x",
-            "{ x }"
+            "{ x }",
+            "return x",
         ]);
     }
 

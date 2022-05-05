@@ -120,6 +120,7 @@ impl Lexer {
                 "i32" => Token::Int32,
                 "var" => Token::Var,
                 "let" => Token::Let,
+                "return" => Token::Return,
                 _ => Token::Id(id),
             };
         }
@@ -288,5 +289,6 @@ mod tests {
         assert_eq!(tokens("-"), vec![Minus]);
         assert_eq!(tokens("->"), vec![Arrow]);
         assert_eq!(tokens("|"), vec![Pipe]);
+        assert_eq!(tokens("return"), vec![Return]);
     }
 }
