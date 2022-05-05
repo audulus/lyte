@@ -329,18 +329,6 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                 })
             }
         },
-        Token::If => {
-            lexer.next();
-            let cond = parse_expr(lexer)?;
-            let then = parse_block(lexer)?;
-            let els = if lexer.tok == Token::Else {
-                lexer.next();
-                Some(parse_block(lexer)?)
-            } else {
-                None
-            };
-            Ok(Expr::If(Box::new(cond), then, els))
-        }
         Token::Lbrace => {
             Ok(Expr::Block(parse_block(lexer)?))
         }
