@@ -485,10 +485,6 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        test("x", parse_atom);
-        test("(x)", parse_atom);
-        test("42", parse_atom);
-        test("3.14159", parse_atom);
         test("x*y", parse_term);
         test("x+y", parse_sum);
         test("x-y", parse_sum);
