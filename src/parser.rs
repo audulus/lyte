@@ -489,9 +489,6 @@ mod tests {
         test("f(x: i8) { g(x) }", parse_decl);
         test("f(x: i8) -> i8 { g(x) }", parse_decl);
         test("f(x: i8, y: i8) { g(x) }", parse_decl);
-        test("", parse_program);
-        test("f(){} g(){}", parse_program);
-        test("f(){}\n g(){}", parse_program);
     }
 
     fn test_block(strings: &[&str]) {
@@ -511,6 +508,21 @@ mod tests {
             "{ x = y\n z = w }",
             "{ f(x)\n g(y) }",
             "{ var x = y\n var z = w }",
+        ]);
+    }
+
+    fn test_program(strings: &[&str]) {
+        for string in strings {
+            assert!(parse_fn(string, parse_program).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_parse_program() {
+        test_program(&[
+            "",
+            "f(){} g(){}",
+            "f(){}\n g(){}"
         ]);
     }
 }
