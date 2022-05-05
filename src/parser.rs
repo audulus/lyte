@@ -344,6 +344,8 @@ fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
     lexer.next();
 
     loop {
+        skip_newlines(lexer);
+        
         if lexer.tok == Token::Rbrace {
             break;
         }
@@ -501,6 +503,7 @@ mod tests {
     fn test_parse_block() {
         test_block(&[
             "{ }",
+            "{ \n }",
             "{ x }",
             "{ x\n x }",
             "{ x \n x }",
