@@ -51,5 +51,4 @@ fn main() {
         let file = args.file.clone();
         compiler.parse_file(&Path::new(&file));
     }
-    
 }

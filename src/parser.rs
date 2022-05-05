@@ -51,16 +51,18 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             Type::Array(r)
         }
         Token::Id(name) => Type::Name(Intern::new(name.clone())),
-        _ => return Err(ParseError {
-            location: lexer.i,
-            message: String::from("Expected type")
-        })
+        _ => {
+            return Err(ParseError {
+                location: lexer.i,
+                message: String::from("Expected type"),
+            })
+        }
     }))
 }
 
 fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
     let mut r = vec![];
-    
+
     loop {
         if let Token::Id(name) = &lexer.tok {
             let name = name.clone();
@@ -69,11 +71,11 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
             lexer.next();
             let ty = parse_basic_type(lexer)?;
             lexer.next();
-            r.push(Param{ name, ty })
+            r.push(Param { name, ty })
         }
-        
+
         if lexer.tok != Token::Comma {
-            break
+            break;
         }
 
         lexer.next();
@@ -83,7 +85,6 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
 }
 
 fn binop(tok: &Token, lhs: Expr, rhs: Expr) -> Expr {
-
     let op = match tok {
         Token::Plus => Binop::Plus,
         Token::Minus => Binop::Minus,
@@ -106,7 +107,6 @@ fn binop(tok: &Token, lhs: Expr, rhs: Expr) -> Expr {
 }
 
 fn parse_lambda(lexer: &mut Lexer) -> Result<Expr, ParseError> {
-
     if lexer.tok == Token::Pipe {
         lexer.next();
         let params = parse_paramlist(lexer)?;
@@ -115,14 +115,13 @@ fn parse_lambda(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
         let body = Box::new(parse_lambda(lexer)?);
 
-        Ok(Expr::Lambda{ params, body })
+        Ok(Expr::Lambda { params, body })
     } else {
         parse_expr(lexer)
     }
 }
 
 fn parse_expr(lexer: &mut Lexer) -> Result<Expr, ParseError> {
-
     if lexer.tok == Token::If {
         lexer.next();
         let cond = parse_expr(lexer)?;
@@ -158,8 +157,11 @@ fn parse_eq(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 fn parse_rel(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     let mut lhs = parse_sum(lexer)?;
 
-    while lexer.tok == Token::Leq || lexer.tok == Token::Geq || lexer.tok == Token::Less ||
-           lexer.tok == Token::Greater {
+    while lexer.tok == Token::Leq
+        || lexer.tok == Token::Geq
+        || lexer.tok == Token::Less
+        || lexer.tok == Token::Greater
+    {
         let t = lexer.tok.clone();
         lexer.next();
         let rhs = parse_sum(lexer)?;
@@ -200,7 +202,7 @@ fn parse_term(lexer: &mut Lexer) -> Result<Expr, ParseError> {
 
 fn parse_exp(lexer: &mut Lexer) -> Result<Expr, ParseError> {
     let mut lhs = parse_factor(lexer)?;
-    
+
     while lexer.tok == Token::Power {
         lexer.next();
 
@@ -259,33 +261,31 @@ fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             e
         }
         Token::Lparen => {
-
             lexer.next();
             let rr = parse_lambda(lexer)?;
             expect(lexer, Token::Rparen)?;
 
             lexer.next();
             rr
-
         }
-        Token::Lbrace => {
-            Expr::Block(parse_block(lexer)?)
+        Token::Lbrace => Expr::Block(parse_block(lexer)?),
+        _ => {
+            return Err(ParseError {
+                location: lexer.i,
+                message: String::from("Expected expression"),
+            })
         }
-        _ => return Err(ParseError {
-            location: lexer.i,
-            message: String::from("Expected expression")
-        })
     })
 }
 
 fn parse_exprlist(lexer: &mut Lexer) -> Result<Vec<Expr>, ParseError> {
     let mut r = vec![];
-    
+
     loop {
         r.push(parse_lambda(lexer)?);
-        
+
         if lexer.tok != Token::Comma {
-            break
+            break;
         }
 
         lexer.next();
@@ -326,14 +326,14 @@ fn parse_stmt(lexer: &mut Lexer) -> Result<Expr, ParseError> {
                     expect(lexer, Token::Equal)?;
                     lexer.next();
                     Ok(Expr::Var(n, Box::new(parse_lambda(lexer)?)))
-                },
+                }
                 _ => Err(ParseError {
                     location: lexer.i,
-                    message: String::from("Expected assignment or function call")
-                })
+                    message: String::from("Expected assignment or function call"),
+                }),
             }
         }
-        _ => parse_expr(lexer)
+        _ => parse_expr(lexer),
     }
 }
 
@@ -345,13 +345,13 @@ fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
 
     loop {
         if lexer.tok == Token::Rbrace {
-            break
+            break;
         }
 
         r.push(parse_stmt(lexer)?);
 
         if lexer.tok != Token::Endl {
-            break
+            break;
         }
 
         lexer.next();
@@ -374,30 +374,31 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
             lexer.next();
 
             match lexer.tok.clone() {
-                Token::Lbrace => {
-                    Ok(Decl::Func{name: Intern::new(name),
-                        params: params,
-                        body: parse_block(lexer)?})
-                },
+                Token::Lbrace => Ok(Decl::Func {
+                    name: Intern::new(name),
+                    params: params,
+                    body: parse_block(lexer)?,
+                }),
                 Token::Arrow => {
                     lexer.next();
                     let _t = parse_basic_type(lexer)?;
                     lexer.next();
-                    Ok(Decl::Func{name: Intern::new(name),
+                    Ok(Decl::Func {
+                        name: Intern::new(name),
                         params: params,
-                        body: parse_block(lexer)?})
-                },
+                        body: parse_block(lexer)?,
+                    })
+                }
                 _ => Err(ParseError {
                     location: lexer.i,
-                    message: String::from("Expected return type or function body")
-                })
+                    message: String::from("Expected return type or function body"),
+                }),
             }
-            
         }
         _ => Err(ParseError {
             location: lexer.i,
-            message: String::from("Expected declaration")
-        })
+            message: String::from("Expected declaration"),
+        }),
     }
 }
 
@@ -408,7 +409,6 @@ fn skip_newlines(lexer: &mut Lexer) {
 }
 
 fn parse_program(lexer: &mut Lexer) -> Result<Vec<Decl>, ParseError> {
-
     let mut decls = vec![];
 
     skip_newlines(lexer);
@@ -445,7 +445,10 @@ mod tests {
         test_type("[i32]", mk_type(Type::Array(mk_type(Type::Int32))));
     }
 
-    fn parse_fn<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer) -> Result<T, ParseError>) -> Result<T, ParseError> {
+    fn parse_fn<T: std::fmt::Debug>(
+        string: &str,
+        f: fn(&mut Lexer) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
         let mut lexer = Lexer::new(&String::from(string));
         lexer.next();
         let r = f(&mut lexer)?;
@@ -507,7 +510,7 @@ mod tests {
             "{ f(x) }",
             "{ x = y\n z = w }",
             "{ f(x)\n g(y) }",
-            "{ var x = y\n var z = w }"
+            "{ var x = y\n var z = w }",
         ]);
     }
 }

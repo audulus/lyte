@@ -37,7 +37,7 @@ pub enum Binop {
     Greater,
     Leq,
     Geq,
-    Cond
+    Cond,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,7 +48,7 @@ pub enum Expr {
     Call(Box<Expr>, Vec<Expr>),
     Binop(Binop, Box<Expr>, Box<Expr>),
     Unop(Box<Expr>),
-    Lambda{ params: Vec<Param>, body: Box<Expr> },
+    Lambda { params: Vec<Param>, body: Box<Expr> },
     String,
     Char,
     Subscript(Box<Expr>, Box<Expr>),
@@ -69,7 +69,7 @@ pub enum Expr {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Param {
     pub name: String,
-    pub ty: TypeID
+    pub ty: TypeID,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -85,10 +85,13 @@ impl Block {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Decl {
-    Func{ name: Intern<String>, params: Vec<Param>, body: Block },
+    Func {
+        name: Intern<String>,
+        params: Vec<Param>,
+        body: Block,
+    },
 }
 
 pub struct Compiler {
     pub names: Vec<String>,
 }
-
