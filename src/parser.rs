@@ -11,12 +11,13 @@ pub struct ParseError {
 
 #[derive(Debug)]
 pub struct ExprArena {
-    pub exprs: Vec<Expr>
+    pub exprs: Vec<Expr>,
+    pub locs: Vec<Loc>
 }
 
 impl ExprArena {
     pub fn new() -> Self {
-        Self { exprs: vec![] }
+        Self { exprs: vec![], locs: vec![] }
     }
 
     pub fn add(&mut self, expr: Expr) -> ExprID {
