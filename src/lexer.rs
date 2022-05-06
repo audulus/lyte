@@ -257,9 +257,8 @@ impl Lexer {
         }
     }
 
-    pub fn next(&mut self) -> Token {
+    pub fn next(&mut self) {
         self.tok = self._next();
-        self.tok.clone()
     }
 }
 
