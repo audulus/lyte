@@ -3,14 +3,18 @@
 mod defs;
 use defs::*;
 mod types;
-//use types::*;
+use types::*;
+
 mod typegraph;
-// use typegraph::*;
+use typegraph::*;
+
 mod lexer;
 use lexer::*;
 
 mod parser;
 use parser::*;
+
+mod checker;
 
 use clap::Parser;
 use std::fs;
