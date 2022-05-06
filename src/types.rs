@@ -46,6 +46,7 @@ pub fn solved(t: TypeID) -> bool {
     match *t {
         Type::Tuple(a, b) => solved(a) && solved(b),
         Type::Func(a, b) => solved(a) && solved(b),
+        Type::Array(a, _) => solved(a),
         Type::Var(_, _) => false,
         _ => true,
     }
