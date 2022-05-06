@@ -468,6 +468,8 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
                 });
             };
 
+            lexer.next();
+
             expect(lexer, Token::Lbrace)?;
             lexer.next();
             
@@ -625,6 +627,7 @@ mod tests {
             "f(x: i8, y: i8) { g(x) }",
             "f(x: i8,\n y: i8) { g(x) }",
             "f(x: i8 -> i8) { }",
+            "struct x { }",
         ]);
     }
 
