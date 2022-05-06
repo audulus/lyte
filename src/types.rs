@@ -26,17 +26,9 @@ pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
     let t = find(t, inst);
 
     match *t {
-        Type::Tuple(a, b) => {
-            let nt = Type::Tuple(subst(a, inst), subst(b, inst));
-            mk_type(nt)
-        }
-        Type::Func(a, b) => {
-            let nt = Type::Func(subst(a, inst), subst(b, inst));
-            mk_type(nt)
-        }
-        Type::Array(a, n) => {
-            mk_type(Type::Array(subst(a, inst), n))
-        }
+        Type::Tuple(a, b) => mk_type(Type::Tuple(subst(a, inst), subst(b, inst))),
+        Type::Func(a, b) => mk_type(Type::Func(subst(a, inst), subst(b, inst))),
+        Type::Array(a, n) => mk_type(Type::Array(subst(a, inst), n)),
         Type::Var(_, _) => find(t, inst),
         _ => t,
     }
