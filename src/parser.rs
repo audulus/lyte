@@ -394,6 +394,33 @@ fn parse_block(lexer: &mut Lexer) -> Result<Block, ParseError> {
     Ok(Block::new(r))
 }
 
+fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
+
+    let mut r = vec![];
+
+    loop {
+        if let Token::Id(name) = &lexer.tok {
+            let name = Intern::new(name.clone());
+            lexer.next();
+            expect(lexer, Token::Colon)?;
+            lexer.next();
+            let ty = parse_type(lexer)?;
+            r.push(Field { name, ty })
+        }
+
+        if lexer.tok != Token::Comma {
+            break;
+        }
+
+        lexer.next();
+
+        skip_newlines(lexer);
+    }
+
+    Ok(r)
+
+}
+
 fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
     match lexer.tok.clone() {
         Token::Id(name) => {
@@ -427,6 +454,28 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
                     message: String::from("Expected return type or function body"),
                 }),
             }
+        }
+        Token::Struct => {
+            // Struct delcaration.
+            lexer.next();
+
+            let name = if let Token::Id(name) = &lexer.tok {
+                Intern::new(name.clone())
+            } else {
+                return Err(ParseError {
+                    location: lexer.i,
+                    message: String::from("expected struct name"),
+                });
+            };
+
+            expect(lexer, Token::Lbrace)?;
+            lexer.next();
+            
+            let fields = parse_fieldlist(lexer)?;
+            expect(lexer, Token::Rbrace)?;
+            lexer.next();
+
+            Ok(Decl::Struct{ name, fields })
         }
         _ => Err(ParseError {
             location: lexer.i,
