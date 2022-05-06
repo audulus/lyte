@@ -26,6 +26,15 @@ impl ExprArena {
     }
 }
 
+impl std::ops::Index<ExprID> for ExprArena
+{
+    type Output = Expr;
+
+    fn index(&self, index: ExprID) -> &Self::Output {
+        &self.exprs[index]
+    }
+}
+
 fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
     if lexer.tok == tok {
         Ok(())
