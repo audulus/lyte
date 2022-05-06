@@ -421,6 +421,30 @@ fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
 
 }
 
+fn parse_caselist(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
+
+    let mut r = vec![];
+
+    loop {
+        if let Token::Id(name) = &lexer.tok {
+            let name = Intern::new(name.clone());
+            lexer.next();
+            r.push(name);
+        }
+
+        if lexer.tok != Token::Comma {
+            break;
+        }
+
+        lexer.next();
+
+        skip_newlines(lexer);
+    }
+
+    Ok(r)
+
+}
+
 fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
     match lexer.tok.clone() {
         Token::Id(name) => {
@@ -478,6 +502,29 @@ fn parse_decl(lexer: &mut Lexer) -> Result<Decl, ParseError> {
             lexer.next();
 
             Ok(Decl::Struct{ name, fields })
+        }
+        Token::Enum => {
+            lexer.next();
+
+            let name = if let Token::Id(name) = &lexer.tok {
+                Intern::new(name.clone())
+            } else {
+                return Err(ParseError {
+                    location: lexer.i,
+                    message: String::from("expected enum name"),
+                });
+            };
+
+            lexer.next();
+
+            expect(lexer, Token::Lbrace)?;
+            lexer.next();
+            
+            let cases = parse_caselist(lexer)?;
+            expect(lexer, Token::Rbrace)?;
+            lexer.next();
+
+            Ok(Decl::Enum{ name, cases })
         }
         _ => Err(ParseError {
             location: lexer.i,
@@ -630,6 +677,8 @@ mod tests {
             "struct x { }",
             "struct x { x: i8 }",
             "struct x { x: i8, y: i8 }",
+            "enum x { }",
+            "enum x { a, b, c }",
         ]);
     }
 

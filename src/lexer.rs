@@ -42,6 +42,7 @@ pub enum Token {
     Return,
     Len,
     Struct,
+    Enum,
     Void,
     Bool,
     Int8,
@@ -122,6 +123,7 @@ impl Lexer {
                 "let" => Token::Let,
                 "return" => Token::Return,
                 "struct" => Token::Struct,
+                "enum" => Token::Enum,
                 _ => Token::Id(id),
             };
         }

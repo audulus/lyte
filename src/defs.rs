@@ -100,6 +100,10 @@ pub enum Decl {
     Struct {
         name: Name,
         fields: Vec<Field>
+    },
+    Enum {
+        name: Name,
+        cases: Vec<Name>
     }
 }
 
