@@ -97,9 +97,11 @@ mod tests {
         let mut inst = Instance::new();
         assert!(unify(vd, vd, &mut inst));
         assert!(!unify(vd, int8, &mut inst));
+        assert!(solved(vd));
 
         let var = typevar("T");
         assert!(unify(var, int8, &mut inst));
+        assert!(!solved(var));
 
     }
 }
