@@ -629,6 +629,7 @@ mod tests {
             "f(x: i8 -> i8) { }",
             "struct x { }",
             "struct x { x: i8 }",
+            "struct x { x: i8, y: i8 }",
         ]);
     }
 
