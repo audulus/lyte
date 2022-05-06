@@ -404,6 +404,7 @@ fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
     let mut r = vec![];
 
     loop {
+        skip_newlines(lexer);
         if let Token::Id(name) = &lexer.tok {
             let name = Intern::new(name.clone());
             lexer.next();
@@ -413,13 +414,13 @@ fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
             r.push(Field { name, ty })
         }
 
+        skip_newlines(lexer);
+
         if lexer.tok != Token::Comma {
             break;
         }
 
         lexer.next();
-
-        skip_newlines(lexer);
     }
 
     Ok(r)
@@ -680,6 +681,7 @@ mod tests {
             "f(x: i8,\n y: i8) { g(x) }",
             "f(x: i8 -> i8) { }",
             "struct x { }",
+            "struct x { \n }",
             "struct x { x: i8 }",
             "struct x { x: i8, y: i8 }",
             "enum x { }",
