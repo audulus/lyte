@@ -272,10 +272,10 @@ mod tests {
         let mut lex = Lexer::new(&String::from(expr), "test_lexer");
 
         let mut toks = vec![];
-        let mut tok = lex.next();
-        while tok != Token::End {
-            toks.push(tok);
-            tok = lex.next();
+        lex.next();
+        while lex.tok != Token::End {
+            toks.push(lex.tok.clone());
+            lex.next();
         }
         toks
     }
