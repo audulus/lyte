@@ -55,7 +55,6 @@ pub enum Expr {
     Cast,
     Field(Box<Expr>, Intern<String>),
     Array(Box<Expr>, Box<Expr>),
-    New,
     True,
     False,
     AsTy(Box<Expr>, TypeID),
