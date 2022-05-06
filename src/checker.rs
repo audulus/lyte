@@ -1,4 +1,5 @@
 use crate::*;
+use internment::Intern;
 
 struct Checker {
     type_graph: TypeGraph,
@@ -26,7 +27,7 @@ impl Checker {
     }
 
     fn fresh(&mut self) -> TypeID {
-        let t = mk_type(Type::Anon(self.next_anon));
+        let t = mk_type(Type::Var(Intern::new(String::from("__anon__")), self.next_anon));
         self.next_anon += 1;
         t
     }
