@@ -1,3 +1,5 @@
+use crate::defs::*;
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Id(String),
@@ -71,14 +73,16 @@ pub struct Lexer {
     code: String,
     pub i: usize,
     pub tok: Token,
+    pub loc: Loc,
 }
 
 impl Lexer {
-    pub fn new(code: &str) -> Self {
+    pub fn new(code: &str, file: &str) -> Self {
         Lexer {
             code: String::from(code),
             i: 0,
             tok: Token::Error,
+            loc: Loc { file: file.into(), line: 0 }
         }
     }
 
@@ -264,7 +268,7 @@ mod tests {
     use super::*;
 
     fn tokens(expr: &str) -> Vec<Token> {
-        let mut lex = Lexer::new(&String::from(expr));
+        let mut lex = Lexer::new(&String::from(expr), "test_lexer");
 
         let mut toks = vec![];
         let mut tok = lex.next();

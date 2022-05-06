@@ -594,7 +594,7 @@ mod tests {
     use super::*;
 
     fn type_parser(string: &str) -> TypeID {
-        let mut lexer = Lexer::new(&String::from(string));
+        let mut lexer = Lexer::new(string, "parser tests");
         lexer.next();
         parse_type(&mut lexer).unwrap()
     }
@@ -624,7 +624,7 @@ mod tests {
         string: &str,
         f: fn(&mut Lexer, arena: &mut ExprArena) -> Result<T, ParseError>,
     ) -> Result<T, ParseError> {
-        let mut lexer = Lexer::new(&String::from(string));
+        let mut lexer = Lexer::new(&String::from(string), "parser tests");
         lexer.next();
         let mut arena = ExprArena::new();
         let r = f(&mut lexer, &mut arena)?;
