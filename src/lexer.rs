@@ -59,7 +59,7 @@ pub enum Token {
     Or,
     Not,
     Char,
-    String,
+    String(String),
     Pipe,
     Endl,
     End,
@@ -156,6 +156,24 @@ impl Lexer {
                 return Token::Error;
             }
             return Token::Real(x.unwrap());
+        }
+
+        // Strings.
+        if bytes[self.i] == b'"' {
+            self.i += 1;
+            let mut s = String::new();
+            while self.i < self.code.len() && bytes[self.i] != b'"' {
+                s.push(bytes[self.i] as char);
+                self.i += 1;
+            }
+
+            if self.i == self.code.len() {
+                return Token::Error;
+            }
+
+            self.i += 1;
+
+            return Token::String(s);
         }
 
         let c = bytes[self.i] as char;
@@ -294,5 +312,7 @@ mod tests {
         assert_eq!(tokens("|"), vec![Pipe]);
         assert_eq!(tokens("return"), vec![Return]);
         assert_eq!(tokens("struct"), vec![Struct]);
+        assert_eq!(tokens("\"test\""), vec![Token::String("test".into())]);
+        assert_eq!(tokens("\"test\" \n"), vec![Token::String("test".into()), Endl]);
     }
 }
