@@ -35,7 +35,7 @@ impl Compiler {
             let mut arena = ExprArena::new();
             match parse_program(&mut lexer, &mut arena) {
                 Ok(decls) => {
-                    println!("parsed {:?}", decls);
+                    println!("parsed {:?}, exprs: {:?}", decls, arena);
 
                     self.decls.extend(decls);
                 }
