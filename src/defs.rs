@@ -108,5 +108,4 @@ pub enum Decl {
 }
 
 pub struct Compiler {
-    pub names: Vec<String>,
 }
