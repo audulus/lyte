@@ -19,7 +19,7 @@ impl Checker {
         }
     }
 
-    fn eq<F: FnOnce()>(&mut self, lhs: TypeID, rhs: TypeID, loc: &Loc, errf: F) {
+    fn eq<F: FnOnce()>(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, errf: F) {
         self.type_graph.eq_types(lhs, rhs, loc);
         if !unify(lhs, rhs, &mut self.inst) {
             (errf)();
@@ -54,7 +54,7 @@ impl Checker {
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
-                self.eq(self.types[*f], mk_type(Type::Func(v0, v1)), &arena.locs[id], || {
+                self.eq(self.types[*f], mk_type(Type::Func(v0, v1)), arena.locs[id], || {
                     println!("attempt to call a non-function");
                 });
                 

@@ -52,16 +52,16 @@ impl TypeGraph {
         self.constraints.push(c.clone())
     }
 
-    pub fn eq_constraint(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: &Loc) {
+    pub fn eq_constraint(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: Loc) {
         self.add_constraint(&Constraint {
             a: t0,
             b: t1,
             field: "".to_string(),
-            loc: loc.clone(),
+            loc: loc,
         })
     }
 
-    pub fn eq_types(&mut self, t0: TypeID, t1: TypeID, loc: &Loc) {
+    pub fn eq_types(&mut self, t0: TypeID, t1: TypeID, loc: Loc) {
         if t0 != t1 {
             let tn0 = self.add_type_node(t0);
             let tn1 = self.add_type_node(t1);
@@ -193,7 +193,7 @@ mod tests {
         let b = g.add_node();
         g.nodes[b].possible.push(int32);
 
-        g.eq_constraint(a, b, &l);
+        g.eq_constraint(a, b, l);
 
         assert!(!c.solved_graph(&g));
 
