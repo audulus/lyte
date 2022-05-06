@@ -47,25 +47,25 @@ pub enum Expr {
     Id(Intern<String>),
     Int(i64),
     Real(f64),
-    Call(Box<Expr>, Vec<Expr>),
-    Binop(Binop, Box<Expr>, Box<Expr>),
-    Unop(Box<Expr>),
-    Lambda { params: Vec<Param>, body: Box<Expr> },
+    Call(ExprID, Vec<ExprID>),
+    Binop(Binop, ExprID, ExprID),
+    Unop(ExprID),
+    Lambda { params: Vec<Param>, body: ExprID },
     String(String),
     Char,
-    Subscript(Box<Expr>, Box<Expr>),
+    Subscript(ExprID, ExprID),
     Cast,
-    Field(Box<Expr>, Intern<String>),
-    Array(Box<Expr>, Box<Expr>),
+    Field(ExprID, Intern<String>),
+    Array(ExprID, ExprID),
     True,
     False,
-    AsTy(Box<Expr>, TypeID),
-    Assign(Name, Box<Expr>),
-    Let(Name, Box<Expr>),
-    Var(Name, Box<Expr>),
-    If(Box<Expr>, Block, Option<Block>),
+    AsTy(ExprID, TypeID),
+    Assign(Name, ExprID),
+    Let(Name, ExprID),
+    Var(Name, ExprID),
+    If(ExprID, Block, Option<Block>),
     Block(Block),
-    Return(Box<Expr>),
+    Return(ExprID),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,11 +76,11 @@ pub struct Param {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block {
-    pub exprs: Vec<Expr>,
+    pub exprs: Vec<ExprID>,
 }
 
 impl Block {
-    pub fn new(exprs: Vec<Expr>) -> Self {
+    pub fn new(exprs: Vec<ExprID>) -> Self {
         Self { exprs }
     }
 }

@@ -32,7 +32,8 @@ impl Compiler {
             println!("parsing file: {:?}", path);
             let mut lexer = Lexer::new(&string);
             lexer.next();
-            match parse_program(&mut lexer) {
+            let mut arena = ExprArena::new();
+            match parse_program(&mut lexer, &mut arena) {
                 Ok(decls) => {
                     println!("parsed {:?}", decls);
 
