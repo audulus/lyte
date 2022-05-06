@@ -683,6 +683,7 @@ mod tests {
             "struct x { }",
             "struct x { \n }",
             "struct x { x: i8 }",
+            "struct x { x: i8\n }",
             "struct x { x: i8, y: i8 }",
             "enum x { }",
             "enum x { a, b, c }",
