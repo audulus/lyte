@@ -40,6 +40,14 @@ impl TypeGraph {
         ix
     }
 
+    pub fn add_type_node(&mut self, ty: TypeID) -> TypeNodeID {
+        let ix = self.nodes.len();
+        self.nodes.push(TypeNode {
+            possible: vec![ty],
+        });
+        ix
+    }
+
     pub fn add_constraint(&mut self, c: &Constraint) {
         self.constraints.push(c.clone())
     }
@@ -51,6 +59,14 @@ impl TypeGraph {
             field: "".to_string(),
             loc: loc.clone(),
         })
+    }
+
+    pub fn eq_types(&mut self, t0: TypeID, t1: TypeID, loc: &Loc) {
+        if t0 != t1 {
+            let tn0 = self.add_type_node(t0);
+            let tn1 = self.add_type_node(t1);
+            self.eq_constraint(tn0, tn1, loc)
+        }
     }
 }
 
