@@ -10,6 +10,7 @@ mod lexer;
 use lexer::*;
 
 mod parser;
+use parser::*;
 
 use clap::Parser;
 use std::fs;
@@ -31,6 +32,14 @@ impl Compiler {
             println!("parsing file: {:?}", path);
             let mut lexer = Lexer::new(&string);
             lexer.next();
+            match parse_program(&mut lexer) {
+                Ok(program) => {
+                    println!("parsed {:?}", program);
+                }
+                Err(err) => {
+                    println!("parse error: {:?}", err);
+                }
+            }
         } else {
             println!("error reading file: {:?}", path);
         }

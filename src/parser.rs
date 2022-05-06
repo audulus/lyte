@@ -4,9 +4,9 @@ use crate::types::*;
 use internment::Intern;
 
 #[derive(Clone, Debug)]
-struct ParseError {
-    location: usize,
-    message: String,
+pub struct ParseError {
+    pub location: usize,
+    pub message: String,
 }
 
 fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
@@ -539,7 +539,7 @@ fn skip_newlines(lexer: &mut Lexer) {
     }
 }
 
-fn parse_program(lexer: &mut Lexer) -> Result<Vec<Decl>, ParseError> {
+pub fn parse_program(lexer: &mut Lexer) -> Result<Vec<Decl>, ParseError> {
     let mut decls = vec![];
 
     skip_newlines(lexer);
