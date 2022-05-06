@@ -679,6 +679,7 @@ mod tests {
             "struct x { x: i8, y: i8 }",
             "enum x { }",
             "enum x { a, b, c }",
+            "enum x { a,\nb }",
         ]);
     }
 
