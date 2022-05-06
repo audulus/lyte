@@ -49,7 +49,7 @@ pub enum Expr {
     Binop(Binop, Box<Expr>, Box<Expr>),
     Unop(Box<Expr>),
     Lambda { params: Vec<Param>, body: Box<Expr> },
-    String,
+    String(String),
     Char,
     Subscript(Box<Expr>, Box<Expr>),
     Cast,

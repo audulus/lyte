@@ -306,6 +306,11 @@ fn parse_atom(lexer: &mut Lexer) -> Result<Expr, ParseError> {
             lexer.next();
             e
         }
+        Token::String(s) => {
+            let e = Expr::String(s.clone());
+            lexer.next();
+            e
+        }
         Token::Lparen => {
             lexer.next();
             let rr = parse_lambda(lexer)?;
