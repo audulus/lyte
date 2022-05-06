@@ -63,8 +63,8 @@ pub enum Expr {
     Assign(Name, ExprID),
     Let(Name, ExprID),
     Var(Name, ExprID),
-    If(ExprID, Block, Option<Block>),
-    Block(Block),
+    If(ExprID, ExprID, Option<ExprID>),
+    Block(Vec<ExprID>),
     Return(ExprID),
 }
 
@@ -72,17 +72,6 @@ pub enum Expr {
 pub struct Param {
     pub name: String,
     pub ty: TypeID,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Block {
-    pub exprs: Vec<ExprID>,
-}
-
-impl Block {
-    pub fn new(exprs: Vec<ExprID>) -> Self {
-        Self { exprs }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -96,7 +85,7 @@ pub enum Decl {
     Func {
         name: Intern<String>,
         params: Vec<Param>,
-        body: Block,
+        body: ExprID,
     },
     Struct {
         name: Name,

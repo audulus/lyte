@@ -338,8 +338,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
             return Ok(rr)
         }
         Token::Lbrace => {
-            let b = parse_block(lexer, arena)?;
-            arena.add(Expr::Block(b))
+            parse_block(lexer, arena)?
         }
         _ => {
             return Err(ParseError {
@@ -394,7 +393,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
     }
 }
 
-fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Block, ParseError> {
+fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
     let mut r = vec![];
     expect(lexer, Token::Lbrace)?;
 
@@ -418,7 +417,7 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Block, ParseE
 
     lexer.next();
 
-    Ok(Block::new(r))
+    Ok(arena.add(Expr::Block(r)))
 }
 
 fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
