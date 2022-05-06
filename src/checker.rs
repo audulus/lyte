@@ -4,6 +4,7 @@ struct Checker {
     type_graph: TypeGraph,
     types: Vec<TypeID>,
     inst: Instance,
+    next_anon: usize,
 }
 
 impl Checker {
@@ -13,6 +14,7 @@ impl Checker {
             type_graph: TypeGraph::new(),
             types: vec![],
             inst: Instance::new(),
+            next_anon: 0
         }
     }
 
@@ -21,6 +23,12 @@ impl Checker {
         if !unify(lhs, rhs, &mut self.inst) {
             (errf)();
         }
+    }
+
+    fn fresh(&mut self) -> TypeID {
+        let t = mk_type(Type::Anon(self.next_anon));
+        self.next_anon += 1;
+        t
     }
 
     fn check_expr(&mut self, id: ExprID, arena: &ExprArena) {
@@ -43,6 +51,11 @@ impl Checker {
                     self.check_expr(*e, arena);
                 }
 
+                let v0 = self.fresh();
+                let v1 = self.fresh();
+                self.eq(self.types[*f], mk_type(Type::Func(v0, v1)), &Loc{file: "".into(), line: 0}, || {
+                    println!("attempt to call a non-function");
+                });
                 
             }
             _ => { assert!(false) }
