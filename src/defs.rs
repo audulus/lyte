@@ -108,4 +108,5 @@ pub enum Decl {
 }
 
 pub struct Compiler {
+    pub decls: Vec<Decl>
 }

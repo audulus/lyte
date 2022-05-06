@@ -24,7 +24,7 @@ struct Args {
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { }
+        Self { decls: vec![] }
     }
 
     pub fn parse_file(&mut self, path: &Path) {
