@@ -33,8 +33,10 @@ impl Compiler {
             let mut lexer = Lexer::new(&string);
             lexer.next();
             match parse_program(&mut lexer) {
-                Ok(program) => {
-                    println!("parsed {:?}", program);
+                Ok(decls) => {
+                    println!("parsed {:?}", decls);
+
+                    self.decls.extend(decls);
                 }
                 Err(err) => {
                     println!("parse error: {:?}", err);
