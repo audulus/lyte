@@ -9,6 +9,22 @@ pub struct ParseError {
     pub message: String,
 }
 
+pub struct ExprArena {
+    pub exprs: Vec<Expr>
+}
+
+impl ExprArena {
+    pub fn new() -> Self {
+        Self { exprs: vec![] }
+    }
+
+    pub fn add(&mut self, expr: Expr) -> ExprID {
+        let id = self.exprs.len();
+        self.exprs.push(expr);
+        id
+    }
+}
+
 fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
     if lexer.tok == tok {
         Ok(())

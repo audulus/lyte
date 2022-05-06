@@ -40,6 +40,8 @@ pub enum Binop {
     Cond,
 }
 
+pub type ExprID = usize;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     Id(Intern<String>),
