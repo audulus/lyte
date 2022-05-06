@@ -121,6 +121,7 @@ impl Lexer {
                 "var" => Token::Var,
                 "let" => Token::Let,
                 "return" => Token::Return,
+                "struct" => Token::Struct,
                 _ => Token::Id(id),
             };
         }
@@ -290,5 +291,6 @@ mod tests {
         assert_eq!(tokens("->"), vec![Arrow]);
         assert_eq!(tokens("|"), vec![Pipe]);
         assert_eq!(tokens("return"), vec![Return]);
+        assert_eq!(tokens("struct"), vec![Struct]);
     }
 }
