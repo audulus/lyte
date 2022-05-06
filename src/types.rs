@@ -19,6 +19,10 @@ pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
             let nt = Type::Tuple(subst(a, inst), subst(b, inst));
             mk_type(nt)
         }
+        Type::Func(a, b) => {
+            let nt = Type::Func(subst(a, inst), subst(b, inst));
+            mk_type(nt)
+        }
         Type::Var(i) => match inst.get(i.as_ref()) {
             Some(t0) => *t0,
             None => t,
