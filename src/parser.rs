@@ -20,9 +20,10 @@ impl ExprArena {
         Self { exprs: vec![], locs: vec![] }
     }
 
-    pub fn add(&mut self, expr: Expr) -> ExprID {
+    pub fn add(&mut self, expr: Expr, loc: Loc) -> ExprID {
         let id = self.exprs.len();
         self.exprs.push(expr);
+        self.locs.push(loc);
         id
     }
 }
@@ -179,7 +180,7 @@ fn parse_lambda(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Pars
 
         let body = parse_lambda(lexer, arena)?;
 
-        Ok(arena.add(Expr::Lambda { params, body }))
+        Ok(arena.add(Expr::Lambda { params, body }, lexer.loc))
     } else {
         parse_expr(lexer, arena)
     }
@@ -198,7 +199,7 @@ fn parse_expr(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
             None
         };
 
-        Ok(arena.add(Expr::If(cond, then, els)))
+        Ok(arena.add(Expr::If(cond, then, els), lexer.loc))
     } else {
         parse_eq(lexer, arena)
     }
@@ -212,7 +213,7 @@ fn parse_eq(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseErr
         lexer.next();
         let rhs = parse_rel(lexer, arena)?;
 
-        lhs = arena.add(binop(&t, lhs, rhs))
+        lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
 
     Ok(lhs)
@@ -230,7 +231,7 @@ fn parse_rel(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseEr
         lexer.next();
         let rhs = parse_sum(lexer, arena)?;
 
-        lhs = arena.add(binop(&t, lhs, rhs))
+        lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
 
     Ok(lhs)
@@ -244,7 +245,7 @@ fn parse_sum(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseEr
         lexer.next();
         let rhs = parse_term(lexer, arena)?;
 
-        lhs = arena.add(binop(&t, lhs, rhs))
+        lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
 
     Ok(lhs)
@@ -258,7 +259,7 @@ fn parse_term(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         lexer.next();
         let rhs = parse_exp(lexer, arena)?;
 
-        lhs = arena.add(binop(&t, lhs, rhs))
+        lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
 
     Ok(lhs)
@@ -272,7 +273,7 @@ fn parse_exp(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseEr
 
         let rhs = parse_factor(lexer, arena)?;
 
-        lhs = arena.add(binop(&Token::Power, lhs, rhs))
+        lhs = arena.add(binop(&Token::Power, lhs, rhs), lexer.loc)
     }
 
     Ok(lhs)
@@ -282,7 +283,7 @@ fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Pars
     if lexer.tok == Token::Minus {
         lexer.next();
         let e = parse_atom(lexer, arena)?;
-        return Ok(arena.add(Expr::Unop(e)));
+        return Ok(arena.add(Expr::Unop(e), lexer.loc));
     }
 
     if lexer.tok == Token::Plus {
@@ -307,11 +308,11 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
             lexer.next();
             vec![]
         };
-        Ok(arena.add(Expr::Call(lhs, args)))
+        Ok(arena.add(Expr::Call(lhs, args), lexer.loc))
     } else if lexer.tok == Token::Colon {
         lexer.next();
         let t = parse_type(lexer)?;
-        Ok(arena.add(Expr::AsTy(lhs, t)))
+        Ok(arena.add(Expr::AsTy(lhs, t), lexer.loc))
     } else {
         Ok(lhs)
     }
@@ -322,22 +323,22 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         Token::Id(id) => {
             let e = Expr::Id(Intern::new(id.clone()));
             lexer.next();
-            arena.add(e)
+            arena.add(e, lexer.loc)
         }
         Token::Integer(x) => {
             let e = Expr::Int(*x);
             lexer.next();
-            arena.add(e)
+            arena.add(e, lexer.loc)
         }
         Token::Real(x) => {
             let e = Expr::Real(*x);
             lexer.next();
-            arena.add(e)
+            arena.add(e, lexer.loc)
         }
         Token::String(s) => {
             let e = Expr::String(s.clone());
             lexer.next();
-            arena.add(e)
+            arena.add(e, lexer.loc)
         }
         Token::Lparen => {
             lexer.next();
@@ -386,7 +387,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                     expect(lexer, Token::Equal)?;
                     lexer.next();
                     let e = parse_lambda(lexer, arena)?;
-                    Ok(arena.add(Expr::Var(n, e)))
+                    Ok(arena.add(Expr::Var(n, e), lexer.loc))
                 }
                 _ => Err(ParseError {
                     location: lexer.i,
@@ -397,7 +398,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         Token::Return => {
             lexer.next();
             let e = parse_expr(lexer, arena)?;
-            Ok(arena.add(Expr::Return(e)))
+            Ok(arena.add(Expr::Return(e), lexer.loc))
         }
         _ => parse_expr(lexer, arena),
     }
@@ -427,7 +428,7 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Parse
 
     lexer.next();
 
-    Ok(arena.add(Expr::Block(r)))
+    Ok(arena.add(Expr::Block(r), lexer.loc))
 }
 
 fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {

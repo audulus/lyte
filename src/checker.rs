@@ -54,7 +54,7 @@ impl Checker {
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
-                self.eq(self.types[*f], mk_type(Type::Func(v0, v1)), &Loc{file: "".into(), line: 0}, || {
+                self.eq(self.types[*f], mk_type(Type::Func(v0, v1)), &arena.locs[id], || {
                     println!("attempt to call a non-function");
                 });
                 

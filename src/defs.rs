@@ -18,9 +18,9 @@ pub enum Type {
     Name(Name),
 }
 
-#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct Loc {
-    pub file: String,
+    pub file: Name,
     pub line: u32,
 }
 

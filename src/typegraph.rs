@@ -103,7 +103,7 @@ impl Compiler {
         g: &mut TypeGraph,
         a: TypeNodeID,
         b: TypeNodeID,
-        loc: &Loc,
+        loc: Loc,
     ) -> Result<(), Loc> {
         // If each node has one possible type, they better unify.
         if g.nodes[a].possible.len() == 1 && g.nodes[b].possible.len() == 1 {
@@ -112,21 +112,21 @@ impl Compiler {
                 // so this substituion applies to the whole graph.
                 self.subst_graph(g);
             } else {
-                return Err(loc.clone());
+                return Err(loc);
             }
         }
 
         if g.nodes[a].possible.len() == 1 {
             g.nodes[b].possible = self.prune(&g.nodes[b].possible, g.nodes[a].possible[0]);
             if g.nodes[b].possible.is_empty() {
-                return Err(loc.clone());
+                return Err(loc);
             }
         }
 
         if g.nodes[b].possible.len() == 1 {
             g.nodes[a].possible = self.prune(&g.nodes[a].possible, g.nodes[b].possible[0]);
             if g.nodes[a].possible.is_empty() {
-                return Err(loc.clone());
+                return Err(loc);
             }
         }
 
@@ -135,7 +135,7 @@ impl Compiler {
 
     pub fn propagate(&mut self, g: &mut TypeGraph) -> Result<(), Loc> {
         for c in g.constraints.clone() {
-            self.propagate_eq(g, c.a, c.b, &c.loc)?
+            self.propagate_eq(g, c.a, c.b, c.loc)?
         }
         Ok(())
     }
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     pub fn test_typegraph() {
         let l = Loc {
-            file: "".to_string(),
+            file: Name::new("".into()),
             line: 0,
         };
         let mut c = Compiler::new();
@@ -170,7 +170,7 @@ mod tests {
 
         assert!(!c.solved_graph(&g));
 
-        let result = c.propagate_eq(&mut g, b, v, &l);
+        let result = c.propagate_eq(&mut g, b, v, l);
         assert_eq!(Ok(()), result);
 
         assert!(c.solved_graph(&g));
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     pub fn test_propagate1() {
         let l = Loc {
-            file: "".to_string(),
+            file: Name::new("".into()),
             line: 0,
         };
         let mut c = Compiler::new();
