@@ -84,6 +84,12 @@ impl Block {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Field {
+    pub name: Name,
+    pub ty: TypeID,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decl {
     Func {
@@ -91,6 +97,10 @@ pub enum Decl {
         params: Vec<Param>,
         body: Block,
     },
+    Struct {
+        name: Name,
+        fields: Vec<Field>
+    }
 }
 
 pub struct Compiler {
