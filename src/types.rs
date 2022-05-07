@@ -13,6 +13,10 @@ pub fn typevar(name: &str) -> TypeID {
     mk_type(Type::Var(Intern::from(&String::from(name)), 0))
 }
 
+pub fn func(dom: TypeID, range: TypeID) -> TypeID {
+    mk_type(Type::Func(dom, range))
+}
+
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
     let mut id = id;
     while let Some(t) = inst.get(&id) {
