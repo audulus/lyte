@@ -54,9 +54,18 @@ impl Checker {
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
-                self.eq(self.types[*f], mk_type(Type::Func(v0, v1)), arena.locs[id], || {
+                self.eq(self.types[*f], func(v0, v1), arena.locs[id], || {
                     println!("attempt to call a non-function");
                 });
+
+                let ft = func(v0, mk_type(Type::Void));
+
+                // XXX: need a type for the args
+                self.eq(self.types[*f], ft, arena.locs[id], || {
+                    println!("arguments don't match function.\n");
+                });
+
+                self.types[id] = ft;
                 
             }
             _ => { assert!(false) }
