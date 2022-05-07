@@ -43,7 +43,7 @@ impl Checker {
         t
     }
 
-    fn check_expr(&mut self, id: ExprID, arena: &ExprArena) {
+    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &Vec<Decl>) {
 
         match &arena[id] {
             Expr::True | Expr::False => { 
@@ -61,9 +61,13 @@ impl Checker {
                     self.lvalue[id] = v.mutable;
                 }
             }
+            Expr::Binop(op, a, b) => {
+                self.check_expr(*a, arena, decls);
+                self.check_expr(*b, arena, decls);
+            }
             Expr::Call(f, args) => {
 
-                self.check_expr(*f, arena);
+                self.check_expr(*f, arena, decls);
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
@@ -73,7 +77,7 @@ impl Checker {
 
                 let mut arg_types = vec![];
                 for e in args {
-                    self.check_expr(*e, arena);
+                    self.check_expr(*e, arena, decls);
                     arg_types.push(self.types[*e]);
                 }
 
