@@ -1,11 +1,18 @@
 use crate::*;
 use internment::Intern;
 
+struct Var {
+    name: Name,
+    ty: TypeID,
+    mutable: bool
+}
+
 struct Checker {
     type_graph: TypeGraph,
     types: Vec<TypeID>,
     inst: Instance,
     next_anon: usize,
+    vars: Vec<Var>
 }
 
 impl Checker {
@@ -15,7 +22,8 @@ impl Checker {
             type_graph: TypeGraph::new(),
             types: vec![],
             inst: Instance::new(),
-            next_anon: 0
+            next_anon: 0,
+            vars: vec![],
         }
     }
 
