@@ -1,6 +1,7 @@
 use crate::*;
 use internment::Intern;
 
+#[derive(Copy, Clone, Debug)]
 struct Var {
     name: Name,
     ty: TypeID,
@@ -80,5 +81,14 @@ impl Checker {
             _ => { assert!(false) }
         }
 
+    }
+
+    fn find(&self, name: Name) -> Option<Var> {
+        for v in &self.vars {
+            if v.name == name {
+                return Some(*v)
+            }
+        }
+        None
     }
 }
