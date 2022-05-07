@@ -3,7 +3,7 @@ use internment::Intern;
 pub type TypeID = Intern<Type>;
 pub type Name = Intern<String>;
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
     Void,
     Bool,

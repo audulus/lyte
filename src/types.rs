@@ -60,9 +60,9 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     if lhs == rhs {
         true
     } else {
-        match (*lhs, *rhs) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(a, c, inst) && unify(b, d, inst),
-            (Type::Func(a, b), Type::Func(c, d)) => unify(a, c, inst) && unify(b, d, inst),
+        match (&*lhs, &*rhs) {
+            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
+            (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             (Type::Var(_, _), _) => {
                 inst.insert(lhs, rhs);
                 true
