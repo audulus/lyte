@@ -11,6 +11,7 @@ struct Var {
 struct Checker {
     type_graph: TypeGraph,
     types: Vec<TypeID>,
+    lvalue: Vec<bool>,
     inst: Instance,
     next_anon: usize,
     vars: Vec<Var>
@@ -22,6 +23,7 @@ impl Checker {
         Self {
             type_graph: TypeGraph::new(),
             types: vec![],
+            lvalue: vec![],
             inst: Instance::new(),
             next_anon: 0,
             vars: vec![],
@@ -52,6 +54,12 @@ impl Checker {
             }
             Expr::Real(_) => {
                 self.types[id] = mk_type(Type::Float32);
+            }
+            Expr::Id(name) => {
+                if let Some(v) = self.find(*name) {
+                    self.types[id] = v.ty;
+                    self.lvalue[id] = v.mutable;
+                }
             }
             Expr::Call(f, args) => {
 
