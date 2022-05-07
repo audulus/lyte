@@ -48,17 +48,19 @@ impl Checker {
 
                 self.check_expr(*f, arena);
 
-                for e in args {
-                    self.check_expr(*e, arena);
-                }
-
                 let v0 = self.fresh();
                 let v1 = self.fresh();
                 self.eq(self.types[*f], func(v0, v1), arena.locs[id], || {
                     println!("attempt to call a non-function");
                 });
 
-                let ft = func(v0, mk_type(Type::Void));
+                let mut arg_types = vec![];
+                for e in args {
+                    self.check_expr(*e, arena);
+                    arg_types.push(self.types[*e]);
+                }
+
+                let ft = func(v0, tuple(arg_types));
 
                 // XXX: need a type for the args
                 self.eq(self.types[*f], ft, arena.locs[id], || {
