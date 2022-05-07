@@ -62,7 +62,6 @@ impl Checker {
 
                 let ft = func(v0, tuple(arg_types));
 
-                // XXX: need a type for the args
                 self.eq(self.types[*f], ft, arena.locs[id], || {
                     println!("arguments don't match function.\n");
                 });
