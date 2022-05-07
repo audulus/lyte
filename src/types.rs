@@ -17,8 +17,8 @@ pub fn func(dom: TypeID, range: TypeID) -> TypeID {
     mk_type(Type::Func(dom, range))
 }
 
-pub fn tuple(a: TypeID, b: TypeID) -> TypeID {
-    mk_type(Type::Tuple(a,b))
+pub fn tuple(types: Vec<TypeID>) -> TypeID {
+    mk_type(Type::Tuple(types))
 }
 
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
@@ -33,20 +33,20 @@ pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
 
     let t = find(t, inst);
 
-    match *t {
-        Type::Tuple(a, b) => mk_type(Type::Tuple(subst(a, inst), subst(b, inst))),
-        Type::Func(a, b) => mk_type(Type::Func(subst(a, inst), subst(b, inst))),
-        Type::Array(a, n) => mk_type(Type::Array(subst(a, inst), n)),
+    match &*t {
+        Type::Tuple(v) => mk_type(Type::Tuple(v.iter().map(|t| subst(*t, inst)).collect())),
+        Type::Func(a, b) => mk_type(Type::Func(subst(*a, inst), subst(*b, inst))),
+        Type::Array(a, n) => mk_type(Type::Array(subst(*a, inst), *n)),
         Type::Var(_, _) => find(t, inst),
         _ => t,
     }
 }
 
 pub fn solved(t: TypeID) -> bool {
-    match *t {
-        Type::Tuple(a, b) => solved(a) && solved(b),
-        Type::Func(a, b) => solved(a) && solved(b),
-        Type::Array(a, _) => solved(a),
+    match &*t {
+        Type::Tuple(v) => v.iter().all(|t| solved(*t)),
+        Type::Func(a, b) => solved(*a) && solved(*b),
+        Type::Array(a, _) => solved(*a),
         Type::Var(_, _) => false,
         _ => true,
     }
@@ -61,7 +61,18 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
         true
     } else {
         match (&*lhs, &*rhs) {
-            (Type::Tuple(a, b), Type::Tuple(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
+            (Type::Tuple(v0), Type::Tuple(v1)) => {
+                if v0.len() == v1.len() {
+                    for i in 0..v0.len() {
+                        if !unify(v0[i], v1[i], inst) {
+                            return false
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             (Type::Var(_, _), _) => {
                 inst.insert(lhs, rhs);
