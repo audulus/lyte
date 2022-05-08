@@ -83,7 +83,7 @@ pub struct Field {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decl {
     Func {
-        name: Intern<String>,
+        name: Name,
         params: Vec<Param>,
         body: ExprID,
     },
@@ -97,6 +97,24 @@ pub enum Decl {
     }
 }
 
+impl Decl {
+    fn name(&self) -> Name {
+        match self {
+            Decl::Func { name, .. } => *name,
+            Decl::Struct { name, .. } => *name,
+            Decl::Enum { name, .. } => *name
+        }
+    }
+}
+
 pub struct Compiler {
     pub decls: Vec<Decl>
+}
+
+fn find_decls(decls: &Vec<Decl>, name: Name, f: impl Fn(&Decl)) {
+    for d in decls {
+        if d.name() == name {
+            f(d)
+        }
+    }
 }
