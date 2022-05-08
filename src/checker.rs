@@ -59,6 +59,15 @@ impl Checker {
                 if let Some(v) = self.find(*name) {
                     self.types[id] = v.ty;
                     self.lvalue[id] = v.mutable;
+                } else {
+                    let t = self.fresh();
+                    let type_node = self.type_graph.add_node();
+                    self.type_graph.nodes[type_node].possible.push(t);
+                    let decls_node = self.type_graph.add_node();
+                    self.type_graph.eq_constraint(type_node, decls_node, arena.locs[id]);
+                    find_decls(decls, *name, &mut |decl| {
+                        self.type_graph.nodes[decls_node].possible.push(decl.ty());
+                    });
                 }
             }
             Expr::Binop(op, a, b) => {

@@ -112,7 +112,7 @@ pub struct Compiler {
     pub decls: Vec<Decl>
 }
 
-fn find_decls(decls: &Vec<Decl>, name: Name, f: impl Fn(&Decl)) {
+pub fn find_decls(decls: &Vec<Decl>, name: Name, f: &mut impl FnMut(&Decl)) {
     for d in decls {
         if d.name() == name {
             f(d)
