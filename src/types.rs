@@ -21,6 +21,10 @@ pub fn tuple(types: Vec<TypeID>) -> TypeID {
     mk_type(Type::Tuple(types))
 }
 
+fn params_ty(params: &Vec<Param>) -> TypeID {
+    tuple(params.into_iter().map(|p| p.ty).collect())
+}
+
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
     let mut id = id;
     while let Some(t) = inst.get(&id) {
@@ -86,6 +90,26 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
         }
     }
 }
+
+fn find_decls_unify(decls: &Vec<Decl>, name: Name, f: impl Fn(&Decl), t: TypeID) {
+    for d in decls {
+        let mut inst = Instance::new();
+        if d.name() == name && unify(d.ty(), t, &mut inst) {
+            f(d)
+        }
+    }
+}
+
+impl Decl {
+    pub fn ty(&self) -> TypeID {
+        match self {
+            Decl::Func { params, ret, .. } => func(params_ty(params), *ret),
+            Decl::Struct { name, .. } => mk_type(Type::Name(*name)),
+            Decl::Enum { name, .. } => mk_type(Type::Name(*name)),
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

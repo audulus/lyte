@@ -86,19 +86,20 @@ pub enum Decl {
         name: Name,
         params: Vec<Param>,
         body: ExprID,
+        ret: TypeID,
     },
     Struct {
         name: Name,
-        fields: Vec<Field>
+        fields: Vec<Field>,
     },
     Enum {
         name: Name,
-        cases: Vec<Name>
+        cases: Vec<Name>,
     }
 }
 
 impl Decl {
-    fn name(&self) -> Name {
+    pub fn name(&self) -> Name {
         match self {
             Decl::Func { name, .. } => *name,
             Decl::Struct { name, .. } => *name,

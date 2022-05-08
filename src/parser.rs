@@ -501,14 +501,16 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
                     name: Intern::new(name),
                     params,
                     body: parse_block(lexer, arena)?,
+                    ret: mk_type(Type::Void)
                 }),
                 Token::Arrow => {
                     lexer.next();
-                    let _t = parse_type(lexer)?;
+                    let t = parse_type(lexer)?;
                     Ok(Decl::Func {
                         name: Intern::new(name),
                         params,
                         body: parse_block(lexer, arena)?,
+                        ret: t
                     })
                 }
                 _ => Err(ParseError {
