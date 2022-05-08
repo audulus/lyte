@@ -1,7 +1,7 @@
 use crate::defs::*;
 use crate::types::*;
 
-type TypeNodeID = usize;
+pub type TypeNodeID = usize;
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct Constraint {
