@@ -40,6 +40,10 @@ impl TypeGraph {
         ix
     }
 
+    pub fn add_possible(&mut self, node: TypeNodeID, ty: TypeID) {
+        self.nodes[node].possible.push(ty)
+    }
+
     pub fn add_type_node(&mut self, ty: TypeID) -> TypeNodeID {
         let ix = self.nodes.len();
         self.nodes.push(TypeNode {

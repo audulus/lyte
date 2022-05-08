@@ -62,11 +62,11 @@ impl Checker {
                 } else {
                     let t = self.fresh();
                     let type_node = self.type_graph.add_node();
-                    self.type_graph.nodes[type_node].possible.push(t);
+                    self.type_graph.add_possible(type_node, t);
                     let decls_node = self.type_graph.add_node();
                     self.type_graph.eq_constraint(type_node, decls_node, arena.locs[id]);
                     find_decls(decls, *name, &mut |decl| {
-                        self.type_graph.nodes[decls_node].possible.push(decl.ty());
+                        self.type_graph.add_possible(decls_node, decl.ty());
                     });
                 }
             }
