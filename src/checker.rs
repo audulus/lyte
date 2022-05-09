@@ -68,8 +68,10 @@ impl Checker {
                     g.eq_constraint(type_node, decls_node, arena.locs[id]);
 
                     for d in decls {
-                        if let Decl::Func{..} = d {
-                            g.add_possible(decls_node, d.ty())
+                        if let Decl::Func{name: fname, ..} = d {
+                            if fname == name {
+                                g.add_possible(decls_node, d.ty())
+                            }
                         }
                     }
                 }
