@@ -78,6 +78,10 @@ pub struct Lexer {
     pub loc: Loc,
 }
 
+fn id_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
 impl Lexer {
     pub fn new(code: &str, file: &str) -> Self {
         Lexer {
@@ -113,7 +117,7 @@ impl Lexer {
         // Identifier.
         if bytes[self.i].is_ascii_alphabetic() {
             let mut id = String::new();
-            while self.i < self.code.len() && bytes[self.i].is_ascii_alphanumeric() {
+            while self.i < self.code.len() && id_byte(bytes[self.i]) {
                 id.push(bytes[self.i] as char);
                 self.i += 1;
             }
@@ -321,5 +325,6 @@ mod tests {
         assert_eq!(tokens("\"test\""), vec![Token::String("test".into())]);
         assert_eq!(tokens("\"test\" \n"), vec![Token::String("test".into()), Endl]);
         assert_eq!(tokens(".name"), vec![Token::Dot, id("name")]);
+        assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
     }
 }
