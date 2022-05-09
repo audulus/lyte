@@ -20,6 +20,14 @@ impl TypeNode {
     fn unique(&self) -> Option<TypeID> {
         if self.possible.len() == 1 { Some(self.possible[0]) } else { None }
     }
+
+    /// Remove all types from vec which don't unify with t0.
+    fn prune(&mut self, t0: TypeID) {
+        self.possible.retain(|t| {
+            let mut inst = Instance::new();
+            unify(*t, t0, &mut inst)
+        });
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -111,14 +119,14 @@ impl TypeGraph {
         }
 
         if let Some(t) = self.nodes[a].unique() {
-            prune(&mut self.nodes[b].possible, t);
+            self.nodes[b].prune(t);
             if self.nodes[b].possible.is_empty() {
                 return Err(loc);
             }
         }
 
         if let Some(t) = self.nodes[b].unique() {
-            prune(&mut self.nodes[a].possible, t);
+            self.nodes[a].prune(t);
             if self.nodes[a].possible.is_empty() {
                 return Err(loc);
             }
@@ -133,14 +141,6 @@ impl TypeGraph {
         }
         Ok(())
     }
-}
-
-/// Remove all types from vec which don't unify with t0.
-fn prune(vec: &mut Vec<TypeID>, t0: TypeID) {
-    vec.retain(|t| {
-        let mut inst = Instance::new();
-        unify(*t, t0, &mut inst)
-    });
 }
 
 #[cfg(test)]
