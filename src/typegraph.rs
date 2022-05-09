@@ -174,6 +174,27 @@ impl TypeGraph {
         }
         Ok(())
     }
+
+    pub fn validate(&self) -> bool {
+
+        for i in 0..self.nodes.len() {
+
+            let mut found = false;
+            for c in &self.constraints {
+                if c.a == i || c.b == i {
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                println!("⚠️ type node {} is not connected to any constraint\n", i);
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 #[cfg(test)]
