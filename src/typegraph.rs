@@ -256,4 +256,25 @@ mod tests {
 
         assert!(g.solved());
     }
+
+    #[test]
+    pub fn test_propagate_bad() {
+        let l = Loc {
+            file: Name::new("".into()),
+            line: 0,
+        };
+        let mut g = TypeGraph::new();
+
+        let i = g.add_type_node(mk_type(Type::Int32));
+        let f = g.add_type_node(mk_type(Type::Float32));
+
+        assert!(!g.validate());
+
+        g.eq_constraint(i, f, l);
+
+        let result = g.propagate();
+
+        assert!(result.is_err());
+
+    }
 }
