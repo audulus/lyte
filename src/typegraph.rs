@@ -168,6 +168,35 @@ impl TypeGraph {
         Ok(())
     }
 
+    pub fn propagate_field(
+        &mut self,
+        name: Name,
+        a: TypeNodeID,
+        b: TypeNodeID,
+        decls: &Vec<Decl>,
+        loc: Loc,
+    ) -> Result<(), Loc> {
+        if let Some(t) = self.nodes[b].unique() {
+            self.nodes[a].possible.retain(|t| {
+                if let Type::Name(struct_name) = **t {
+                    let mut found = false;
+                    find_decls(decls, struct_name, &mut |decl| {
+
+                    });
+                    found
+                } else {
+                    false
+                }
+            });
+
+            if self.nodes[a].possible.len() == 0 {
+                return Err(loc)
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn propagate(&mut self) -> Result<(), Loc> {
         for c in self.constraints.clone() {
             self.propagate_eq(c.a, c.b, c.loc)?
