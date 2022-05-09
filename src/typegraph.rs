@@ -16,6 +16,12 @@ pub struct TypeNode {
     pub possible: Vec<TypeID>,
 }
 
+impl TypeNode {
+    fn unique(&self) -> bool {
+        self.possible.len() == 1
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct TypeGraph {
     pub nodes: Vec<TypeNode>,
@@ -94,7 +100,7 @@ impl TypeGraph {
         loc: Loc,
     ) -> Result<(), Loc> {
         // If each node has one possible type, they better unify.
-        if self.nodes[a].possible.len() == 1 && self.nodes[b].possible.len() == 1 {
+        if self.nodes[a].unique() && self.nodes[b].unique() {
             if unify(self.nodes[a].possible[0], self.nodes[b].possible[0], &mut self.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
