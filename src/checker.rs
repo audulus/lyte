@@ -67,12 +67,17 @@ impl Checker {
                     let decls_node = g.add_node();
                     g.eq_constraint(type_node, decls_node, arena.locs[id]);
 
+                    let mut found = false;
                     for d in decls {
                         if let Decl::Func{name: fname, ..} = d {
                             if fname == name {
-                                g.add_possible(decls_node, d.ty())
+                                g.add_possible(decls_node, d.ty());
+                                found = true;
                             }
                         }
+                    }
+                    if !found {
+                        println!("undeclared identifier: {:?}", *name);
                     }
                 }
             }
