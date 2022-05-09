@@ -80,6 +80,12 @@ impl TypeGraph {
             }
         }
     }
+
+    pub fn solved(&self) -> bool {
+        self.nodes
+            .iter()
+            .all(|n| n.possible.len() == 1 && solved(n.possible[0]))
+    }
 }
 
 /// Remove all types from vec which don't unify with t0.
@@ -91,15 +97,6 @@ fn prune(vec: &mut Vec<TypeID>, t0: TypeID) {
 }
 
 impl Compiler {
-    
-
-    pub fn solved_graph(&self, g: &TypeGraph) -> bool {
-        g.nodes
-            .iter()
-            .all(|n| n.possible.len() == 1 && solved(n.possible[0]))
-    }
-
-    
 
     pub fn propagate_eq(
         &mut self,
@@ -168,17 +165,17 @@ mod tests {
 
         //g.eq_constraint(a, b, &Loc{ file: "".to_string(), line: 0});
 
-        assert!(c.solved_graph(&g));
+        assert!(g.solved());
 
         let v = g.add_node();
         g.nodes[v].possible.push(typevar("T"));
 
-        assert!(!c.solved_graph(&g));
+        assert!(!g.solved());
 
         let result = c.propagate_eq(&mut g, b, v, l);
         assert_eq!(Ok(()), result);
 
-        assert!(c.solved_graph(&g));
+        assert!(g.solved());
     }
 
     #[test]
@@ -200,11 +197,11 @@ mod tests {
 
         g.eq_constraint(a, b, l);
 
-        assert!(!c.solved_graph(&g));
+        assert!(!g.solved());
 
         let result = c.propagate(&mut g);
         assert_eq!(Ok(()), result);
 
-        assert!(c.solved_graph(&g));
+        assert!(g.solved());
     }
 }
