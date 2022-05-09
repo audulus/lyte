@@ -94,7 +94,9 @@ impl TypeGraph {
         }
     }
 
-    pub fn subst(&mut self) {
+    /// Applies the current instance to the entire
+    /// type graph.
+    fn subst(&mut self) {
         for n in &mut self.nodes {
             for t in &mut n.possible {
                 *t = subst(*t, &self.inst);
