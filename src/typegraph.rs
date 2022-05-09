@@ -18,7 +18,7 @@ pub struct TypeNode {
 
 impl TypeNode {
     fn unique(&self) -> Option<TypeID> {
-        if self.possible.len() == 1 { Some(self.possible[0]) } else { None }
+        self.possible.first().map(|t| *t)
     }
 
     /// Remove all types from vec which don't unify with t0.
