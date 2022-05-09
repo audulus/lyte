@@ -17,8 +17,8 @@ pub struct TypeNode {
 }
 
 impl TypeNode {
-    fn unique(&self) -> bool {
-        self.possible.len() == 1
+    fn unique(&self) -> Option<TypeID> {
+        if self.possible.len() == 1 { Some(self.possible[0]) } else { None }
     }
 }
 
@@ -100,8 +100,8 @@ impl TypeGraph {
         loc: Loc,
     ) -> Result<(), Loc> {
         // If each node has one possible type, they better unify.
-        if self.nodes[a].unique() && self.nodes[b].unique() {
-            if unify(self.nodes[a].possible[0], self.nodes[b].possible[0], &mut self.inst) {
+        if let (Some(t0), Some(t1)) = (self.nodes[a].unique(), self.nodes[b].unique()) {
+            if unify(t0, t1, &mut self.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
                 self.subst();
@@ -110,16 +110,14 @@ impl TypeGraph {
             }
         }
 
-        if self.nodes[a].possible.len() == 1 {
-            let t = self.nodes[a].possible[0];
+        if let Some(t) = self.nodes[a].unique() {
             prune(&mut self.nodes[b].possible, t);
             if self.nodes[b].possible.is_empty() {
                 return Err(loc);
             }
         }
 
-        if self.nodes[b].possible.len() == 1 {
-            let t = self.nodes[b].possible[0];
+        if let Some(t) = self.nodes[b].unique() {
             prune(&mut self.nodes[a].possible, t);
             if self.nodes[a].possible.is_empty() {
                 return Err(loc);
