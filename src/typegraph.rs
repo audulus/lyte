@@ -18,7 +18,7 @@ pub struct TypeNode {
 
 impl TypeNode {
     fn unique(&self) -> Option<TypeID> {
-        self.possible.first().map(|t| *t)
+        if self.possible.len() == 1 { Some(self.possible[0]) } else { None }
     }
 
     fn is_empty(&self) -> bool {
