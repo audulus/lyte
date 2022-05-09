@@ -102,6 +102,8 @@ impl TypeGraph {
         }
     }
 
+    /// The graph is solved if all nodes have a single
+    /// possible type and those types are all solved.
     pub fn solved(&self) -> bool {
         self.nodes
             .iter()
