@@ -73,7 +73,7 @@ impl TypeGraph {
         }
     }
 
-    pub fn subst_graph(&mut self) {
+    pub fn subst(&mut self) {
         for n in &mut self.nodes {
             for t in &mut n.possible {
                 *t = subst(*t, &self.inst);
@@ -98,7 +98,7 @@ impl TypeGraph {
             if unify(self.nodes[a].possible[0], self.nodes[b].possible[0], &mut self.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
-                self.subst_graph();
+                self.subst();
             } else {
                 return Err(loc);
             }
