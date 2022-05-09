@@ -86,6 +86,42 @@ impl TypeGraph {
             .iter()
             .all(|n| n.possible.len() == 1 && solved(n.possible[0]))
     }
+
+    pub fn propagate_eq(
+        &mut self,
+        a: TypeNodeID,
+        b: TypeNodeID,
+        loc: Loc,
+    ) -> Result<(), Loc> {
+        // If each node has one possible type, they better unify.
+        if self.nodes[a].possible.len() == 1 && self.nodes[b].possible.len() == 1 {
+            if unify(self.nodes[a].possible[0], self.nodes[b].possible[0], &mut self.inst) {
+                // We've narrowed down overloads and unified
+                // so this substituion applies to the whole graph.
+                self.subst_graph();
+            } else {
+                return Err(loc);
+            }
+        }
+
+        if self.nodes[a].possible.len() == 1 {
+            let t = self.nodes[a].possible[0];
+            prune(&mut self.nodes[b].possible, t);
+            if self.nodes[b].possible.is_empty() {
+                return Err(loc);
+            }
+        }
+
+        if self.nodes[b].possible.len() == 1 {
+            let t = self.nodes[b].possible[0];
+            prune(&mut self.nodes[a].possible, t);
+            if self.nodes[a].possible.is_empty() {
+                return Err(loc);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Remove all types from vec which don't unify with t0.
@@ -98,46 +134,11 @@ fn prune(vec: &mut Vec<TypeID>, t0: TypeID) {
 
 impl Compiler {
 
-    pub fn propagate_eq(
-        &mut self,
-        g: &mut TypeGraph,
-        a: TypeNodeID,
-        b: TypeNodeID,
-        loc: Loc,
-    ) -> Result<(), Loc> {
-        // If each node has one possible type, they better unify.
-        if g.nodes[a].possible.len() == 1 && g.nodes[b].possible.len() == 1 {
-            if unify(g.nodes[a].possible[0], g.nodes[b].possible[0], &mut g.inst) {
-                // We've narrowed down overloads and unified
-                // so this substituion applies to the whole graph.
-                g.subst_graph();
-            } else {
-                return Err(loc);
-            }
-        }
-
-        if g.nodes[a].possible.len() == 1 {
-            let t = g.nodes[a].possible[0];
-            prune(&mut g.nodes[b].possible, t);
-            if g.nodes[b].possible.is_empty() {
-                return Err(loc);
-            }
-        }
-
-        if g.nodes[b].possible.len() == 1 {
-            let t = g.nodes[b].possible[0];
-            prune(&mut g.nodes[a].possible, t);
-            if g.nodes[a].possible.is_empty() {
-                return Err(loc);
-            }
-        }
-
-        Ok(())
-    }
+    
 
     pub fn propagate(&mut self, g: &mut TypeGraph) -> Result<(), Loc> {
         for c in g.constraints.clone() {
-            self.propagate_eq(g, c.a, c.b, c.loc)?
+            g.propagate_eq(c.a, c.b, c.loc)?
         }
         Ok(())
     }
@@ -172,7 +173,7 @@ mod tests {
 
         assert!(!g.solved());
 
-        let result = c.propagate_eq(&mut g, b, v, l);
+        let result = g.propagate_eq(b, v, l);
         assert_eq!(Ok(()), result);
 
         assert!(g.solved());
