@@ -110,6 +110,11 @@ impl Checker {
                 self.types[id] = ft;
                 
             }
+            Expr::Field(lhs, name) => {
+                self.check_expr(*lhs, arena, decls);
+
+                self.lvalue[id] = self.lvalue[*lhs];
+            }
             _ => { assert!(false) }
         }
 
