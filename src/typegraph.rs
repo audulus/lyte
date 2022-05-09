@@ -272,6 +272,8 @@ mod tests {
 
         g.eq_constraint(i, f, l);
 
+        assert!(g.validate());
+
         let result = g.propagate();
 
         assert!(result.is_err());
