@@ -86,6 +86,9 @@ impl TypeGraph {
         })
     }
 
+    /// Adds a constraint that two types must be equal.
+    /// XXX: can't we immediately unify and update self.inst
+    /// since there are no overloads?
     pub fn eq_types(&mut self, t0: TypeID, t1: TypeID, loc: Loc) {
         if t0 != t1 {
             let tn0 = self.add_type_node(t0);
