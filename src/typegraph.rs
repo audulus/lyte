@@ -122,6 +122,13 @@ impl TypeGraph {
 
         Ok(())
     }
+
+    pub fn propagate(&mut self) -> Result<(), Loc> {
+        for c in self.constraints.clone() {
+            self.propagate_eq(c.a, c.b, c.loc)?
+        }
+        Ok(())
+    }
 }
 
 /// Remove all types from vec which don't unify with t0.
@@ -130,18 +137,6 @@ fn prune(vec: &mut Vec<TypeID>, t0: TypeID) {
         let mut inst = Instance::new();
         unify(*t, t0, &mut inst)
     });
-}
-
-impl Compiler {
-
-    
-
-    pub fn propagate(&mut self, g: &mut TypeGraph) -> Result<(), Loc> {
-        for c in g.constraints.clone() {
-            g.propagate_eq(c.a, c.b, c.loc)?
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -154,7 +149,6 @@ mod tests {
             file: Name::new("".into()),
             line: 0,
         };
-        let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 
         let vd = mk_type(Type::Void);
@@ -185,7 +179,6 @@ mod tests {
             file: Name::new("".into()),
             line: 0,
         };
-        let mut c = Compiler::new();
         let mut g = TypeGraph::new();
 
         let int32 = mk_type(Type::Int32);
@@ -200,7 +193,7 @@ mod tests {
 
         assert!(!g.solved());
 
-        let result = c.propagate(&mut g);
+        let result = g.propagate();
         assert_eq!(Ok(()), result);
 
         assert!(g.solved());
