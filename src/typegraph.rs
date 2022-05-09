@@ -102,7 +102,7 @@ impl TypeGraph {
         }
     }
 
-    /// Add a constraint that one of the struct types must have a filed
+    /// Add a constraint that one of the struct types must have a feild
     /// that unifies with another type.
     pub fn field_constraint(&mut self, structs: Vec<TypeID>, t: TypeID, field: Name, loc: Loc) {
         let a = self.add_node();
