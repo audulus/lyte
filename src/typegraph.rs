@@ -17,10 +17,13 @@ pub struct TypeNode {
 }
 
 impl TypeNode {
+
+    /// Returns the single possible type if there is only one.
     fn unique(&self) -> Option<TypeID> {
         if self.possible.len() == 1 { Some(self.possible[0]) } else { None }
     }
 
+    /// Are there no possibilities in the type node? This indicates a type error.
     fn is_empty(&self) -> bool {
         self.possible.is_empty()
     }
