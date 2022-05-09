@@ -66,6 +66,7 @@ pub enum Expr {
     If(ExprID, ExprID, Option<ExprID>),
     Block(Vec<ExprID>),
     Return(ExprID),
+    Enum(Name),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
