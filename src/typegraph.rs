@@ -7,7 +7,7 @@ pub type TypeNodeID = usize;
 pub struct Constraint {
     pub a: TypeNodeID,
     pub b: TypeNodeID,
-    pub field: String,
+    pub field: Option<Name>,
     pub loc: Loc,
 }
 
@@ -60,7 +60,7 @@ impl TypeGraph {
         self.add_constraint(&Constraint {
             a: t0,
             b: t1,
-            field: "".to_string(),
+            field: None,
             loc: loc,
         })
     }
