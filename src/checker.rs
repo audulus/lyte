@@ -66,9 +66,12 @@ impl Checker {
                     g.add_possible(type_node, t);
                     let decls_node = g.add_node();
                     g.eq_constraint(type_node, decls_node, arena.locs[id]);
-                    find_decls(decls, *name, &mut |decl| {
-                        g.add_possible(decls_node, decl.ty());
-                    });
+
+                    for d in decls {
+                        if let Decl::Func{..} = d {
+                            g.add_possible(decls_node, d.ty())
+                        }
+                    }
                 }
             }
             Expr::Binop(op, a, b) => {
