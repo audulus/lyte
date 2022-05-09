@@ -53,6 +53,7 @@ impl TypeGraph {
         }
     }
 
+    /// Adds a type node, which is a collection of potential types.
     pub fn add_node(&mut self) -> TypeNodeID {
         let ix = self.nodes.len();
         self.nodes.push(TypeNode {
@@ -61,10 +62,12 @@ impl TypeGraph {
         ix
     }
 
+    /// Add a possible type to a type node.
     pub fn add_possible(&mut self, node: TypeNodeID, ty: TypeID) {
         self.nodes[node].possible.push(ty)
     }
 
+    /// Adds a node for a single type.
     pub fn add_type_node(&mut self, ty: TypeID) -> TypeNodeID {
         let ix = self.nodes.len();
         self.nodes.push(TypeNode {
@@ -73,10 +76,12 @@ impl TypeGraph {
         ix
     }
 
+    /// Add a constraint (edge) to our type graph.
     pub fn add_constraint(&mut self, c: &Constraint) {
         self.constraints.push(c.clone())
     }
 
+    /// Add an equality constraint between type nodes.
     pub fn eq_constraint(&mut self, t0: TypeNodeID, t1: TypeNodeID, loc: Loc) {
         self.add_constraint(&Constraint {
             a: t0,
