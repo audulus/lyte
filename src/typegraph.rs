@@ -203,10 +203,6 @@ mod tests {
 
     #[test]
     pub fn test_typegraph() {
-        let l = Loc {
-            file: Name::new("".into()),
-            line: 0,
-        };
         let mut g = TypeGraph::new();
 
         let vd = mk_type(Type::Void);
@@ -225,7 +221,7 @@ mod tests {
 
         assert!(!g.solved());
 
-        let result = g.propagate_eq(b, v, l);
+        let result = g.propagate_eq(b, v, test_loc());
         assert_eq!(Ok(()), result);
 
         assert!(g.solved());
@@ -233,10 +229,6 @@ mod tests {
 
     #[test]
     pub fn test_propagate1() {
-        let l = Loc {
-            file: Name::new("".into()),
-            line: 0,
-        };
         let mut g = TypeGraph::new();
 
         let int32 = mk_type(Type::Int32);
@@ -247,7 +239,7 @@ mod tests {
         let b = g.add_node();
         g.nodes[b].possible.push(int32);
 
-        g.eq_constraint(a, b, l);
+        g.eq_constraint(a, b, test_loc());
 
         assert!(!g.solved());
 
@@ -259,10 +251,6 @@ mod tests {
 
     #[test]
     pub fn test_propagate_bad() {
-        let l = Loc {
-            file: Name::new("".into()),
-            line: 0,
-        };
         let mut g = TypeGraph::new();
 
         let i = g.add_type_node(mk_type(Type::Int32));
@@ -270,7 +258,7 @@ mod tests {
 
         assert!(!g.validate());
 
-        g.eq_constraint(i, f, l);
+        g.eq_constraint(i, f, test_loc());
 
         assert!(g.validate());
 
@@ -282,10 +270,6 @@ mod tests {
 
     #[test]
     pub fn test_propagate_bad2() {
-        let l = Loc {
-            file: Name::new("".into()),
-            line: 0,
-        };
         let mut g = TypeGraph::new();
 
         let i = g.add_type_node(mk_type(Type::Int32));
@@ -294,8 +278,8 @@ mod tests {
 
         assert!(!g.validate());
 
-        g.eq_constraint(i, v, l);
-        g.eq_constraint(v, f, l);
+        g.eq_constraint(i, v, test_loc());
+        g.eq_constraint(v, f, test_loc());
 
         assert!(g.validate());
 
@@ -307,10 +291,6 @@ mod tests {
 
     #[test]
     pub fn test_overload_1() {
-        let l = Loc {
-            file: Name::new("".into()),
-            line: 0,
-        };
 
         let mut g = TypeGraph::new();
         let i = mk_type(Type::Int32);
@@ -320,7 +300,7 @@ mod tests {
         let fi_node = g.add_node();
         g.add_possible(fi_node, f);
         g.add_possible(fi_node, i);
-        g.eq_constraint(i_node, fi_node, l);
+        g.eq_constraint(i_node, fi_node, test_loc());
 
         assert!(g.validate());
         assert!(!g.solved());

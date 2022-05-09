@@ -24,6 +24,13 @@ pub struct Loc {
     pub line: u32,
 }
 
+pub fn test_loc() -> Loc {
+    Loc {
+        file: Name::new("".into()),
+        line: 0,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Binop {
     Plus,
