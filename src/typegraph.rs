@@ -304,4 +304,31 @@ mod tests {
         assert!(result.is_err());
 
     }
+
+    #[test]
+    pub fn test_overload_1() {
+        let l = Loc {
+            file: Name::new("".into()),
+            line: 0,
+        };
+
+        let mut g = TypeGraph::new();
+        let i = mk_type(Type::Int32);
+        let f = mk_type(Type::Float32);
+
+        let i_node = g.add_type_node(i);
+        let fi_node = g.add_node();
+        g.add_possible(fi_node, f);
+        g.add_possible(fi_node, i);
+        g.eq_constraint(i_node, fi_node, l);
+
+        assert!(g.validate());
+        assert!(!g.solved());
+
+        let result = g.propagate();
+
+        assert!(result.is_ok());
+        assert!(g.solved());
+
+    }
 }
