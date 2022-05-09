@@ -21,6 +21,10 @@ impl TypeNode {
         self.possible.first().map(|t| *t)
     }
 
+    fn is_empty(&self) -> bool {
+        self.possible.is_empty()
+    }
+
     /// Remove all types from vec which don't unify with t0.
     fn prune(&mut self, t0: TypeID) {
         self.possible.retain(|t| {
@@ -120,14 +124,14 @@ impl TypeGraph {
 
         if let Some(t) = self.nodes[a].unique() {
             self.nodes[b].prune(t);
-            if self.nodes[b].possible.is_empty() {
+            if self.nodes[b].is_empty() {
                 return Err(loc);
             }
         }
 
         if let Some(t) = self.nodes[b].unique() {
             self.nodes[a].prune(t);
-            if self.nodes[a].possible.is_empty() {
+            if self.nodes[a].is_empty() {
                 return Err(loc);
             }
         }
