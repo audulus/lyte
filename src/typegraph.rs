@@ -277,4 +277,29 @@ mod tests {
         assert!(result.is_err());
 
     }
+
+    #[test]
+    pub fn test_propagate_bad2() {
+        let l = Loc {
+            file: Name::new("".into()),
+            line: 0,
+        };
+        let mut g = TypeGraph::new();
+
+        let i = g.add_type_node(mk_type(Type::Int32));
+        let v = g.add_type_node(typevar("T"));
+        let f = g.add_type_node(mk_type(Type::Float32));
+
+        assert!(!g.validate());
+
+        g.eq_constraint(i, v, l);
+        g.eq_constraint(v, f, l);
+
+        assert!(g.validate());
+
+        let result = g.propagate();
+
+        assert!(result.is_err());
+
+    }
 }
