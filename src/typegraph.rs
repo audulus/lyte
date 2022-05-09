@@ -72,6 +72,14 @@ impl TypeGraph {
             self.eq_constraint(tn0, tn1, loc)
         }
     }
+
+    pub fn subst_graph(&mut self) {
+        for n in &mut self.nodes {
+            for t in &mut n.possible {
+                *t = subst(*t, &self.inst);
+            }
+        }
+    }
 }
 
 /// Remove all types from vec which don't unify with t0.
@@ -83,13 +91,7 @@ fn prune(vec: &mut Vec<TypeID>, t0: TypeID) {
 }
 
 impl Compiler {
-    pub fn subst_graph(&mut self, g: &mut TypeGraph) {
-        for n in &mut g.nodes {
-            for t in &mut n.possible {
-                *t = subst(*t, &g.inst);
-            }
-        }
-    }
+    
 
     pub fn solved_graph(&self, g: &TypeGraph) -> bool {
         g.nodes
@@ -111,7 +113,7 @@ impl Compiler {
             if unify(g.nodes[a].possible[0], g.nodes[b].possible[0], &mut g.inst) {
                 // We've narrowed down overloads and unified
                 // so this substituion applies to the whole graph.
-                self.subst_graph(g);
+                g.subst_graph();
             } else {
                 return Err(loc);
             }
