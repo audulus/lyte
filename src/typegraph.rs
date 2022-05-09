@@ -89,17 +89,12 @@ impl Compiler {
             .all(|n| n.possible.len() == 1 && solved(n.possible[0]))
     }
 
-    fn prune(&mut self, v: &[TypeID], t0: TypeID) -> Vec<TypeID> {
-        let mut result = vec![];
-
-        for t in v {
+    /// Remove all types from vec which don't unify with t0.
+    fn prune(&mut self, vec: &mut Vec<TypeID>, t0: TypeID) {
+        vec.retain(|t| {
             let mut inst = Instance::new();
-            if unify(*t, t0, &mut inst) {
-                result.push(*t);
-            }
-        }
-
-        result
+            unify(*t, t0, &mut inst)
+        });
     }
 
     pub fn propagate_eq(
@@ -121,14 +116,16 @@ impl Compiler {
         }
 
         if g.nodes[a].possible.len() == 1 {
-            g.nodes[b].possible = self.prune(&g.nodes[b].possible, g.nodes[a].possible[0]);
+            let t = g.nodes[a].possible[0];
+            self.prune(&mut g.nodes[b].possible, t);
             if g.nodes[b].possible.is_empty() {
                 return Err(loc);
             }
         }
 
         if g.nodes[b].possible.len() == 1 {
-            g.nodes[a].possible = self.prune(&g.nodes[a].possible, g.nodes[b].possible[0]);
+            let t = g.nodes[b].possible[0];
+            self.prune(&mut g.nodes[a].possible, t);
             if g.nodes[a].possible.is_empty() {
                 return Err(loc);
             }
