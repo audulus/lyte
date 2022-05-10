@@ -1,5 +1,7 @@
 use crate::defs::*;
 use crate::types::*;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 pub type TypeNodeID = usize;
 
@@ -222,6 +224,27 @@ impl TypeGraph {
         for c in self.constraints.clone() {
             self.propagate_eq(c.a, c.b, c.loc)?
         }
+        Ok(())
+    }
+
+    pub fn nodes_hash(&self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.nodes.hash(&mut s);
+        s.finish()
+    }
+
+    pub fn solve(&mut self) -> Result<(), Loc> {
+
+        // Continue to propagate as long as we
+        // can make changes.
+        loop {
+            let h = self.nodes_hash();
+            self.propagate()?;
+            if h == self.nodes_hash() {
+                break;
+            }
+        }
+
         Ok(())
     }
 
