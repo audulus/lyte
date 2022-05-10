@@ -181,7 +181,12 @@ impl TypeGraph {
                 if let Type::Name(struct_name) = **t {
                     let mut found = false;
                     find_decls(decls, struct_name, &mut |decl| {
-
+                        if let Some(field) = decl.find_field(name) {
+                            let mut inst = Instance::new();
+                            if unify(*t, field.ty, &mut inst) {
+                                found = true;
+                            }
+                        }
                     });
                     found
                 } else {
