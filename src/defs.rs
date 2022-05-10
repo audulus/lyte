@@ -107,6 +107,19 @@ pub enum Decl {
 }
 
 impl Decl {
+    pub fn find_field(&self, name: Name) -> Option<Field> {
+        if let Decl::Struct{fields, ..} = self {
+            for field in fields {
+                if field.name == name {
+                    return Some(field.clone())
+                }
+            }
+        }
+        None
+    }
+}
+
+impl Decl {
     pub fn name(&self) -> Name {
         match self {
             Decl::Func { name, .. } => *name,
