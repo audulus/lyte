@@ -199,6 +199,22 @@ impl TypeGraph {
             }
         }
 
+        // One of each, better unify or error.
+        if let (Some(t0), Some(t1)) = (self.nodes[a].unique(), self.nodes[b].unique()) {
+            if let Type::Name(struct_name) = *t0 {
+                let decl = find_decl(decls, struct_name).unwrap();
+                let f = decl.find_field(name).unwrap();
+                if unify(f.ty, t1, &mut self.inst) {
+
+                    // We've narrowed down overloads and unified
+                    // so this substituion applies to the whole graph.
+                    self.subst();
+                } else {
+                    return Err(loc);
+                }
+            }
+        }
+
         Ok(())
     }
 
