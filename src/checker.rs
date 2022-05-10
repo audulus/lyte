@@ -84,6 +84,17 @@ impl Checker {
             Expr::Binop(op, a, b) => {
                 self.check_expr(*a, arena, decls);
                 self.check_expr(*b, arena, decls);
+
+                let at = self.types[*a];
+                let bt = self.types[*b];
+
+                if op.equality() {
+                    self.eq(at, bt, arena.locs[id], || {
+                        println!("equality operator requres equal types");
+                    });
+
+                    self.types[id] = mk_type(Type::Bool);
+                }
             }
             Expr::Call(f, args) => {
 
