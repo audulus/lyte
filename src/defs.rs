@@ -47,6 +47,20 @@ pub enum Binop {
     Cond,
 }
 
+impl Binop {
+    fn equality(self) -> bool {
+        self == Binop::Equal || self == Binop::NotEqual
+    }
+
+    fn relational(self) -> bool {
+        self == Binop::Less || self == Binop::Greater || self == Binop::Leq || self == Binop::Geq
+    }
+
+    fn arithmetic(self) -> bool {
+        self == Binop::Plus || self == Binop::Minus || self == Binop::Mult || self == Binop::Div
+    }
+}
+
 pub type ExprID = usize;
 
 #[derive(Clone, Debug, PartialEq)]
