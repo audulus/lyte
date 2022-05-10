@@ -48,15 +48,15 @@ pub enum Binop {
 }
 
 impl Binop {
-    fn equality(self) -> bool {
+    pub fn equality(self) -> bool {
         self == Binop::Equal || self == Binop::NotEqual
     }
 
-    fn relational(self) -> bool {
+    pub fn relational(self) -> bool {
         self == Binop::Less || self == Binop::Greater || self == Binop::Leq || self == Binop::Geq
     }
 
-    fn arithmetic(self) -> bool {
+    pub fn arithmetic(self) -> bool {
         self == Binop::Plus || self == Binop::Minus || self == Binop::Mult || self == Binop::Div
     }
 }
