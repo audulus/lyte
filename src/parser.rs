@@ -327,7 +327,6 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         }
         Token::Dot => {
             lexer.next();
-            let name = format!("token: {:?}", lexer.tok);
             if let Token::Id(id) = &lexer.tok {
                 let e = Expr::Enum(Intern::new(id.clone()));
                 let r = arena.add(e, lexer.loc);
