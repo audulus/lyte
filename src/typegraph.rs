@@ -11,7 +11,7 @@ pub struct Constraint {
     pub loc: Loc,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub struct TypeNode {
     pub possible: Vec<TypeID>,
 }
