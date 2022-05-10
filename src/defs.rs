@@ -141,7 +141,7 @@ pub fn find_decls(decls: &Vec<Decl>, name: Name, f: &mut impl FnMut(&Decl)) {
     }
 }
 
-pub fn find_decl<'a>(decls: &'a Vec<Decl>, name: Name) -> Option<&'a Decl> {
+pub fn find_decl(decls: &Vec<Decl>, name: Name) -> Option<&Decl> {
     for d in decls {
         if d.name() == name {
             return Some(d)
