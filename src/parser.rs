@@ -545,28 +545,27 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             skip_newlines(lexer);
 
-            match lexer.tok.clone() {
-                Token::Lbrace => Ok(Decl::Func {
-                    name: Intern::new(name),
-                    params,
-                    body: parse_block(lexer, arena)?,
-                    ret: mk_type(Type::Void)
-                }),
-                Token::Arrow => {
-                    lexer.next();
-                    let t = parse_type(lexer)?;
-                    Ok(Decl::Func {
-                        name: Intern::new(name),
-                        params,
-                        body: parse_block(lexer, arena)?,
-                        ret: t
-                    })
-                }
-                _ => Err(ParseError {
-                    location: lexer.i,
-                    message: String::from("Expected return type or function body"),
-                }),
+            let mut ret = mk_type(Type::Void);
+            if lexer.tok == Token::Arrow {
+                lexer.next();
+                ret = parse_type(lexer)?;
             }
+
+            skip_newlines(lexer);
+
+            let mut body = None;
+            if lexer.tok == Token::Lbrace {
+                body = Some(parse_block(lexer, arena)?);
+            }
+
+            skip_newlines(lexer);
+
+            Ok(Decl::Func {
+                name: Intern::new(name),
+                params,
+                body,
+                ret
+            })
         }
         Token::Struct => {
             // Struct delcaration.
@@ -677,6 +676,7 @@ mod tests {
         string: &str,
         f: fn(&mut Lexer, arena: &mut ExprArena) -> Result<T, ParseError>,
     ) -> Result<T, ParseError> {
+        println!("parsing: {}", string);
         let mut lexer = Lexer::new(&String::from(string), "parser tests");
         lexer.next();
         let mut arena = ExprArena::new();
@@ -742,6 +742,7 @@ mod tests {
     #[test]
     fn test_parse_block() {
         test_strings(parse_block, &[
+            "{}",
             "{ }",
             "{ \n }",
             "{ x }",
@@ -767,6 +768,7 @@ mod tests {
             "f(x: i8,\n y: i8) { g(x) }",
             "f(x: i8 -> i8) { }",
             "test {}",
+            "f()",
             "struct x { }",
             "struct x { \n }",
             "struct x { x: i8 }",

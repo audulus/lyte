@@ -109,7 +109,7 @@ pub enum Decl {
     Func {
         name: Name,
         params: Vec<Param>,
-        body: ExprID,
+        body: Option<ExprID>,
         ret: TypeID,
     },
     Struct {
