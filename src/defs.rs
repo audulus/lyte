@@ -90,6 +90,7 @@ pub enum Expr {
     Return(ExprID),
     Enum(Name),
     Tuple(Vec<ExprID>),
+    Arena(ExprID),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -439,6 +439,11 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                 }),
             }
         }
+        Token::Arena => {
+            lexer.next();
+            let e = parse_block(lexer, arena)?;
+            Ok(arena.add(Expr::Arena(e), lexer.loc))
+        }
         Token::Return => {
             lexer.next();
             let e = parse_expr(lexer, arena)?;
