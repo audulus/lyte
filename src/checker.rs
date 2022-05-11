@@ -125,6 +125,22 @@ impl Checker {
                 self.check_expr(*lhs, arena, decls);
 
                 self.lvalue[id] = self.lvalue[*lhs];
+
+                let lhs_t = self.types[*lhs];
+
+                 // Find all the struct declarations with that field.
+                 let mut structs = vec![];
+                 for d in decls {
+                    if let Decl::Struct{name: struct_name, fields} = d {
+                        for field in fields {
+                            if field.name == *name {
+                                structs.push(mk_type(Type::Name(*struct_name)));
+                            }
+                        }
+                    }
+                }
+
+                self.type_graph.field_constraint(structs, lhs_t, *name, arena.locs[id]);
             }
             Expr::Enum(name) => {
 
