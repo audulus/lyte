@@ -31,8 +31,9 @@ impl Checker {
 
         for ty in types {
             let t = mk_type(ty);
-            arith_overloads.push(func(tuple(vec![t, t]), t));
-            rel_overloads.push(func(tuple(vec![t,t]), mk_type(Type::Bool)));
+            let tt = tuple(vec![t, t]);
+            arith_overloads.push(func(tt, t));
+            rel_overloads.push(func(tt, mk_type(Type::Bool)));
             neg_overloads.push(func(t, t));
         }
 
