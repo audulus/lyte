@@ -88,6 +88,7 @@ pub enum Expr {
     Block(Vec<ExprID>),
     Return(ExprID),
     Enum(Name),
+    Tuple(Vec<ExprID>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
