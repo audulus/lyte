@@ -33,6 +33,7 @@ pub fn test_loc() -> Loc {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Binop {
+    Assign,
     Plus,
     Minus,
     Mult,

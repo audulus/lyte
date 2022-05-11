@@ -151,6 +151,7 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
 
 fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
     let op = match tok {
+        Token::Assign => Binop::Assign,
         Token::Plus => Binop::Plus,
         Token::Minus => Binop::Minus,
         Token::Mult => Binop::Mult,
@@ -201,8 +202,22 @@ fn parse_expr(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
 
         Ok(arena.add(Expr::If(cond, then, els), lexer.loc))
     } else {
-        parse_eq(lexer, arena)
+        parse_assign(lexer, arena)
     }
+}
+
+fn parse_assign(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
+    let mut lhs = parse_rel(lexer, arena)?;
+
+    while lexer.tok == Token::Assign {
+        let t = lexer.tok.clone();
+        lexer.next();
+        let rhs = parse_eq(lexer, arena)?;
+
+        lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
+    }
+
+    Ok(lhs)
 }
 
 fn parse_eq(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
@@ -413,7 +428,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                 Token::Id(name) => {
                     let n = Intern::new(name.clone());
                     lexer.next();
-                    expect(lexer, Token::Equal)?;
+                    expect(lexer, Token::Assign)?;
                     lexer.next();
                     let e = parse_lambda(lexer, arena)?;
                     Ok(arena.add(Expr::Var(n, e), lexer.loc))

@@ -232,9 +232,11 @@ impl Lexer {
             }
             '=' => {
                 if bytes[self.i] == b'=' {
-                    self.i += 1
+                    self.i += 1;
+                    Token::Equal
+                } else {
+                    Token::Assign
                 }
-                Token::Equal
             }
             '!' => {
                 if bytes[self.i] == b'=' {
