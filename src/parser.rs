@@ -532,11 +532,16 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Id(name) => {
             // Function declaration.
             lexer.next();
-            expect(lexer, Token::Lparen)?;
-            lexer.next();
-            let params = parse_paramlist(lexer)?;
-            expect(lexer, Token::Rparen)?;
-            lexer.next();
+            
+            let mut params = vec![];
+
+            if lexer.tok == Token::Lparen {
+                expect(lexer, Token::Lparen)?;
+                lexer.next();
+                params = parse_paramlist(lexer)?;
+                expect(lexer, Token::Rparen)?;
+                lexer.next();
+            }
 
             skip_newlines(lexer);
 
@@ -761,6 +766,7 @@ mod tests {
             "f(x: i8, y: i8) { g(x) }",
             "f(x: i8,\n y: i8) { g(x) }",
             "f(x: i8 -> i8) { }",
+            "test {}",
             "struct x { }",
             "struct x { \n }",
             "struct x { x: i8 }",
