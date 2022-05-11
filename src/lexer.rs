@@ -135,6 +135,7 @@ impl Lexer {
                 "return" => Token::Return,
                 "struct" => Token::Struct,
                 "enum" => Token::Enum,
+                "arena" => Token::Arena,
                 _ => Token::Id(id),
             };
         }
@@ -328,5 +329,6 @@ mod tests {
         assert_eq!(tokens("\"test\" \n"), vec![Token::String("test".into()), Endl]);
         assert_eq!(tokens(".name"), vec![Token::Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
+        assert_eq!(tokens("arena"), vec![Token::Arena]);
     }
 }
