@@ -127,6 +127,7 @@ impl Checker {
                 self.lvalue[id] = self.lvalue[*lhs];
 
                 let lhs_t = self.types[*lhs];
+                let t = self.fresh();
 
                  // Find all the struct declarations with that field.
                  let mut structs = vec![];
@@ -140,7 +141,11 @@ impl Checker {
                     }
                 }
 
-                self.type_graph.field_constraint(structs, lhs_t, *name, arena.locs[id]);
+                let structs_node = self.type_graph.field_constraint(structs, t, *name, arena.locs[id]);
+                let lhs_node = self.type_graph.add_type_node(lhs_t);
+                self.type_graph.eq_constraint(lhs_node, structs_node, arena.locs[id]);
+
+                self.types[id] = t;
             }
             Expr::Enum(name) => {
 
