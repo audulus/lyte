@@ -1,0 +1,17 @@
+
+
+putc(c: i8)
+assert(cond: bool) → void
+
+overload(x: i32) {
+    putc('a')
+}
+
+overload(x: [i8]) {
+    putc('b')
+}
+
+test {
+    overload(42)
+    overload("test")
+}

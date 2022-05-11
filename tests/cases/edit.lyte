@@ -1,0 +1,74 @@
+
+
+assert(cond: bool)
+
+struct Edit {
+    var start: i32
+    var delCount: i32
+    var inserted: [i8]
+}
+
+edit(start: i32, del: i32, insert: [i8]) → Edit {
+    var e: Edit
+    e.start = start
+    e.delCount = del
+    e.inserted = insert
+    return e
+}
+
+getChar(i: i32, edits: [Edit]) → i8 {
+
+    var j = (len edits) - 1
+    var k = i
+    while j >= 0 {
+        let e = edits[j]
+
+        if k < e.start {
+            // do nothing
+        } else if k < e.start + (len e.inserted) {
+            return e.inserted[k-e.start]
+        } else {
+            k = k + e.delCount - (len e.inserted)
+        }
+        j = j-1
+    }
+
+    return '\0'
+}
+
+eval(edits: [Edit]) → [i8] {
+    var r:[i8]
+    var i = 0
+    while true {
+        let c = getChar(i, edits)
+        if c == '\0' {
+            return r
+        }
+        r[i] = c
+        i = i+1
+    }
+    return r
+}
+
+test {
+
+    var edits:[Edit]
+    edits[0] = edit(0, 0, "test")
+    assert( (len edits[0].inserted) == 4 )
+
+    var r = eval(edits)
+    assert( (len r) == 4 )
+    assert( r == "test" )
+
+    edits[1].delCount = 1
+
+    assert( eval(edits) == "est" )
+
+    edits[2] = edit(0, 0, "t")
+
+    assert( eval(edits) == "test" )
+
+    edits[3] = edit(2, 1, "x")
+
+    assert( eval(edits) == "text" )
+}

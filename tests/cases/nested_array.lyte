@@ -1,0 +1,18 @@
+
+
+assert(cond: bool) → void
+
+test {
+    var a: [[i8]]
+    a[0][0] = 'x'
+    assert(a[0][0] == 'x')
+
+    var b = a
+    b[0][0] = 'y'
+    b[0][1] = 'z'
+
+    assert(b[0][0] == 'y')
+    assert(b[0][1] == 'z')
+
+    assert(a[0][0] == 'x')
+}

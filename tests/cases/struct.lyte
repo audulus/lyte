@@ -1,0 +1,42 @@
+
+
+assert(cond: bool) → void
+
+struct Person {
+    var name: [i8]
+    var age: i32
+}
+
+return_person() → Person {
+    var jimi:Person
+    jimi.name = "Jimi"
+    jimi.age = 27 // uh-oh
+    return jimi
+}
+
+infer_person {
+    let f = p → { return p.age }
+    var tay: Person
+    tay.age = 27
+    assert(f(tay) == 27)
+}
+
+test {
+
+    var p = return_person()
+    assert(p.age == 27)
+
+    p = return_person()
+
+    var q = p
+    assert(p == q)
+    q.age = 5
+    q.name = "Mike"
+    assert(p.age == 27)
+    assert(p.name == "Jimi")
+    
+    var personArray: [Person]
+    personArray[0] = p
+
+    infer_person()
+}

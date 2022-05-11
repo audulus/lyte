@@ -1,0 +1,29 @@
+
+
+assert(cond: bool) → void
+
+ret_array_literal() → [i32] {
+    return [1,2,3]
+}
+
+test {
+    var a = ret_array_literal()
+    assert(a[0] == 1)
+    assert(a[1] == 2)
+    assert(a[2] == 3)
+    assert(len a == 3)
+
+    a = [42]
+    assert(len a == 1)
+    assert(a[0] == 42)
+
+    assert([42][0] == 42)
+
+    var b:[i32]
+    assert(len b == 0)
+    b[0] = 1
+    assert(len b == 1)
+    b[1] = 2
+    b[2] = 3
+    assert(len b == 3)
+}

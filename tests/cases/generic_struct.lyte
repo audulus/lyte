@@ -1,0 +1,30 @@
+
+
+assert(cond: bool) → void
+
+return_generic_struct → GenericStruct⟨T=i32⟩ {
+    var s: GenericStruct⟨T=i32⟩
+    s.x = 42
+    return s
+}
+
+struct GenericStruct {
+    var x:⟨T⟩
+}
+
+generic_struct_fn(s: GenericStruct⟨T=⟨A⟩⟩) {
+    assert(true)
+}
+
+generic_struct_check(s: GenericStruct⟨T=⟨A⟩⟩, f: GenericStruct⟨T=⟨A⟩⟩ → i32) {
+    assert(f(s) == 42)
+}
+
+test {
+    var s: GenericStruct⟨T=i32⟩
+    s = return_generic_struct()
+    assert(s.x == 42)
+    generic_struct_fn(s)
+    generic_struct_check(s, (s: GenericStruct⟨T=i32⟩) → i32 { return s.x })
+    generic_struct_check(s, s → { return s.x })
+}

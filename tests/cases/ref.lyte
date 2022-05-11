@@ -1,0 +1,31 @@
+
+
+assert(cond: bool)
+
+f(x: ref i32) {
+    x = 42
+}
+
+swap(x: ref i32, y: ref i32) {
+    let tmp = x
+    x = y
+    y = tmp
+}
+
+generic_swap(x: ref ⟨T⟩, y: ref ⟨T⟩) {
+    let tmp = x
+    x = y
+    y = tmp
+}
+
+test {
+    var x:i32
+    f(x)
+    assert(x == 42)
+
+    var a = 1
+    var b = 2
+    swap(a, b)
+    assert(a == 2)
+    assert(b == 1)
+}

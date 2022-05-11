@@ -1,0 +1,16 @@
+
+
+assert(cond: bool) → void
+
+fact(x: i32) → i32 {
+
+    if x == 0 {
+        return 1
+    }
+
+    return x * fact(x-1)
+}
+
+test {
+    assert(fact(4) == 24)
+}

@@ -1,0 +1,66 @@
+
+
+assert(cond: bool) → void
+
+struct Point {
+    var x: i32
+    var y: i32
+}
+
++(lhs: Point, rhs: Point) → Point {
+    var p: Point
+    p.x = lhs.x + rhs.x
+    p.y = lhs.y + rhs.y
+    return p
+}
+
+-(lhs: Point, rhs: Point) → Point {
+    var p: Point
+    p.x = lhs.x - rhs.x
+    p.y = lhs.y - rhs.y
+    return p
+}
+
+*(lhs: Point, rhs: i32) → Point {
+    var p: Point
+    p.x = lhs.x * rhs
+    p.y = lhs.y * rhs
+    return p
+}
+
+neg(a: Point) → Point {
+    var p: Point
+    p.x = -a.x
+    p.y = -a.y
+    return p
+}
+
+test {
+    var p0: Point
+    p0.x = 1
+    p0.y = 2
+
+    var p1: Point
+    p1.x = 3
+    p1.y = 4
+
+    var sum: Point
+    sum = p0+p1
+    assert(sum.x == 4)
+    assert(sum.y == 6)
+
+    var dif: Point
+    dif = p0-p1
+    assert(dif.x == 0-2)
+    assert(dif.y == 0-2)
+
+    var s: Point
+    s = p0 * 2
+    assert(s.x == 2)
+    assert(s.y == 4)
+
+    var n: Point
+    n = -p0
+    assert(n.x == -1)
+    assert(n.y == -2)
+}

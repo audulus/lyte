@@ -1,0 +1,18 @@
+
+
+assert(cond: bool) → void
+
+struct ArrayInStruct {
+    var array:[i8]
+}
+
+test {
+    var a: ArrayInStruct
+    a.array[0] = 'x'
+
+    var b = a
+    b.array[0] = 'y'
+    assert(b.array[0] == 'y')
+
+    assert(a.array[0] == 'x')
+}

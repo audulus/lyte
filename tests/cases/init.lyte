@@ -1,0 +1,11 @@
+
+
+assert(cond: bool) → void
+
+test {
+    var x:i32
+    assert(x == 0)
+
+    var a:[i32]
+    assert(len a == 0)
+}

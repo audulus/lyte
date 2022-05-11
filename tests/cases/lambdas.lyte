@@ -1,0 +1,71 @@
+
+
+assert(cond: bool) → void
+
+add_one(x: i32) → i32 { return x + 1 }
+
+test_lambda_basic {
+    var f = (x: i32) → { return x + 1 }
+    assert(f(1) == 2)
+}
+
+test_lambda_call {
+    var x = (x: i32) → { return x + 1 } (1)
+    assert(x == 2)
+}
+
+test_lambda_nested {
+    var f = (x: i32) → {
+        return (x: i32) → { return x + 1 } (x)
+    }
+    assert(f(1) == 2)
+}
+
+call_test(f: i32 → i32) {
+    assert(f(1) == 2)
+}
+
+test_lambda_arg {
+    call_test( (x: i32) → { return x + 1 } )
+}
+
+map_array_int32(a: [i32], f: i32 → i32) → [i32] {
+   var i = 0
+   var b: [i32]
+   while i < len a {
+       b[len b] = f(a[i])
+       i = i + 1
+   }
+   return b
+}
+
+test_lambda_map {
+    var a = map_array_int32([1,2,3], add_one)
+    assert(a == [2,3,4])
+}
+
+test_lambda_infer {
+    var f = x → { return x+1 }
+    assert(f(1) == 2)
+}
+
+test_lambda_infer2 {
+    var f = x → { return x }
+    assert(f(1) == 1)
+}
+
+test_lambda_infer3 {
+    var a = map_array_int32([1,2,3], x → { return x+1 })
+    assert(a == [2,3,4])
+}
+
+test {
+    test_lambda_basic()
+    test_lambda_call()
+    test_lambda_nested()
+    test_lambda_arg()
+    test_lambda_map()
+    test_lambda_infer()
+    test_lambda_infer2()
+    test_lambda_infer3()
+}

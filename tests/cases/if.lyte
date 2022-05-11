@@ -1,0 +1,20 @@
+
+assert(cond: bool) → void
+putc(c: i8)
+
+test {
+    var x: i32
+
+    if false {
+        putc('a')
+        x = 1
+    } else if false {
+        putc('b')
+        x = 2
+    } else {
+        putc('c')
+        x = 3
+    }
+
+    assert(x == 3)
+}

@@ -1,0 +1,17 @@
+
+
+assert(cond: bool) → void
+
+test {
+    var t = true
+    var f = false
+    assert(t)
+    assert(t != f)
+    assert(not f)
+    assert(t or f)
+    assert(t and t)
+    assert(not (f or f))
+    assert(not (t == f))
+    assert(not f == t)
+    assert(t == not f)
+}

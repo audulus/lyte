@@ -1,0 +1,24 @@
+
+
+assert(cond: bool) → void
+
+add_ints(a: i32, b: i32) → i32 {
+    return a + b
+}
+
+test_arg_order(a: i32, b: i32) {
+    assert(a == 1)
+    assert(b == 2)
+}
+
+test_shadow_var {
+    var x = 42
+    while x == 0 {
+        var x = 0
+    }
+}
+
+test {
+    assert(add_ints(2,2) == 4)
+    test_arg_order(1, 2)
+}

@@ -1,0 +1,63 @@
+
+
+assert(cond: bool) → void
+
+map(a: [⟨T0⟩], f: ⟨T0⟩ → ⟨T1⟩) → [⟨T1⟩] {
+   var i = 0
+   var b: [⟨T1⟩]
+   while i < len a {
+       b[i] = f(a[i])
+       i = i + 1
+   }
+   return b
+}
+
+id(x: ⟨T⟩) → ⟨T⟩ { return x }
+
+add_one(x: i32) → i32 { return x + 1 }
+
+test_identity {
+    let x = id(42)
+    assert(x == 42)
+
+    let y = id("test")
+    assert(y == "test")
+
+    let z = id(true)
+    assert(z == true)
+}
+
+test_map {
+    let a = map([1,2,3], add_one)
+    assert(a == [2,3,4])
+
+    let b = map([1,2,3], (x:i32) → i32 { return x+2 })
+    assert(b == [3,4,5])
+    
+    let f = (x:i32) → i32 { return x+3 }
+    let c = map([1,2,3], f)
+    assert(c == [4,5,6])
+}
+
+test_infer_generic {
+   var f = id( (x:i32) → { return x })
+   assert(f(1) == 1)
+}
+
+test_infer_generic2 {
+   var f = id( x → { return x })
+   assert(f(1) == 1)
+}
+
+test_infer_generic3 {
+    var a = map([1,2,3], x → { return x+1 })
+    assert(a == [2,3,4])
+}
+
+test {
+    test_identity()
+    test_map()
+    test_infer_generic()
+    test_infer_generic2()
+    test_infer_generic3()
+}

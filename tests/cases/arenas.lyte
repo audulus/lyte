@@ -1,0 +1,11 @@
+assert(cond: bool) → void
+
+test {
+
+   var outer = 0
+   arena {
+      var x = [42]
+      outer = x[0]
+   }
+   assert(outer == 42)
+}

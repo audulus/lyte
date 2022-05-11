@@ -1,0 +1,10 @@
+
+
+assert(cond: bool) → void
+
+var global: i32
+
+test {
+    global = 42
+    assert(global == 42)
+}
