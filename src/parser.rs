@@ -356,11 +356,26 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         }
         Token::Lparen => {
             lexer.next();
-            let rr = parse_lambda(lexer, arena)?;
-            expect(lexer, Token::Rparen)?;
+
+            let mut tup = vec![];
+            loop {
+                let rr = parse_lambda(lexer, arena)?;
+                tup.push(rr);
+                if lexer.tok == Token::Rparen {
+                    break;
+                }
+                expect(lexer, Token::Comma)?;
+                lexer.next();
+            }
 
             lexer.next();
-            return Ok(rr)
+
+            if tup.len() > 1 {
+                let e = Expr::Tuple(tup);
+                arena.add(e, lexer.loc)
+            } else {
+                tup[0]
+            }
         }
         Token::Lbrace => {
             parse_block(lexer, arena)?
@@ -681,7 +696,8 @@ mod tests {
             "(x)",
             "42",
             "3.14159",
-            ".something"
+            ".something",
+            "(1,2,3)",
         ]);
     }
 
