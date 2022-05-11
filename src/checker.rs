@@ -14,12 +14,28 @@ struct Checker {
     lvalue: Vec<bool>,
     inst: Instance,
     next_anon: usize,
-    vars: Vec<Var>
+    vars: Vec<Var>,
+    arith_overloads: Vec<TypeID>,
+    rel_overloads: Vec<TypeID>,
+    neg_overloads: Vec<TypeID>,
 }
 
 impl Checker {
 
     fn new() -> Self {
+
+        let types = [Type::Int32, Type::Float32];
+        let mut arith_overloads = vec![];
+        let mut rel_overloads = vec![];
+        let mut neg_overloads = vec![];
+
+        for ty in types {
+            let t = mk_type(ty);
+            arith_overloads.push(func(tuple(vec![t, t]), t));
+            rel_overloads.push(func(tuple(vec![t,t]), mk_type(Type::Bool)));
+            neg_overloads.push(func(t, t));
+        }
+
         Self {
             type_graph: TypeGraph::new(),
             types: vec![],
@@ -27,6 +43,9 @@ impl Checker {
             inst: Instance::new(),
             next_anon: 0,
             vars: vec![],
+            arith_overloads,
+            rel_overloads,
+            neg_overloads
         }
     }
 
