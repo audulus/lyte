@@ -28,12 +28,13 @@ impl Checker {
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
         let mut neg_overloads = vec![];
+        let b = mk_type(Type::Bool);
 
         for ty in types {
             let t = mk_type(ty);
             let tt = tuple(vec![t, t]);
             arith_overloads.push(func(tt, t));
-            rel_overloads.push(func(tt, mk_type(Type::Bool)));
+            rel_overloads.push(func(tt, b));
             neg_overloads.push(func(t, t));
         }
 
