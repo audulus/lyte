@@ -1,5 +1,5 @@
 [package]
-name = "lyte-rs"
+name = "lyte"
 version = "0.1.0"
 authors = ["Taylor Holliday <taylor@audulus.com>"]
 edition = "2018"

@@ -1,4 +1,10 @@
 use crate::*;
+use std::fs;
+use std::path::Path;
+
+pub struct Compiler {
+    pub decls: Vec<Decl>
+}
 
 impl Compiler {
     pub fn new() -> Self {
