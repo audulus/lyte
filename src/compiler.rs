@@ -24,7 +24,7 @@ impl Compiler {
                     self.decls.extend(decls);
                 }
                 Err(err) => {
-                    println!("parse error: {:?}", err);
+                    println!("{}:{}: {}", err.location.file, err.location.line, err.message);
                 }
             }
         } else {
