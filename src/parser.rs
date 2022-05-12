@@ -789,6 +789,8 @@ mod tests {
     fn test_parse_program() {
         test_strings(parse_program, &[
             "",
+            "\n",
+            "\nf()",
             "f(){} g(){}",
             "f(){}\n g(){}",
             "f()\n{}",
