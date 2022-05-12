@@ -62,7 +62,7 @@ pub enum Token {
     And,
     Or,
     Not,
-    Char,
+    Char(char),
     String(String),
     Pipe,
     Endl,
@@ -189,6 +189,31 @@ impl Lexer {
             self.i += 1;
 
             return Token::String(s);
+        }
+
+        if bytes[self.i] == b'\'' {
+            let mut tok = Token::Error;
+            self.i += 1;
+
+            if bytes[self.i] == b'\\' {
+                self.i += 1;
+                if bytes[self.i] == b'\\' {
+                    tok = Token::Char('\\');
+                } else if bytes[self.i] == b'n' {
+                    tok = Token::Char('\n');
+                }
+            } else {
+                tok = Token::Char(bytes[self.i] as char);
+            }
+
+            self.i += 1;
+
+            if bytes[self.i] == b'\'' {
+                self.i += 1;
+                return tok;
+            } else {
+                return Token::Error;
+            }
         }
 
         let c = bytes[self.i] as char;
@@ -352,5 +377,6 @@ mod tests {
         assert_eq!(tokens("false"), vec![Token::False]);
         assert_eq!(tokens("bool"), vec![Token::Bool]);
         assert_eq!(tokens("⋅"), vec![Token::Mult]);
+        assert_eq!(tokens("'x'"), vec![Token::Char('x')]);
     }
 }
