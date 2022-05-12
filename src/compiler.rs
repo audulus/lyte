@@ -4,11 +4,12 @@ use std::path::Path;
 
 pub struct Compiler {
     pub decls: Vec<Decl>,
+    pub exprs: ExprArena,
 }
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { decls: vec![] }
+        Self { decls: vec![], exprs: ExprArena::new() }
     }
 
     pub fn parse_file(&mut self, path: &Path) {
@@ -16,11 +17,8 @@ impl Compiler {
             println!("parsing file: {:?}", path);
             let mut lexer = Lexer::new(&string, path.to_str().unwrap());
             lexer.next();
-            let mut arena = ExprArena::new();
-            match parse_program(&mut lexer, &mut arena) {
+            match parse_program(&mut lexer, &mut self.exprs) {
                 Ok(decls) => {
-                    println!("parsed {:?}, exprs: {:?}", decls, arena);
-
                     self.decls.extend(decls);
                 }
                 Err(err) => {

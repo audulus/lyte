@@ -22,4 +22,15 @@ fn main() {
         let file = args.file;
         compiler.parse_file(Path::new(&file));
     }
+
+    for decl in &compiler.decls {
+        println!("decl: {:?}", decl);
+    }
+
+    let mut i = 0;
+    for expr in &compiler.exprs.exprs {
+        println!("{}: {:?}", i, expr);
+        i += 1;
+    }
+
 }
