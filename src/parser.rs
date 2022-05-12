@@ -5,7 +5,7 @@ use internment::Intern;
 
 #[derive(Clone, Debug)]
 pub struct ParseError {
-    pub location: usize,
+    pub location: Loc,
     pub message: String,
 }
 
@@ -44,7 +44,7 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
         let message = format!("expected {:?}, got {:?}", tok, lexer.tok);
         println!("{:?}", message);
         Err(ParseError {
-            location: lexer.i,
+            location: lexer.loc,
             message,
         })
     }
@@ -66,7 +66,7 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 return Ok(typevar(&name));
             } else {
                 return Err(ParseError {
-                    location: lexer.i,
+                    location: lexer.loc,
                     message: String::from("Expected identifier"),
                 });
             }
@@ -82,7 +82,7 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                     Type::Array(r, n as i64)
                 } else {
                     return Err(ParseError {
-                        location: lexer.i,
+                        location: lexer.loc,
                         message: String::from("Expected integer array size"),
                     });
                 }
@@ -101,7 +101,7 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         }
         _ => {
             return Err(ParseError {
-                location: lexer.i,
+                location: lexer.loc,
                 message: String::from("Expected type"),
             })
         }
@@ -349,7 +349,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                 r
             } else {
                 return Err(ParseError {
-                    location: lexer.i,
+                    location: lexer.loc,
                     message: String::from("Expected enum case"),
                 })
             }
@@ -397,7 +397,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         }
         _ => {
             return Err(ParseError {
-                location: lexer.i,
+                location: lexer.loc,
                 message: String::from("Expected expression"),
             })
         }
@@ -434,7 +434,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                     Ok(arena.add(Expr::Var(n, e), lexer.loc))
                 }
                 _ => Err(ParseError {
-                    location: lexer.i,
+                    location: lexer.loc,
                     message: String::from("Expected assignment or function call"),
                 }),
             }
@@ -580,7 +580,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
                 Intern::new(name.clone())
             } else {
                 return Err(ParseError {
-                    location: lexer.i,
+                    location: lexer.loc,
                     message: String::from("expected struct name"),
                 });
             };
@@ -603,7 +603,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
                 Intern::new(name.clone())
             } else {
                 return Err(ParseError {
-                    location: lexer.i,
+                    location: lexer.loc,
                     message: String::from("expected enum name"),
                 });
             };
@@ -620,7 +620,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             Ok(Decl::Enum{ name, cases })
         }
         _ => Err(ParseError {
-            location: lexer.i,
+            location: lexer.loc,
             message: String::from("Expected declaration"),
         }),
     }
