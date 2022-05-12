@@ -328,6 +328,12 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
         lexer.next();
         let t = parse_type(lexer)?;
         Ok(arena.add(Expr::AsTy(lhs, t), lexer.loc))
+    } else if lexer.tok == Token::Lbracket {
+        lexer.next();
+        let idx = parse_expr(lexer, arena)?;
+        expect(lexer, Token::Rbracket)?;
+        lexer.next();
+        Ok(arena.add(Expr::ArrayIndex(lhs, idx), lexer.loc))
     } else {
         Ok(lhs)
     }
@@ -762,7 +768,8 @@ mod tests {
             "f(a + 5)",
             "a == 5",
             "f(a == 5)",
-            "assert(outer == 42)"
+            "assert(outer == 42)",
+            "x[0]",
         ]);
     }
 

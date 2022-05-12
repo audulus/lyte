@@ -80,6 +80,7 @@ pub enum Expr {
     Field(ExprID, Intern<String>),
     Array(ExprID, ExprID),
     ArrayLiteral(Vec<ExprID>),
+    ArrayIndex(ExprID, ExprID),
     True,
     False,
     AsTy(ExprID, TypeID),
