@@ -207,7 +207,7 @@ fn parse_expr(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
 }
 
 fn parse_assign(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
-    let mut lhs = parse_rel(lexer, arena)?;
+    let mut lhs = parse_eq(lexer, arena)?;
 
     while lexer.tok == Token::Assign {
         let t = lexer.tok.clone();
@@ -741,6 +741,12 @@ mod tests {
             "x",
             "{ x }",
             "return x",
+            "assert(outer)",
+            "a + 5",
+            "f(a + 5)",
+            "a == 5",
+            "f(a == 5)",
+            "assert(outer == 42)"
         ]);
     }
 
