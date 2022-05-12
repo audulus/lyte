@@ -86,7 +86,7 @@ pub enum Expr {
     AsTy(ExprID, TypeID),
     Assign(Name, ExprID),
     Let(Name, ExprID),
-    Var(Name, ExprID),
+    Var(Name, Option<ExprID>, Option<TypeID>),
     If(ExprID, ExprID, Option<ExprID>),
     Block(Vec<ExprID>),
     Return(ExprID),

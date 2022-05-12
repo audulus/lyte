@@ -454,17 +454,29 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
     match lexer.tok.clone() {
         Token::Var | Token::Let => {
             lexer.next();
-            if let Token::Id(name) = &lexer.tok {
-                let n = Intern::new(name.clone());
-                lexer.next();
-                expect(lexer, Token::Assign)?;
+            let name = if let Token::Id(name) = &lexer.tok {
+                Intern::new(name.clone())
+            } else {
+                return Err(ParseError {
+                    location: lexer.loc,
+                    message: String::from("expected identifier"),
+                })
+            };
+
+            lexer.next();
+
+            if lexer.tok == Token::Assign {
                 lexer.next();
                 let e = parse_lambda(lexer, arena)?;
-                Ok(arena.add(Expr::Var(n, e), lexer.loc))
+                Ok(arena.add(Expr::Var(name, Some(e), None), lexer.loc))
+            } else if lexer.tok == Token::Colon {
+                lexer.next();
+                let t = parse_type(lexer)?;
+                Ok(arena.add(Expr::Var(name, None, Some(t)), lexer.loc))
             } else {
                 Err(ParseError {
                     location: lexer.loc,
-                    message: String::from("Expected assignment or function call"),
+                    message: String::from("expected assignment or type"),
                 })
             }
         }
@@ -771,6 +783,7 @@ mod tests {
                 "x = y",
                 "f(x)",
                 "var x = y",
+                "var x:i32",
                 "let x = y",
                 "let x = || x",
                 "let x = if x { a } else { b }",
