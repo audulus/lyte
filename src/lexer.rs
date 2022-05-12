@@ -88,7 +88,7 @@ impl Lexer {
             code: String::from(code),
             i: 0,
             tok: Token::Error,
-            loc: Loc { file: Intern::new(file.into()), line: 0 }
+            loc: Loc { file: Intern::new(file.into()), line: 1 }
         }
     }
 
