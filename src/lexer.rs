@@ -268,7 +268,14 @@ impl Lexer {
                     } else {
                         Token::Error
                     }
-                }  else {
+                } else if bytes[self.i] == 139 {
+                    if bytes[self.i + 1] == 133 {
+                        self.i += 2;
+                        Token::Mult
+                    } else {
+                        Token::Error
+                    }
+                } else {
                     Token::Error
                 }
             }
@@ -344,5 +351,6 @@ mod tests {
         assert_eq!(tokens("true"), vec![Token::True]);
         assert_eq!(tokens("false"), vec![Token::False]);
         assert_eq!(tokens("bool"), vec![Token::Bool]);
+        assert_eq!(tokens("⋅"), vec![Token::Mult]);
     }
 }
