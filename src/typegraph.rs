@@ -19,10 +19,13 @@ pub struct TypeNode {
 }
 
 impl TypeNode {
-
     /// Returns the single possible type if there is only one.
     fn unique(&self) -> Option<TypeID> {
-        if self.possible.len() == 1 { Some(self.possible[0]) } else { None }
+        if self.possible.len() == 1 {
+            Some(self.possible[0])
+        } else {
+            None
+        }
     }
 
     /// Are there no possibilities in the type node? This indicates a type error.
@@ -72,9 +75,7 @@ impl TypeGraph {
     /// Adds a node for a single type.
     pub fn add_type_node(&mut self, ty: TypeID) -> TypeNodeID {
         let ix = self.nodes.len();
-        self.nodes.push(TypeNode {
-            possible: vec![ty],
-        });
+        self.nodes.push(TypeNode { possible: vec![ty] });
         ix
     }
 
@@ -106,15 +107,21 @@ impl TypeGraph {
 
     /// Add a constraint that one of the struct types must have a feild
     /// that unifies with another type.
-    pub fn field_constraint(&mut self, structs: Vec<TypeID>, t: TypeID, field: Name, loc: Loc) -> TypeNodeID {
+    pub fn field_constraint(
+        &mut self,
+        structs: Vec<TypeID>,
+        t: TypeID,
+        field: Name,
+        loc: Loc,
+    ) -> TypeNodeID {
         let a = self.add_node();
         self.nodes[a].possible = structs;
         let b = self.add_type_node(t);
-        self.add_constraint(&Constraint{
+        self.add_constraint(&Constraint {
             a,
             b,
             field: Some(field),
-            loc
+            loc,
         });
         a
     }
@@ -137,12 +144,7 @@ impl TypeGraph {
             .all(|n| n.possible.len() == 1 && solved(n.possible[0]))
     }
 
-    pub fn propagate_eq(
-        &mut self,
-        a: TypeNodeID,
-        b: TypeNodeID,
-        loc: Loc,
-    ) -> Result<(), Loc> {
+    pub fn propagate_eq(&mut self, a: TypeNodeID, b: TypeNodeID, loc: Loc) -> Result<(), Loc> {
         // If each node has one possible type, they better unify.
         if let (Some(t0), Some(t1)) = (self.nodes[a].unique(), self.nodes[b].unique()) {
             if unify(t0, t1, &mut self.inst) {
@@ -198,7 +200,7 @@ impl TypeGraph {
             });
 
             if self.nodes[a].possible.len() == 0 {
-                return Err(loc)
+                return Err(loc);
             }
         }
 
@@ -208,7 +210,6 @@ impl TypeGraph {
                 let decl = find_decl(decls, struct_name).unwrap();
                 let f = decl.find_field(name).unwrap();
                 if unify(f.ty, t1, &mut self.inst) {
-
                     // We've narrowed down overloads and unified
                     // so this substituion applies to the whole graph.
                     self.subst();
@@ -235,7 +236,6 @@ impl TypeGraph {
     }
 
     pub fn solve(&mut self) -> Result<(), Loc> {
-
         // Continue to propagate as long as we
         // can make changes.
         loop {
@@ -250,9 +250,7 @@ impl TypeGraph {
     }
 
     pub fn validate(&self) -> bool {
-
         for i in 0..self.nodes.len() {
-
             let mut found = false;
             for c in &self.constraints {
                 if c.a == i || c.b == i {
@@ -339,7 +337,6 @@ mod tests {
         let result = g.propagate();
 
         assert!(result.is_err());
-
     }
 
     #[test]
@@ -360,12 +357,10 @@ mod tests {
         let result = g.propagate();
 
         assert!(result.is_err());
-
     }
 
     #[test]
     pub fn test_overload_1() {
-
         let mut g = TypeGraph::new();
         let i = mk_type(Type::Int32);
         let f = mk_type(Type::Float32);
@@ -383,6 +378,5 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(g.solved());
-
     }
 }

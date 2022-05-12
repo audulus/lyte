@@ -34,7 +34,6 @@ pub fn find(id: TypeID, inst: &Instance) -> TypeID {
 }
 
 pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
-
     let t = find(t, inst);
 
     match &*t {
@@ -57,7 +56,6 @@ pub fn solved(t: TypeID) -> bool {
 }
 
 pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
-
     let lhs = find(lhs, inst);
     let rhs = find(rhs, inst);
 
@@ -69,7 +67,7 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                 if v0.len() == v1.len() {
                     for i in 0..v0.len() {
                         if !unify(v0[i], v1[i], inst) {
-                            return false
+                            return false;
                         }
                     }
                     true
@@ -110,7 +108,6 @@ impl Decl {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,6 +134,5 @@ mod tests {
         let var = typevar("T");
         assert!(unify(var, int8, &mut inst));
         assert!(!solved(var));
-
     }
 }

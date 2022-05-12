@@ -122,15 +122,15 @@ pub enum Decl {
     Enum {
         name: Name,
         cases: Vec<Name>,
-    }
+    },
 }
 
 impl Decl {
     pub fn find_field(&self, name: Name) -> Option<Field> {
-        if let Decl::Struct{fields, ..} = self {
+        if let Decl::Struct { fields, .. } = self {
             for field in fields {
                 if field.name == name {
-                    return Some(field.clone())
+                    return Some(field.clone());
                 }
             }
         }
@@ -143,7 +143,7 @@ impl Decl {
         match self {
             Decl::Func { name, .. } => *name,
             Decl::Struct { name, .. } => *name,
-            Decl::Enum { name, .. } => *name
+            Decl::Enum { name, .. } => *name,
         }
     }
 }
@@ -159,7 +159,7 @@ pub fn find_decls(decls: &Vec<Decl>, name: Name, f: &mut impl FnMut(&Decl)) {
 pub fn find_decl(decls: &Vec<Decl>, name: Name) -> Option<&Decl> {
     for d in decls {
         if d.name() == name {
-            return Some(d)
+            return Some(d);
         }
     }
     None

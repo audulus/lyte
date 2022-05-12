@@ -12,12 +12,15 @@ pub struct ParseError {
 #[derive(Debug)]
 pub struct ExprArena {
     pub exprs: Vec<Expr>,
-    pub locs: Vec<Loc>
+    pub locs: Vec<Loc>,
 }
 
 impl ExprArena {
     pub fn new() -> Self {
-        Self { exprs: vec![], locs: vec![] }
+        Self {
+            exprs: vec![],
+            locs: vec![],
+        }
     }
 
     pub fn add(&mut self, expr: Expr, loc: Loc) -> ExprID {
@@ -28,8 +31,7 @@ impl ExprArena {
     }
 }
 
-impl std::ops::Index<ExprID> for ExprArena
-{
+impl std::ops::Index<ExprID> for ExprArena {
     type Output = Expr;
 
     fn index(&self, index: ExprID) -> &Self::Output {
@@ -111,7 +113,6 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
 }
 
 fn parse_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
-
     let mut lhs = parse_basic_type(lexer)?;
 
     while lexer.tok == Token::Arrow {
@@ -335,7 +336,6 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
         lexer.next();
         Ok(arena.add(Expr::ArrayIndex(lhs, idx), lexer.loc))
     } else if lexer.tok == Token::Dot {
-
         lexer.next();
         if let Token::Id(field) = &lexer.tok {
             let e = Expr::Field(lhs, Name::new(field.clone()));
@@ -347,7 +347,6 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
                 message: String::from("Expected expression"),
             })
         }
-       
     } else {
         Ok(lhs)
     }
@@ -371,7 +370,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                 return Err(ParseError {
                     location: lexer.loc,
                     message: String::from("Expected enum case"),
-                })
+                });
             }
         }
         Token::Integer(x) => {
@@ -417,9 +416,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
                 tup[0]
             }
         }
-        Token::Lbrace => {
-            parse_block(lexer, arena)?
-        }
+        Token::Lbrace => parse_block(lexer, arena)?,
         Token::Lbracket => {
             lexer.next();
             let l = parse_exprlist(lexer, arena)?;
@@ -494,7 +491,7 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Parse
 
     loop {
         skip_newlines(lexer);
-        
+
         if lexer.tok == Token::Rbrace {
             break;
         }
@@ -514,7 +511,6 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Parse
 }
 
 fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
-
     let mut r = vec![];
 
     loop {
@@ -538,11 +534,9 @@ fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
     }
 
     Ok(r)
-
 }
 
 fn parse_caselist(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
-
     let mut r = vec![];
 
     loop {
@@ -562,7 +556,6 @@ fn parse_caselist(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     }
 
     Ok(r)
-
 }
 
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
@@ -570,7 +563,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Id(name) => {
             // Function declaration.
             lexer.next();
-            
+
             let mut params = vec![];
 
             if lexer.tok == Token::Lparen {
@@ -602,7 +595,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
                 name: Intern::new(name),
                 params,
                 body,
-                ret
+                ret,
             })
         }
         Token::Struct => {
@@ -622,12 +615,12 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             expect(lexer, Token::Lbrace)?;
             lexer.next();
-            
+
             let fields = parse_fieldlist(lexer)?;
             expect(lexer, Token::Rbrace)?;
             lexer.next();
 
-            Ok(Decl::Struct{ name, fields })
+            Ok(Decl::Struct { name, fields })
         }
         Token::Enum => {
             lexer.next();
@@ -645,12 +638,12 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             expect(lexer, Token::Lbrace)?;
             lexer.next();
-            
+
             let cases = parse_caselist(lexer)?;
             expect(lexer, Token::Rbrace)?;
             lexer.next();
 
-            Ok(Decl::Enum{ name, cases })
+            Ok(Decl::Enum { name, cases })
         }
         _ => Err(ParseError {
             location: lexer.loc,
@@ -724,11 +717,17 @@ mod tests {
         Ok(r)
     }
 
-    fn test<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer, &mut ExprArena) -> Result<T, ParseError>) {
+    fn test<T: std::fmt::Debug>(
+        string: &str,
+        f: fn(&mut Lexer, &mut ExprArena) -> Result<T, ParseError>,
+    ) {
         assert!(parse_fn(string, f).is_ok());
     }
 
-    fn test_strings<T: std::fmt::Debug>(f: fn(&mut Lexer, &mut ExprArena) -> Result<T, ParseError>, strings: &[&str]) {
+    fn test_strings<T: std::fmt::Debug>(
+        f: fn(&mut Lexer, &mut ExprArena) -> Result<T, ParseError>,
+        strings: &[&str],
+    ) {
         for string in strings {
             assert!(parse_fn(string, f).is_ok());
         }
@@ -749,95 +748,103 @@ mod tests {
 
     #[test]
     fn test_parse_atom() {
-        test_strings(parse_atom, &[
-            "x",
-            "(x)",
-            "42",
-            "3.14159",
-            ".something",
-            "(1,2,3)",
-            "'a'",
-            "'\\n'",
-            "[1,2,3]",
-        ]);
+        test_strings(
+            parse_atom,
+            &[
+                "x",
+                "(x)",
+                "42",
+                "3.14159",
+                ".something",
+                "(1,2,3)",
+                "'a'",
+                "'\\n'",
+                "[1,2,3]",
+            ],
+        );
     }
 
     #[test]
     fn test_parse_stmt() {
-        test_strings(parse_stmt, &[
-            "x = y",
-            "f(x)",
-            "var x = y",
-            "let x = y",
-            "let x = || x",
-            "let x = if x { a } else { b }",
-            "let x = if x { a+b } else { b }",
-            "if x { }",
-            "if x { } else { }",
-            "x",
-            "{ x }",
-            "return x",
-            "assert(outer)",
-            "a + 5",
-            "f(a + 5)",
-            "a == 5",
-            "f(a == 5)",
-            "assert(outer == 42)",
-            "x[0]",
-            "x.y",
-        ]);
+        test_strings(
+            parse_stmt,
+            &[
+                "x = y",
+                "f(x)",
+                "var x = y",
+                "let x = y",
+                "let x = || x",
+                "let x = if x { a } else { b }",
+                "let x = if x { a+b } else { b }",
+                "if x { }",
+                "if x { } else { }",
+                "x",
+                "{ x }",
+                "return x",
+                "assert(outer)",
+                "a + 5",
+                "f(a + 5)",
+                "a == 5",
+                "f(a == 5)",
+                "assert(outer == 42)",
+                "x[0]",
+                "x.y",
+            ],
+        );
     }
 
     #[test]
     fn test_parse_block() {
-        test_strings(parse_block, &[
-            "{}",
-            "{ }",
-            "{ \n }",
-            "{ x }",
-            "{ x\n x }",
-            "{ x \n x }",
-            "{ x \n\n x }",
-            "{ x = y }",
-            "{ f(x) }",
-            "{ x = y\n z = w }",
-            "{ f(x)\n g(y) }",
-            "{ var x = y\n var z = w }",
-        ]);
+        test_strings(
+            parse_block,
+            &[
+                "{}",
+                "{ }",
+                "{ \n }",
+                "{ x }",
+                "{ x\n x }",
+                "{ x \n x }",
+                "{ x \n\n x }",
+                "{ x = y }",
+                "{ f(x) }",
+                "{ x = y\n z = w }",
+                "{ f(x)\n g(y) }",
+                "{ var x = y\n var z = w }",
+            ],
+        );
     }
 
     #[test]
     fn test_parse_decl() {
-        test_strings(parse_decl, &[
-            "f(){}",
-            "f(x: i8) { g(x) }",
-            "f(x: i8) -> i8 { g(x) }",
-            "f(x: i8) -> (i8 -> i8) { }",
-            "f(x: i8, y: i8) { g(x) }",
-            "f(x: i8,\n y: i8) { g(x) }",
-            "f(x: i8 -> i8) { }",
-            "test {}",
-            "f()",
-            "struct x { }",
-            "struct x { \n }",
-            "struct x { x: i8 }",
-            "struct x { x: i8\n }",
-            "struct x { x: i8, y: i8 }",
-            "enum x { }",
-            "enum x { a, b, c }",
-            "enum x { a,\nb }",
-        ]);
+        test_strings(
+            parse_decl,
+            &[
+                "f(){}",
+                "f(x: i8) { g(x) }",
+                "f(x: i8) -> i8 { g(x) }",
+                "f(x: i8) -> (i8 -> i8) { }",
+                "f(x: i8, y: i8) { g(x) }",
+                "f(x: i8,\n y: i8) { g(x) }",
+                "f(x: i8 -> i8) { }",
+                "test {}",
+                "f()",
+                "struct x { }",
+                "struct x { \n }",
+                "struct x { x: i8 }",
+                "struct x { x: i8\n }",
+                "struct x { x: i8, y: i8 }",
+                "enum x { }",
+                "enum x { a, b, c }",
+                "enum x { a,\nb }",
+            ],
+        );
     }
 
     #[test]
     fn test_parse_program() {
-        test_strings(parse_program, &[
-            "",
-            "\n",
-            "\nf()",
-            "f(){} g(){}",
-            "f(){}\n g(){}",
-            "f()\n{}",
-        ]);
+        test_strings(
+            parse_program,
+            &["", "\n", "\nf()", "f(){} g(){}", "f(){}\n g(){}", "f()\n{}"],
+        );
     }
 }

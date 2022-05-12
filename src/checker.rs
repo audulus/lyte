@@ -5,7 +5,7 @@ use internment::Intern;
 struct Var {
     name: Name,
     ty: TypeID,
-    mutable: bool
+    mutable: bool,
 }
 
 struct Checker {
@@ -21,9 +21,7 @@ struct Checker {
 }
 
 impl Checker {
-
     fn new() -> Self {
-
         let types = [Type::Int32, Type::Float32];
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
@@ -47,7 +45,7 @@ impl Checker {
             vars: vec![],
             arith_overloads,
             rel_overloads,
-            neg_overloads
+            neg_overloads,
         }
     }
 
@@ -59,15 +57,17 @@ impl Checker {
     }
 
     fn fresh(&mut self) -> TypeID {
-        let t = mk_type(Type::Var(Intern::new(String::from("__anon__")), self.next_anon));
+        let t = mk_type(Type::Var(
+            Intern::new(String::from("__anon__")),
+            self.next_anon,
+        ));
         self.next_anon += 1;
         t
     }
 
     fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &Vec<Decl>) {
-
         match &arena[id] {
-            Expr::True | Expr::False => { 
+            Expr::True | Expr::False => {
                 self.types[id] = mk_type(Type::Bool);
             }
             Expr::Int(_) => {
@@ -90,7 +90,7 @@ impl Checker {
 
                     let mut found = false;
                     for d in decls {
-                        if let Decl::Func{name: fname, ..} = d {
+                        if let Decl::Func { name: fname, .. } = d {
                             if fname == name {
                                 g.add_possible(decls_node, d.ty());
                                 found = true;
@@ -118,7 +118,6 @@ impl Checker {
                 }
             }
             Expr::Call(f, args) => {
-
                 self.check_expr(*f, arena, decls);
 
                 let v0 = self.fresh();
@@ -140,7 +139,6 @@ impl Checker {
                 });
 
                 self.types[id] = ft;
-                
             }
             Expr::Field(lhs, name) => {
                 self.check_expr(*lhs, arena, decls);
@@ -150,10 +148,14 @@ impl Checker {
                 let lhs_t = self.types[*lhs];
                 let t = self.fresh();
 
-                 // Find all the struct declarations with that field.
-                 let mut structs = vec![];
-                 for d in decls {
-                    if let Decl::Struct{name: struct_name, fields} = d {
+                // Find all the struct declarations with that field.
+                let mut structs = vec![];
+                for d in decls {
+                    if let Decl::Struct {
+                        name: struct_name,
+                        fields,
+                    } = d
+                    {
                         for field in fields {
                             if field.name == *name {
                                 structs.push(mk_type(Type::Name(*struct_name)));
@@ -162,21 +164,27 @@ impl Checker {
                     }
                 }
 
-                let structs_node = self.type_graph.field_constraint(structs, t, *name, arena.locs[id]);
+                let structs_node =
+                    self.type_graph
+                        .field_constraint(structs, t, *name, arena.locs[id]);
                 let lhs_node = self.type_graph.add_type_node(lhs_t);
-                self.type_graph.eq_constraint(lhs_node, structs_node, arena.locs[id]);
+                self.type_graph
+                    .eq_constraint(lhs_node, structs_node, arena.locs[id]);
 
                 self.types[id] = t;
             }
             Expr::Enum(name) => {
-
                 let t = self.fresh();
                 let g = &mut self.type_graph;
                 let enums_node = g.add_node();
 
                 // Find all the enum declarations with that name.
                 for d in decls {
-                    if let Decl::Enum{name: enum_name, cases} = d {
+                    if let Decl::Enum {
+                        name: enum_name,
+                        cases,
+                    } = d
+                    {
                         for case in cases {
                             if case == name {
                                 g.add_possible(enums_node, mk_type(Type::Name(*enum_name)));
@@ -190,15 +198,16 @@ impl Checker {
                 g.eq_constraint(enums_node, t_node, arena.locs[id]);
                 self.types[id] = t;
             }
-            _ => { assert!(false) }
+            _ => {
+                assert!(false)
+            }
         }
-
     }
 
     fn find(&self, name: Name) -> Option<Var> {
         for v in &self.vars {
             if v.name == name {
-                return Some(*v)
+                return Some(*v);
             }
         }
         None

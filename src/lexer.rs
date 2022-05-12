@@ -88,7 +88,10 @@ impl Lexer {
             code: String::from(code),
             i: 0,
             tok: Token::Error,
-            loc: Loc { file: Intern::new(file.into()), line: 1 }
+            loc: Loc {
+                file: Intern::new(file.into()),
+                line: 1,
+            },
         }
     }
 
@@ -369,7 +372,10 @@ mod tests {
         assert_eq!(tokens("return"), vec![Return]);
         assert_eq!(tokens("struct"), vec![Struct]);
         assert_eq!(tokens("\"test\""), vec![Token::String("test".into())]);
-        assert_eq!(tokens("\"test\" \n"), vec![Token::String("test".into()), Endl]);
+        assert_eq!(
+            tokens("\"test\" \n"),
+            vec![Token::String("test".into()), Endl]
+        );
         assert_eq!(tokens(".name"), vec![Token::Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
         assert_eq!(tokens("arena"), vec![Token::Arena]);

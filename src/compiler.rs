@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 pub struct Compiler {
-    pub decls: Vec<Decl>
+    pub decls: Vec<Decl>,
 }
 
 impl Compiler {
@@ -24,7 +24,10 @@ impl Compiler {
                     self.decls.extend(decls);
                 }
                 Err(err) => {
-                    println!("{}:{}: {}", err.location.file, err.location.line, err.message);
+                    println!(
+                        "{}:{}: {}",
+                        err.location.file, err.location.line, err.message
+                    );
                 }
             }
         } else {
