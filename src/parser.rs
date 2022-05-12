@@ -369,6 +369,11 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
             lexer.next();
             arena.add(e, lexer.loc)
         }
+        Token::Char(c) => {
+            let e = Expr::Char(*c);
+            lexer.next();
+            arena.add(e, lexer.loc)
+        }
         Token::Lparen => {
             lexer.next();
 
@@ -723,6 +728,7 @@ mod tests {
             "3.14159",
             ".something",
             "(1,2,3)",
+            "'a'",
         ]);
     }
 

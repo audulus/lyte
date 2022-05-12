@@ -74,7 +74,7 @@ pub enum Expr {
     Unop(ExprID),
     Lambda { params: Vec<Param>, body: ExprID },
     String(String),
-    Char,
+    Char(char),
     Subscript(ExprID, ExprID),
     Cast,
     Field(ExprID, Intern<String>),
