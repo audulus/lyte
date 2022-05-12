@@ -136,6 +136,9 @@ impl Lexer {
                 "struct" => Token::Struct,
                 "enum" => Token::Enum,
                 "arena" => Token::Arena,
+                "bool" => Token::Bool,
+                "true" => Token::True,
+                "false" => Token::False,
                 _ => Token::Id(id),
             };
         }
@@ -330,5 +333,8 @@ mod tests {
         assert_eq!(tokens(".name"), vec![Token::Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
         assert_eq!(tokens("arena"), vec![Token::Arena]);
+        assert_eq!(tokens("true"), vec![Token::True]);
+        assert_eq!(tokens("false"), vec![Token::False]);
+        assert_eq!(tokens("bool"), vec![Token::Bool]);
     }
 }
