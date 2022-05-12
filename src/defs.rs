@@ -77,7 +77,7 @@ pub enum Expr {
     Char(char),
     Subscript(ExprID, ExprID),
     Cast,
-    Field(ExprID, Intern<String>),
+    Field(ExprID, Name),
     Array(ExprID, ExprID),
     ArrayLiteral(Vec<ExprID>),
     ArrayIndex(ExprID, ExprID),

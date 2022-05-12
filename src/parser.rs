@@ -334,6 +334,20 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
         expect(lexer, Token::Rbracket)?;
         lexer.next();
         Ok(arena.add(Expr::ArrayIndex(lhs, idx), lexer.loc))
+    } else if lexer.tok == Token::Dot {
+
+        lexer.next();
+        if let Token::Id(field) = &lexer.tok {
+            let e = Expr::Field(lhs, Name::new(field.clone()));
+            lexer.next();
+            Ok(arena.add(e, lexer.loc))
+        } else {
+            Err(ParseError {
+                location: lexer.loc,
+                message: String::from("Expected expression"),
+            })
+        }
+       
     } else {
         Ok(lhs)
     }
@@ -770,6 +784,7 @@ mod tests {
             "f(a == 5)",
             "assert(outer == 42)",
             "x[0]",
+            "x.y",
         ]);
     }
 
