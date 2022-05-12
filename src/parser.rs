@@ -311,45 +311,51 @@ fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Pars
 }
 
 fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
-    let lhs = parse_atom(lexer, arena)?;
+    let mut e = parse_atom(lexer, arena)?;
 
-    if lexer.tok == Token::Lparen {
-        lexer.next();
-        let args = if lexer.tok != Token::Rparen {
-            let args = parse_exprlist(lexer, arena)?;
-            expect(lexer, Token::Rparen)?;
-            lexer.next();
-            args
-        } else {
-            lexer.next();
-            vec![]
-        };
-        Ok(arena.add(Expr::Call(lhs, args), lexer.loc))
-    } else if lexer.tok == Token::Colon {
-        lexer.next();
-        let t = parse_type(lexer)?;
-        Ok(arena.add(Expr::AsTy(lhs, t), lexer.loc))
-    } else if lexer.tok == Token::Lbracket {
-        lexer.next();
-        let idx = parse_expr(lexer, arena)?;
-        expect(lexer, Token::Rbracket)?;
-        lexer.next();
-        Ok(arena.add(Expr::ArrayIndex(lhs, idx), lexer.loc))
-    } else if lexer.tok == Token::Dot {
-        lexer.next();
-        if let Token::Id(field) = &lexer.tok {
-            let e = Expr::Field(lhs, Name::new(field.clone()));
-            lexer.next();
-            Ok(arena.add(e, lexer.loc))
-        } else {
-            Err(ParseError {
-                location: lexer.loc,
-                message: String::from("Expected expression"),
-            })
+    loop {
+        match lexer.tok {
+            Token::Lparen => {
+                lexer.next();
+                let args = if lexer.tok != Token::Rparen {
+                    let args = parse_exprlist(lexer, arena)?;
+                    expect(lexer, Token::Rparen)?;
+                    lexer.next();
+                    args
+                } else {
+                    lexer.next();
+                    vec![]
+                };
+                e = arena.add(Expr::Call(e, args), lexer.loc);
+            }
+            Token::Colon => {
+                lexer.next();
+                let t = parse_type(lexer)?;
+                e = arena.add(Expr::AsTy(e, t), lexer.loc);
+            }
+            Token::Lbracket => {
+                lexer.next();
+                let idx = parse_expr(lexer, arena)?;
+                expect(lexer, Token::Rbracket)?;
+                lexer.next();
+                e = arena.add(Expr::ArrayIndex(e, idx), lexer.loc);
+            }
+            Token::Dot => {
+                lexer.next();
+                if let Token::Id(field) = &lexer.tok {
+                    e = arena.add(Expr::Field(e, Name::new(field.clone())), lexer.loc);
+                    lexer.next();
+                } else {
+                    return Err(ParseError {
+                        location: lexer.loc,
+                        message: String::from("Expected field identifier"),
+                    })
+                }
+            }
+            _ => { return Ok(e); }
         }
-    } else {
-        Ok(lhs)
     }
+    
 }
 
 fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
@@ -801,6 +807,7 @@ mod tests {
                 "assert(outer == 42)",
                 "x[0]",
                 "x.y",
+                "a.array[0] = 'x'",
             ],
         );
     }
