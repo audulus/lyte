@@ -365,6 +365,14 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
             lexer.next();
             arena.add(e, lexer.loc)
         }
+        Token::True => {
+            lexer.next();
+            arena.add(Expr::True, lexer.loc)
+        }
+        Token::False => {
+            lexer.next();
+            arena.add(Expr::False, lexer.loc)
+        }
         Token::Dot => {
             lexer.next();
             if let Token::Id(id) = &lexer.tok {
@@ -808,6 +816,7 @@ mod tests {
                 "x[0]",
                 "x.y",
                 "a.array[0] = 'x'",
+                "var t = true",
             ],
         );
     }
