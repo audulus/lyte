@@ -400,6 +400,14 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         Token::Lbrace => {
             parse_block(lexer, arena)?
         }
+        Token::Lbracket => {
+            lexer.next();
+            let l = parse_exprlist(lexer, arena)?;
+            expect(lexer, Token::Rbracket)?;
+            lexer.next();
+            let e = Expr::ArrayLiteral(l);
+            arena.add(e, lexer.loc)
+        }
         _ => {
             return Err(ParseError {
                 location: lexer.loc,
@@ -730,6 +738,7 @@ mod tests {
             "(1,2,3)",
             "'a'",
             "'\\n'",
+            "[1,2,3]",
         ]);
     }
 
