@@ -202,7 +202,12 @@ fn parse_if(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseErr
 
     let els = if lexer.tok == Token::Else {
         lexer.next();
-        Some(parse_block(lexer, arena)?)
+        if lexer.tok == Token::If {
+            lexer.next();
+            Some(parse_if(lexer, arena)?)
+        } else {
+            Some(parse_block(lexer, arena)?)
+        }
     } else {
         None
     };
