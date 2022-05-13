@@ -619,45 +619,50 @@ fn parse_caselist(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     Ok(r)
 }
 
+fn parse_func_decl(name: String, lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
+
+    let mut params = vec![];
+
+    if lexer.tok == Token::Lparen {
+        expect(lexer, Token::Lparen)?;
+        lexer.next();
+        params = parse_paramlist(lexer)?;
+        expect(lexer, Token::Rparen)?;
+        lexer.next();
+    }
+
+    skip_newlines(lexer);
+
+    let mut ret = mk_type(Type::Void);
+    if lexer.tok == Token::Arrow {
+        lexer.next();
+        ret = parse_type(lexer)?;
+    }
+
+    skip_newlines(lexer);
+
+    let mut body = None;
+    if lexer.tok == Token::Lbrace {
+        body = Some(parse_block(lexer, arena)?);
+    }
+
+    skip_newlines(lexer);
+
+    Ok(Decl::Func {
+        name: Intern::new(name),
+        params,
+        body,
+        ret,
+    })
+
+}
+
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
     match lexer.tok.clone() {
         Token::Id(name) => {
             // Function declaration.
             lexer.next();
-
-            let mut params = vec![];
-
-            if lexer.tok == Token::Lparen {
-                expect(lexer, Token::Lparen)?;
-                lexer.next();
-                params = parse_paramlist(lexer)?;
-                expect(lexer, Token::Rparen)?;
-                lexer.next();
-            }
-
-            skip_newlines(lexer);
-
-            let mut ret = mk_type(Type::Void);
-            if lexer.tok == Token::Arrow {
-                lexer.next();
-                ret = parse_type(lexer)?;
-            }
-
-            skip_newlines(lexer);
-
-            let mut body = None;
-            if lexer.tok == Token::Lbrace {
-                body = Some(parse_block(lexer, arena)?);
-            }
-
-            skip_newlines(lexer);
-
-            Ok(Decl::Func {
-                name: Intern::new(name),
-                params,
-                body,
-                ret,
-            })
+            parse_func_decl(name, lexer, arena)
         }
         Token::Struct => {
             // Struct delcaration.
