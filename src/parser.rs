@@ -669,6 +669,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             lexer.next();
 
             if let Token::Id(name) = lexer.tok.clone() {
+                lexer.next();
                 parse_func_decl(name, lexer, arena)
             } else {
                 return Err(ParseError {
@@ -922,6 +923,7 @@ mod tests {
                 "enum x { }",
                 "enum x { a, b, c }",
                 "enum x { a,\nb }",
+                "macro m() { }",
             ],
         );
     }
