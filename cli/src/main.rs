@@ -16,11 +16,15 @@ fn main() {
 
     if let Ok(paths) = fs::read_dir(args.file.clone()) {
         for path in paths {
-            compiler.parse_file(&path.unwrap().path());
+            if !compiler.parse_file(&path.unwrap().path()) {
+                std::process::exit(1)
+            }
         }
     } else {
         let file = args.file;
-        compiler.parse_file(Path::new(&file));
+        if !compiler.parse_file(Path::new(&file)) {
+            std::process::exit(1)
+        }
     }
 
     for decl in &compiler.decls {
