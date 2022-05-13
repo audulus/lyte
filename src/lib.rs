@@ -8,7 +8,7 @@ use types::*;
 mod typegraph;
 use typegraph::*;
 
-mod lexer;
+pub mod lexer;
 use lexer::*;
 
 mod parser;
