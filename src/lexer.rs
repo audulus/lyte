@@ -97,6 +97,7 @@ impl Lexer {
 
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
+        let n = self.code.len();
 
         // Skip whitespace and comments.
         let mut has_newline = false;
@@ -252,7 +253,7 @@ impl Lexer {
             ',' => Token::Comma,
             '+' => Token::Plus,
             '-' => {
-                if self.i < bytes.len() && bytes[self.i] == b'>' {
+                if self.i < n && bytes[self.i] == b'>' {
                     self.i += 1;
                     Token::Arrow
                 } else {
@@ -268,7 +269,7 @@ impl Lexer {
             '.' => Token::Dot,
             '|' => Token::Pipe,
             '<' => {
-                if bytes[self.i] == b'=' {
+                if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Leq
                 } else {
@@ -276,7 +277,7 @@ impl Lexer {
                 }
             }
             '>' => {
-                if bytes[self.i] == b'=' {
+                if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Geq
                 } else {
@@ -284,7 +285,7 @@ impl Lexer {
                 }
             }
             '=' => {
-                if bytes[self.i] == b'=' {
+                if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Equal
                 } else {
@@ -292,7 +293,7 @@ impl Lexer {
                 }
             }
             '!' => {
-                if self.i < self.code.len() && bytes[self.i] == b'=' {
+                if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::NotEqual
                 } else {
@@ -300,6 +301,12 @@ impl Lexer {
                 }
             }
             '\u{e2}' => {
+
+                // Do we have enough?
+                if self.i + 1 >= self.code.len() {
+                    return Token::Error;
+                }
+
                 if bytes[self.i] == 159 {
                     if bytes[self.i + 1] == 168 {
                         self.i += 2;
@@ -408,5 +415,6 @@ mod tests {
         assert_eq!(tokens("!"), vec![Token::Not]);
         assert_eq!(tokens("x // comment"), vec![id("x")]);
         tokens("]VV)y<)'");
+        tokens("<qVyA]V<");
     }
 }
