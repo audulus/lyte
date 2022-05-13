@@ -65,6 +65,7 @@ pub enum Token {
     Char(char),
     String(String),
     Pipe,
+    At,
     Endl,
     End,
     Error,
@@ -268,6 +269,7 @@ impl Lexer {
             ';' => Token::Semi,
             '.' => Token::Dot,
             '|' => Token::Pipe,
+            '@' => Token::At,
             '<' => {
                 if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
