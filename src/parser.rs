@@ -196,20 +196,24 @@ fn parse_lambda(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Pars
     }
 }
 
+fn parse_if(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
+    let cond = parse_expr(lexer, arena)?;
+    let then = parse_block(lexer, arena)?;
+
+    let els = if lexer.tok == Token::Else {
+        lexer.next();
+        Some(parse_block(lexer, arena)?)
+    } else {
+        None
+    };
+
+    Ok(arena.add(Expr::If(cond, then, els), lexer.loc))
+}
+
 fn parse_expr(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
     if lexer.tok == Token::If {
         lexer.next();
-        let cond = parse_expr(lexer, arena)?;
-        let then = parse_block(lexer, arena)?;
-
-        let els = if lexer.tok == Token::Else {
-            lexer.next();
-            Some(parse_block(lexer, arena)?)
-        } else {
-            None
-        };
-
-        Ok(arena.add(Expr::If(cond, then, els), lexer.loc))
+        parse_if(lexer, arena)
     } else {
         parse_assign(lexer, arena)
     }
