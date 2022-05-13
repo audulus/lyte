@@ -403,6 +403,7 @@ mod tests {
         assert_eq!(tokens("|"), vec![Pipe]);
         assert_eq!(tokens("return"), vec![Return]);
         assert_eq!(tokens("struct"), vec![Struct]);
+        assert_eq!(tokens("macro"), vec![Macro]);
         assert_eq!(tokens("\"test\""), vec![Token::String("test".into())]);
         assert_eq!(
             tokens("\"test\" \n"),
