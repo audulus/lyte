@@ -70,6 +70,7 @@ pub enum Expr {
     Int(i64),
     Real(f64),
     Call(ExprID, Vec<ExprID>),
+    Macro(Name, Vec<ExprID>),
     Binop(Binop, ExprID, ExprID),
     Unop(ExprID),
     Lambda { params: Vec<Param>, body: ExprID },
