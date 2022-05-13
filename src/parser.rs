@@ -822,6 +822,7 @@ mod tests {
                 "'a'",
                 "'\\n'",
                 "[1,2,3]",
+                "@my_macro(a,b)"
             ],
         );
     }
@@ -855,6 +856,7 @@ mod tests {
                 "a.array[0] = 'x'",
                 "var t = true",
                 "!x",
+                "@my_macro(a,b)",
             ],
         );
     }
