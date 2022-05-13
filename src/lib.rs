@@ -11,7 +11,7 @@ use typegraph::*;
 pub mod lexer;
 use lexer::*;
 
-mod parser;
+pub mod parser;
 use parser::*;
 
 mod checker;
