@@ -1,0 +1,17 @@
+
+
+assert(cond: bool)
+
+macro swap(x, y) {
+    let tmp = x
+    x = y
+    y = tmp
+}
+
+test {
+    var a = 1
+    var b = 2
+    @swap(a, b)
+    assert(a == 2)
+    assert(b == 1)
+}
