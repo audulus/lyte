@@ -12,7 +12,7 @@ impl Compiler {
         Self { decls: vec![], exprs: ExprArena::new() }
     }
 
-    pub fn parse_file(&mut self, path: &Path) {
+    pub fn parse_file(&mut self, path: &Path) -> bool {
         if let Ok(string) = fs::read_to_string(path) {
             println!("parsing file: {:?}", path);
             let mut lexer = Lexer::new(&string, path.to_str().unwrap());
@@ -20,16 +20,19 @@ impl Compiler {
             match parse_program(&mut lexer, &mut self.exprs) {
                 Ok(decls) => {
                     self.decls.extend(decls);
+                    true
                 }
                 Err(err) => {
                     println!(
                         "{}:{}: {}",
                         err.location.file, err.location.line, err.message
                     );
+                    false
                 }
             }
         } else {
             println!("error reading file: {:?}", path);
+            false
         }
     }
 }
