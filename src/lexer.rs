@@ -98,14 +98,31 @@ impl Lexer {
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
 
-        // Skip whitespace
+        // Skip whitespace and comments.
         let mut has_newline = false;
         while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-            if bytes[self.i] == b'\n' {
-                self.loc.line += 1;
-                has_newline = true;
+
+            // Whitespace.
+            while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
+                if bytes[self.i] == b'\n' {
+                    self.loc.line += 1;
+                    has_newline = true;
+                }
+                self.i += 1;
             }
-            self.i += 1;
+
+            // Comments.
+            if self.i+1 < self.code.len() && bytes[self.i] == b'/' && bytes[self.i+1] == b'/' {
+                self.i += 2;
+                while self.i < self.code.len() {
+                    if bytes[self.i] == b'\n' {
+                        self.loc.line += 1;
+                        has_newline = true;
+                        break;
+                    }
+                    self.i += 1
+                }
+            }
         }
 
         if has_newline {
@@ -385,5 +402,6 @@ mod tests {
         assert_eq!(tokens("⋅"), vec![Token::Mult]);
         assert_eq!(tokens("'x'"), vec![Token::Char('x')]);
         assert_eq!(tokens("!"), vec![Token::Not]);
+        assert_eq!(tokens("x // comment"), vec![id("x")]);
     }
 }
