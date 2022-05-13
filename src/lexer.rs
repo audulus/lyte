@@ -216,7 +216,7 @@ impl Lexer {
             let mut tok = Token::Error;
             self.i += 1;
 
-            if self.i+1 >= self.code.len() {
+            if self.i+1 >= n {
                 return Token::Error;
             }
 
@@ -233,7 +233,7 @@ impl Lexer {
 
             self.i += 1;
 
-            if bytes[self.i] == b'\'' {
+            if self.i < n && bytes[self.i] == b'\'' {
                 self.i += 1;
                 return tok;
             } else {
@@ -416,5 +416,6 @@ mod tests {
         assert_eq!(tokens("x // comment"), vec![id("x")]);
         tokens("]VV)y<)'");
         tokens("<qVyA]V<");
+        tokens("'\\B");
     }
 }
