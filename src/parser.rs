@@ -628,9 +628,45 @@ fn parse_caselist(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     Ok(r)
 }
 
+pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
+    let mut r = vec![];
+    expect(lexer, Token::Less)?;
+
+    lexer.next();
+
+    loop {
+        if let Token::Id(name) = &lexer.tok {
+            r.push(Name::new(name.clone()));
+            lexer.next();
+        } else {
+            return Err(ParseError {
+                location: lexer.loc,
+                message: String::from("expected type variable name"),
+            });
+        }
+
+        if lexer.tok != Token::Comma {
+            break;
+        }
+
+        lexer.next();
+    }
+
+    expect(lexer, Token::Greater)?;
+    lexer.next();
+
+    Ok(r)
+
+}
+
 fn parse_func_decl(name: String, lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
 
     let mut params = vec![];
+    let mut typevars = vec![];
+
+    if lexer.tok == Token::Less {
+        typevars = parse_typevar_list(lexer)?;
+    }
 
     if lexer.tok == Token::Lparen {
         expect(lexer, Token::Lparen)?;
@@ -659,6 +695,7 @@ fn parse_func_decl(name: String, lexer: &mut Lexer, arena: &mut ExprArena) -> Re
 
     Ok(Decl::Func {
         name: Intern::new(name),
+        typevars,
         params,
         body,
         ret,
@@ -922,6 +959,7 @@ mod tests {
                 "f(x: i8, y: i8) { g(x) }",
                 "f(x: i8,\n y: i8) { g(x) }",
                 "f(x: i8 -> i8) { }",
+                "f<T>() { }",
                 "test {}",
                 "f()",
                 "struct x { }",

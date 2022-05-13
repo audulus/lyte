@@ -112,6 +112,7 @@ pub struct Field {
 pub enum Decl {
     Func {
         name: Name,
+        typevars: Vec<Name>,
         params: Vec<Param>,
         body: Option<ExprID>,
         ret: TypeID,
