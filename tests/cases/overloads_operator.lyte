@@ -3,8 +3,8 @@
 assert(cond: bool) → void
 
 struct Point {
-    var x: i32
-    var y: i32
+    x: i32,
+    y: i32
 }
 
 +(lhs: Point, rhs: Point) → Point {
