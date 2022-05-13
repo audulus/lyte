@@ -271,11 +271,11 @@ impl Lexer {
                 }
             }
             '!' => {
-                if bytes[self.i] == b'=' {
+                if self.i < self.code.len() && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::NotEqual
                 } else {
-                    Token::Error
+                    Token::Not
                 }
             }
             '\u{e2}' => {
@@ -384,5 +384,6 @@ mod tests {
         assert_eq!(tokens("bool"), vec![Token::Bool]);
         assert_eq!(tokens("⋅"), vec![Token::Mult]);
         assert_eq!(tokens("'x'"), vec![Token::Char('x')]);
+        assert_eq!(tokens("!"), vec![Token::Not]);
     }
 }
