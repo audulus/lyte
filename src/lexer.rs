@@ -113,9 +113,9 @@ impl Lexer {
             }
 
             // Comments.
-            if self.i+1 < self.code.len() && bytes[self.i] == b'/' && bytes[self.i+1] == b'/' {
+            if self.i+1 < n && bytes[self.i] == b'/' && bytes[self.i+1] == b'/' {
                 self.i += 2;
-                while self.i < self.code.len() {
+                while self.i < n {
                     if bytes[self.i] == b'\n' {
                         self.loc.line += 1;
                         has_newline = true;
@@ -138,7 +138,7 @@ impl Lexer {
         // Identifier.
         if bytes[self.i].is_ascii_alphabetic() {
             let mut id = String::new();
-            while self.i < self.code.len() && id_byte(bytes[self.i]) {
+            while self.i < n && id_byte(bytes[self.i]) {
                 id.push(bytes[self.i] as char);
                 self.i += 1;
             }
@@ -167,13 +167,13 @@ impl Lexer {
         // Numbers.
         if bytes[self.i].is_ascii_digit()
             || (bytes[self.i] == b'.'
-                && self.i + 1 < self.code.len()
+                && self.i + 1 < n
                 && bytes[self.i + 1].is_ascii_digit())
         {
             let start = self.i;
             let mut fraction = false;
 
-            while self.i < self.code.len() {
+            while self.i < n {
                 if bytes[self.i] == b'.' {
                     if fraction {
                         break;
@@ -198,12 +198,12 @@ impl Lexer {
         if bytes[self.i] == b'"' {
             self.i += 1;
             let mut s = String::new();
-            while self.i < self.code.len() && bytes[self.i] != b'"' {
+            while self.i < n && bytes[self.i] != b'"' {
                 s.push(bytes[self.i] as char);
                 self.i += 1;
             }
 
-            if self.i == self.code.len() {
+            if self.i == n {
                 return Token::Error;
             }
 
@@ -303,7 +303,7 @@ impl Lexer {
             '\u{e2}' => {
 
                 // Do we have enough?
-                if self.i + 1 >= self.code.len() {
+                if self.i + 1 >= n {
                     return Token::Error;
                 }
 
