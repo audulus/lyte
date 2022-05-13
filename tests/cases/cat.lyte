@@ -5,8 +5,8 @@ assert(cond: bool) → void
 cat(a: [i8], b: [i8]) → [i8] {
     var x = a
     var i = 0
-    while i < len b {
-        x[len x] = b[i]
+    while i < b.len {
+        x[x.len] = b[i]
         i = i + 1
     }
     return x
