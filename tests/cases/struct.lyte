@@ -3,19 +3,19 @@
 assert(cond: bool) → void
 
 struct Person {
-    var name: [i8]
-    var age: i32
+    name: [i8],
+    age: i32
 }
 
 return_person() → Person {
     var jimi:Person
     jimi.name = "Jimi"
-    jimi.age = 27 // uh-oh
+    jimi.age = 27
     return jimi
 }
 
 infer_person {
-    let f = p → { return p.age }
+    let f = |p| p.age
     var tay: Person
     tay.age = 27
     assert(f(tay) == 27)
