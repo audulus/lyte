@@ -13,31 +13,31 @@ test_value_semantics1 {
 
 test {
     var a = [42]
-    assert(len a == 1)
+    assert(a.len == 1)
     assert(a[0] == 42)
     assert(a[1000] == 0)
-    assert(len a == 1)
+    assert(a.len == 1)
     a[1] = 42
     assert(a[1] == 42)
     a[1000] = 7
     assert(a[1000] == 7)
-    assert(len a == 1001)
+    assert(a.len == 1001)
 
     // value semantics
     var b = a
     a[0] = 0
     assert(a[0] == 0)
     assert(b[0] == 42)
-    assert(len b == 1001)
+    assert(b.len == 1001)
     
     var c = [42]
-    c[len c] = 1
-    assert(len c == 2)
+    c[c.len] = 1
+    assert(c.len == 2)
     
     var str = "test"
     assert(str[0] == 't')
     assert(str[1] == 'e')
-    assert(len str == 4)
+    assert(str.len == 4)
     assert(str == "test")
 
     var d = [42]
