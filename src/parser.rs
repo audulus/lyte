@@ -132,9 +132,17 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
         if let Token::Id(name) = &lexer.tok {
             let name = name.clone();
             lexer.next();
-            expect(lexer, Token::Colon)?;
-            lexer.next();
-            let ty = parse_type(lexer)?;
+
+            let ty = if lexer.tok == Token::Colon {
+                lexer.next();
+                parse_type(lexer)?
+            } else {
+                mk_type(Type::Var(
+                    Intern::new(String::from("__anon__")),
+                    0,
+                ))
+            };
+            
             r.push(Param { name, ty })
         }
 
@@ -769,6 +777,7 @@ mod tests {
         test("f(x) + g(x)", parse_expr);
         test("|| x", parse_lambda);
         test("|x: i8| x", parse_lambda);
+        test("|x| x", parse_lambda);
     }
 
     #[test]
