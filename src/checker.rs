@@ -153,6 +153,7 @@ impl Checker {
                 for d in decls {
                     if let Decl::Struct {
                         name: struct_name,
+                        typevars: _,
                         fields,
                     } = d
                     {

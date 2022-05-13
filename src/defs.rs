@@ -119,6 +119,7 @@ pub enum Decl {
     },
     Struct {
         name: Name,
+        typevars: Vec<Name>,
         fields: Vec<Field>,
     },
     Enum {

@@ -739,6 +739,11 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             lexer.next();
 
+            let mut typevars = vec![];
+            if lexer.tok == Token::Less {
+                typevars = parse_typevar_list(lexer)?;
+            }
+
             expect(lexer, Token::Lbrace)?;
             lexer.next();
 
@@ -746,7 +751,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             expect(lexer, Token::Rbrace)?;
             lexer.next();
 
-            Ok(Decl::Struct { name, fields })
+            Ok(Decl::Struct { name, typevars, fields })
         }
         Token::Enum => {
             lexer.next();
@@ -967,6 +972,7 @@ mod tests {
                 "struct x { x: i8 }",
                 "struct x { x: i8\n }",
                 "struct x { x: i8, y: i8 }",
+                "struct x<T> { }",
                 "enum x { }",
                 "enum x { a, b, c }",
                 "enum x { a,\nb }",
