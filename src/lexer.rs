@@ -47,6 +47,7 @@ pub enum Token {
     Len,
     Struct,
     Enum,
+    Macro,
     Void,
     Bool,
     Int8,
@@ -161,6 +162,7 @@ impl Lexer {
                 "bool" => Token::Bool,
                 "true" => Token::True,
                 "false" => Token::False,
+                "macro" => Token::Macro,
                 _ => Token::Id(id),
             };
         }
