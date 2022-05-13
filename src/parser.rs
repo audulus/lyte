@@ -304,18 +304,25 @@ fn parse_exp(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseEr
 }
 
 fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
-    if lexer.tok == Token::Minus {
-        lexer.next();
-        let e = parse_atom(lexer, arena)?;
-        return Ok(arena.add(Expr::Unop(e), lexer.loc));
+
+    match &lexer.tok {
+        Token::Minus => {
+            lexer.next();
+            let e = parse_atom(lexer, arena)?;
+            Ok(arena.add(Expr::Unop(e), lexer.loc))
+        }
+        Token::Plus => {
+            lexer.next();
+            parse_atom(lexer, arena)
+        }
+        Token::Not => {
+            lexer.next();
+            let e = parse_atom(lexer, arena)?;
+            Ok(arena.add(Expr::Unop(e), lexer.loc))
+        }
+        _ => parse_postfix(lexer, arena)
     }
 
-    if lexer.tok == Token::Plus {
-        lexer.next();
-        return parse_atom(lexer, arena);
-    }
-
-    parse_postfix(lexer, arena)
 }
 
 fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
@@ -826,6 +833,7 @@ mod tests {
                 "x.y",
                 "a.array[0] = 'x'",
                 "var t = true",
+                "!x",
             ],
         );
     }

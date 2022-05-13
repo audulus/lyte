@@ -7,7 +7,7 @@ test {
     var f = false
     assert(t)
     assert(t != f)
-    assert(not f)
+    assert(!f)
     assert(t or f)
     assert(t and t)
     assert(not (f or f))
