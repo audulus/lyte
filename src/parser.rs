@@ -665,7 +665,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             parse_func_decl(name, lexer, arena)
         }
         Token::Macro => {
-            // Struct delcaration.
+            // Macro declaration.
             lexer.next();
 
             if let Token::Id(name) = lexer.tok.clone() {
