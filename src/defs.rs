@@ -89,6 +89,7 @@ pub enum Expr {
     Let(Name, ExprID),
     Var(Name, Option<ExprID>, Option<TypeID>),
     If(ExprID, ExprID, Option<ExprID>),
+    While(ExprID, ExprID),
     Block(Vec<ExprID>),
     Return(ExprID),
     Enum(Name),
