@@ -105,7 +105,7 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 Type::Array(r, 0)
             }
         }
-        Token::Id(name) => Type::Name(Intern::new(name.clone())),
+        Token::Id(name) => Type::Name(Intern::new(name.clone()), vec![]),
         Token::Lparen => {
             lexer.next();
             let t = parse_type(lexer)?;

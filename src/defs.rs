@@ -15,7 +15,7 @@ pub enum Type {
     Var(Name, usize),
     Func(TypeID, TypeID),
     Array(TypeID, i64),
-    Name(Name),
+    Name(Name, Vec<TypeID>),
 }
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]

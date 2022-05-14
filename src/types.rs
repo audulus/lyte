@@ -102,8 +102,8 @@ impl Decl {
     pub fn ty(&self) -> TypeID {
         match self {
             Decl::Func { params, ret, .. } => func(params_ty(params), *ret),
-            Decl::Struct { name, .. } => mk_type(Type::Name(*name)),
-            Decl::Enum { name, .. } => mk_type(Type::Name(*name)),
+            Decl::Struct { name, .. } => mk_type(Type::Name(*name, vec![])),
+            Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
         }
     }
 }

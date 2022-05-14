@@ -183,7 +183,7 @@ impl TypeGraph {
     ) -> Result<(), Loc> {
         if let Some(t) = self.nodes[b].unique() {
             self.nodes[a].possible.retain(|t| {
-                if let Type::Name(struct_name) = **t {
+                if let Type::Name(struct_name, _) = **t {
                     let mut found = false;
                     find_decls(decls, struct_name, &mut |decl| {
                         if let Some(field) = decl.find_field(name) {
@@ -206,7 +206,7 @@ impl TypeGraph {
 
         // One of each, better unify or error.
         if let (Some(t0), Some(t1)) = (self.nodes[a].unique(), self.nodes[b].unique()) {
-            if let Type::Name(struct_name) = *t0 {
+            if let Type::Name(struct_name, _) = *t0 {
                 let decl = find_decl(decls, struct_name).unwrap();
                 let f = decl.find_field(name).unwrap();
                 if unify(f.ty, t1, &mut self.inst) {

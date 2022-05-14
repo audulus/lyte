@@ -159,7 +159,7 @@ impl Checker {
                     {
                         for field in fields {
                             if field.name == *name {
-                                structs.push(mk_type(Type::Name(*struct_name)));
+                                structs.push(mk_type(Type::Name(*struct_name, vec![])));
                             }
                         }
                     }
@@ -188,7 +188,7 @@ impl Checker {
                     {
                         for case in cases {
                             if case == name {
-                                g.add_possible(enums_node, mk_type(Type::Name(*enum_name)));
+                                g.add_possible(enums_node, mk_type(Type::Name(*enum_name, vec![])));
                                 break;
                             }
                         }
