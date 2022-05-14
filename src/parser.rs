@@ -855,14 +855,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Enum => {
             lexer.next();
 
-            let name = if let Token::Id(name) = &lexer.tok {
-                Intern::new(name.clone())
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("expected enum name"),
-                });
-            };
+            let name = expect_id(&lexer)?;
 
             lexer.next();
 
@@ -878,14 +871,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Var => {
             lexer.next();
 
-            let name = if let Token::Id(name) = &lexer.tok {
-                Intern::new(name.clone())
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("expected global variable name"),
-                });
-            };
+            let name = expect_id(&lexer)?;
 
             lexer.next();
 
