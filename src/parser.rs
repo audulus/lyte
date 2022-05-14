@@ -73,6 +73,18 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 });
             }
         }
+        Token::Typevar => {
+            lexer.next();
+            if let Token::Id(name) = lexer.tok.clone() {
+                lexer.next();
+                return Ok(typevar(&name));
+            } else {
+                return Err(ParseError {
+                    location: lexer.loc,
+                    message: String::from("Expected identifier for typevar name"),
+                });
+            }
+        }
         Token::Lbracket => {
             lexer.next();
             let r = parse_type(lexer)?;
@@ -832,6 +844,7 @@ mod tests {
         test_type("i8", int8);
         test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
+        test_type("typevar T", typevar("T"));
         test_type("[i32]", mk_type(Type::Array(int32, 0)));
         test_type("[i32; 4]", mk_type(Type::Array(int32, 4)));
         test_type("i8 -> i8", func);
@@ -979,6 +992,7 @@ mod tests {
                 "struct x { x: i8\n }",
                 "struct x { x: i8, y: i8 }",
                 "struct x<T> { }",
+                "struct x { y: typevar T }",
                 "enum x { }",
                 "enum x { a, b, c }",
                 "enum x { a,\nb }",
