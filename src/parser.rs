@@ -757,6 +757,7 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, Par
 
     while lexer.tok != Token::Rbrace {
         let name = expect_id(lexer)?;
+        lexer.next();
         funcs.push(parse_func_decl(name, lexer, arena)?)
     }
 
@@ -1067,6 +1068,7 @@ mod tests {
                 "enum x { a,\nb }",
                 "macro m() { }",
                 "interface x { }",
+                "interface x { f(x: i8) }",
             ],
         );
     }
