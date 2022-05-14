@@ -1,1 +1,3 @@
-# lyte-rs
+# lyte
+
+A simple programming langauge for Audulus.
