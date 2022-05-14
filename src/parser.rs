@@ -826,6 +826,27 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             Ok(Decl::Enum { name, cases })
         }
+        Token::Var => {
+            lexer.next();
+
+            let name = if let Token::Id(name) = &lexer.tok {
+                Intern::new(name.clone())
+            } else {
+                return Err(ParseError {
+                    location: lexer.loc,
+                    message: String::from("expected global variable name"),
+                });
+            };
+
+            lexer.next();
+
+            expect(lexer, Token::Colon)?;
+            lexer.next();
+
+            let ty = parse_type(lexer)?;
+
+            Ok(Decl::Global { name, ty })
+        }
         _ => Err(ParseError {
             location: lexer.loc,
             message: String::from("Expected declaration"),
