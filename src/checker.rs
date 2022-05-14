@@ -65,7 +65,7 @@ impl Checker {
         t
     }
 
-    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &Vec<Decl>) {
+    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &[Decl]) {
         match &arena[id] {
             Expr::True | Expr::False => {
                 self.types[id] = mk_type(Type::Bool);
