@@ -417,15 +417,9 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
             }
             Token::Dot => {
                 lexer.next();
-                if let Token::Id(field) = &lexer.tok {
-                    e = arena.add(Expr::Field(e, Name::new(field.clone())), lexer.loc);
-                    lexer.next();
-                } else {
-                    return Err(ParseError {
-                        location: lexer.loc,
-                        message: String::from("Expected field identifier"),
-                    })
-                }
+                let field = expect_id(lexer)?;
+                lexer.next();
+                e = arena.add(Expr::Field(e, field), lexer.loc);
             }
             _ => { return Ok(e); }
         }
