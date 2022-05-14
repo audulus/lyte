@@ -824,15 +824,11 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             // Macro declaration.
             lexer.next();
 
-            if let Token::Id(name) = lexer.tok.clone() {
-                lexer.next();
-                Ok(Decl::Func(parse_func_decl(name.into(), lexer, arena)?))
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("expected macro name"),
-                });
-            }
+            let name = expect_id(lexer)?;
+
+            lexer.next();
+            Ok(Decl::Func(parse_func_decl(name.into(), lexer, arena)?))
+
         }
         Token::Struct => {
             // Struct delcaration.
