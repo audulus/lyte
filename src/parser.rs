@@ -513,26 +513,21 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         }
         Token::Lbrace => parse_block(lexer, arena)?,
         Token::Lbracket => parse_array_literal(lexer, arena)?,
-        Token::At => {
+        Token::At => { // macro invocations
             lexer.next();
-            if let Token::Id(name) = lexer.tok.clone() {
 
-                lexer.next();
-                expect(lexer, Token::Lparen)?;
-                lexer.next();
-                let params = parse_exprlist(lexer, arena)?;
-                expect(lexer, Token::Rparen)?;
-                lexer.next();
+            let name = expect_id(lexer)?;
 
-                let e = Expr::Macro(Name::new(name.clone()), params);
-                arena.add(e, lexer.loc)
+            lexer.next();
+            expect(lexer, Token::Lparen)?;
+            lexer.next();
+            let params = parse_exprlist(lexer, arena)?;
+            expect(lexer, Token::Rparen)?;
+            lexer.next();
 
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("Expected identifier for macro name"),
-                })
-            }
+            let e = Expr::Macro(name, params);
+            arena.add(e, lexer.loc)
+
         }
         _ => {
             return Err(ParseError {
