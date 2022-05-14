@@ -104,6 +104,7 @@ impl Decl {
             Decl::Func { params, ret, .. } => func(params_ty(params), *ret),
             Decl::Struct { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
+            Decl::Global { ty, .. } => *ty,
         }
     }
 }

@@ -127,6 +127,10 @@ pub enum Decl {
         name: Name,
         cases: Vec<Name>,
     },
+    Global {
+        name: Name,
+        ty: TypeID,
+    },
 }
 
 impl Decl {
@@ -148,6 +152,7 @@ impl Decl {
             Decl::Func { name, .. } => *name,
             Decl::Struct { name, .. } => *name,
             Decl::Enum { name, .. } => *name,
+            Decl::Global { name, .. } => *name,
         }
     }
 }
