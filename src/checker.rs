@@ -1,6 +1,12 @@
 use crate::*;
 use internment::Intern;
 
+#[derive(Clone, Debug)]
+pub struct TypeError {
+    pub location: Loc,
+    pub message: String,
+}
+
 #[derive(Copy, Clone, Debug)]
 struct Var {
     name: Name,
@@ -49,11 +55,14 @@ impl Checker {
         }
     }
 
-    fn eq<F: FnOnce()>(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, errf: F) {
+    fn eq(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, error_message: &str) -> Result<(), TypeError> {
         self.type_graph.eq_types(lhs, rhs, loc);
-        if !unify(lhs, rhs, &mut self.inst) {
-            (errf)();
+        if unify(lhs, rhs, &mut self.inst) {
+            Ok(())
+        } else {
+            Err(TypeError{location: loc, message: error_message.into() })
         }
+        
     }
 
     fn fresh(&mut self) -> TypeID {
@@ -65,21 +74,25 @@ impl Checker {
         t
     }
 
-    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &[Decl]) {
+    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
         match &arena[id] {
             Expr::True | Expr::False => {
                 self.types[id] = mk_type(Type::Bool);
+                Ok(())
             }
             Expr::Int(_) => {
                 self.types[id] = mk_type(Type::Int32);
+                Ok(())
             }
             Expr::Real(_) => {
                 self.types[id] = mk_type(Type::Float32);
+                Ok(())
             }
             Expr::Id(name) => {
                 if let Some(v) = self.find(*name) {
                     self.types[id] = v.ty;
                     self.lvalue[id] = v.mutable;
+                    Ok(())
                 } else {
                     let t = self.fresh();
                     let g = &mut self.type_graph;
@@ -97,8 +110,10 @@ impl Checker {
                             }
                         }
                     }
-                    if !found {
-                        println!("undeclared identifier: {:?}", *name);
+                    if found {
+                        Ok(())
+                    } else {
+                        Err(TypeError{ location: arena.locs[id], message: format!("undeclared identifier: {:?}", *name)})
                     }
                 }
             }
@@ -110,21 +125,18 @@ impl Checker {
                 let bt = self.types[*b];
 
                 if op.equality() {
-                    self.eq(at, bt, arena.locs[id], || {
-                        println!("equality operator requres equal types");
-                    });
+                    self.eq(at, bt, arena.locs[id], "equality operator requres equal types")?;
 
                     self.types[id] = mk_type(Type::Bool);
                 }
+                Ok(())
             }
             Expr::Call(f, args) => {
                 self.check_expr(*f, arena, decls);
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
-                self.eq(self.types[*f], func(v0, v1), arena.locs[id], || {
-                    println!("attempt to call a non-function");
-                });
+                self.eq(self.types[*f], func(v0, v1), arena.locs[id], "attempt to call a non-function")?;
 
                 let mut arg_types = vec![];
                 for e in args {
@@ -134,11 +146,10 @@ impl Checker {
 
                 let ft = func(v0, tuple(arg_types));
 
-                self.eq(self.types[*f], ft, arena.locs[id], || {
-                    println!("arguments don't match function.\n");
-                });
+                self.eq(self.types[*f], ft, arena.locs[id], "arguments don't match function")?;
 
                 self.types[id] = ft;
+                Ok(())
             }
             Expr::Field(lhs, name) => {
                 self.check_expr(*lhs, arena, decls);
@@ -173,6 +184,7 @@ impl Checker {
                     .eq_constraint(lhs_node, structs_node, arena.locs[id]);
 
                 self.types[id] = t;
+                Ok(())
             }
             Expr::Enum(name) => {
                 let t = self.fresh();
@@ -198,6 +210,7 @@ impl Checker {
                 let t_node = g.add_type_node(t);
                 g.eq_constraint(enums_node, t_node, arena.locs[id]);
                 self.types[id] = t;
+                Ok(())
             }
             _ => {
                 panic!();
@@ -214,18 +227,20 @@ impl Checker {
         None
     }
 
-    fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
+    fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
         match decl {
             Decl::Func(func_decl) => {
                 self.type_graph = TypeGraph::new();
                 if let Some(body) = func_decl.body {
                     self.check_expr(body, arena, decls)
+                } else {
+                    Ok(())
                 }
             }
-            Decl::Interface{ name, funcs} => {
-
+            Decl::Interface{ name, funcs } => {
+                Ok(())
             }
-            _ => { }
+            _ => Ok(())
         }
     }
 }
