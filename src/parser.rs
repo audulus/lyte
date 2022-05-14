@@ -698,6 +698,10 @@ pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     Ok(r)
 }
 
+fn token_in(tok: &Token, set: &[Token]) -> bool {
+    set.iter().position(|x| x == tok) != None
+}
+
 fn parse_func_decl(
     name: Name,
     lexer: &mut Lexer,
@@ -728,6 +732,18 @@ fn parse_func_decl(
     }
 
     skip_newlines(lexer);
+
+    if lexer.tok == Token::Where {
+        lexer.next();
+
+        while !token_in(&lexer.tok, &[Token::Lbrace, Token::Rbrace, Token::Endl]) {
+            let interface_name = expect_id(lexer)?;
+            lexer.next();
+            expect(lexer, Token::Less)?;
+            let typevars = parse_typevar_list(lexer)?;
+            constraints.push(InterfaceConstraint { interface_name, typevars })
+        }
+    }
 
     let mut body = None;
     if lexer.tok == Token::Lbrace {
@@ -1056,6 +1072,7 @@ mod tests {
                 "f(x: i8,\n y: i8) { g(x) }",
                 "f(x: i8 -> i8) { }",
                 "f<T>() { }",
+                "f<T>() where MyInterface<T> { }",
                 "test {}",
                 "f()",
                 "struct x { }",
