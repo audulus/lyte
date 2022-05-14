@@ -12,7 +12,7 @@ map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
    return b
 }
 
-id(x: typevar T) → typevar T { return x }
+id<T>(x: typevar T) → typevar T { return x }
 
 add_one(x: i32) → i32 { return x + 1 }
 
