@@ -109,15 +109,18 @@ pub struct Field {
     pub ty: TypeID,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FuncDecl {
+    pub name: Name,
+    pub typevars: Vec<Name>,
+    pub params: Vec<Param>,
+    pub body: Option<ExprID>,
+    pub ret: TypeID,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decl {
-    Func {
-        name: Name,
-        typevars: Vec<Name>,
-        params: Vec<Param>,
-        body: Option<ExprID>,
-        ret: TypeID,
-    },
+    Func(FuncDecl),
     Struct {
         name: Name,
         typevars: Vec<Name>,
@@ -131,6 +134,10 @@ pub enum Decl {
         name: Name,
         ty: TypeID,
     },
+    Interface {
+        name: Name,
+        funcs: Vec<FuncDecl>,
+    }
 }
 
 impl Decl {
@@ -149,10 +156,11 @@ impl Decl {
 impl Decl {
     pub fn name(&self) -> Name {
         match self {
-            Decl::Func { name, .. } => *name,
+            Decl::Func( FuncDecl{name, ..} ) => *name,
             Decl::Struct { name, .. } => *name,
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,
+            Decl::Interface { name, .. } => *name,
         }
     }
 }

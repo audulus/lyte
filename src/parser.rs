@@ -52,6 +52,19 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
     }
 }
 
+fn expect_id(lexer: &Lexer) -> Result<Name, ParseError> {
+    if let Token::Id(string) = &lexer.tok {
+        Ok(Name::new(string.clone()))
+    } else {
+        let message = format!("expected identifier, got {:?}", lexer.tok);
+        println!("{:?}", message);
+        Err(ParseError {
+            location: lexer.loc,
+            message,
+        })
+    }
+}
+
 fn parse_typelist(lexer: &mut Lexer) -> Result<Vec<TypeID>, ParseError> {
 
     let mut r = vec![];
@@ -734,7 +747,7 @@ pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
 
 }
 
-fn parse_func_decl(name: String, lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
+fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Result<FuncDecl, ParseError> {
 
     let mut params = vec![];
     let mut typevars = vec![];
@@ -768,8 +781,8 @@ fn parse_func_decl(name: String, lexer: &mut Lexer, arena: &mut ExprArena) -> Re
 
     skip_newlines(lexer);
 
-    Ok(Decl::Func {
-        name: Intern::new(name),
+    Ok(FuncDecl {
+        name,
         typevars,
         params,
         body,
@@ -778,12 +791,41 @@ fn parse_func_decl(name: String, lexer: &mut Lexer, arena: &mut ExprArena) -> Re
 
 }
 
+fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
+    lexer.next();
+    
+    let name = if let Token::Id(name) = lexer.tok.clone() {
+        Name::new(name)
+    } else {
+        return Err(ParseError {
+            location: lexer.loc,
+            message: String::from("expected interface name"),
+        });
+    };
+
+    lexer.next();
+    expect(lexer, Token::Lbrace)?;
+    lexer.next();
+
+    let mut funcs = vec![];
+
+    while lexer.tok != Token::Rbrace {
+        let name = expect_id(lexer)?;
+        funcs.push(parse_func_decl(name, lexer, arena)?)
+    }
+
+    Ok(Decl::Interface {
+        name,
+        funcs
+    })
+}
+
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
     match lexer.tok.clone() {
         Token::Id(name) => {
             // Function declaration.
             lexer.next();
-            parse_func_decl(name, lexer, arena)
+            Ok(Decl::Func(parse_func_decl(name.into(), lexer, arena)?))
         }
         Token::Macro => {
             // Macro declaration.
@@ -791,7 +833,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             if let Token::Id(name) = lexer.tok.clone() {
                 lexer.next();
-                parse_func_decl(name, lexer, arena)
+                Ok(Decl::Func(parse_func_decl(name.into(), lexer, arena)?))
             } else {
                 return Err(ParseError {
                     location: lexer.loc,
@@ -872,6 +914,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             Ok(Decl::Global { name, ty })
         }
+        Token::Interface => parse_interface(lexer, arena),
         _ => Err(ParseError {
             location: lexer.loc,
             message: String::from("Expected declaration"),
