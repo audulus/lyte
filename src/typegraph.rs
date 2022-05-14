@@ -90,7 +90,7 @@ impl TypeGraph {
             a: t0,
             b: t1,
             field: None,
-            loc: loc,
+            loc,
         })
     }
 
