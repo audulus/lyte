@@ -714,15 +714,9 @@ pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     lexer.next();
 
     loop {
-        if let Token::Id(name) = &lexer.tok {
-            r.push(Name::new(name.clone()));
-            lexer.next();
-        } else {
-            return Err(ParseError {
-                location: lexer.loc,
-                message: String::from("expected type variable name"),
-            });
-        }
+        let name = expect_id(&lexer)?;
+        r.push(name);
+        lexer.next();
 
         if lexer.tok != Token::Comma {
             break;
