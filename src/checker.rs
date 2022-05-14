@@ -200,7 +200,7 @@ impl Checker {
                 self.types[id] = t;
             }
             _ => {
-                assert!(false)
+                panic!();
             }
         }
     }
