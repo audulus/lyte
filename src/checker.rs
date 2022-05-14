@@ -212,7 +212,22 @@ impl Checker {
                 self.types[id] = t;
                 Ok(())
             }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    self.check_expr(*e, arena, decls)?;
+                }
+                Ok(())
+            }
+            Expr::Var(name, init, ty) => {
+
+                if let Some(e) = init {
+                    self.check_expr(*e, arena, decls)?;
+                }
+                
+                Ok(())
+            }
             _ => {
+                println!("haven't yet implemented {:?}", &arena[id]);
                 panic!();
             }
         }
