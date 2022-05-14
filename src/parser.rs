@@ -97,18 +97,10 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         Token::Int32 => Type::Int32,
         Token::Lmath => {
             lexer.next();
-            if let Token::Id(name) = lexer.tok.clone() {
-                lexer.next();
-
-                expect(lexer, Token::Rmath)?;
-
-                return Ok(typevar(&name));
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("Expected identifier"),
-                });
-            }
+            let name = expect_id(lexer)?;
+            lexer.next();
+            expect(lexer, Token::Rmath)?;
+            return Ok(typevar(&name));
         }
         Token::Typevar => {
             lexer.next();
