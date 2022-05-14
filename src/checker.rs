@@ -213,4 +213,19 @@ impl Checker {
         }
         None
     }
+
+    fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
+        match decl {
+            Decl::Func(func_decl) => {
+                self.type_graph = TypeGraph::new();
+                if let Some(body) = func_decl.body {
+                    self.check_expr(body, arena, decls)
+                }
+            }
+            Decl::Interface{ name, funcs} => {
+
+            }
+            _ => { }
+        }
+    }
 }
