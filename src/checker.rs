@@ -118,8 +118,8 @@ impl Checker {
                 }
             }
             Expr::Binop(op, a, b) => {
-                self.check_expr(*a, arena, decls);
-                self.check_expr(*b, arena, decls);
+                self.check_expr(*a, arena, decls)?;
+                self.check_expr(*b, arena, decls)?;
 
                 let at = self.types[*a];
                 let bt = self.types[*b];
@@ -132,7 +132,7 @@ impl Checker {
                 Ok(())
             }
             Expr::Call(f, args) => {
-                self.check_expr(*f, arena, decls);
+                self.check_expr(*f, arena, decls)?;
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
@@ -140,7 +140,7 @@ impl Checker {
 
                 let mut arg_types = vec![];
                 for e in args {
-                    self.check_expr(*e, arena, decls);
+                    self.check_expr(*e, arena, decls)?;
                     arg_types.push(self.types[*e]);
                 }
 
@@ -152,7 +152,7 @@ impl Checker {
                 Ok(())
             }
             Expr::Field(lhs, name) => {
-                self.check_expr(*lhs, arena, decls);
+                self.check_expr(*lhs, arena, decls)?;
 
                 self.lvalue[id] = self.lvalue[*lhs];
 
