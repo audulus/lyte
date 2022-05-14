@@ -69,6 +69,7 @@ pub enum Token {
     At,
     Typevar,
     Interface,
+    Where,
     Endl,
     End,
     Error,
@@ -166,6 +167,7 @@ impl Lexer {
                 "macro" => Token::Macro,
                 "typevar" => Token::Typevar,
                 "interface" => Token::Interface,
+                "where" => Token::Where,
                 _ => Token::Id(id),
             };
         }
