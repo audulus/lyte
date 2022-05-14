@@ -9,7 +9,10 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { decls: vec![], exprs: ExprArena::new() }
+        Self {
+            decls: vec![],
+            exprs: ExprArena::new(),
+        }
     }
 
     pub fn parse_file(&mut self, path: &Path) -> bool {

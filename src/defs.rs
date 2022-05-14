@@ -137,7 +137,7 @@ pub enum Decl {
     Interface {
         name: Name,
         funcs: Vec<FuncDecl>,
-    }
+    },
 }
 
 impl Decl {
@@ -156,7 +156,7 @@ impl Decl {
 impl Decl {
     pub fn name(&self) -> Name {
         match self {
-            Decl::Func( FuncDecl{name, ..} ) => *name,
+            Decl::Func(FuncDecl { name, .. }) => *name,
             Decl::Struct { name, .. } => *name,
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,

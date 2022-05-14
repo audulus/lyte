@@ -66,7 +66,6 @@ fn expect_id(lexer: &Lexer) -> Result<Name, ParseError> {
 }
 
 fn parse_typelist(lexer: &mut Lexer) -> Result<Vec<TypeID>, ParseError> {
-
     let mut r = vec![];
     expect(lexer, Token::Less)?;
 
@@ -86,7 +85,6 @@ fn parse_typelist(lexer: &mut Lexer) -> Result<Vec<TypeID>, ParseError> {
     lexer.next();
 
     Ok(r)
-    
 }
 
 fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
@@ -180,12 +178,9 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
                 lexer.next();
                 parse_type(lexer)?
             } else {
-                mk_type(Type::Var(
-                    Intern::new(String::from("__anon__")),
-                    0,
-                ))
+                mk_type(Type::Var(Intern::new(String::from("__anon__")), 0))
             };
-            
+
             r.push(Param { name, ty })
         }
 
@@ -356,7 +351,6 @@ fn parse_exp(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseEr
 }
 
 fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
-
     match &lexer.tok {
         Token::Minus => {
             lexer.next();
@@ -372,9 +366,8 @@ fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Pars
             let e = parse_factor(lexer, arena)?;
             Ok(arena.add(Expr::Unop(e), lexer.loc))
         }
-        _ => parse_postfix(lexer, arena)
+        _ => parse_postfix(lexer, arena),
     }
-
 }
 
 fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
@@ -413,10 +406,11 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
                 lexer.next();
                 e = arena.add(Expr::Field(e, field), lexer.loc);
             }
-            _ => { return Ok(e); }
+            _ => {
+                return Ok(e);
+            }
         }
     }
-    
 }
 
 fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
@@ -485,7 +479,8 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         }
         Token::Lbrace => parse_block(lexer, arena)?,
         Token::Lbracket => parse_array_literal(lexer, arena)?,
-        Token::At => { // macro invocations
+        Token::At => {
+            // macro invocations
             lexer.next();
 
             let name = expect_id(lexer)?;
@@ -499,7 +494,6 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
 
             let e = Expr::Macro(name, params);
             arena.add(e, lexer.loc)
-
         }
         _ => {
             return Err(ParseError {
@@ -544,12 +538,12 @@ fn parse_array_literal(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprI
             lexer.next();
             return Ok(arena.add(e, lexer.loc));
         } else if lexer.tok == Token::Rbracket {
-            break;  
+            break;
         } else {
             return Err(ParseError {
                 location: lexer.loc,
                 message: String::from("Expected comma or semicolon in array literal"),
-            })
+            });
         }
     }
 
@@ -701,11 +695,13 @@ pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     lexer.next();
 
     Ok(r)
-
 }
 
-fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Result<FuncDecl, ParseError> {
-
+fn parse_func_decl(
+    name: Name,
+    lexer: &mut Lexer,
+    arena: &mut ExprArena,
+) -> Result<FuncDecl, ParseError> {
     let mut params = vec![];
     let mut typevars = vec![];
 
@@ -745,12 +741,11 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Resu
         body,
         ret,
     })
-
 }
 
 fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
     lexer.next();
-    
+
     let name = expect_id(lexer)?;
 
     lexer.next();
@@ -764,10 +759,7 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, Par
         funcs.push(parse_func_decl(name, lexer, arena)?)
     }
 
-    Ok(Decl::Interface {
-        name,
-        funcs
-    })
+    Ok(Decl::Interface { name, funcs })
 }
 
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
@@ -785,7 +777,6 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             lexer.next();
             Ok(Decl::Func(parse_func_decl(name.into(), lexer, arena)?))
-
         }
         Token::Struct => {
             // Struct delcaration.
@@ -807,7 +798,11 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             expect(lexer, Token::Rbrace)?;
             lexer.next();
 
-            Ok(Decl::Struct { name, typevars, fields })
+            Ok(Decl::Struct {
+                name,
+                typevars,
+                fields,
+            })
         }
         Token::Enum => {
             lexer.next();

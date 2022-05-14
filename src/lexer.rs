@@ -106,7 +106,6 @@ impl Lexer {
         // Skip whitespace and comments.
         let mut has_newline = false;
         while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-
             // Whitespace.
             while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
                 if bytes[self.i] == b'\n' {
@@ -117,7 +116,7 @@ impl Lexer {
             }
 
             // Comments.
-            if self.i+1 < n && bytes[self.i] == b'/' && bytes[self.i+1] == b'/' {
+            if self.i + 1 < n && bytes[self.i] == b'/' && bytes[self.i + 1] == b'/' {
                 self.i += 2;
                 while self.i < n {
                     if bytes[self.i] == b'\n' {
@@ -173,9 +172,7 @@ impl Lexer {
 
         // Numbers.
         if bytes[self.i].is_ascii_digit()
-            || (bytes[self.i] == b'.'
-                && self.i + 1 < n
-                && bytes[self.i + 1].is_ascii_digit())
+            || (bytes[self.i] == b'.' && self.i + 1 < n && bytes[self.i + 1].is_ascii_digit())
         {
             let start = self.i;
             let mut fraction = false;
@@ -223,7 +220,7 @@ impl Lexer {
             let mut tok = Token::Error;
             self.i += 1;
 
-            if self.i+1 >= n {
+            if self.i + 1 >= n {
                 return Token::Error;
             }
 
@@ -309,7 +306,6 @@ impl Lexer {
                 }
             }
             '\u{e2}' => {
-
                 // Do we have enough?
                 if self.i + 1 >= n {
                     return Token::Error;

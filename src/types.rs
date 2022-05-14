@@ -101,8 +101,8 @@ fn find_decls_unify(decls: &Vec<Decl>, name: Name, f: impl Fn(&Decl), t: TypeID)
 impl Decl {
     pub fn ty(&self) -> TypeID {
         match self {
-            Decl::Interface{ .. } => mk_type(Type::Void),
-            Decl::Func(FuncDecl{ params, ret, .. }) => func(params_ty(params), *ret),
+            Decl::Interface { .. } => mk_type(Type::Void),
+            Decl::Func(FuncDecl { params, ret, .. }) => func(params_ty(params), *ret),
             Decl::Struct { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Global { ty, .. } => *ty,

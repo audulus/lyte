@@ -90,7 +90,7 @@ impl Checker {
 
                     let mut found = false;
                     for d in decls {
-                        if let Decl::Func(FuncDecl{ name: fname, .. }) = d {
+                        if let Decl::Func(FuncDecl { name: fname, .. }) = d {
                             if fname == name {
                                 g.add_possible(decls_node, d.ty());
                                 found = true;
