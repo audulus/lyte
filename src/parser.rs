@@ -52,6 +52,30 @@ fn expect(lexer: &Lexer, tok: Token) -> Result<(), ParseError> {
     }
 }
 
+fn parse_typelist(lexer: &mut Lexer) -> Result<Vec<TypeID>, ParseError> {
+
+    let mut r = vec![];
+    expect(lexer, Token::Less)?;
+
+    lexer.next();
+
+    loop {
+        r.push(parse_basic_type(lexer)?);
+
+        if lexer.tok != Token::Comma {
+            break;
+        }
+
+        lexer.next();
+    }
+
+    expect(lexer, Token::Greater)?;
+    lexer.next();
+
+    Ok(r)
+    
+}
+
 fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
     let t = Ok(mk_type(match &lexer.tok {
         Token::Void => Type::Void,
@@ -105,7 +129,15 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 Type::Array(r, 0)
             }
         }
-        Token::Id(name) => Type::Name(Intern::new(name.clone()), vec![]),
+        Token::Id(name) => {
+            let name = Intern::new(name.clone());
+            lexer.next();
+            let mut args = vec![];
+            if lexer.tok == Token::Less {
+                args = parse_typelist(lexer)?;
+            }
+            return Ok(mk_type(Type::Name(name, args)));
+        }
         Token::Lparen => {
             lexer.next();
             let t = parse_type(lexer)?;
