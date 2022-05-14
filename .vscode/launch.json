@@ -25,17 +25,17 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'lyte-rs'",
+            "name": "Debug unit tests in library 'lyte'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=lyte-rs",
-                    "--package=lyte-rs"
+                    "--lib",
+                    "--package=lyte"
                 ],
                 "filter": {
-                    "name": "lyte-rs",
-                    "kind": "bin"
+                    "name": "lyte",
+                    "kind": "lib"
                 }
             },
             "args": [],
