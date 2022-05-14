@@ -705,6 +705,7 @@ fn parse_func_decl(
 ) -> Result<FuncDecl, ParseError> {
     let mut params = vec![];
     let mut typevars = vec![];
+    let mut constraints = vec![];
 
     if lexer.tok == Token::Less {
         typevars = parse_typevar_list(lexer)?;
@@ -741,6 +742,7 @@ fn parse_func_decl(
         params,
         body,
         ret,
+        constraints,
     })
 }
 

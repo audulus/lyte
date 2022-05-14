@@ -111,12 +111,19 @@ pub struct Field {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterfaceConstraint {
+    pub interface_name: Name,
+    pub typevars: Vec<Name> 
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FuncDecl {
     pub name: Name,
     pub typevars: Vec<Name>,
     pub params: Vec<Param>,
     pub body: Option<ExprID>,
     pub ret: TypeID,
+    pub constraints: Vec<InterfaceConstraint>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
