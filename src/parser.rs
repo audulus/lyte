@@ -794,14 +794,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Resu
 fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseError> {
     lexer.next();
     
-    let name = if let Token::Id(name) = lexer.tok.clone() {
-        Name::new(name)
-    } else {
-        return Err(ParseError {
-            location: lexer.loc,
-            message: String::from("expected interface name"),
-        });
-    };
+    let name = expect_id(lexer)?;
 
     lexer.next();
     expect(lexer, Token::Lbrace)?;
