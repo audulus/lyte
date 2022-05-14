@@ -1073,6 +1073,8 @@ mod tests {
                 "f(x: i8 -> i8) { }",
                 "f<T>() { }",
                 "f<T>() where MyInterface<T> { }",
+                "f<T>() where MyInterface<T> AnotherInterface<T> { }",
+                "f<T0, T1>() where MyInterface<T0, T1> { }",
                 "test {}",
                 "f()",
                 "struct x { }",
