@@ -379,7 +379,7 @@ mod tests {
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
         assert_eq!(tokens("42"), vec![Real(42.0)]);
-        assert_eq!(tokens("3.14159"), vec![Real(3.14159)]);
+        assert_eq!(tokens("42.0"), vec![Real(42.0)]);
         assert_eq!(tokens(".5"), vec![Real(0.5)]);
         assert_eq!(tokens("2 + 2"), vec![Real(2.0), Plus, Real(2.0)]);
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
