@@ -680,7 +680,7 @@ pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     lexer.next();
 
     loop {
-        let name = expect_id(&lexer)?;
+        let name = expect_id(lexer)?;
         r.push(name);
         lexer.next();
 
@@ -807,7 +807,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Enum => {
             lexer.next();
 
-            let name = expect_id(&lexer)?;
+            let name = expect_id(lexer)?;
 
             lexer.next();
 
@@ -823,7 +823,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Var => {
             lexer.next();
 
-            let name = expect_id(&lexer)?;
+            let name = expect_id(lexer)?;
 
             lexer.next();
 
@@ -904,7 +904,7 @@ mod tests {
         let mut arena = ExprArena::new();
         let r = f(&mut lexer, &mut arena)?;
         println!("{} ==> {:?}, arena: {:?}", string, r, arena);
-        expect(&lexer, Token::End)?;
+        expect(lexer, Token::End)?;
         Ok(r)
     }
 
