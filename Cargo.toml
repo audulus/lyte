@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 # inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm12-0"] }
 internment = "0.5.5"
+rustc-hash = "1.1.0"

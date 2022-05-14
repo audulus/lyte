@@ -1,5 +1,5 @@
 use internment::Intern;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 pub type TypeID = Intern<Type>;
 pub type Name = Intern<String>;

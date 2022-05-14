@@ -866,7 +866,6 @@ pub fn parse_program(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Vec<Dec
 mod tests {
 
     use super::*;
-    use std::collections::hash_map::DefaultHasher;
     use std::hash::Hasher;
 
     fn type_parser(string: &str) -> TypeID {
@@ -937,7 +936,7 @@ mod tests {
         for (string, h) in pairs {
             let mut arena = ExprArena::new();
             if let Ok(result) = parse_fn(string, &mut arena, f) {
-                let mut hasher = DefaultHasher::new();
+                let mut hasher = rustc_hash::FxHasher::default();
                 result.hash(&mut hasher);
                 arena.hash(&mut hasher);
                 assert_eq!(hasher.finish(), *h);
