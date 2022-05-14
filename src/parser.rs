@@ -1075,6 +1075,7 @@ mod tests {
                 "f<T>() where MyInterface<T> { }",
                 "f<T>() where MyInterface<T> AnotherInterface<T> { }",
                 "f<T0, T1>() where MyInterface<T0, T1> { }",
+                "f<T0, T1>(a: T0, b: T1) where MyInterface<T0, T1> { }",
                 "test {}",
                 "f()",
                 "struct x { }",
