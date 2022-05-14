@@ -112,15 +112,9 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         }
         Token::Typevar => {
             lexer.next();
-            if let Token::Id(name) = lexer.tok.clone() {
-                lexer.next();
-                return Ok(typevar(&name));
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("Expected identifier for typevar name"),
-                });
-            }
+            let name = expect_id(lexer)?;
+            lexer.next();
+            return Ok(typevar(&name));
         }
         Token::Lbracket => {
             lexer.next();
