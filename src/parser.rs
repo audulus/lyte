@@ -361,16 +361,16 @@ fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Pars
     match &lexer.tok {
         Token::Minus => {
             lexer.next();
-            let e = parse_atom(lexer, arena)?;
+            let e = parse_factor(lexer, arena)?;
             Ok(arena.add(Expr::Unop(e), lexer.loc))
         }
         Token::Plus => {
             lexer.next();
-            parse_atom(lexer, arena)
+            parse_factor(lexer, arena)
         }
         Token::Not => {
             lexer.next();
-            let e = parse_atom(lexer, arena)?;
+            let e = parse_factor(lexer, arena)?;
             Ok(arena.add(Expr::Unop(e), lexer.loc))
         }
         _ => parse_postfix(lexer, arena)
@@ -1026,6 +1026,8 @@ mod tests {
                 "!x",
                 "@my_macro(a,b)",
                 "var b = [0; a.len]",
+                "a = -b",
+                "-a.y",
             ],
         );
     }
