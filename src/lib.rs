@@ -15,5 +15,7 @@ pub mod parser;
 use parser::*;
 
 mod checker;
+pub use checker::*;
+
 mod compiler;
 pub use compiler::*;

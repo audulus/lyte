@@ -14,7 +14,7 @@ struct Var {
     mutable: bool,
 }
 
-struct Checker {
+pub struct Checker {
     type_graph: TypeGraph,
     types: Vec<TypeID>,
     lvalue: Vec<bool>,
@@ -27,7 +27,7 @@ struct Checker {
 }
 
 impl Checker {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let types = [Type::Int32, Type::Float32];
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
@@ -227,7 +227,7 @@ impl Checker {
         None
     }
 
-    fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
         match decl {
             Decl::Func(func_decl) => {
                 self.type_graph = TypeGraph::new();
