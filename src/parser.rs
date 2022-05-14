@@ -904,7 +904,7 @@ mod tests {
         let mut arena = ExprArena::new();
         let r = f(&mut lexer, &mut arena)?;
         println!("{} ==> {:?}, arena: {:?}", string, r, arena);
-        expect(lexer, Token::End)?;
+        expect(&lexer, Token::End)?;
         Ok(r)
     }
 
