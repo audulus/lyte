@@ -444,17 +444,9 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         }
         Token::Dot => {
             lexer.next();
-            if let Token::Id(id) = &lexer.tok {
-                let e = Expr::Enum(Intern::new(id.clone()));
-                let r = arena.add(e, lexer.loc);
-                lexer.next();
-                r
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("Expected enum case"),
-                });
-            }
+            let name = expect_id(lexer)?;
+            lexer.next();
+            arena.add(Expr::Enum(name), lexer.loc)
         }
         Token::Integer(x) => {
             let e = Expr::Int(*x);
