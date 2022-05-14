@@ -760,6 +760,8 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, Par
         funcs.push(parse_func_decl(name, lexer, arena)?)
     }
 
+    lexer.next();
+
     Ok(Decl::Interface { name, funcs })
 }
 
@@ -1064,6 +1066,7 @@ mod tests {
                 "enum x { a, b, c }",
                 "enum x { a,\nb }",
                 "macro m() { }",
+                "interface x { }",
             ],
         );
     }
