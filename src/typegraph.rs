@@ -178,7 +178,7 @@ impl TypeGraph {
         name: Name,
         a: TypeNodeID,
         b: TypeNodeID,
-        decls: &Vec<Decl>,
+        decls: &[Decl],
         loc: Loc,
     ) -> Result<(), Loc> {
         if let Some(t) = self.nodes[b].unique() {
