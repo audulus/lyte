@@ -67,6 +67,7 @@ pub enum Token {
     String(String),
     Pipe,
     At,
+    Typevar,
     Endl,
     End,
     Error,
@@ -163,6 +164,7 @@ impl Lexer {
                 "true" => Token::True,
                 "false" => Token::False,
                 "macro" => Token::Macro,
+                "typevar" => Token::Typevar,
                 _ => Token::Id(id),
             };
         }
