@@ -9,12 +9,12 @@ map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
        b[i] = f(a[i])
        i = i + 1
    }
-   return b
+   b
 }
 
-id<T>(x: typevar T) → typevar T { return x }
+id<T>(x: typevar T) → typevar T { x }
 
-add_one(x: i32) → i32 { return x + 1 }
+add_one(x: i32) → i32 { x + 1 }
 
 test_identity {
     let x = id(42)
