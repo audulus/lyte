@@ -2,6 +2,7 @@ use crate::defs::*;
 use crate::lexer::*;
 use crate::types::*;
 use internment::Intern;
+use std::hash::Hash;
 
 #[derive(Clone, Debug)]
 pub struct ParseError {
@@ -9,7 +10,7 @@ pub struct ParseError {
     pub message: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 pub struct ExprArena {
     pub exprs: Vec<Expr>,
     pub locs: Vec<Loc>,
@@ -865,6 +866,8 @@ pub fn parse_program(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Vec<Dec
 mod tests {
 
     use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
 
     fn type_parser(string: &str) -> TypeID {
         let mut lexer = Lexer::new(string, "parser tests");
@@ -896,13 +899,14 @@ mod tests {
 
     fn parse_fn<T: std::fmt::Debug>(
         string: &str,
+        arena: &mut ExprArena,
         f: fn(&mut Lexer, arena: &mut ExprArena) -> Result<T, ParseError>,
     ) -> Result<T, ParseError> {
         println!("parsing: {}", string);
         let mut lexer = Lexer::new(&String::from(string), "parser tests");
         lexer.next();
-        let mut arena = ExprArena::new();
-        let r = f(&mut lexer, &mut arena)?;
+        
+        let r = f(&mut lexer, arena)?;
         println!("{} ==> {:?}, arena: {:?}", string, r, arena);
         expect(&lexer, Token::End)?;
         Ok(r)
@@ -912,7 +916,8 @@ mod tests {
         string: &str,
         f: fn(&mut Lexer, &mut ExprArena) -> Result<T, ParseError>,
     ) {
-        assert!(parse_fn(string, f).is_ok());
+        let mut arena = ExprArena::new();
+        assert!(parse_fn(string, &mut arena, f).is_ok());
     }
 
     fn test_strings<T: std::fmt::Debug>(
@@ -920,7 +925,25 @@ mod tests {
         strings: &[&str],
     ) {
         for string in strings {
-            assert!(parse_fn(string, f).is_ok());
+            let mut arena = ExprArena::new();
+            assert!(parse_fn(string, &mut arena, f).is_ok());
+        }
+    }
+
+    fn test_strings_hash<T: std::fmt::Debug + std::hash::Hash>(
+        f: fn(&mut Lexer, &mut ExprArena) -> Result<T, ParseError>,
+        pairs: &[(&str, u64)],
+    ) {
+        for (string, h) in pairs {
+            let mut arena = ExprArena::new();
+            if let Ok(result) = parse_fn(string, &mut arena, f) {
+                let mut hasher = DefaultHasher::new();
+                result.hash(&mut hasher);
+                arena.hash(&mut hasher);
+                assert_eq!(hasher.finish(), *h);
+            } else {
+                panic!();
+            }
         }
     }
 
