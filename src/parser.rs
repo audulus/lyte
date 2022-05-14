@@ -838,14 +838,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             // Struct delcaration.
             lexer.next();
 
-            let name = if let Token::Id(name) = &lexer.tok {
-                Intern::new(name.clone())
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("expected struct name"),
-                });
-            };
+            let name = expect_id(lexer)?;
 
             lexer.next();
 
