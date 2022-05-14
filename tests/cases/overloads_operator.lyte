@@ -7,21 +7,21 @@ struct Point {
     y: i32
 }
 
-+(lhs: Point, rhs: Point) → Point {
+add(lhs: Point, rhs: Point) → Point {
     var p: Point
     p.x = lhs.x + rhs.x
     p.y = lhs.y + rhs.y
     return p
 }
 
--(lhs: Point, rhs: Point) → Point {
+sub(lhs: Point, rhs: Point) → Point {
     var p: Point
     p.x = lhs.x - rhs.x
     p.y = lhs.y - rhs.y
     return p
 }
 
-*(lhs: Point, rhs: i32) → Point {
+mult(lhs: Point, rhs: i32) → Point {
     var p: Point
     p.x = lhs.x * rhs
     p.y = lhs.y * rhs
@@ -51,8 +51,8 @@ test {
 
     var dif: Point
     dif = p0-p1
-    assert(dif.x == 0-2)
-    assert(dif.y == 0-2)
+    assert(dif.x == -2)
+    assert(dif.y == -2)
 
     var s: Point
     s = p0 * 2
