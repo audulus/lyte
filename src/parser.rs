@@ -499,14 +499,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
             }
         }
         Token::Lbrace => parse_block(lexer, arena)?,
-        Token::Lbracket => {
-            lexer.next();
-            let l = parse_exprlist(lexer, arena)?;
-            expect(lexer, Token::Rbracket)?;
-            lexer.next();
-            let e = Expr::ArrayLiteral(l);
-            arena.add(e, lexer.loc)
-        }
+        Token::Lbracket => parse_array_literal(lexer, arena)?,
         Token::At => {
             lexer.next();
             if let Token::Id(name) = lexer.tok.clone() {
@@ -551,6 +544,38 @@ fn parse_exprlist(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Vec<ExprID
     }
 
     Ok(r)
+}
+
+fn parse_array_literal(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
+    expect(lexer, Token::Lbracket)?;
+    lexer.next();
+    let mut r = vec![];
+
+    while lexer.tok != Token::Rbracket {
+        r.push(parse_lambda(lexer, arena)?);
+
+        if lexer.tok == Token::Comma {
+            lexer.next();
+        } else if lexer.tok == Token::Semi {
+            lexer.next();
+            let count = parse_expr(lexer, arena)?;
+            let e = Expr::Array(r[0], count);
+            expect(lexer, Token::Rbracket)?;
+            lexer.next();
+            return Ok(arena.add(e, lexer.loc));
+        } else if lexer.tok == Token::Rbracket {
+            break;  
+        } else {
+            return Err(ParseError {
+                location: lexer.loc,
+                message: String::from("Expected comma or semicolon in array literal"),
+            })
+        }
+    }
+
+    lexer.next();
+
+    Ok(arena.add(Expr::ArrayLiteral(r), lexer.loc))
 }
 
 fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
@@ -964,7 +989,8 @@ mod tests {
                 "'a'",
                 "'\\n'",
                 "[1,2,3]",
-                "@my_macro(a,b)"
+                "@my_macro(a,b)",
+                "[0; x]",
             ],
         );
     }
@@ -999,6 +1025,7 @@ mod tests {
                 "var t = true",
                 "!x",
                 "@my_macro(a,b)",
+                "var b = [0; a.len]",
             ],
         );
     }

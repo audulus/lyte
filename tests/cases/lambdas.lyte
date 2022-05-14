@@ -31,7 +31,7 @@ test_lambda_arg {
 
 map_array_int32(a: [i32], f: i32 → i32) → [i32] {
    var i = 0
-   var b: [i32]
+   var b = [0; a.len]
    while i < a.len {
        b[i] = f(a[i])
        i = i + 1
