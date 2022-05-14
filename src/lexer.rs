@@ -68,6 +68,7 @@ pub enum Token {
     Pipe,
     At,
     Typevar,
+    Interface,
     Endl,
     End,
     Error,
@@ -165,6 +166,7 @@ impl Lexer {
                 "false" => Token::False,
                 "macro" => Token::Macro,
                 "typevar" => Token::Typevar,
+                "interface" => Token::Interface,
                 _ => Token::Id(id),
             };
         }
