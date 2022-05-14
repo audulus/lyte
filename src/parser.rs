@@ -111,10 +111,10 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             let r = parse_type(lexer)?;
             if lexer.tok == Token::Semi {
                 lexer.next();
-                if let Token::Real(n) = lexer.tok {
+                if let Token::Real(n) = lexer.tok.clone() {
                     lexer.next();
                     expect(lexer, Token::Rbracket)?;
-                    Type::Array(r, n as i64)
+                    Type::Array(r, n.parse::<i64>().map_err( |_| ParseError{location: lexer.loc, message: "Expected integer array size".into()} )?)
                 } else {
                     return Err(ParseError {
                         location: lexer.loc,
@@ -440,7 +440,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
             arena.add(e, lexer.loc)
         }
         Token::Real(x) => {
-            let e = Expr::Real(*x);
+            let e = Expr::Real(x.clone());
             lexer.next();
             arena.add(e, lexer.loc)
         }

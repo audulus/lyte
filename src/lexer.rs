@@ -6,7 +6,7 @@ use internment::Intern;
 pub enum Token {
     Id(String),
     Integer(i64),
-    Real(f64),
+    Real(String),
     Lparen,
     Rparen,
     Lbrace,
@@ -190,12 +190,7 @@ impl Lexer {
                 self.i += 1;
             }
 
-            let sl = &self.code[start..self.i];
-            let x = sl.parse::<f64>();
-            if x.is_err() {
-                return Token::Error;
-            }
-            return Token::Real(x.unwrap());
+            return Token::Real(self.code[start..self.i].into());
         }
 
         // Strings.
@@ -378,10 +373,10 @@ mod tests {
         assert_eq!(tokens("\n    \n"), vec![Endl]);
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
-        assert_eq!(tokens("42"), vec![Real(42.0)]);
-        assert_eq!(tokens("42.0"), vec![Real(42.0)]);
-        assert_eq!(tokens(".5"), vec![Real(0.5)]);
-        assert_eq!(tokens("2 + 2"), vec![Real(2.0), Plus, Real(2.0)]);
+        assert_eq!(tokens("42"), vec![Real("42".to_string())]);
+        assert_eq!(tokens("42.0"), vec![Real("42.0".to_string())]);
+        assert_eq!(tokens(".5"), vec![Real(".5".to_string())]);
+        assert_eq!(tokens("2 + 2"), vec![Real("2".to_string()), Plus, Real("2".to_string())]);
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
         assert_eq!(tokens("x >= y"), vec![id("x"), Geq, id("y")]);
@@ -391,7 +386,7 @@ mod tests {
             tokens("((x))"),
             vec![Lparen, Lparen, id("x"), Rparen, Rparen]
         );
-        assert_eq!(tokens("1x"), vec![Real(1.0), id("x")]);
+        assert_eq!(tokens("1x"), vec![Real("1".to_string()), id("x")]);
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
         assert_eq!(tokens("i32"), vec![Int32]);

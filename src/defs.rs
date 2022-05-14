@@ -1,4 +1,5 @@
 use internment::Intern;
+use std::hash::{Hash, Hasher};
 
 pub type TypeID = Intern<Type>;
 pub type Name = Intern<String>;
@@ -31,7 +32,7 @@ pub fn test_loc() -> Loc {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Binop {
     Assign,
     Plus,
@@ -64,11 +65,11 @@ impl Binop {
 
 pub type ExprID = usize;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Expr {
     Id(Intern<String>),
     Int(i64),
-    Real(f64),
+    Real(String), // f64 is not hashable so we just use the string representation
     Call(ExprID, Vec<ExprID>),
     Macro(Name, Vec<ExprID>),
     Binop(Binop, ExprID, ExprID),
@@ -97,7 +98,7 @@ pub enum Expr {
     Arena(ExprID),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Param {
     pub name: String,
     pub ty: TypeID,
