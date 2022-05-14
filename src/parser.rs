@@ -590,15 +590,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
     match lexer.tok.clone() {
         Token::Var | Token::Let => {
             lexer.next();
-            let name = if let Token::Id(name) = &lexer.tok {
-                Intern::new(name.clone())
-            } else {
-                return Err(ParseError {
-                    location: lexer.loc,
-                    message: String::from("expected identifier"),
-                })
-            };
-
+            let name = expect_id(lexer)?;
             lexer.next();
 
             if lexer.tok == Token::Assign {
