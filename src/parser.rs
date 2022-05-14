@@ -658,16 +658,20 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Parse
 fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
     let mut r = vec![];
 
-    loop {
+    println!("parse fieldlist: {:?}", lexer.tok);
+    skip_newlines(lexer);
+
+    while lexer.tok != Token::Rbrace {
         skip_newlines(lexer);
-        if let Token::Id(name) = &lexer.tok {
-            let name = Intern::new(name.clone());
-            lexer.next();
-            expect(lexer, Token::Colon)?;
-            lexer.next();
-            let ty = parse_type(lexer)?;
-            r.push(Field { name, ty })
-        }
+
+        let name = expect_id(lexer)?;
+        lexer.next();
+
+        expect(lexer, Token::Colon)?;
+
+        lexer.next();
+        let ty = parse_type(lexer)?;
+        r.push(Field { name, ty });
 
         skip_newlines(lexer);
 
