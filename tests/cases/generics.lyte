@@ -2,7 +2,7 @@
 
 assert(cond: bool) → void
 
-map(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
+map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
    var i = 0
    var b: [typevar T1]
    while i < a.len {
