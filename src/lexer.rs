@@ -94,7 +94,7 @@ impl Lexer {
             i: 0,
             tok: Token::Error,
             loc: Loc {
-                file: Intern::new(file.into()),
+                file: Name::new(file.into()),
                 line: 1,
             },
         }

@@ -10,7 +10,7 @@ pub fn mk_type(proto: Type) -> TypeID {
 }
 
 pub fn typevar(name: &str) -> TypeID {
-    mk_type(Type::Var(Intern::from(&String::from(name)), 0))
+    mk_type(Type::Var(Name::new(String::from(name)), 0))
 }
 
 pub fn func(dom: TypeID, range: TypeID) -> TypeID {

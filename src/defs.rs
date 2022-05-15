@@ -3,7 +3,34 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::fmt;
 
-pub type Name = Intern<String>;
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+pub struct Name(Intern<String>);
+
+impl Name {
+    pub fn new(s: String) -> Self {
+        Self(Intern::new(s))
+    }
+}
+
+impl Deref for Name {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl fmt::Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", *self.0)
+    }
+}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self.0)
+    }
+}
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct TypeID(Intern<Type>);
@@ -91,7 +118,7 @@ pub type ExprID = usize;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Expr {
-    Id(Intern<String>),
+    Id(Name),
     Int(i64),
     Real(String), // f64 is not hashable so we just use the string representation
     Call(ExprID, Vec<ExprID>),

@@ -131,7 +131,7 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             }
         }
         Token::Id(name) => {
-            let name = Intern::new(name.clone());
+            let name = Name::new(name.clone());
             lexer.next();
             let mut args = vec![];
             if lexer.tok == Token::Less {
@@ -182,11 +182,11 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
                 lexer.next();
                 parse_type(lexer)?
             } else {
-                mk_type(Type::Var(Intern::new(String::from("__anon__")), 0))
+                mk_type(Type::Var(Name::new(String::from("__anon__")), 0))
             };
 
             r.push(Param {
-                name: name.into(),
+                name: Name::new(name),
                 ty,
             })
         }
@@ -423,7 +423,7 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
 fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseError> {
     Ok(match &lexer.tok {
         Token::Id(id) => {
-            let e = Expr::Id(Intern::new(id.clone()));
+            let e = Expr::Id(Name::new(id.clone()));
             lexer.next();
             arena.add(e, lexer.loc)
         }
@@ -662,7 +662,7 @@ fn parse_caselist(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
 
     loop {
         if let Token::Id(name) = &lexer.tok {
-            let name = Intern::new(name.clone());
+            let name = Name::new(name.clone());
             lexer.next();
             r.push(name);
         }
@@ -797,7 +797,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
         Token::Id(name) => {
             // Function declaration.
             lexer.next();
-            Ok(Decl::Func(parse_func_decl(name.into(), lexer, arena)?))
+            Ok(Decl::Func(parse_func_decl(Name::new(name), lexer, arena)?))
         }
         Token::Macro => {
             // Macro declaration.
