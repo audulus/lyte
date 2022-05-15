@@ -55,14 +55,22 @@ impl Checker {
         }
     }
 
-    fn eq(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, error_message: &str) -> Result<(), TypeError> {
+    fn eq(
+        &mut self,
+        lhs: TypeID,
+        rhs: TypeID,
+        loc: Loc,
+        error_message: &str,
+    ) -> Result<(), TypeError> {
         self.type_graph.eq_types(lhs, rhs, loc);
         if unify(lhs, rhs, &mut self.inst) {
             Ok(())
         } else {
-            Err(TypeError{location: loc, message: error_message.into() })
+            Err(TypeError {
+                location: loc,
+                message: error_message.into(),
+            })
         }
-        
     }
 
     fn fresh(&mut self) -> TypeID {
@@ -74,7 +82,12 @@ impl Checker {
         t
     }
 
-    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+    fn check_expr(
+        &mut self,
+        id: ExprID,
+        arena: &ExprArena,
+        decls: &[Decl],
+    ) -> Result<(), TypeError> {
         match &arena[id] {
             Expr::True | Expr::False => {
                 self.types[id] = mk_type(Type::Bool);
@@ -122,7 +135,10 @@ impl Checker {
                     if found {
                         Ok(())
                     } else {
-                        Err(TypeError{ location: arena.locs[id], message: format!("undeclared identifier: {:?}", *name)})
+                        Err(TypeError {
+                            location: arena.locs[id],
+                            message: format!("undeclared identifier: {:?}", *name),
+                        })
                     }
                 }
             }
@@ -134,7 +150,12 @@ impl Checker {
                 let bt = self.types[*b];
 
                 if op.equality() {
-                    self.eq(at, bt, arena.locs[id], "equality operator requres equal types")?;
+                    self.eq(
+                        at,
+                        bt,
+                        arena.locs[id],
+                        "equality operator requres equal types",
+                    )?;
 
                     self.types[id] = mk_type(Type::Bool);
                 }
@@ -145,7 +166,12 @@ impl Checker {
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
-                self.eq(self.types[*f], func(v0, v1), arena.locs[id], "attempt to call a non-function")?;
+                self.eq(
+                    self.types[*f],
+                    func(v0, v1),
+                    arena.locs[id],
+                    "attempt to call a non-function",
+                )?;
 
                 let mut arg_types = vec![];
                 for e in args {
@@ -155,7 +181,12 @@ impl Checker {
 
                 let ft = func(v0, tuple(arg_types));
 
-                self.eq(self.types[*f], ft, arena.locs[id], "arguments don't match function")?;
+                self.eq(
+                    self.types[*f],
+                    ft,
+                    arena.locs[id],
+                    "arguments don't match function",
+                )?;
 
                 self.types[id] = ft;
                 Ok(())
@@ -228,27 +259,22 @@ impl Checker {
                 Ok(())
             }
             Expr::Var(name, init, ty) => {
-
                 if let Some(e) = init {
                     self.check_expr(*e, arena, decls)?;
                 }
-                
-                let ty = if let Some(ty) = ty {
-                    *ty
-                } else {
-                    self.fresh()
-                };
 
-                self.vars.push(Var{ name: *name, ty, mutable: true});
+                let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
+
+                self.vars.push(Var {
+                    name: *name,
+                    ty,
+                    mutable: true,
+                });
 
                 Ok(())
             }
-            Expr::Arena(block) => {
-                self.check_expr(*block, arena, decls)
-            }
-            Expr::Return(expr) => {
-                self.check_expr(*expr, arena, decls)
-            }
+            Expr::Arena(block) => self.check_expr(*block, arena, decls),
+            Expr::Return(expr) => self.check_expr(*expr, arena, decls),
             Expr::ArrayLiteral(exprs) => {
                 for e in exprs {
                     self.check_expr(*e, arena, decls)?;
@@ -279,10 +305,14 @@ impl Checker {
                 }
                 Ok(())
             }
-            Expr::Lambda{ params, body } => {
+            Expr::Lambda { params, body } => {
                 let n = self.vars.len();
                 for param in params {
-                    self.vars.push(Var{ name: param.name, ty: param.ty, mutable: false })
+                    self.vars.push(Var {
+                        name: param.name,
+                        ty: param.ty,
+                        mutable: false,
+                    })
                 }
 
                 self.check_expr(*body, arena, decls)?;
@@ -309,7 +339,12 @@ impl Checker {
         None
     }
 
-    fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+    fn check_decl(
+        &mut self,
+        decl: &Decl,
+        arena: &ExprArena,
+        decls: &[Decl],
+    ) -> Result<(), TypeError> {
         match decl {
             Decl::Func(func_decl) => {
                 self.type_graph = TypeGraph::new();
@@ -319,10 +354,8 @@ impl Checker {
                     Ok(())
                 }
             }
-            Decl::Interface{ name, funcs } => {
-                Ok(())
-            }
-            _ => Ok(())
+            Decl::Interface { name, funcs } => Ok(()),
+            _ => Ok(()),
         }
     }
 

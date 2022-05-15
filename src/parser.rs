@@ -115,7 +115,13 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 if let Token::Real(n) = lexer.tok.clone() {
                     lexer.next();
                     expect(lexer, Token::Rbracket)?;
-                    Type::Array(r, n.parse::<i64>().map_err( |_| ParseError{location: lexer.loc, message: "Expected integer array size".into()} )?)
+                    Type::Array(
+                        r,
+                        n.parse::<i64>().map_err(|_| ParseError {
+                            location: lexer.loc,
+                            message: "Expected integer array size".into(),
+                        })?,
+                    )
                 } else {
                     return Err(ParseError {
                         location: lexer.loc,
@@ -182,7 +188,10 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
                 mk_type(Type::Var(Intern::new(String::from("__anon__")), 0))
             };
 
-            r.push(Param { name: name.into(), ty })
+            r.push(Param {
+                name: name.into(),
+                ty,
+            })
         }
 
         if lexer.tok != Token::Comma {
@@ -741,7 +750,10 @@ fn parse_func_decl(
             lexer.next();
             expect(lexer, Token::Less)?;
             let typevars = parse_typevar_list(lexer)?;
-            constraints.push(InterfaceConstraint { interface_name, typevars })
+            constraints.push(InterfaceConstraint {
+                interface_name,
+                typevars,
+            })
         }
     }
 
@@ -925,7 +937,7 @@ mod tests {
         println!("parsing: {}", string);
         let mut lexer = Lexer::new(&String::from(string), "parser tests");
         lexer.next();
-        
+
         let r = f(&mut lexer, arena)?;
         println!("{} ==> {:?}, arena: {:?}", string, r, arena);
         expect(&lexer, Token::End)?;

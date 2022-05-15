@@ -378,7 +378,10 @@ mod tests {
         assert_eq!(tokens("42"), vec![Real("42".to_string())]);
         assert_eq!(tokens("42.0"), vec![Real("42.0".to_string())]);
         assert_eq!(tokens(".5"), vec![Real(".5".to_string())]);
-        assert_eq!(tokens("2 + 2"), vec![Real("2".to_string()), Plus, Real("2".to_string())]);
+        assert_eq!(
+            tokens("2 + 2"),
+            vec![Real("2".to_string()), Plus, Real("2".to_string())]
+        );
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
         assert_eq!(tokens("x >= y"), vec![id("x"), Geq, id("y")]);

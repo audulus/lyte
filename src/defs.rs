@@ -113,7 +113,7 @@ pub struct Field {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterfaceConstraint {
     pub interface_name: Name,
-    pub typevars: Vec<Name> 
+    pub typevars: Vec<Name>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
