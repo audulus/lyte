@@ -634,7 +634,6 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Parse
 fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
     let mut r = vec![];
 
-    println!("parse fieldlist: {:?}", lexer.tok);
     skip_newlines(lexer);
 
     while lexer.tok != Token::Rbrace {
