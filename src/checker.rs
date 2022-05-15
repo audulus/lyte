@@ -326,7 +326,7 @@ impl Checker {
                     size_t,
                     mk_type(Type::Int32),
                     arena.locs[*size],
-                    "array index must be an i32",
+                    "array size must be an i32",
                 )?;
 
                 mk_type(Type::Array(value_t, 0))
