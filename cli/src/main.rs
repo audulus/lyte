@@ -27,12 +27,16 @@ fn main() {
         }
     }
 
-    compiler.check();
+    let passed = compiler.check();
 
     for decl in &compiler.decls {
         println!("decl: {:?}", decl);
     }
 
     compiler.print_exprs();
+
+    if(!passed) {
+        std::process::exit(1)
+    }
 
 }
