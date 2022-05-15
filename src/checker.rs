@@ -169,6 +169,9 @@ impl Checker {
 
                 v0
             }
+            Expr::Macro(f, args) => {
+                self.fresh()
+            }
             Expr::Field(lhs, name) => {
                 let lhs_t = self.check_expr(*lhs, arena, decls)?;
 
@@ -360,7 +363,18 @@ impl Checker {
             Decl::Func(func_decl) => {
                 self.type_graph = TypeGraph::new();
                 if let Some(body) = func_decl.body {
+
+                    for param in &func_decl.params {
+                        self.vars.push(Var {
+                            name: param.name,
+                            ty: param.ty,
+                            mutable: false,
+                        });
+                    }
+
                     let ty = self.check_expr(body, arena, decls)?;
+
+                    self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
 
                     self.vars.clear();
                     Ok(())
