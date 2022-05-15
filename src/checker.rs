@@ -413,15 +413,22 @@ impl Checker {
 
                     self.type_graph.validate();
 
+                    println!("---- type graph before solving:");
+                    self.type_graph.print();
+                    println!("---- end type graph");
+
                     self.type_graph.solve();
 
                     if self.type_graph.solved() {
                         println!("solved type graph");
-                        println!("{:?}", self.type_graph.inst);
                     } else {
                         println!("❌ unable to solve type graph");
-                        println!("{:?}", self.type_graph);
                     }
+
+                    println!("instance: {:?}", self.type_graph.inst);
+                    println!("---- type graph after solving:");
+                    self.type_graph.print();
+                    println!("---- end type graph");
 
                     Ok(())
                 } else {
