@@ -74,7 +74,7 @@ impl Checker {
 
     fn fresh(&mut self) -> TypeID {
         let t = mk_type(Type::Var(
-            Name::new(String::from("__anon__")),
+            Name::new(String::from("")),
             self.next_anon,
         ));
         self.next_anon += 1;
