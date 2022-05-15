@@ -100,7 +100,7 @@ pub enum Expr {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Param {
-    pub name: String,
+    pub name: Name,
     pub ty: TypeID,
 }
 

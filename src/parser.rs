@@ -182,7 +182,7 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
                 mk_type(Type::Var(Intern::new(String::from("__anon__")), 0))
             };
 
-            r.push(Param { name, ty })
+            r.push(Param { name: name.into(), ty })
         }
 
         if lexer.tok != Token::Comma {

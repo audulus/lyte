@@ -88,6 +88,15 @@ impl Checker {
                 self.types[id] = mk_type(Type::Float32);
                 Ok(())
             }
+            Expr::Char(_) => {
+                self.types[id] = mk_type(Type::Int8);
+                Ok(())
+            }
+            Expr::String(s) => {
+                let int8 = mk_type(Type::Int8);
+                self.types[id] = mk_type(Type::Array(int8, s.bytes().len() as i64));
+                Ok(())
+            }
             Expr::Id(name) => {
                 if let Some(v) = self.find(*name) {
                     self.types[id] = v.ty;
@@ -223,6 +232,14 @@ impl Checker {
                 if let Some(e) = init {
                     self.check_expr(*e, arena, decls)?;
                 }
+                
+                let ty = if let Some(ty) = ty {
+                    *ty
+                } else {
+                    self.fresh()
+                };
+
+                self.vars.push(Var{ name: *name, ty, mutable: true});
 
                 Ok(())
             }
@@ -260,6 +277,20 @@ impl Checker {
                 for e in exprs {
                     self.check_expr(*e, arena, decls)?;
                 }
+                Ok(())
+            }
+            Expr::Lambda{ params, body } => {
+                let n = self.vars.len();
+                for param in params {
+                    self.vars.push(Var{ name: param.name, ty: param.ty, mutable: false })
+                }
+
+                self.check_expr(*body, arena, decls)?;
+
+                while self.vars.len() > n {
+                    self.vars.pop();
+                }
+
                 Ok(())
             }
             _ => {
