@@ -304,7 +304,7 @@ impl Checker {
                     let elem_node = self.type_graph.add_type_node(elem_t);
                     self.type_graph.eq_constraint(t_node, elem_node, arena.locs[*e]);
                 }
-                t
+                mk_type(Type::Array(t, 0))
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 let t = self.fresh();
