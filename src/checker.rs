@@ -348,6 +348,7 @@ impl Checker {
                 if let Some(body) = func_decl.body {
                     let ty = self.check_expr(body, arena, decls)?;
 
+                    self.vars.clear();
                     Ok(())
                 } else {
                     Ok(())
