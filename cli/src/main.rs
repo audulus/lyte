@@ -33,10 +33,6 @@ fn main() {
         println!("decl: {:?}", decl);
     }
 
-    let mut i = 0;
-    for expr in &compiler.exprs.exprs {
-        println!("{}: {:?}, {:?}", i, expr, compiler.checker.types[i]);
-        i += 1;
-    }
+    compiler.print_exprs();
 
 }
