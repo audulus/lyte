@@ -1,0 +1,8 @@
+
+
+assert(cond: bool) → void
+
+test {
+    var a = [42]
+    assert(a[0] == 42)
+}
