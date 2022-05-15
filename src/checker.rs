@@ -278,7 +278,13 @@ impl Checker {
                 t
             }
             Expr::While(cond, body) => {
-                self.check_expr(*cond, arena, decls)?;
+                let cond_t = self.check_expr(*cond, arena, decls)?;
+                self.eq(
+                    cond_t,
+                    mk_type(Type::Bool),
+                    arena.locs[*cond],
+                    "while loop control must be a bool",
+                )?;
                 self.check_expr(*body, arena, decls)?;
                 mk_type(Type::Void)
             }
