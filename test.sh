@@ -3,8 +3,12 @@ set -e
 
 for file in tests/cases/*.lyte
 do
-    echo $file
     cd cli
-    cargo run -- ../$file
+    cargo run -- ../$file >& /dev/null
+    if [ $? -eq 0 ]; then
+      echo $file PASSED 
+    else
+      echo $file FAILED 
+    fi
     cd ..
 done
