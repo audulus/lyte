@@ -35,7 +35,7 @@ fn main() {
 
     compiler.print_exprs();
 
-    if(!passed) {
+    if !passed {
         std::process::exit(1)
     }
 
