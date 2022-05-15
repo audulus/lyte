@@ -116,6 +116,12 @@ impl Checker {
                                 found = true;
                             }
                         }
+                        if let Decl::Global{ name: gname, .. } = d {
+                            if gname == name {
+                                g.add_possible(decls_node, d.ty());
+                                found = true;
+                            }
+                        }
                     }
                     if !found {
                         return Err(TypeError {
