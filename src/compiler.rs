@@ -41,16 +41,14 @@ impl Compiler {
 
     pub fn check(&mut self) -> bool {
         let mut checker = Checker::new();
-        for decl in &self.decls {
-            match checker.check_decl(decl, &self.exprs, &self.decls) {
-                Ok(_) => {}
-                Err(err) => {
-                    println!(
-                        "{}:{}: {}",
-                        err.location.file, err.location.line, err.message
-                    );
-                    return false;
-                }
+        match checker.check(&self.exprs, &self.decls) {
+            Ok(_) => {}
+            Err(err) => {
+                println!(
+                    "{}:{}: {}",
+                    err.location.file, err.location.line, err.message
+                );
+                return false;
             }
         }
         true

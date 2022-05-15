@@ -223,7 +223,43 @@ impl Checker {
                 if let Some(e) = init {
                     self.check_expr(*e, arena, decls)?;
                 }
-                
+
+                Ok(())
+            }
+            Expr::Arena(block) => {
+                self.check_expr(*block, arena, decls)
+            }
+            Expr::Return(expr) => {
+                self.check_expr(*expr, arena, decls)
+            }
+            Expr::ArrayLiteral(exprs) => {
+                for e in exprs {
+                    self.check_expr(*e, arena, decls)?;
+                }
+                Ok(())
+            }
+            Expr::ArrayIndex(array_expr, index_expr) => {
+                self.check_expr(*array_expr, arena, decls)?;
+                self.check_expr(*index_expr, arena, decls)?;
+                Ok(())
+            }
+            Expr::While(cond, body) => {
+                self.check_expr(*cond, arena, decls)?;
+                self.check_expr(*body, arena, decls)?;
+                Ok(())
+            }
+            Expr::If(cond, then_expr, else_expr) => {
+                self.check_expr(*cond, arena, decls)?;
+                self.check_expr(*then_expr, arena, decls)?;
+                if let Some(else_expr) = else_expr {
+                    self.check_expr(*else_expr, arena, decls)?;
+                }
+                Ok(())
+            }
+            Expr::Tuple(exprs) => {
+                for e in exprs {
+                    self.check_expr(*e, arena, decls)?;
+                }
                 Ok(())
             }
             _ => {
@@ -242,7 +278,7 @@ impl Checker {
         None
     }
 
-    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+    fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
         match decl {
             Decl::Func(func_decl) => {
                 self.type_graph = TypeGraph::new();
@@ -257,5 +293,14 @@ impl Checker {
             }
             _ => Ok(())
         }
+    }
+
+    pub fn check(&mut self, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+        self.types.resize(arena.exprs.len(), mk_type(Type::Void));
+        self.lvalue.resize(arena.exprs.len(), false);
+        for decl in decls {
+            self.check_decl(decl, arena, decls)?;
+        }
+        Ok(())
     }
 }
