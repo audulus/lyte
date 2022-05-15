@@ -6,6 +6,7 @@ pkgs.mkShell {
     buildInputs = [
        pkgs.rustup
        pkgs.libiconv
+       pkgs.llvm
     ];
     shellHook = ''
         echo "Go!"
