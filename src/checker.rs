@@ -318,6 +318,19 @@ impl Checker {
                 )?;
                 t
             }
+            Expr::Array(value, size) => {
+                let value_t = self.check_expr(*value, arena, decls)?;
+                let size_t = self.check_expr(*size, arena, decls)?;
+
+                self.eq(
+                    size_t,
+                    mk_type(Type::Int32),
+                    arena.locs[*size],
+                    "array index must be an i32",
+                )?;
+
+                mk_type(Type::Array(value_t, 0))
+            }
             Expr::While(cond, body) => {
                 let cond_t = self.check_expr(*cond, arena, decls)?;
                 self.eq(
