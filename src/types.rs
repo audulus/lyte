@@ -6,7 +6,7 @@ pub type Instance = HashMap<TypeID, TypeID>;
 use internment::Intern;
 
 pub fn mk_type(proto: Type) -> TypeID {
-    Intern::new(proto)
+    TypeID::new(proto)
 }
 
 pub fn typevar(name: &str) -> TypeID {

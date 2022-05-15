@@ -1,8 +1,25 @@
 use internment::Intern;
 use std::hash::Hash;
+use std::ops::Deref;
 
-pub type TypeID = Intern<Type>;
 pub type Name = Intern<String>;
+
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
+pub struct TypeID(Intern<Type>);
+
+impl TypeID {
+    pub fn new(ty: Type) -> Self {
+        Self(Intern::new(ty))
+    }
+}
+
+impl Deref for TypeID {
+    type Target = Type;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
