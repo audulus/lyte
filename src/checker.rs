@@ -290,7 +290,13 @@ impl Checker {
             }
             Expr::If(cond, then_expr, else_expr) => {
                 let t = self.fresh();
-                self.check_expr(*cond, arena, decls)?;
+                let cond_t = self.check_expr(*cond, arena, decls)?;
+                self.eq(
+                    cond_t,
+                    mk_type(Type::Bool),
+                    arena.locs[*cond],
+                    "if expression conditional must be a bool",
+                )?;
                 self.check_expr(*then_expr, arena, decls)?;
                 if let Some(else_expr) = else_expr {
                     self.check_expr(*else_expr, arena, decls)?;
