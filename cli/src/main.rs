@@ -27,13 +27,15 @@ fn main() {
         }
     }
 
+    compiler.check();
+
     for decl in &compiler.decls {
         println!("decl: {:?}", decl);
     }
 
     let mut i = 0;
     for expr in &compiler.exprs.exprs {
-        println!("{}: {:?}", i, expr);
+        println!("{}: {:?}, {:?}", i, expr, compiler.checker.types[i]);
         i += 1;
     }
 

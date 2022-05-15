@@ -16,7 +16,7 @@ struct Var {
 
 pub struct Checker {
     type_graph: TypeGraph,
-    types: Vec<TypeID>,
+    pub types: Vec<TypeID>,
     lvalue: Vec<bool>,
     inst: Instance,
     next_anon: usize,
@@ -411,6 +411,12 @@ impl Checker {
                     self.vars.clear();
 
                     self.type_graph.solve();
+
+                    if self.type_graph.solved() {
+                        println!("solved type graph");
+                    } else {
+                        println!("unable to solve type graph");
+                    }
 
                     Ok(())
                 } else {

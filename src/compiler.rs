@@ -5,6 +5,7 @@ use std::path::Path;
 pub struct Compiler {
     pub decls: Vec<Decl>,
     pub exprs: ExprArena,
+    pub checker: Checker,
 }
 
 impl Compiler {
@@ -12,6 +13,7 @@ impl Compiler {
         Self {
             decls: vec![],
             exprs: ExprArena::new(),
+            checker: Checker::new()
         }
     }
 
@@ -40,8 +42,7 @@ impl Compiler {
     }
 
     pub fn check(&mut self) -> bool {
-        let mut checker = Checker::new();
-        match checker.check(&self.exprs, &self.decls) {
+        match self.checker.check(&self.exprs, &self.decls) {
             Ok(_) => {}
             Err(err) => {
                 println!(
