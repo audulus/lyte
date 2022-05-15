@@ -275,9 +275,9 @@ impl TypeGraph {
 
         for c in &self.constraints {
             if let Some(field) = c.field {
-                println!("constraint {}.{} == {}", c.a, field, c.b);
+                println!("{}:{}: constraint {}.{} == {}", c.loc.file, c.loc.line, c.a, field, c.b);
             } else {
-                println!("constraint {} == {}", c.a, c.b);
+                println!("{}:{}: constraint {} == {}", c.loc.file, c.loc.line, c.a, c.b);
             }
         }
     }
