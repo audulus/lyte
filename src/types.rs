@@ -3,8 +3,6 @@ use std::collections::HashMap;
 
 pub type Instance = HashMap<TypeID, TypeID>;
 
-use internment::Intern;
-
 pub fn mk_type(proto: Type) -> TypeID {
     TypeID::new(proto)
 }

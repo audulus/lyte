@@ -1,7 +1,6 @@
 use crate::defs::*;
 use crate::lexer::*;
 use crate::types::*;
-use internment::Intern;
 use std::hash::Hash;
 
 #[derive(Clone, Debug)]

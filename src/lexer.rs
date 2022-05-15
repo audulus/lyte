@@ -1,7 +1,5 @@
 use crate::defs::*;
 
-use internment::Intern;
-
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Id(String),

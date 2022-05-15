@@ -1,5 +1,4 @@
 use crate::*;
-use internment::Intern;
 
 #[derive(Clone, Debug)]
 pub struct TypeError {
