@@ -253,8 +253,12 @@ impl Checker {
                 Ok(())
             }
             Expr::Block(exprs) => {
+                let n = self.vars.len();
                 for e in exprs {
                     self.check_expr(*e, arena, decls)?;
+                }
+                while self.vars.len() > n {
+                    self.vars.pop();
                 }
                 Ok(())
             }
