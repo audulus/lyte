@@ -148,7 +148,7 @@ impl Checker {
                 }
             }
             Expr::Call(f, args) => {
-                self.check_expr(*f, arena, decls)?;
+                let lhs = self.check_expr(*f, arena, decls)?;
 
                 let v0 = self.fresh();
                 let v1 = self.fresh();
@@ -168,7 +168,7 @@ impl Checker {
                 let ft = func(v0, tuple(arg_types));
 
                 self.eq(
-                    self.types[*f],
+                    lhs,
                     ft,
                     arena.locs[id],
                     "arguments don't match function",
