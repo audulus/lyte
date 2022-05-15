@@ -810,7 +810,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             let name = expect_id(lexer)?;
 
             lexer.next();
-            Ok(Decl::Func(parse_func_decl(name, lexer, arena)?))
+            Ok(Decl::Macro(parse_func_decl(name, lexer, arena)?))
         }
         Token::Struct => {
             // Struct delcaration.

@@ -129,6 +129,7 @@ pub struct FuncDecl {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decl {
     Func(FuncDecl),
+    Macro(FuncDecl),
     Struct {
         name: Name,
         typevars: Vec<Name>,
@@ -165,6 +166,7 @@ impl Decl {
     pub fn name(&self) -> Name {
         match self {
             Decl::Func(FuncDecl { name, .. }) => *name,
+            Decl::Macro(FuncDecl { name, .. }) => *name,
             Decl::Struct { name, .. } => *name,
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,

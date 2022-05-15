@@ -169,7 +169,31 @@ impl Checker {
 
                 v0
             }
-            Expr::Macro(f, args) => {
+            Expr::Macro(name, args) => {
+
+                let mut found = false;
+                for d in decls {
+                    if let Decl::Macro(fn_decl) = d {
+                        if fn_decl.name == *name {
+                            // Found our macro.
+                            found = true;
+                        }
+                    }
+                }
+
+                if !found {
+                    return Err(TypeError {
+                        location: arena.locs[id],
+                        message: format!("unknown macro: {:?}", *name),
+                    });
+                }
+
+                let mut arg_types = vec![];
+                for e in args {
+                    self.check_expr(*e, arena, decls)?;
+                    arg_types.push(self.types[*e]);
+                }
+
                 self.fresh()
             }
             Expr::Field(lhs, name) => {
