@@ -272,11 +272,19 @@ impl Checker {
                 t
             }
             Expr::Var(name, init, ty) => {
-                if let Some(e) = init {
-                    self.check_expr(*e, arena, decls)?;
-                }
-
+                
                 let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
+
+                if let Some(e) = init {
+                    let init_ty = self.check_expr(*e, arena, decls)?;
+
+                    self.eq(
+                        ty,
+                        init_ty,
+                        arena.locs[id],
+                        "variable initializer type must match",
+                    )?;
+                }
 
                 self.vars.push(Var {
                     name: *name,
