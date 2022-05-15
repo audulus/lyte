@@ -394,6 +394,8 @@ impl Checker {
             Decl::Func(func_decl) => {
                 if let Some(body) = func_decl.body {
 
+                    println!("---------- checking function {:?} ------------ ", *func_decl.name);
+
                     self.type_graph = TypeGraph::new();
 
                     for param in &func_decl.params {
@@ -410,12 +412,16 @@ impl Checker {
 
                     self.vars.clear();
 
+                    self.type_graph.validate();
+
                     self.type_graph.solve();
 
                     if self.type_graph.solved() {
                         println!("solved type graph");
+                        println!("{:?}", self.type_graph.inst);
                     } else {
-                        println!("unable to solve type graph");
+                        println!("❌ unable to solve type graph");
+                        println!("{:?}", self.type_graph);
                     }
 
                     Ok(())
