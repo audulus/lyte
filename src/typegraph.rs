@@ -267,6 +267,16 @@ impl TypeGraph {
 
         true
     }
+
+    pub fn print(&self) {
+        for i in 0..self.nodes.len() {
+            println!("node {}: {:?}", i, self.nodes[i].possible)
+        }
+
+        for c in &self.constraints {
+            println!("constraint {} == {}", c.a, c.b);
+        }
+    }
 }
 
 #[cfg(test)]
