@@ -181,7 +181,7 @@ impl TypeGraph {
         decls: &[Decl],
         loc: Loc,
     ) -> Result<(), Loc> {
-        if let Some(t) = self.nodes[b].unique() {
+        if let Some(_) = self.nodes[b].unique() {
             self.nodes[a].possible.retain(|t| {
                 if let Type::Name(struct_name, _) = **t {
                     let mut found = false;
