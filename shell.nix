@@ -6,9 +6,10 @@ pkgs.mkShell {
     buildInputs = [
        pkgs.rustup
        pkgs.libiconv
-       pkgs.llvm
+       pkgs.llvm_12
     ];
     shellHook = ''
+        export LLVM_SYS_120_PREFIX=`llvm-config --prefix`
         echo "Go!"
     '';
 }
