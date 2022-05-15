@@ -192,7 +192,11 @@ impl Lexer {
                 self.i += 1;
             }
 
-            return Token::Real(self.code[start..self.i].into());
+            return if fraction {
+                Token::Real(self.code[start..self.i].into())
+            } else {
+                Token::Integer(self.code[start..self.i].parse().unwrap())
+            }
         }
 
         // Strings.
@@ -375,12 +379,12 @@ mod tests {
         assert_eq!(tokens("\n    \n"), vec![Endl]);
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
-        assert_eq!(tokens("42"), vec![Real("42".to_string())]);
+        assert_eq!(tokens("42"), vec![Integer(42)]);
         assert_eq!(tokens("42.0"), vec![Real("42.0".to_string())]);
         assert_eq!(tokens(".5"), vec![Real(".5".to_string())]);
         assert_eq!(
             tokens("2 + 2"),
-            vec![Real("2".to_string()), Plus, Real("2".to_string())]
+            vec![Integer(2), Plus, Integer(2)]
         );
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
@@ -391,7 +395,7 @@ mod tests {
             tokens("((x))"),
             vec![Lparen, Lparen, id("x"), Rparen, Rparen]
         );
-        assert_eq!(tokens("1x"), vec![Real("1".to_string()), id("x")]);
+        assert_eq!(tokens("1x"), vec![Integer(1), id("x")]);
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
         assert_eq!(tokens("i32"), vec![Int32]);
