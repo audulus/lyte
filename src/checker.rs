@@ -257,8 +257,11 @@ impl Checker {
             Expr::Return(expr) => self.check_expr(*expr, arena, decls)?,
             Expr::ArrayLiteral(exprs) => {
                 let t = self.fresh();
+                let t_node = self.type_graph.add_type_node(t);
                 for e in exprs {
-                    self.check_expr(*e, arena, decls)?;
+                    let elem_t = self.check_expr(*e, arena, decls)?;
+                    let elem_node = self.type_graph.add_type_node(elem_t);
+                    self.type_graph.eq_constraint(t_node, elem_node, arena.locs[*e]);
                 }
                 t
             }
