@@ -58,7 +58,7 @@ impl Compiler {
     pub fn print_exprs(&self) {
         let mut i = 0;
         for expr in &self.exprs.exprs {
-            println!("{}: {:?}, {}", i, expr, self.checker.types[i]);
+            println!("{}: {:?}, {:?}", i, expr, self.checker.types[i]);
             i += 1;
         }
     }

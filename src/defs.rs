@@ -5,7 +5,7 @@ use std::fmt;
 
 pub type Name = Intern<String>;
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct TypeID(Intern<Type>);
 
 impl TypeID {
@@ -22,7 +22,7 @@ impl Deref for TypeID {
     }
 }
 
-impl fmt::Display for TypeID {
+impl fmt::Debug for TypeID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", *self.0)
     }
