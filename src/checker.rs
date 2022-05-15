@@ -122,14 +122,12 @@ impl Checker {
                         return Err(TypeError {
                             location: arena.locs[id],
                             message: format!("undeclared identifier: {:?}", *name),
-                        })
+                        });
                     }
                     t
                 }
             }
-            Expr::Unop(a) => {
-                self.check_expr(*a, arena, decls)?
-            }
+            Expr::Unop(a) => self.check_expr(*a, arena, decls)?,
             Expr::Binop(op, a, b) => {
                 let at = self.check_expr(*a, arena, decls)?;
                 let bt = self.check_expr(*b, arena, decls)?;
@@ -167,12 +165,7 @@ impl Checker {
 
                 let ft = func(v0, tuple(arg_types));
 
-                self.eq(
-                    lhs,
-                    ft,
-                    arena.locs[id],
-                    "arguments don't match function",
-                )?;
+                self.eq(lhs, ft, arena.locs[id], "arguments don't match function")?;
 
                 v0
             }
@@ -272,7 +265,13 @@ impl Checker {
             Expr::ArrayIndex(array_expr, index_expr) => {
                 let t = self.fresh();
                 self.check_expr(*array_expr, arena, decls)?;
-                self.check_expr(*index_expr, arena, decls)?;
+                let idx_t = self.check_expr(*index_expr, arena, decls)?;
+                self.eq(
+                    idx_t,
+                    mk_type(Type::Int32),
+                    arena.locs[*index_expr],
+                    "array index must be an i32",
+                )?;
                 t
             }
             Expr::While(cond, body) => {
