@@ -392,8 +392,9 @@ impl Checker {
     ) -> Result<(), TypeError> {
         match decl {
             Decl::Func(func_decl) => {
-                self.type_graph = TypeGraph::new();
                 if let Some(body) = func_decl.body {
+
+                    self.type_graph = TypeGraph::new();
 
                     for param in &func_decl.params {
                         self.vars.push(Var {
@@ -408,6 +409,9 @@ impl Checker {
                     self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
 
                     self.vars.clear();
+
+                    self.type_graph.solve();
+
                     Ok(())
                 } else {
                     Ok(())
