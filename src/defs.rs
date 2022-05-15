@@ -1,6 +1,7 @@
 use internment::Intern;
 use std::hash::Hash;
 use std::ops::Deref;
+use std::fmt;
 
 pub type Name = Intern<String>;
 
@@ -18,6 +19,12 @@ impl Deref for TypeID {
 
     fn deref(&self) -> &Self::Target {
         &*self.0
+    }
+}
+
+impl fmt::Display for TypeID {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", *self.0)
     }
 }
 
