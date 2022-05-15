@@ -172,11 +172,13 @@ impl Checker {
             Expr::Macro(name, args) => {
 
                 let mut found = false;
+                let mut macro_type = mk_type(Type::Void);
                 for d in decls {
                     if let Decl::Macro(fn_decl) = d {
                         if fn_decl.name == *name {
                             // Found our macro.
                             found = true;
+                            macro_type = d.ty();
                         }
                     }
                 }
@@ -194,7 +196,12 @@ impl Checker {
                     arg_types.push(self.types[*e]);
                 }
 
-                self.fresh()
+                let rt = self.fresh();
+                let ft = func(rt, tuple(arg_types));
+
+                self.eq(macro_type, ft, arena.locs[id], "arguments don't match function")?;
+
+                rt
             }
             Expr::Field(lhs, name) => {
                 let lhs_t = self.check_expr(*lhs, arena, decls)?;
