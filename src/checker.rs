@@ -415,7 +415,9 @@ impl Checker {
 
                     let ty = self.check_expr(body, arena, decls)?;
 
-                    self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
+                    if func_decl.ret != mk_type(Type::Void) {
+                        self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
+                    }
 
                     self.vars.clear();
 
