@@ -192,14 +192,14 @@ impl TypeGraph {
         decls: &[Decl],
         loc: Loc,
     ) -> Result<(), Loc> {
-        if let Some(_) = self.nodes[b].unique() {
+        if let Some(bt) = self.nodes[b].unique() {
             self.nodes[a].possible.retain(|t| {
                 if let Type::Name(struct_name, _) = **t {
                     let mut found = false;
                     find_decls(decls, struct_name, &mut |decl| {
                         if let Some(field) = decl.find_field(name) {
                             let mut inst = Instance::new();
-                            if unify(*t, field.ty, &mut inst) {
+                            if unify(bt, field.ty, &mut inst) {
                                 found = true;
                             }
                         }
@@ -233,9 +233,16 @@ impl TypeGraph {
         Ok(())
     }
 
-    pub fn propagate(&mut self) -> Result<(), Loc> {
+    pub fn propagate(&mut self, decls: &[Decl]) -> Result<(), Loc> {
         for c in self.constraints.clone() {
-            self.propagate_eq(c.a, c.b, c.loc)?
+            print!("processing constraint: ");
+
+            c.print();
+            if let Some(name) = c.field {
+                self.propagate_field(name, c.a, c.b, decls, c.loc)?;
+            } else {
+                self.propagate_eq(c.a, c.b, c.loc)?
+            }
         }
         Ok(())
     }
@@ -246,12 +253,12 @@ impl TypeGraph {
         s.finish()
     }
 
-    pub fn solve(&mut self) -> Result<(), Loc> {
+    pub fn solve(&mut self, decls: &[Decl]) -> Result<(), Loc> {
         // Continue to propagate as long as we
         // can make changes.
         loop {
             let h = self.nodes_hash();
-            self.propagate()?;
+            self.propagate(decls)?;
             if h == self.nodes_hash() {
                 break;
             }
@@ -336,7 +343,8 @@ mod tests {
 
         assert!(!g.solved());
 
-        let result = g.propagate();
+        let decls = vec![];
+        let result = g.propagate(&decls);
         assert_eq!(Ok(()), result);
 
         assert!(g.solved());
@@ -355,7 +363,8 @@ mod tests {
 
         assert!(g.validate());
 
-        let result = g.propagate();
+        let decls = vec![];
+        let result = g.propagate(&decls);
 
         assert!(result.is_err());
     }
@@ -375,7 +384,8 @@ mod tests {
 
         assert!(g.validate());
 
-        let result = g.propagate();
+        let decls = vec![];
+        let result = g.propagate(&decls);
 
         assert!(result.is_err());
     }
@@ -395,9 +405,40 @@ mod tests {
         assert!(g.validate());
         assert!(!g.solved());
 
-        let result = g.propagate();
+        let decls = vec![];
+        let result = g.propagate(&decls);
 
         assert!(result.is_ok());
         assert!(g.solved());
+    }
+
+    #[test]
+    pub fn test_field_1() {
+
+        let mut g = TypeGraph::new();
+        let i = mk_type(Type::Int32);
+        let f = mk_type(Type::Float32);
+        let xname = Name::new("x".into());
+        let s0name = Name::new("S0".into());
+    
+        let mut decls = vec![
+            Decl::Struct{
+                name: s0name,
+                fields: vec![
+                    Field{ name: xname, ty: i }
+                ],
+                typevars: vec![]
+            }
+        ];
+
+        let struct_ty = mk_type(Type::Name(s0name, vec![]));
+        let v = typevar("T");
+        g.field_constraint(vec![struct_ty], v, xname, test_loc());
+    
+        g.print();
+
+        assert!(g.solve(&decls).is_ok());
+
+        
     }
 }
