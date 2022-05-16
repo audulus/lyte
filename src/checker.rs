@@ -142,7 +142,7 @@ impl Checker {
                         at,
                         bt,
                         arena.locs[id],
-                        "equality operator requres equal types",
+                        &format!("equality operator requres equal types, got {:?} and {:?}", at, bt),
                     )?;
 
                     mk_type(Type::Bool)
