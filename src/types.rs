@@ -73,6 +73,7 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                     false
                 }
             }
+            (Type::Array(a, _), Type::Array(b, _)) => unify(*a, *b, inst),
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             (Type::Var(_, _), _) => {
                 inst.insert(lhs, rhs);
@@ -135,5 +136,10 @@ mod tests {
         let var = typevar("T");
         assert!(unify(var, int8, &mut inst));
         assert!(!solved(var));
+
+        let var2 = typevar("S");
+        assert!(unify(var, var2, &mut inst));
+
+        assert!(unify(mk_type(Type::Array(var, 0)), mk_type(Type::Array(var2, 0)), &mut inst));
     }
 }
