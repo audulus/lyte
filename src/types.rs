@@ -140,6 +140,18 @@ mod tests {
         let var2 = typevar("S");
         assert!(unify(var, var2, &mut inst));
 
-        assert!(unify(mk_type(Type::Array(var, 0)), mk_type(Type::Array(var2, 0)), &mut inst));
+        {
+            let var = typevar("T");
+            let var2 = typevar("S");
+            let mut inst = Instance::new();
+            assert!(unify(mk_type(Type::Array(var, 0)), mk_type(Type::Array(var2, 0)), &mut inst));
+        }
+
+        {
+            let mut inst = Instance::new();
+            let b = mk_type(Type::Bool);
+            let tup = mk_type(Type::Tuple(vec![b]));
+            assert!(unify(var, func(tup, vd), &mut inst));
+        }
     }
 }
