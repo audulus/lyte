@@ -13,6 +13,17 @@ pub struct Constraint {
     pub loc: Loc,
 }
 
+impl Constraint {
+
+    pub fn print(&self) {
+        if let Some(field) = self.field {
+            println!("{}:{}: constraint {}.{} == {}", self.loc.file, self.loc.line, self.a, field, self.b);
+        } else {
+            println!("{}:{}: constraint {} == {}", self.loc.file, self.loc.line, self.a, self.b);
+        }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub struct TypeNode {
     pub possible: Vec<TypeID>,
@@ -274,11 +285,7 @@ impl TypeGraph {
         }
 
         for c in &self.constraints {
-            if let Some(field) = c.field {
-                println!("{}:{}: constraint {}.{} == {}", c.loc.file, c.loc.line, c.a, field, c.b);
-            } else {
-                println!("{}:{}: constraint {} == {}", c.loc.file, c.loc.line, c.a, c.b);
-            }
+            c.print();
         }
     }
 }
