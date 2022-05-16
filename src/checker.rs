@@ -446,7 +446,12 @@ impl Checker {
                     self.type_graph.print();
                     println!("---- end type graph");
 
-                    self.type_graph.solve();
+                    if let Err(loc) = self.type_graph.solve() {
+                        return Err(TypeError {
+                            location: loc,
+                            message: "type error".into(),
+                        });
+                    }
 
                     if self.type_graph.solved() {
                         println!("solved type graph");
