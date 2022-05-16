@@ -153,11 +153,11 @@ impl Checker {
             Expr::Call(f, args) => {
                 let lhs = self.check_expr(*f, arena, decls)?;
 
-                let v0 = self.fresh();
+                let ret = self.fresh();
                 let v1 = self.fresh();
                 self.eq(
                     self.types[*f],
-                    func(v0, v1),
+                    func(v1, ret),
                     arena.locs[id],
                     "attempt to call a non-function",
                 )?;
@@ -168,11 +168,11 @@ impl Checker {
                     arg_types.push(self.types[*e]);
                 }
 
-                let ft = func(v0, tuple(arg_types));
+                let ft = func(tuple(arg_types), ret);
 
                 self.eq(lhs, ft, arena.locs[id], "arguments don't match function")?;
 
-                v0
+                ret
             }
             Expr::Macro(name, args) => {
 
