@@ -46,7 +46,7 @@ impl Compiler {
             Ok(_) => {}
             Err(err) => {
                 println!(
-                    "{}:{}: {}",
+                    "❌ {}:{}: {}",
                     err.location.file, err.location.line, err.message
                 );
                 return false;
