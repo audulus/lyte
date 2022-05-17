@@ -1,5 +1,46 @@
 use crate::defs::*;
 use std::collections::HashMap;
+use internment::Intern;
+use std::fmt;
+use std::ops::Deref;
+
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
+pub enum Type {
+    Void,
+    Bool,
+    Int8,
+    UInt8,
+    Int32,
+    Float32,
+    Tuple(Vec<TypeID>),
+    Var(Name, usize),
+    Func(TypeID, TypeID),
+    Array(TypeID, i64),
+    Name(Name, Vec<TypeID>),
+}
+
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+pub struct TypeID(Intern<Type>);
+
+impl TypeID {
+    pub fn new(ty: Type) -> Self {
+        Self(Intern::new(ty))
+    }
+}
+
+impl Deref for TypeID {
+    type Target = Type;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl fmt::Debug for TypeID {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", *self.0)
+    }
+}
 
 pub type Instance = HashMap<TypeID, TypeID>;
 
