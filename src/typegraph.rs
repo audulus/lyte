@@ -271,12 +271,18 @@ impl TypeGraph {
     pub fn solve(&mut self, decls: &[Decl]) -> Result<(), Loc> {
         // Continue to propagate as long as we
         // can make changes.
+        let mut i = 0;
         loop {
             let h = self.nodes_hash();
+            println!("---- solve iteration {}", i);
             self.propagate(decls)?;
+            
+            self.print_nodes();
+
             if h == self.nodes_hash() {
                 break;
             }
+            i += 1;
         }
 
         Ok(())
@@ -301,10 +307,14 @@ impl TypeGraph {
         true
     }
 
-    pub fn print(&self) {
+    pub fn print_nodes(&self) {
         for i in 0..self.nodes.len() {
             println!("node {}: {:?}", i, self.nodes[i].possible)
         }
+    }
+
+    pub fn print(&self) {
+        self.print_nodes();
 
         for c in &self.constraints {
             c.print();
@@ -332,7 +342,7 @@ mod tests {
         assert!(g.solved());
 
         let v = g.add_node();
-        g.nodes[v].possible.push(typevar("T"));
+        g.nodes[v].possible.push(anon(0));
 
         assert!(!g.solved());
 
@@ -348,7 +358,7 @@ mod tests {
 
         let int32 = mk_type(Type::Int32);
 
-        let v = typevar("T");
+        let v = anon(0);
         let a = g.add_node();
         g.nodes[a].possible.push(v);
         let b = g.add_node();
@@ -446,7 +456,7 @@ mod tests {
         ];
 
         let struct_ty = mk_type(Type::Name(s0name, vec![]));
-        let v = typevar("T");
+        let v = anon(0);
         g.field_constraint(vec![struct_ty], v, xname, test_loc());
     
         g.print();

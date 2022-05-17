@@ -13,7 +13,8 @@ pub enum Type {
     Int32,
     Float32,
     Tuple(Vec<TypeID>),
-    Var(Name, usize),
+    Var(Name),
+    Anon(usize),
     Func(TypeID, TypeID),
     Array(TypeID, i64),
     Name(Name, Vec<TypeID>),
@@ -25,14 +26,6 @@ pub struct TypeID(Intern<Type>);
 impl TypeID {
     pub fn new(ty: Type) -> Self {
         Self(Intern::new(ty))
-    }
-
-    pub fn anon(&self) -> bool {
-        if let Type::Var(name, _) = **self {
-            name == Name::new("".into())
-        } else {
-            false
-        }
     }
 }
 
@@ -57,7 +50,11 @@ pub fn mk_type(proto: Type) -> TypeID {
 }
 
 pub fn typevar(name: &str) -> TypeID {
-    mk_type(Type::Var(Name::new(String::from(name)), 0))
+    mk_type(Type::Var(Name::new(String::from(name))))
+}
+
+pub fn anon(index: usize) -> TypeID {
+    mk_type(Type::Anon(index))
 }
 
 pub fn func(dom: TypeID, range: TypeID) -> TypeID {
@@ -81,13 +78,15 @@ pub fn find(id: TypeID, inst: &Instance) -> TypeID {
 }
 
 pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
+    //println!("subst {:?}", t);
     let t = find(t, inst);
+    //println!("maps to {:?}", t);
 
     match &*t {
         Type::Tuple(v) => mk_type(Type::Tuple(v.iter().map(|t| subst(*t, inst)).collect())),
         Type::Func(a, b) => mk_type(Type::Func(subst(*a, inst), subst(*b, inst))),
         Type::Array(a, n) => mk_type(Type::Array(subst(*a, inst), *n)),
-        Type::Var(_, _) => find(t, inst),
+        Type::Anon(_) => find(t, inst),
         _ => t,
     }
 }
@@ -97,7 +96,8 @@ pub fn solved(t: TypeID) -> bool {
         Type::Tuple(v) => v.iter().all(|t| solved(*t)),
         Type::Func(a, b) => solved(*a) && solved(*b),
         Type::Array(a, _) => solved(*a),
-        Type::Var(name, _) => *name != Name::new("".into()),
+        Type::Var(_) => true,
+        Type::Anon(_) => false,
         _ => true,
     }
 }
@@ -110,18 +110,15 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
         true
     } else {
 
-        // Unify anonymous type variables toward non-anonymous.
-        if lhs.anon() {
-            inst.insert(lhs, rhs);
-            return true;
-        }
-
-        if rhs.anon() {
-            inst.insert(rhs, lhs);
-            return true;
-        }
-
         match (&*lhs, &*rhs) {
+            (Type::Anon(_), _) => {
+                inst.insert(lhs, rhs);
+                true
+            }
+            (_, Type::Anon(_)) => {
+                inst.insert(rhs, lhs);
+                true
+            }
             (Type::Tuple(v0), Type::Tuple(v1)) => {
                 if v0.len() == v1.len() {
                     for i in 0..v0.len() {
@@ -136,14 +133,6 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
             }
             (Type::Array(a, _), Type::Array(b, _)) => unify(*a, *b, inst),
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
-            (Type::Var(_, _), _) => {
-                inst.insert(lhs, rhs);
-                true
-            }
-            (_, Type::Var(_, _)) => {
-                inst.insert(rhs, lhs);
-                true
-            }
             _ => false,
         }
     }
@@ -167,11 +156,12 @@ fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
         Type::Array(a, sz) => {
             mk_type(Type::Array(fresh_aux(*a, index, inst), *sz))
         }
-        Type::Var(name, _) => {
+        Type::Var(_) => {
             *inst.entry(ty)
                 .or_insert_with(|| {
+                    let t = mk_type(Type::Anon(*index));
                     *index += 1;
-                    mk_type(Type::Var(*name, *index))
+                    t
                 })
         }
         Type::Func(dom, rng) => {
@@ -181,6 +171,7 @@ fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
     }
 }
 
+/// Replaces named type variables with anonymous type variables.
 pub fn fresh(ty: TypeID, index: &mut usize) -> TypeID {
     let mut inst = Instance::new();
     fresh_aux(ty, index, &mut inst)
@@ -222,16 +213,14 @@ mod tests {
         assert!(!unify(vd, int8, &mut inst));
         assert!(solved(vd));
 
-        let var = typevar("T");
+        let var = anon(0);
         assert!(unify(var, int8, &mut inst));
         assert!(!solved(var));
 
-        let var2 = typevar("S");
+        let var2 = anon(1);
         assert!(unify(var, var2, &mut inst));
 
         {
-            let var = typevar("T");
-            let var2 = typevar("S");
             let mut inst = Instance::new();
             assert!(unify(mk_type(Type::Array(var, 0)), mk_type(Type::Array(var2, 0)), &mut inst));
         }
