@@ -250,7 +250,7 @@ impl Checker {
                 let enums_node = g.add_node();
 
                 // Find all the enum declarations with that name.
-                find_enums(decls, *name, &mut |enum_name| {
+                find_enums_with_case(decls, *name, &mut |enum_name| {
                     g.add_possible(enums_node, mk_type(Type::Name(enum_name, vec![])));
                 });
 
