@@ -112,7 +112,8 @@ impl Checker {
                     for d in decls {
                         if let Decl::Func(FuncDecl { name: fname, .. }) = d {
                             if fname == name {
-                                g.add_possible(decls_node, d.ty());
+                                let dt = fresh(d.ty(), &mut self.next_anon);
+                                g.add_possible(decls_node, dt);
                                 found = true;
                             }
                         }
