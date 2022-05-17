@@ -114,10 +114,7 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
                 if let Token::Integer(n) = lexer.tok.clone() {
                     lexer.next();
                     expect(lexer, Token::Rbracket)?;
-                    Type::Array(
-                        r,
-                        n
-                    )
+                    Type::Array(r, n)
                 } else {
                     return Err(ParseError {
                         location: lexer.loc,
@@ -170,7 +167,6 @@ fn parse_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
             let args = mk_type(Type::Tuple(vec![lhs]));
             lhs = mk_type(Type::Func(args, rhs));
         }
-        
     }
 
     Ok(lhs)

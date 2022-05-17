@@ -13,7 +13,7 @@ impl Compiler {
         Self {
             decls: vec![],
             exprs: ExprArena::new(),
-            checker: Checker::new()
+            checker: Checker::new(),
         }
     }
 

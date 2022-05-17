@@ -194,7 +194,7 @@ impl Lexer {
                 Token::Real(self.code[start..self.i].into())
             } else {
                 Token::Integer(self.code[start..self.i].parse().unwrap())
-            }
+            };
         }
 
         // Strings.
@@ -380,10 +380,7 @@ mod tests {
         assert_eq!(tokens("42"), vec![Integer(42)]);
         assert_eq!(tokens("42.0"), vec![Real("42.0".to_string())]);
         assert_eq!(tokens(".5"), vec![Real(".5".to_string())]);
-        assert_eq!(
-            tokens("2 + 2"),
-            vec![Integer(2), Plus, Integer(2)]
-        );
+        assert_eq!(tokens("2 + 2"), vec![Integer(2), Plus, Integer(2)]);
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
         assert_eq!(tokens("x >= y"), vec![id("x"), Geq, id("y")]);

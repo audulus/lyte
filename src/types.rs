@@ -1,6 +1,6 @@
 use crate::defs::*;
-use std::collections::HashMap;
 use internment::Intern;
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
 
@@ -109,7 +109,6 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     if lhs == rhs {
         true
     } else {
-
         match (&*lhs, &*rhs) {
             (Type::Anon(_), _) => {
                 inst.insert(lhs, rhs);
@@ -153,21 +152,17 @@ fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
             let vv = v.iter().map(|t| fresh_aux(*t, index, inst)).collect();
             mk_type(Type::Tuple(vv))
         }
-        Type::Array(a, sz) => {
-            mk_type(Type::Array(fresh_aux(*a, index, inst), *sz))
-        }
-        Type::Var(_) => {
-            *inst.entry(ty)
-                .or_insert_with(|| {
-                    let t = mk_type(Type::Anon(*index));
-                    *index += 1;
-                    t
-                })
-        }
-        Type::Func(dom, rng) => {
-            mk_type(Type::Func(fresh_aux(*dom, index, inst), fresh_aux(*rng, index, inst)))
-        }
-        _ => ty
+        Type::Array(a, sz) => mk_type(Type::Array(fresh_aux(*a, index, inst), *sz)),
+        Type::Var(_) => *inst.entry(ty).or_insert_with(|| {
+            let t = mk_type(Type::Anon(*index));
+            *index += 1;
+            t
+        }),
+        Type::Func(dom, rng) => mk_type(Type::Func(
+            fresh_aux(*dom, index, inst),
+            fresh_aux(*rng, index, inst),
+        )),
+        _ => ty,
     }
 }
 
@@ -222,7 +217,11 @@ mod tests {
 
         {
             let mut inst = Instance::new();
-            assert!(unify(mk_type(Type::Array(var, 0)), mk_type(Type::Array(var2, 0)), &mut inst));
+            assert!(unify(
+                mk_type(Type::Array(var, 0)),
+                mk_type(Type::Array(var2, 0)),
+                &mut inst
+            ));
         }
 
         {

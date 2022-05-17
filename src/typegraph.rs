@@ -14,12 +14,17 @@ pub struct Constraint {
 }
 
 impl Constraint {
-
     pub fn print(&self) {
         if let Some(field) = self.field {
-            println!("{}:{}: constraint {}.{} == {}", self.loc.file, self.loc.line, self.a, field, self.b);
+            println!(
+                "{}:{}: constraint {}.{} == {}",
+                self.loc.file, self.loc.line, self.a, field, self.b
+            );
         } else {
-            println!("{}:{}: constraint {} == {}", self.loc.file, self.loc.line, self.a, self.b);
+            println!(
+                "{}:{}: constraint {} == {}",
+                self.loc.file, self.loc.line, self.a, self.b
+            );
         }
     }
 }
@@ -163,7 +168,11 @@ impl TypeGraph {
                 // so this substituion applies to the whole graph.
                 self.subst();
             } else {
-                println!("failed to unify unique types:\n  {:?}\n  {:?}", subst(t0, &self.inst), subst(t1, &self.inst));
+                println!(
+                    "failed to unify unique types:\n  {:?}\n  {:?}",
+                    subst(t0, &self.inst),
+                    subst(t1, &self.inst)
+                );
                 return Err(loc);
             }
         }
@@ -233,7 +242,9 @@ impl TypeGraph {
                     return Err(loc);
                 }
             } else if let Type::Array(_, _) = *t0 {
-                if name == Name::new("len".into()) && unify(mk_type(Type::Int32), t1, &mut self.inst) {
+                if name == Name::new("len".into())
+                    && unify(mk_type(Type::Int32), t1, &mut self.inst)
+                {
                     // We've narrowed down overloads and unified
                     // so this substituion applies to the whole graph.
                     self.subst();
@@ -276,7 +287,7 @@ impl TypeGraph {
             let h = self.nodes_hash();
             println!("---- solve iteration {}", i);
             self.propagate(decls)?;
-            
+
             self.print_nodes();
 
             if h == self.nodes_hash() {
@@ -439,30 +450,23 @@ mod tests {
 
     #[test]
     pub fn test_field_1() {
-
         let mut g = TypeGraph::new();
         let i = mk_type(Type::Int32);
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
-    
-        let decls = vec![
-            Decl::Struct{
-                name: s0name,
-                fields: vec![
-                    Field{ name: xname, ty: i }
-                ],
-                typevars: vec![]
-            }
-        ];
+
+        let decls = vec![Decl::Struct {
+            name: s0name,
+            fields: vec![Field { name: xname, ty: i }],
+            typevars: vec![],
+        }];
 
         let struct_ty = mk_type(Type::Name(s0name, vec![]));
         let v = anon(0);
         g.field_constraint(vec![struct_ty], v, xname, test_loc());
-    
+
         g.print();
 
         assert!(g.solve(&decls).is_ok());
-
-        
     }
 }

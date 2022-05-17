@@ -1,8 +1,8 @@
+use crate::*;
 use internment::Intern;
+use std::fmt;
 use std::hash::Hash;
 use std::ops::Deref;
-use std::fmt;
-use crate::*;
 
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Name(Intern<String>);

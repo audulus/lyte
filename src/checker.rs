@@ -114,7 +114,7 @@ impl Checker {
                                 found = true;
                             }
                         }
-                        if let Decl::Global{ name: gname, .. } = d {
+                        if let Decl::Global { name: gname, .. } = d {
                             if gname == name {
                                 g.add_possible(decls_node, d.ty());
                                 found = true;
@@ -140,7 +140,10 @@ impl Checker {
                         at,
                         bt,
                         arena.locs[id],
-                        &format!("equality operator requres equal types, got {:?} and {:?}", at, bt),
+                        &format!(
+                            "equality operator requres equal types, got {:?} and {:?}",
+                            at, bt
+                        ),
                     )?;
 
                     mk_type(Type::Bool)
@@ -173,7 +176,6 @@ impl Checker {
                 ret
             }
             Expr::Macro(name, args) => {
-
                 let mut found = false;
                 let mut macro_type = mk_type(Type::Void);
                 for d in decls {
@@ -202,7 +204,12 @@ impl Checker {
                 let ret = self.fresh();
                 let ft = func(tuple(arg_types), ret);
 
-                self.eq(macro_type, ft, arena.locs[id], "arguments don't match function")?;
+                self.eq(
+                    macro_type,
+                    ft,
+                    arena.locs[id],
+                    "arguments don't match function",
+                )?;
 
                 ret
             }
@@ -270,7 +277,6 @@ impl Checker {
                 t
             }
             Expr::Var(name, init, ty) => {
-                
                 let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
 
                 if let Some(e) = init {
@@ -300,7 +306,8 @@ impl Checker {
                 for e in exprs {
                     let elem_t = self.check_expr(*e, arena, decls)?;
                     let elem_node = self.type_graph.add_type_node(elem_t);
-                    self.type_graph.eq_constraint(t_node, elem_node, arena.locs[*e]);
+                    self.type_graph
+                        .eq_constraint(t_node, elem_node, arena.locs[*e]);
                 }
                 mk_type(Type::Array(t, 0))
             }
@@ -408,10 +415,11 @@ impl Checker {
         arena: &ExprArena,
         decls: &[Decl],
     ) -> Result<(), TypeError> {
-
         if let Some(body) = func_decl.body {
-
-            println!("---------- checking function {:?} ------------ ", *func_decl.name);
+            println!(
+                "---------- checking function {:?} ------------ ",
+                *func_decl.name
+            );
 
             self.type_graph = TypeGraph::new();
 
@@ -426,7 +434,12 @@ impl Checker {
             let ty = self.check_expr(body, arena, decls)?;
 
             if func_decl.ret != mk_type(Type::Void) {
-                self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
+                self.eq(
+                    ty,
+                    func_decl.ret,
+                    arena.locs[body],
+                    "return type must match function return type",
+                )?;
             }
 
             self.vars.clear();
@@ -441,7 +454,7 @@ impl Checker {
 
             println!("instance:");
 
-            for (k,v) in &self.type_graph.inst {
+            for (k, v) in &self.type_graph.inst {
                 println!("  {:?} ➡️ {:?}", k, v);
             }
 
@@ -462,13 +475,10 @@ impl Checker {
                 println!("❌ unable to solve type graph");
             }
 
-            
-
             Ok(())
         } else {
             Ok(())
         }
-
     }
 
     fn check_decl(
