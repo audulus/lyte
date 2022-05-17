@@ -202,12 +202,12 @@ impl Checker {
                     arg_types.push(self.types[*e]);
                 }
 
-                let rt = self.fresh();
-                let ft = func(rt, tuple(arg_types));
+                let ret = self.fresh();
+                let ft = func(tuple(arg_types), ret);
 
                 self.eq(macro_type, ft, arena.locs[id], "arguments don't match function")?;
 
-                rt
+                ret
             }
             Expr::Field(lhs, name) => {
                 let lhs_t = self.check_expr(*lhs, arena, decls)?;
