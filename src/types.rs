@@ -161,7 +161,7 @@ fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
     }
 }
 
-fn fresh(ty: TypeID, index: &mut usize) -> TypeID {
+pub fn fresh(ty: TypeID, index: &mut usize) -> TypeID {
     let mut inst = Instance::new();
     fresh_aux(ty, index, &mut inst)
 }
