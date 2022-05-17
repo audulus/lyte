@@ -26,6 +26,14 @@ impl TypeID {
     pub fn new(ty: Type) -> Self {
         Self(Intern::new(ty))
     }
+
+    pub fn anon(&self) -> bool {
+        if let Type::Var(name, _) = **self {
+            name == Name::new("".into())
+        } else {
+            false
+        }
+    }
 }
 
 impl Deref for TypeID {
@@ -89,7 +97,7 @@ pub fn solved(t: TypeID) -> bool {
         Type::Tuple(v) => v.iter().all(|t| solved(*t)),
         Type::Func(a, b) => solved(*a) && solved(*b),
         Type::Array(a, _) => solved(*a),
-        Type::Var(_, _) => false,
+        Type::Var(name, _) => *name != Name::new("".into()),
         _ => true,
     }
 }
@@ -101,6 +109,18 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     if lhs == rhs {
         true
     } else {
+
+        // Unify anonymous type variables toward non-anonymous.
+        if lhs.anon() {
+            inst.insert(lhs, rhs);
+            return true;
+        }
+
+        if rhs.anon() {
+            inst.insert(rhs, lhs);
+            return true;
+        }
+
         match (&*lhs, &*rhs) {
             (Type::Tuple(v0), Type::Tuple(v1)) => {
                 if v0.len() == v1.len() {
