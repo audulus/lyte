@@ -232,6 +232,11 @@ impl Checker {
                     }
                 }
 
+                // Special case for len on arrays.
+                if *name == Name::new("len".into()) {
+                    structs.push(lhs_t);
+                }
+
                 let structs_node =
                     self.type_graph
                         .field_constraint(structs, t, *name, arena.locs[id]);
