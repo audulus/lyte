@@ -250,20 +250,9 @@ impl Checker {
                 let enums_node = g.add_node();
 
                 // Find all the enum declarations with that name.
-                for d in decls {
-                    if let Decl::Enum {
-                        name: enum_name,
-                        cases,
-                    } = d
-                    {
-                        for case in cases {
-                            if case == name {
-                                g.add_possible(enums_node, mk_type(Type::Name(*enum_name, vec![])));
-                                break;
-                            }
-                        }
-                    }
-                }
+                find_enums(decls, *name, &mut |enum_name| {
+                    g.add_possible(enums_node, mk_type(Type::Name(enum_name, vec![])));
+                });
 
                 let t_node = g.add_type_node(t);
                 g.eq_constraint(enums_node, t_node, arena.locs[id]);

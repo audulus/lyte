@@ -205,3 +205,22 @@ pub fn find_decl(decls: &[Decl], name: Name) -> Option<&Decl> {
     }
     None
 }
+
+/// Finds all enums with a case.
+/// This is for resolving .enum_name expressions.
+pub fn find_enums(decls: &[Decl], case_name: Name, f: &mut impl FnMut(Name)) {
+    for d in decls {
+        if let Decl::Enum {
+            name: enum_name,
+            cases,
+        } = d
+        {
+            for case in cases {
+                if *case == case_name {
+                    f(*enum_name);
+                    break;
+                }
+            }
+        }
+    }
+}
