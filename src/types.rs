@@ -109,6 +109,18 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     if lhs == rhs {
         true
     } else {
+
+        // Unify anonymous type variables toward non-anonymous.
+        if lhs.anon() {
+            inst.insert(lhs, rhs);
+            return true;
+        }
+
+        if rhs.anon() {
+            inst.insert(rhs, lhs);
+            return true;
+        }
+
         match (&*lhs, &*rhs) {
             (Type::Tuple(v0), Type::Tuple(v1)) => {
                 if v0.len() == v1.len() {
