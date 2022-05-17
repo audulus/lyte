@@ -183,7 +183,7 @@ impl Checker {
                         if fn_decl.name == *name {
                             // Found our macro.
                             found = true;
-                            macro_type = d.ty();
+                            macro_type = fresh(d.ty(), &mut self.next_anon);
                         }
                     }
                 }
