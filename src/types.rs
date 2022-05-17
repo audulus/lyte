@@ -138,6 +138,29 @@ fn find_decls_unify(decls: &Vec<Decl>, name: Name, f: impl Fn(&Decl), t: TypeID)
     }
 }
 
+fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
+    match &*ty {
+        Type::Tuple(v) => {
+            let vv = v.iter().map(|t| fresh_aux(*t, index, inst)).collect();
+            mk_type(Type::Tuple(vv))
+        }
+        Type::Array(a, sz) => {
+            mk_type(Type::Array(fresh_aux(*a, index, inst), *sz))
+        }
+        Type::Var(name, _) => {
+            *inst.entry(ty)
+                .or_insert_with(|| {
+                    *index += 1;
+                    mk_type(Type::Var(*name, *index))
+                })
+        }
+        Type::Func(dom, rng) => {
+            mk_type(Type::Func(fresh_aux(*dom, index, inst), fresh_aux(*rng, index, inst)))
+        }
+        _ => ty
+    }
+}
+
 impl Decl {
     pub fn ty(&self) -> TypeID {
         match self {
