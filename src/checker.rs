@@ -416,6 +416,75 @@ impl Checker {
         None
     }
 
+    fn check_fn_decl(
+        &mut self,
+        func_decl: &FuncDecl,
+        arena: &ExprArena,
+        decls: &[Decl],
+    ) -> Result<(), TypeError> {
+
+        if let Some(body) = func_decl.body {
+
+            println!("---------- checking function {:?} ------------ ", *func_decl.name);
+
+            self.type_graph = TypeGraph::new();
+
+            for param in &func_decl.params {
+                self.vars.push(Var {
+                    name: param.name,
+                    ty: param.ty,
+                    mutable: false,
+                });
+            }
+
+            let ty = self.check_expr(body, arena, decls)?;
+
+            if func_decl.ret != mk_type(Type::Void) {
+                self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
+            }
+
+            self.vars.clear();
+
+            self.type_graph.validate();
+
+            println!("---- type graph before solving:");
+            self.type_graph.print();
+            println!("---- end type graph");
+
+            let r = self.type_graph.solve(decls);
+
+            println!("instance:");
+
+            for (k,v) in &self.type_graph.inst {
+                println!("  {:?} ➡️ {:?}", k, v);
+            }
+
+            println!("---- type graph after solving:");
+            self.type_graph.print();
+            println!("---- end type graph");
+
+            if let Err(loc) = r {
+                return Err(TypeError {
+                    location: loc,
+                    message: "type error".into(),
+                });
+            }
+
+            if self.type_graph.solved() {
+                println!("solved type graph");
+            } else {
+                println!("❌ unable to solve type graph");
+            }
+
+            
+
+            Ok(())
+        } else {
+            Ok(())
+        }
+
+    }
+
     fn check_decl(
         &mut self,
         decl: &Decl,
@@ -423,67 +492,8 @@ impl Checker {
         decls: &[Decl],
     ) -> Result<(), TypeError> {
         match decl {
-            Decl::Func(func_decl) => {
-                if let Some(body) = func_decl.body {
-
-                    println!("---------- checking function {:?} ------------ ", *func_decl.name);
-
-                    self.type_graph = TypeGraph::new();
-
-                    for param in &func_decl.params {
-                        self.vars.push(Var {
-                            name: param.name,
-                            ty: param.ty,
-                            mutable: false,
-                        });
-                    }
-
-                    let ty = self.check_expr(body, arena, decls)?;
-
-                    if func_decl.ret != mk_type(Type::Void) {
-                        self.eq(ty, func_decl.ret, arena.locs[body], "return type must match function return type")?;
-                    }
-
-                    self.vars.clear();
-
-                    self.type_graph.validate();
-
-                    println!("---- type graph before solving:");
-                    self.type_graph.print();
-                    println!("---- end type graph");
-
-                    let r = self.type_graph.solve(decls);
-
-                    println!("instance:");
-
-                    for (k,v) in &self.type_graph.inst {
-                        println!("  {:?} ➡️ {:?}", k, v);
-                    }
-
-                    println!("---- type graph after solving:");
-                    self.type_graph.print();
-                    println!("---- end type graph");
-
-                    if let Err(loc) = r {
-                        return Err(TypeError {
-                            location: loc,
-                            message: "type error".into(),
-                        });
-                    }
-
-                    if self.type_graph.solved() {
-                        println!("solved type graph");
-                    } else {
-                        println!("❌ unable to solve type graph");
-                    }
-
-                    
-
-                    Ok(())
-                } else {
-                    Ok(())
-                }
-            }
+            Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
+            Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Interface { name, funcs } => Ok(()),
             _ => Ok(()),
         }
