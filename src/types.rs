@@ -26,6 +26,14 @@ impl TypeID {
     pub fn new(ty: Type) -> Self {
         Self(Intern::new(ty))
     }
+
+    pub fn anon(&self) -> bool {
+        if let Type::Var(name, _) = **self {
+            name == Name::new("".into())
+        } else {
+            false
+        }
+    }
 }
 
 impl Deref for TypeID {
