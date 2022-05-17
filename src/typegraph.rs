@@ -205,6 +205,8 @@ impl TypeGraph {
                         }
                     });
                     found
+                } else if let Type::Array(_, _) = **t {
+                    name == Name::new("len".into())
                 } else {
                     false
                 }
@@ -227,6 +229,16 @@ impl TypeGraph {
                 } else {
                     return Err(loc);
                 }
+            } else if let Type::Array(_, _) = *t0 {
+                if name == Name::new("len".into()) && unify(mk_type(Type::Int32), t1, &mut self.inst) {
+                    // We've narrowed down overloads and unified
+                    // so this substituion applies to the whole graph.
+                    self.subst();
+                } else {
+                    return Err(loc);
+                }
+            } else {
+                return Err(loc);
             }
         }
 
