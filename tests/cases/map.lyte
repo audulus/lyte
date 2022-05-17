@@ -1,0 +1,29 @@
+
+
+assert(cond: bool) → void
+
+map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
+   var i = 0
+   var b: [typevar T1]
+   while i < a.len {
+       b[i] = f(a[i])
+       i = i + 1
+   }
+   b
+}
+
+test_map {
+    map([1,2,3], add_one)
+    //assert(a == [2,3,4])
+
+    //let b = map([1,2,3], |x| x+2)
+    //assert(b == [3,4,5])
+    
+    //let f = |x| x+3
+    //let c = map([1,2,3], f)
+    //assert(c == [4,5,6])
+}
+
+test {
+    test_map()
+}
