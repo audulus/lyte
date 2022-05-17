@@ -12,6 +12,8 @@ map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
    b
 }
 
+add_one(x: i32) → i32 { x + 1 }
+
 test_map {
     map([1,2,3], add_one)
     //assert(a == [2,3,4])
