@@ -454,7 +454,12 @@ impl Checker {
 
                     let r = self.type_graph.solve(decls);
 
-                    println!("instance: {:?}", self.type_graph.inst);
+                    println!("instance:");
+
+                    for (k,v) in &self.type_graph.inst {
+                        println!("  {:?} ➡️ {:?}", k, v);
+                    }
+
                     println!("---- type graph after solving:");
                     self.type_graph.print();
                     println!("---- end type graph");
