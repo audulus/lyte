@@ -18,12 +18,12 @@ test_map {
     let a = map([1,2,3], add_one)
     assert(a == [2,3,4])
 
-    //let b = map([1,2,3], |x| x+2)
-    //assert(b == [3,4,5])
+    let b = map([1,2,3], |x| x+2)
+    assert(b == [3,4,5])
     
-    //let f = |x| x+3
-    //let c = map([1,2,3], f)
-    //assert(c == [4,5,6])
+    let f = |x| x+3
+    let c = map([1,2,3], f)
+    assert(c == [4,5,6])
 }
 
 test {
