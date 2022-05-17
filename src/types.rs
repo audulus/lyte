@@ -97,7 +97,7 @@ pub fn solved(t: TypeID) -> bool {
         Type::Tuple(v) => v.iter().all(|t| solved(*t)),
         Type::Func(a, b) => solved(*a) && solved(*b),
         Type::Array(a, _) => solved(*a),
-        Type::Var(_, _) => false,
+        Type::Var(name, _) => *name == Name::new("".into()),
         _ => true,
     }
 }
