@@ -481,6 +481,10 @@ impl Checker {
         }
     }
 
+    fn check_interface(&self, _name: Name, _funcs: &[FuncDecl]) -> Result<(), TypeError> {
+        Ok(())
+    }
+
     fn check_decl(
         &mut self,
         decl: &Decl,
@@ -490,7 +494,7 @@ impl Checker {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
-            Decl::Interface { name, funcs } => Ok(()),
+            Decl::Interface { name, funcs } => self.check_interface(*name, funcs),
             _ => Ok(()),
         }
     }
