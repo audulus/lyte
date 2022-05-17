@@ -163,7 +163,7 @@ impl TypeGraph {
                 // so this substituion applies to the whole graph.
                 self.subst();
             } else {
-                println!("failed to unify unique types:\n  {:?}\n  {:?}", t0, t1);
+                println!("failed to unify unique types:\n  {:?}\n  {:?}", subst(t0, &self.inst), subst(t1, &self.inst));
                 return Err(loc);
             }
         }
