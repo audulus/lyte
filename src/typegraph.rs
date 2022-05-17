@@ -432,7 +432,6 @@ mod tests {
 
         let mut g = TypeGraph::new();
         let i = mk_type(Type::Int32);
-        let f = mk_type(Type::Float32);
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
     
