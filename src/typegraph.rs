@@ -436,7 +436,7 @@ mod tests {
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
     
-        let mut decls = vec![
+        let decls = vec![
             Decl::Struct{
                 name: s0name,
                 fields: vec![
