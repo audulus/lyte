@@ -33,7 +33,8 @@ getChar(i: i32, edits: [Edit]) → i8 {
         j = j-1
     }
 
-    return 0
+    var c: i8
+    c 
 }
 
 eval(edits: [Edit]) → [i8] {
@@ -41,13 +42,13 @@ eval(edits: [Edit]) → [i8] {
     var i = 0
     while true {
         let c = getChar(i, edits)
-        if c == 0 {
-            return r
-        }
+        // if c == 0 {
+            // return r
+        //}
         r[i] = c
         i = i+1
     }
-    return r
+    r
 }
 
 test {
