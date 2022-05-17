@@ -163,7 +163,14 @@ fn parse_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         lexer.next();
         let rhs = parse_basic_type(lexer)?;
 
-        lhs = mk_type(Type::Func(lhs, rhs));
+        // Ensure we're always calling with a tuple.
+        if let Type::Tuple(_) = *lhs {
+            lhs = mk_type(Type::Func(lhs, rhs));
+        } else {
+            let args = mk_type(Type::Tuple(vec![lhs]));
+            lhs = mk_type(Type::Func(args, rhs));
+        }
+        
     }
 
     Ok(lhs)
@@ -910,7 +917,8 @@ mod tests {
     fn test_parse_type() {
         let int8 = mk_type(Type::Int8);
         let int32 = mk_type(Type::Int32);
-        let func = mk_type(Type::Func(int8, int8));
+        let tup = mk_type(Type::Tuple(vec![int8]));
+        let func = mk_type(Type::Func(tup, int8));
         test_type("void", mk_type(Type::Void));
         test_type("i8", int8);
         test_type("i32", int32);
