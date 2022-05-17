@@ -163,6 +163,7 @@ impl TypeGraph {
                 // so this substituion applies to the whole graph.
                 self.subst();
             } else {
+                println!("failed to unify unique types:\n  {:?}\n  {:?}", t0, t1);
                 return Err(loc);
             }
         }
@@ -170,6 +171,7 @@ impl TypeGraph {
         if let Some(t) = self.nodes[a].unique() {
             self.nodes[b].prune(t);
             if self.nodes[b].is_empty() {
+                println!("no possible types");
                 return Err(loc);
             }
         }
@@ -177,6 +179,7 @@ impl TypeGraph {
         if let Some(t) = self.nodes[b].unique() {
             self.nodes[a].prune(t);
             if self.nodes[a].is_empty() {
+                println!("no possible types");
                 return Err(loc);
             }
         }
