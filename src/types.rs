@@ -130,6 +130,18 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                     false
                 }
             }
+            (Type::Name(a, a_params), Type::Name(b, b_params)) => {
+                if a == b && a_params.len() == b_params.len() {
+                    for i in 0..a_params.len() {
+                        if !unify(a_params[i], b_params[i], inst) {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
             (Type::Array(a, _), Type::Array(b, _)) => unify(*a, *b, inst),
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             _ => false,
