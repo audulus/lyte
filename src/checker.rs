@@ -14,14 +14,33 @@ struct Var {
 }
 
 pub struct Checker {
+
+    /// The constraint graph for solving for
+    /// anonymous type variables.
     type_graph: TypeGraph,
+
+    /// Expression types.
     pub types: Vec<TypeID>,
+
+    /// Is an expression assignable?
     lvalue: Vec<bool>,
+
+    /// Current type variable instance.
     inst: Instance,
+
+    /// Next anonymous type variable index.
     next_anon: usize,
+
+    /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
+
+    /// Overloads for arithmetic with built-in types.
     arith_overloads: Vec<TypeID>,
+
+    /// Overloads for relational operations with built-in types.
     rel_overloads: Vec<TypeID>,
+
+    /// Overloads for negation of built-in types.
     neg_overloads: Vec<TypeID>,
 }
 
