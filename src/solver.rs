@@ -46,9 +46,19 @@ pub fn iterate_solver(
                     *constraint = Constraint2::Equal(*t, alts[0], *loc);
                 }
             }
-            Constraint2::Field(struct_ty, name, ft, loc) => {
-                if let Type::Name(struct_name, _) = **struct_ty {
+            Constraint2::Field(struct_ty, field_name, ft, loc) => {
+                if let Type::Name(struct_name, _) = *find(*struct_ty, instance) {
+                    let decl = find_decl(decls, struct_name).unwrap();
+
                     // We've narrowed it down. Better unify!
+                    if let Some(field) = decl.find_field(*field_name) {
+                        *constraint = Constraint2::Equal(field.ty, *ft, *loc);
+                    } else {
+                        return Err(TypeError {
+                            location: *loc,
+                            message: "no such field".into(),
+                        });
+                    }
                 }
             }
         }
