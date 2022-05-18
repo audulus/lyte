@@ -462,6 +462,7 @@ impl Checker {
             println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
             self.type_graph = TypeGraph::new();
+            self.inst.clear();
 
             for param in &func_decl.params {
                 self.vars.push(Var {
