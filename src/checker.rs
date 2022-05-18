@@ -214,7 +214,7 @@ impl Checker {
 
                 let ft = func(tuple(arg_types), ret);
 
-                self.eq(lhs, ft, arena.locs[id], "arguments don't match function")?;
+                self.eq(lhs, ft, arena.locs[id], &format!("arguments ({:?}) don't match function ({:?})", lhs, ft))?;
 
                 ret
             }
