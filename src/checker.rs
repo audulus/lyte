@@ -86,7 +86,17 @@ impl Checker {
     ) -> Result<TypeID, TypeError> {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
-            Expr::Int(_) => mk_type(Type::Int32),
+            Expr::Int(_) => {
+                let t = self.fresh();
+                let g = &mut self.type_graph;
+                let node = g.add_node();
+                g.add_possible(node, mk_type(Type::Int8));
+                g.add_possible(node, mk_type(Type::Int32));
+                let result_node = g.add_node();
+                g.add_possible(result_node, t);
+                g.eq_constraint(node, result_node, arena.locs[id]);
+                t
+            }
             Expr::Real(_) => mk_type(Type::Float32),
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
@@ -147,6 +157,21 @@ impl Checker {
                     )?;
 
                     mk_type(Type::Bool)
+                } else if let Binop::Assign = op {
+
+                    // XXX: lhs should be lvalue.
+                    
+                    self.eq(
+                        at,
+                        bt,
+                        arena.locs[id],
+                        &format!(
+                            "assignment operator requres equal types, got {:?} and {:?}",
+                            at, bt
+                        ),
+                    )?;
+
+                    at
                 } else {
                     self.fresh()
                 }
