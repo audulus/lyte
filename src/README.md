@@ -12,3 +12,7 @@ Instead of ownership of arrays being expressed in the type system, it is express
 ## Interfaces
 
 Interfaces are used to provide functions that must exist when another function is called. Typically this is used to constrain generics. It can also be used for a static form of dependency injection.
+
+## References
+
+(Exponential time complexity in the Swift type checker)[https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html]
