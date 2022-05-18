@@ -4,7 +4,7 @@ pub enum Constraint2 {
     /// Equality.
     Equal(TypeID, TypeID, Loc),
 
-    /// Function overloads.
+    /// Function overloads, enum leading dot syntax, and number literals.
     Or(TypeID, Vec<TypeID>, Loc),
 
     /// Field access.
