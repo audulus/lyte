@@ -158,9 +158,8 @@ impl Checker {
 
                     mk_type(Type::Bool)
                 } else if let Binop::Assign = op {
-
                     // XXX: lhs should be lvalue.
-                    
+
                     self.eq(
                         at,
                         bt,
@@ -441,10 +440,7 @@ impl Checker {
         decls: &[Decl],
     ) -> Result<(), TypeError> {
         if let Some(body) = func_decl.body {
-            println!(
-                "🟧 checking function {:?} 🟧",
-                *func_decl.name
-            );
+            println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
             self.type_graph = TypeGraph::new();
 
