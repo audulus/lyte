@@ -19,3 +19,6 @@ pub use checker::*;
 
 mod compiler;
 pub use compiler::*;
+
+mod solver;
+pub use solver::*;
