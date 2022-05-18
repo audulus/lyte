@@ -417,7 +417,7 @@ impl Checker {
     ) -> Result<(), TypeError> {
         if let Some(body) = func_decl.body {
             println!(
-                "---------- checking function {:?} ------------ ",
+                "🟧 checking function {:?} 🟧",
                 *func_decl.name
             );
 
@@ -446,9 +446,9 @@ impl Checker {
 
             self.type_graph.validate();
 
-            println!("---- type graph before solving:");
+            println!("🟧 type graph before solving:");
             self.type_graph.print();
-            println!("---- end type graph");
+            println!("🟧 end type graph");
 
             let r = self.type_graph.solve(decls);
 
@@ -458,9 +458,9 @@ impl Checker {
                 println!("  {:?} ➡️ {:?}", k, v);
             }
 
-            println!("---- type graph after solving:");
+            println!("🟧 type graph after solving:");
             self.type_graph.print();
-            println!("---- end type graph");
+            println!("🟧 end type graph");
 
             if let Err(loc) = r {
                 return Err(TypeError {
@@ -470,7 +470,7 @@ impl Checker {
             }
 
             if self.type_graph.solved() {
-                println!("solved type graph");
+                println!("🟩 solved type graph");
             } else {
                 println!("❌ unable to solve type graph");
             }
