@@ -408,15 +408,15 @@ mod tests {
             tokens("\"test\" \n"),
             vec![Token::String("test".into()), Endl]
         );
-        assert_eq!(tokens(".name"), vec![Token::Dot, id("name")]);
+        assert_eq!(tokens(".name"), vec![Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
-        assert_eq!(tokens("arena"), vec![Token::Arena]);
-        assert_eq!(tokens("true"), vec![Token::True]);
-        assert_eq!(tokens("false"), vec![Token::False]);
-        assert_eq!(tokens("bool"), vec![Token::Bool]);
-        assert_eq!(tokens("⋅"), vec![Token::Mult]);
-        assert_eq!(tokens("'x'"), vec![Token::Char('x')]);
-        assert_eq!(tokens("!"), vec![Token::Not]);
+        assert_eq!(tokens("arena"), vec![Arena]);
+        assert_eq!(tokens("true"), vec![True]);
+        assert_eq!(tokens("false"), vec![False]);
+        assert_eq!(tokens("bool"), vec![Bool]);
+        assert_eq!(tokens("⋅"), vec![Mult]);
+        assert_eq!(tokens("'x'"), vec![Char('x')]);
+        assert_eq!(tokens("!"), vec![Not]);
         assert_eq!(tokens("x // comment"), vec![id("x")]);
         tokens("]VV)y<)'");
         tokens("<qVyA]V<");
