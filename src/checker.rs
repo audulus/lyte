@@ -251,7 +251,7 @@ impl Checker {
                     macro_type,
                     ft,
                     arena.locs[id],
-                    "arguments don't match function",
+                    "arguments don't match macro definition",
                 )?;
 
                 ret
