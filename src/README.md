@@ -15,4 +15,6 @@ Interfaces are used to provide functions that must exist when another function i
 
 ## References
 
-(Exponential time complexity in the Swift type checker)[https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html]
+[Exponential time complexity in the Swift type checker](https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html)
+
+[Hindley-Milner Inference](http://dev.stephendiehl.com/fun/006_hindley_milner.html)
