@@ -1,5 +1,6 @@
 use crate::*;
 
+#[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Constraint2 {
     /// Equality.
     Equal(TypeID, TypeID, Loc),
