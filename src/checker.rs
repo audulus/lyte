@@ -14,7 +14,6 @@ struct Var {
 }
 
 pub struct Checker {
-
     /// The constraint graph for solving for
     /// anonymous type variables.
     type_graph: TypeGraph,
@@ -214,7 +213,12 @@ impl Checker {
 
                 let ft = func(tuple(arg_types), ret);
 
-                self.eq(lhs, ft, arena.locs[id], &format!("arguments ({:?}) don't match function ({:?})", lhs, ft))?;
+                self.eq(
+                    lhs,
+                    ft,
+                    arena.locs[id],
+                    &format!("arguments ({:?}) don't match function ({:?})", lhs, ft),
+                )?;
 
                 ret
             }
