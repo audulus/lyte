@@ -120,4 +120,29 @@ mod tests {
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
     }
+
+    #[test]
+    pub fn test_field_2() {
+        let i = mk_type(Type::Int32);
+        let xname = Name::new("x".into());
+        let s0name = Name::new("S0".into());
+
+        let decls = vec![Decl::Struct {
+            name: s0name,
+            fields: vec![Field { name: xname, ty: i }],
+            typevars: vec![],
+        }];
+
+        let struct_ty = mk_type(Type::Name(s0name, vec![]));
+        let v = anon(0);
+
+        let mut constraints = [
+            Constraint2::Field(struct_ty, xname, v, test_loc())
+        ];
+
+        let mut instance = Instance::new();
+        assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
+        assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
+
+    }
 }
