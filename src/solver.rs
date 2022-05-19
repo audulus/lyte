@@ -91,6 +91,7 @@ pub fn solve_constraints(
         iterate_solver(constraints, instance, decls)?;
 
         if h == constraints_hash(constraints) && *instance == old_instance {
+            // No more progress.
             break;
         }
         i += 1;
