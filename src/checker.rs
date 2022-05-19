@@ -143,22 +143,29 @@ impl Checker {
                     let decls_node = g.add_node();
                     g.eq_constraint(type_node, decls_node, arena.locs[id]);
 
+                    let mut alternatives = vec![];
                     let mut found = false;
                     for d in decls {
                         if let Decl::Func(FuncDecl { name: fname, .. }) = d {
                             if fname == name {
                                 let dt = fresh(d.ty(), &mut self.next_anon);
                                 g.add_possible(decls_node, dt);
+                                alternatives.push(dt);
                                 found = true;
                             }
                         }
                         if let Decl::Global { name: gname, .. } = d {
                             if gname == name {
                                 g.add_possible(decls_node, d.ty());
+                                alternatives.push(d.ty());
                                 found = true;
                             }
                         }
                     }
+
+                    self.constraints
+                        .push(Constraint2::Or(t, alternatives, arena.locs[id]));
+
                     if !found {
                         return Err(TypeError {
                             location: arena.locs[id],
