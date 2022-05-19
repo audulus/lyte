@@ -32,7 +32,8 @@ pub fn iterate_solver(
             Constraint2::Or(t, alts, loc) => {
                 // Try to narrow it down.
                 alts.retain(|tt| {
-                    let mut inst = Instance::new();
+                    // Start from the instance we know so far.
+                    let mut inst = instance.clone();
                     unify(*t, *tt, &mut inst)
                 });
 
