@@ -84,6 +84,7 @@ impl Checker {
         error_message: &str,
     ) -> Result<(), TypeError> {
         self.type_graph.eq_types(lhs, rhs, loc);
+        self.constraints.push(Constraint2::Equal(lhs, rhs, loc));
         if unify(lhs, rhs, &mut self.inst) {
             Ok(())
         } else {
