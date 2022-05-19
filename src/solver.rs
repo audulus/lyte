@@ -1,4 +1,6 @@
 use crate::*;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Constraint2 {
@@ -68,6 +70,35 @@ pub fn iterate_solver(
     Ok(())
 }
 
+fn constraints_hash(constraints: &[Constraint2]) -> u64 {
+    let mut s = DefaultHasher::new();
+    constraints.hash(&mut s);
+    s.finish()
+}
+
+pub fn solve_constraints(
+    constraints: &mut [Constraint2],
+    instance: &mut Instance,
+    decls: &[Decl],
+) -> Result<(), TypeError> {
+    // Continue to propagate as long as we
+    // can make changes.
+    let mut i = 0;
+    loop {
+        let h = constraints_hash(constraints);
+        println!("---- solve iteration {}", i);
+        let old_instance = instance.clone();
+        iterate_solver(constraints, instance, decls)?;
+
+        if h == constraints_hash(constraints) && *instance == old_instance {
+            break;
+        }
+        i += 1;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,9 +143,7 @@ mod tests {
         let i = mk_type(Type::Int32);
         let f = mk_type(Type::Float32);
 
-        let mut constraints = [
-            Constraint2::Or(i, vec![i, f], test_loc())
-        ];
+        let mut constraints = [Constraint2::Or(i, vec![i, f], test_loc())];
 
         let mut instance = Instance::new();
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
@@ -136,13 +165,10 @@ mod tests {
         let struct_ty = mk_type(Type::Name(s0name, vec![]));
         let v = anon(0);
 
-        let mut constraints = [
-            Constraint2::Field(struct_ty, xname, v, test_loc())
-        ];
+        let mut constraints = [Constraint2::Field(struct_ty, xname, v, test_loc())];
 
         let mut instance = Instance::new();
         assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
         assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
-
     }
 }
