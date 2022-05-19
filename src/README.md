@@ -22,3 +22,5 @@ Interfaces are used to provide functions that must exist when another function i
 [Swift Type Checker](https://github.com/apple/swift/blob/main/docs/TypeChecker.md)
 
 [NP-Hard Overload Resolution](https://docs.microsoft.com/en-us/archive/blogs/ericlippert/lambda-expressions-vs-anonymous-methods-part-five)
+
+[Bidirectional Typing](https://arxiv.org/pdf/1908.05839.pdf)
