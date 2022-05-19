@@ -111,6 +111,11 @@ impl Checker {
             Expr::True | Expr::False => mk_type(Type::Bool),
             Expr::Int(_) => {
                 let t = self.fresh();
+                self.constraints.push(Constraint2::Or(
+                    t,
+                    vec![mk_type(Type::Int8), mk_type(Type::Int32)],
+                    arena.locs[id],
+                ));
                 let g = &mut self.type_graph;
                 let node = g.add_node();
                 g.add_possible(node, mk_type(Type::Int8));
