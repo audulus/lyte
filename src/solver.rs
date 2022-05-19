@@ -106,4 +106,18 @@ mod tests {
 
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_err());
     }
+
+    #[test]
+    pub fn test_or_1() {
+        let i = mk_type(Type::Int32);
+        let f = mk_type(Type::Float32);
+
+        let mut constraints = [
+            Constraint2::Or(i, vec![i, f], test_loc())
+        ];
+
+        let mut instance = Instance::new();
+        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
+        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
+    }
 }
