@@ -85,4 +85,16 @@ mod tests {
 
     }
 
+    #[test]
+    pub fn test_solve_2() {
+
+        let int8 = mk_type(Type::Int8);
+        let vd = mk_type(Type::Void);
+        let mut constraints = [Constraint2::Equal(vd, int8, test_loc())];
+        let mut instance = Instance::new();
+
+        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_err());
+
+    }
+
 }
