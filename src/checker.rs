@@ -191,6 +191,9 @@ impl Checker {
                         ),
                     )?;
 
+                    self.constraints
+                        .push(Constraint2::Equal(at, bt, arena.locs[id]));
+
                     mk_type(Type::Bool)
                 } else if let Binop::Assign = op {
                     // XXX: lhs should be lvalue.
