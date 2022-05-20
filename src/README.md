@@ -24,3 +24,5 @@ Interfaces are used to provide functions that must exist when another function i
 [NP-Hard Overload Resolution](https://docs.microsoft.com/en-us/archive/blogs/ericlippert/lambda-expressions-vs-anonymous-methods-part-five)
 
 [Bidirectional Typing](https://arxiv.org/pdf/1908.05839.pdf)
+
+[Query-Based Compilers](https://ollef.github.io/blog/posts/query-based-compilers.html)
