@@ -79,7 +79,7 @@ pub fn iterate_solver(
                     } else {
                         return Err(TypeError {
                             location: *loc,
-                            message: "no such field".into(),
+                            message: format!("no such field: {:?}", field_name).into(),
                         });
                     }
                 }
@@ -94,6 +94,31 @@ fn constraints_hash(constraints: &[Constraint2]) -> u64 {
     let mut s = DefaultHasher::new();
     constraints.hash(&mut s);
     s.finish()
+}
+
+pub fn print_constraints(constraints: &[Constraint2], inst: &Instance) {
+
+    println!("NEW constraints after solve: ");
+    for c in constraints {
+        println!("{:?}", c);
+    }
+
+}
+
+pub fn solved_constraints(
+    constraints: &[Constraint2],
+    instance: &Instance
+) -> Result<(), TypeError> {
+    for c in constraints {
+        if !c.solved(instance) {
+            return Err(TypeError {
+                location: c.loc(),
+                message: format!("ambiguous constraint: {:?}", c).into(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 pub fn solve_constraints(
@@ -116,6 +141,10 @@ pub fn solve_constraints(
         }
         i += 1;
     }
+
+    print_constraints(constraints, instance);
+
+    solved_constraints(constraints, instance)?;
 
     Ok(())
 }

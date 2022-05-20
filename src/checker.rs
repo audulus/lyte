@@ -543,18 +543,18 @@ impl Checker {
                 });
             }
 
-            if self.type_graph.solved() {
-                println!("🟩 solved type graph");
-            } else {
-                println!("❌ unable to solve type graph");
+            // if self.type_graph.solved() {
+            //     println!("🟩 solved type graph");
+            // } else {
+            //     println!("❌ unable to solve type graph");
 
-                return Err(TypeError {
-                    location: arena.locs[body],
-                    message: "type error".into(),
-                });
-            }
+            //     return Err(TypeError {
+            //         location: arena.locs[body],
+            //         message: "type error".into(),
+            //     });
+            // }
 
-            // solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
+            solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
 
             Ok(())
         } else {
