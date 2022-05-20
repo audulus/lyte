@@ -14,10 +14,6 @@ struct Var {
 }
 
 pub struct Checker {
-    /// The constraint graph for solving for
-    /// anonymous type variables.
-    type_graph: TypeGraph,
-
     /// Expression types.
     pub types: Vec<TypeID>,
 
@@ -63,7 +59,6 @@ impl Checker {
         }
 
         Self {
-            type_graph: TypeGraph::new(),
             types: vec![],
             lvalue: vec![],
             inst: Instance::new(),
@@ -83,7 +78,6 @@ impl Checker {
         loc: Loc,
         error_message: &str,
     ) -> Result<(), TypeError> {
-        self.type_graph.eq_types(lhs, rhs, loc);
         self.constraints.push(Constraint2::Equal(lhs, rhs, loc));
         if unify(lhs, rhs, &mut self.inst) {
             Ok(())
@@ -122,26 +116,18 @@ impl Checker {
                     v.ty
                 } else {
                     let t = self.fresh();
-                    let g = &mut self.type_graph;
-                    let type_node = g.add_node();
-                    g.add_possible(type_node, t);
-                    let decls_node = g.add_node();
-                    g.eq_constraint(type_node, decls_node, arena.locs[id]);
-
                     let mut alternatives = vec![];
                     let mut found = false;
                     for d in decls {
                         if let Decl::Func(FuncDecl { name: fname, .. }) = d {
                             if fname == name {
                                 let dt = fresh(d.ty(), &mut self.next_anon);
-                                g.add_possible(decls_node, dt);
                                 alternatives.push(dt);
                                 found = true;
                             }
                         }
                         if let Decl::Global { name: gname, .. } = d {
                             if gname == name {
-                                g.add_possible(decls_node, d.ty());
                                 alternatives.push(d.ty());
                                 found = true;
                             }
@@ -312,33 +298,21 @@ impl Checker {
                 self.constraints
                     .push(Constraint2::Field(lhs_t, *name, t, arena.locs[id]));
 
-                let structs_node =
-                    self.type_graph
-                        .field_constraint(structs, t, *name, arena.locs[id]);
-                let lhs_node = self.type_graph.add_type_node(lhs_t);
-                self.type_graph
-                    .eq_constraint(lhs_node, structs_node, arena.locs[id]);
-
                 t
             }
             Expr::Enum(name) => {
                 let t = self.fresh();
-                let g = &mut self.type_graph;
-                let enums_node = g.add_node();
                 let mut alternatives = vec![];
 
                 // Find all the enum declarations with that name.
                 find_enums_with_case(decls, *name, &mut |enum_name| {
                     let enum_ty = mk_type(Type::Name(enum_name, vec![]));
-                    g.add_possible(enums_node, enum_ty);
                     alternatives.push(enum_ty);
                 });
 
                 self.constraints
                     .push(Constraint2::Or(t, alternatives, arena.locs[id]));
 
-                let t_node = g.add_type_node(t);
-                g.eq_constraint(enums_node, t_node, arena.locs[id]);
                 t
             }
             Expr::Block(exprs) => {
@@ -378,14 +352,10 @@ impl Checker {
             Expr::Return(expr) => self.check_expr(*expr, arena, decls)?,
             Expr::ArrayLiteral(exprs) => {
                 let t = self.fresh();
-                let t_node = self.type_graph.add_type_node(t);
                 for e in exprs {
                     let elem_t = self.check_expr(*e, arena, decls)?;
                     self.constraints
                         .push(Constraint2::Equal(t, elem_t, arena.locs[*e]));
-                    let elem_node = self.type_graph.add_type_node(elem_t);
-                    self.type_graph
-                        .eq_constraint(t_node, elem_node, arena.locs[*e]);
                 }
                 mk_type(Type::Array(t, 0))
             }
@@ -496,7 +466,6 @@ impl Checker {
         if let Some(body) = func_decl.body {
             println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
-            self.type_graph = TypeGraph::new();
             self.inst.clear();
             self.constraints.clear();
 
@@ -521,43 +490,13 @@ impl Checker {
 
             self.vars.clear();
 
-            self.type_graph.validate();
-
-            println!("🟧 type graph before solving:");
-            self.type_graph.print();
-            println!("🟧 end type graph");
-
-            let r = self.type_graph.solve(decls);
+            solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
 
             println!("instance:");
 
-            for (k, v) in &self.type_graph.inst {
+            for (k, v) in &self.inst {
                 println!("  {:?} ➡️ {:?}", k, v);
             }
-
-            println!("🟧 type graph after solving:");
-            self.type_graph.print();
-            println!("🟧 end type graph");
-
-            if let Err(loc) = r {
-                return Err(TypeError {
-                    location: loc,
-                    message: "type error".into(),
-                });
-            }
-
-            // if self.type_graph.solved() {
-            //     println!("🟩 solved type graph");
-            // } else {
-            //     println!("❌ unable to solve type graph");
-
-            //     return Err(TypeError {
-            //         location: arena.locs[body],
-            //         message: "type error".into(),
-            //     });
-            // }
-
-            solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
 
             Ok(())
         } else {
