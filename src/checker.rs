@@ -191,6 +191,24 @@ impl Checker {
                     )?;
 
                     at
+                } else if op.arithmetic() {
+                    
+                    let ft = self.fresh();
+                    self.constraints.push(Constraint2::Or(ft, self.arith_overloads.clone(), arena.locs[id]));
+
+                    let r = self.fresh();
+
+                    self.eq(
+                        func(tuple(vec![at, bt]), r),
+                        ft,
+                        arena.locs[id],
+                        &format!(
+                            "no match for arithemtic between {:?} and {:?}",
+                            at, bt
+                        ),
+                    )?;
+
+                    r
                 } else {
                     self.fresh()
                 }
