@@ -64,14 +64,18 @@ impl Compiler {
         }
     }
 
+    /// Add a path to the program.
     pub fn add_path(&mut self, path: &str) {
         self.trees.entry(path.into()).or_insert(None);
     }
 
+    /// Remove a file path from the program.
     pub fn remove_path(&mut self, path: &str) {
         self.trees.remove(path.into());
     }
 
+    /// Let the compiler know that the contents of a file
+    /// has changed.
     pub fn update_path(&mut self, path: &str) {
         *self.trees.entry(path.into()).or_insert(None) = None;
     }
