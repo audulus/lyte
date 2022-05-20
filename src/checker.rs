@@ -39,7 +39,7 @@ pub struct Checker {
     neg_overloads: Vec<TypeID>,
 
     /// New constraints.
-    constraints: Vec<Constraint2>,
+    constraints: Vec<Constraint>,
 }
 
 impl Checker {
@@ -78,7 +78,7 @@ impl Checker {
         loc: Loc,
         error_message: &str,
     ) -> Result<(), TypeError> {
-        self.constraints.push(Constraint2::Equal(lhs, rhs, loc));
+        self.constraints.push(Constraint::Equal(lhs, rhs, loc));
         if unify(lhs, rhs, &mut self.inst) {
             Ok(())
         } else {
@@ -135,7 +135,7 @@ impl Checker {
                     }
 
                     self.constraints
-                        .push(Constraint2::Or(t, alternatives, arena.locs[id]));
+                        .push(Constraint::Or(t, alternatives, arena.locs[id]));
 
                     if !found {
                         return Err(TypeError {
@@ -180,7 +180,7 @@ impl Checker {
                 } else if op.arithmetic() {
                     
                     let ft = self.fresh();
-                    self.constraints.push(Constraint2::Or(ft, self.arith_overloads.clone(), arena.locs[id]));
+                    self.constraints.push(Constraint::Or(ft, self.arith_overloads.clone(), arena.locs[id]));
 
                     let r = self.fresh();
 
@@ -296,7 +296,7 @@ impl Checker {
                 }
 
                 self.constraints
-                    .push(Constraint2::Field(lhs_t, *name, t, arena.locs[id]));
+                    .push(Constraint::Field(lhs_t, *name, t, arena.locs[id]));
 
                 t
             }
@@ -311,7 +311,7 @@ impl Checker {
                 });
 
                 self.constraints
-                    .push(Constraint2::Or(t, alternatives, arena.locs[id]));
+                    .push(Constraint::Or(t, alternatives, arena.locs[id]));
 
                 t
             }
@@ -355,7 +355,7 @@ impl Checker {
                 for e in exprs {
                     let elem_t = self.check_expr(*e, arena, decls)?;
                     self.constraints
-                        .push(Constraint2::Equal(t, elem_t, arena.locs[*e]));
+                        .push(Constraint::Equal(t, elem_t, arena.locs[*e]));
                 }
                 mk_type(Type::Array(t, 0))
             }

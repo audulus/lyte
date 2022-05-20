@@ -3,7 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
-pub enum Constraint2 {
+pub enum Constraint {
     /// Equality.
     Equal(TypeID, TypeID, Loc),
 
@@ -14,12 +14,12 @@ pub enum Constraint2 {
     Field(TypeID, Name, TypeID, Loc),
 }
 
-impl Constraint2 {
+impl Constraint {
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
-            Constraint2::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
-            Constraint2::Or(_, _, _) => false,
-            Constraint2::Field(struct_ty, _, ft, _) => {
+            Constraint::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
+            Constraint::Or(_, _, _) => false,
+            Constraint::Field(struct_ty, _, ft, _) => {
                 solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
             }
         }
@@ -27,21 +27,21 @@ impl Constraint2 {
 
     pub fn loc(&self) -> Loc {
         match self {
-            Constraint2::Equal(_, _, loc) => *loc,
-            Constraint2::Or(_, _, loc) => *loc,
-            Constraint2::Field(_, _, _, loc) => *loc,
+            Constraint::Equal(_, _, loc) => *loc,
+            Constraint::Or(_, _, loc) => *loc,
+            Constraint::Field(_, _, _, loc) => *loc,
         }
     }
 
     pub fn print(&self, inst: &Instance) {
         match self {
-            Constraint2::Equal(a, b, loc) => println!(
+            Constraint::Equal(a, b, loc) => println!(
                 "Equal({:?}, {:?}, {:?})",
                 subst(*a, inst),
                 subst(*b, inst),
                 loc
             ),
-            Constraint2::Or(a, alts, loc) => println!(
+            Constraint::Or(a, alts, loc) => println!(
                 "Or({:?}, {:?}, {:?})",
                 subst(*a, inst),
                 (*alts)
@@ -50,7 +50,7 @@ impl Constraint2 {
                     .collect::<Vec<TypeID>>(),
                 loc
             ),
-            Constraint2::Field(a, name, b, loc) => println!(
+            Constraint::Field(a, name, b, loc) => println!(
                 "Field({:?}, {:?}, {:?}, {:?})",
                 subst(*a, inst),
                 name,
@@ -62,13 +62,13 @@ impl Constraint2 {
 }
 
 pub fn iterate_solver(
-    constraints: &mut [Constraint2],
+    constraints: &mut [Constraint],
     instance: &mut Instance,
     decls: &[Decl],
 ) -> Result<(), TypeError> {
     for constraint in constraints {
         match constraint {
-            Constraint2::Equal(a, b, loc) => {
+            Constraint::Equal(a, b, loc) => {
                 if !unify(*a, *b, instance) {
                     return Err(TypeError {
                         location: *loc,
@@ -76,7 +76,7 @@ pub fn iterate_solver(
                     });
                 }
             }
-            Constraint2::Or(t, alts, loc) => {
+            Constraint::Or(t, alts, loc) => {
                 // Try to narrow it down.
                 alts.retain(|tt| {
                     // Start from the instance we know so far.
@@ -94,17 +94,17 @@ pub fn iterate_solver(
 
                 // Just a single option. Better unify!
                 if alts.len() == 1 {
-                    *constraint = Constraint2::Equal(*t, alts[0], *loc);
+                    *constraint = Constraint::Equal(*t, alts[0], *loc);
                 }
             }
-            Constraint2::Field(struct_ty, field_name, ft, loc) => {
+            Constraint::Field(struct_ty, field_name, ft, loc) => {
                 match *find(*struct_ty, instance) {
                     Type::Name(struct_name, _) => {
                         let decl = find_decl(decls, struct_name).unwrap();
 
                         // We've narrowed it down. Better unify!
                         if let Some(field) = decl.find_field(*field_name) {
-                            *constraint = Constraint2::Equal(field.ty, *ft, *loc);
+                            *constraint = Constraint::Equal(field.ty, *ft, *loc);
                         } else {
                             return Err(TypeError {
                                 location: *loc,
@@ -114,7 +114,7 @@ pub fn iterate_solver(
                     }
                     Type::Array(_, _) => {
                         if *field_name == Name::new("len".into()) {
-                            *constraint = Constraint2::Equal(mk_type(Type::Int32), *ft, *loc);
+                            *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc);
                         } else {
                             return Err(TypeError {
                                 location: *loc,
@@ -131,20 +131,20 @@ pub fn iterate_solver(
     Ok(())
 }
 
-fn constraints_hash(constraints: &[Constraint2]) -> u64 {
+fn constraints_hash(constraints: &[Constraint]) -> u64 {
     let mut s = DefaultHasher::new();
     constraints.hash(&mut s);
     s.finish()
 }
 
-pub fn print_constraints(constraints: &[Constraint2], inst: &Instance) {
+pub fn print_constraints(constraints: &[Constraint], inst: &Instance) {
     for c in constraints {
         c.print(inst);
     }
 }
 
 pub fn solved_constraints(
-    constraints: &[Constraint2],
+    constraints: &[Constraint],
     instance: &Instance,
 ) -> Result<(), TypeError> {
     for c in constraints {
@@ -160,7 +160,7 @@ pub fn solved_constraints(
 }
 
 pub fn solve_constraints(
-    constraints: &mut [Constraint2],
+    constraints: &mut [Constraint],
     instance: &mut Instance,
     decls: &[Decl],
 ) -> Result<(), TypeError> {
@@ -199,7 +199,7 @@ mod tests {
     pub fn test_solve_1() {
         let t = anon(0);
         let vd = mk_type(Type::Void);
-        let mut constraints = [Constraint2::Equal(vd, t, test_loc())];
+        let mut constraints = [Constraint::Equal(vd, t, test_loc())];
         let mut instance = Instance::new();
 
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
@@ -210,7 +210,7 @@ mod tests {
     pub fn test_solve_2() {
         let int8 = mk_type(Type::Int8);
         let vd = mk_type(Type::Void);
-        let mut constraints = [Constraint2::Equal(vd, int8, test_loc())];
+        let mut constraints = [Constraint::Equal(vd, int8, test_loc())];
         let mut instance = Instance::new();
 
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_err());
@@ -222,8 +222,8 @@ mod tests {
         let t = anon(0);
         let vd = mk_type(Type::Void);
         let mut constraints = [
-            Constraint2::Equal(vd, t, test_loc()),
-            Constraint2::Equal(int8, t, test_loc()),
+            Constraint::Equal(vd, t, test_loc()),
+            Constraint::Equal(int8, t, test_loc()),
         ];
         let mut instance = Instance::new();
 
@@ -235,7 +235,7 @@ mod tests {
         let i = mk_type(Type::Int32);
         let f = mk_type(Type::Float32);
 
-        let mut constraints = [Constraint2::Or(i, vec![i, f], test_loc())];
+        let mut constraints = [Constraint::Or(i, vec![i, f], test_loc())];
 
         let mut instance = Instance::new();
         assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
@@ -257,7 +257,7 @@ mod tests {
         let struct_ty = mk_type(Type::Name(s0name, vec![]));
         let v = anon(0);
 
-        let mut constraints = [Constraint2::Field(struct_ty, xname, v, test_loc())];
+        let mut constraints = [Constraint::Field(struct_ty, xname, v, test_loc())];
 
         let mut instance = Instance::new();
         assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
