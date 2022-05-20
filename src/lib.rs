@@ -5,8 +5,6 @@ use defs::*;
 mod types;
 use types::*;
 
-mod typegraph;
-
 pub mod lexer;
 use lexer::*;
 
