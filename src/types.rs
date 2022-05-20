@@ -102,6 +102,18 @@ pub fn solved(t: TypeID) -> bool {
     }
 }
 
+pub fn solved_inst(t: TypeID, inst: &Instance) -> bool {
+    let tt = find(t, inst);
+    match &*tt {
+        Type::Tuple(v) => v.iter().all(|t| solved(*t)),
+        Type::Func(a, b) => solved(*a) && solved(*b),
+        Type::Array(a, _) => solved(*a),
+        Type::Var(_) => true,
+        Type::Anon(_) => false,
+        _ => true,
+    }
+}
+
 pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     let lhs = find(lhs, inst);
     let rhs = find(rhs, inst);
