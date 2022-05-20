@@ -6,7 +6,6 @@ mod types;
 use types::*;
 
 mod typegraph;
-use typegraph::*;
 
 pub mod lexer;
 use lexer::*;
