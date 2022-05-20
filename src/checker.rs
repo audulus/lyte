@@ -378,6 +378,8 @@ impl Checker {
                 let t_node = self.type_graph.add_type_node(t);
                 for e in exprs {
                     let elem_t = self.check_expr(*e, arena, decls)?;
+                    self.constraints
+                        .push(Constraint2::Equal(t, elem_t, arena.locs[*e]));
                     let elem_node = self.type_graph.add_type_node(elem_t);
                     self.type_graph
                         .eq_constraint(t_node, elem_node, arena.locs[*e]);
