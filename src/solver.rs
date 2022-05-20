@@ -165,7 +165,7 @@ pub fn solve_constraints(
     decls: &[Decl],
 ) -> Result<(), TypeError> {
 
-    println!("NEW constraints before solve: ");
+    println!("constraints before solve: ");
     print_constraints(constraints, &Instance::new());
 
     // Continue as long as we can make changes.
@@ -183,7 +183,7 @@ pub fn solve_constraints(
         i += 1;
     }
 
-    println!("NEW constraints after solve: ");
+    println!("constraints after solve: ");
     print_constraints(constraints, instance);
 
     solved_constraints(constraints, instance)?;
