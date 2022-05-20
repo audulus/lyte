@@ -191,9 +191,6 @@ impl Checker {
                         ),
                     )?;
 
-                    self.constraints
-                        .push(Constraint2::Equal(at, bt, arena.locs[id]));
-
                     mk_type(Type::Bool)
                 } else if let Binop::Assign = op {
                     // XXX: lhs should be lvalue.
@@ -308,6 +305,9 @@ impl Checker {
                 if *name == Name::new("len".into()) {
                     structs.push(lhs_t);
                 }
+
+                self.constraints
+                    .push(Constraint2::Field(lhs_t, *name, t, arena.locs[id]));
 
                 let structs_node =
                     self.type_graph
