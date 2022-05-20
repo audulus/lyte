@@ -76,6 +76,7 @@ impl Compiler {
         *self.trees.entry(path.into()).or_insert(None) = None;
     }
 
+    /// Returns all declarations in the program.
     pub fn get_decls(&mut self) -> Vec<Decl> {
 
         let decls = vec![];
