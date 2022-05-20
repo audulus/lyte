@@ -38,5 +38,4 @@ fn main() {
     if !passed {
         std::process::exit(1)
     }
-
 }

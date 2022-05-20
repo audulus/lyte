@@ -19,8 +19,9 @@ impl Constraint2 {
         match self {
             Constraint2::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
             Constraint2::Or(_, _, _) => false,
-            Constraint2::Field(struct_ty, _, ft, _) => 
+            Constraint2::Field(struct_ty, _, ft, _) => {
                 solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
+            }
         }
     }
 
@@ -29,6 +30,33 @@ impl Constraint2 {
             Constraint2::Equal(_, _, loc) => *loc,
             Constraint2::Or(_, _, loc) => *loc,
             Constraint2::Field(_, _, _, loc) => *loc,
+        }
+    }
+
+    pub fn print(&self, inst: &Instance) {
+        match self {
+            Constraint2::Equal(a, b, loc) => println!(
+                "Equal({:?}, {:?}, {:?})",
+                find(*a, inst),
+                find(*b, inst),
+                loc
+            ),
+            Constraint2::Or(a, alts, loc) => println!(
+                "Or({:?}, {:?}, {:?})",
+                find(*a, inst),
+                (*alts)
+                    .iter()
+                    .map(|t| find(*t, inst))
+                    .collect::<Vec<TypeID>>(),
+                loc
+            ),
+            Constraint2::Field(a, name, b, loc) => println!(
+                "Field({:?}, {:?}, {:?}, {:?})",
+                find(*a, inst),
+                name,
+                find(*b, inst),
+                loc
+            ),
         }
     }
 }
@@ -97,17 +125,15 @@ fn constraints_hash(constraints: &[Constraint2]) -> u64 {
 }
 
 pub fn print_constraints(constraints: &[Constraint2], inst: &Instance) {
-
     println!("NEW constraints after solve: ");
     for c in constraints {
-        println!("{:?}", c);
+        c.print(inst);
     }
-
 }
 
 pub fn solved_constraints(
     constraints: &[Constraint2],
-    instance: &Instance
+    instance: &Instance,
 ) -> Result<(), TypeError> {
     for c in constraints {
         if !c.solved(instance) {
