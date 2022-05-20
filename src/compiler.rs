@@ -1,8 +1,15 @@
 use crate::*;
 use std::fs;
 use std::path::Path;
+use std::collections::HashMap;
+
+pub struct Tree {
+    pub decls: Vec<Decl>,
+    pub exprs: ExprArena
+}
 
 pub struct Compiler {
+    pub trees: HashMap<String, Option<Tree>>,
     pub decls: Vec<Decl>,
     pub exprs: ExprArena,
     pub checker: Checker,
@@ -11,10 +18,23 @@ pub struct Compiler {
 impl Compiler {
     pub fn new() -> Self {
         Self {
+            trees: HashMap::new(),
             decls: vec![],
             exprs: ExprArena::new(),
             checker: Checker::new(),
         }
+    }
+
+    pub fn add_path(&mut self, path: &str) {
+        self.trees.entry(path.into()).or_insert(None);
+    }
+
+    pub fn remove_path(&mut self, path: &str) {
+        self.trees.remove(path.into());
+    }
+
+    pub fn update_path(&mut self, path: &str) {
+        *self.trees.entry(path.into()).or_insert(None) = None;
     }
 
     pub fn parse_file(&mut self, path: &Path) -> bool {
