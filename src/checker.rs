@@ -322,11 +322,17 @@ impl Checker {
                 let t = self.fresh();
                 let g = &mut self.type_graph;
                 let enums_node = g.add_node();
+                let mut alternatives = vec![];
 
                 // Find all the enum declarations with that name.
                 find_enums_with_case(decls, *name, &mut |enum_name| {
-                    g.add_possible(enums_node, mk_type(Type::Name(enum_name, vec![])));
+                    let enum_ty = mk_type(Type::Name(enum_name, vec![]));
+                    g.add_possible(enums_node, enum_ty);
+                    alternatives.push(enum_ty);
                 });
+
+                self.constraints
+                    .push(Constraint2::Or(t, alternatives, arena.locs[id]));
 
                 let t_node = g.add_type_node(t);
                 g.eq_constraint(enums_node, t_node, arena.locs[id]);
