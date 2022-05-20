@@ -24,34 +24,34 @@ pub struct Compiler {
     pub checker: Checker,
 }
 
-fn parse_file(path: &str, tree_ref: &mut Option<Tree>) {
+fn parse_file(path: &str) -> Option<Tree> {
 
-    if tree_ref.is_none() {
-        let mut tree = Tree::new();
+    let mut tree = Tree::new();
 
-        let path = Path::new(path);
+    let path = Path::new(path);
 
-        if let Ok(string) = fs::read_to_string(path) {
-            println!("parsing file: {:?}", path);
-            let mut lexer = Lexer::new(&string, path.to_str().unwrap());
-            lexer.next();
-            match parse_program(&mut lexer, &mut tree.exprs) {
-                Ok(decls) => {
-                    tree.decls.extend(decls);
-                }
-                Err(err) => {
-                    println!(
-                        "{}:{}: {}",
-                        err.location.file, err.location.line, err.message
-                    );
-                }
+    if let Ok(string) = fs::read_to_string(path) {
+        println!("parsing file: {:?}", path);
+        let mut lexer = Lexer::new(&string, path.to_str().unwrap());
+        lexer.next();
+        match parse_program(&mut lexer, &mut tree.exprs) {
+            Ok(decls) => {
+                tree.decls.extend(decls);
             }
-        } else {
-            println!("error reading file: {:?}", path);
+            Err(err) => {
+                println!(
+                    "{}:{}: {}",
+                    err.location.file, err.location.line, err.message
+                );
+                return None;
+            }
         }
-
-        *tree_ref = Some(tree)
+    } else {
+        println!("error reading file: {:?}", path);
+        return None;
     }
+
+    Some(tree)
 }
 
 impl Compiler {
@@ -81,7 +81,9 @@ impl Compiler {
         let decls = vec![];
 
         for (path, tree) in &mut self.trees {
-            parse_file(&path, tree);
+            if tree.is_none() {
+                *tree = parse_file(&path);
+            }
         }
 
         decls
