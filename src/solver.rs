@@ -37,24 +37,24 @@ impl Constraint2 {
         match self {
             Constraint2::Equal(a, b, loc) => println!(
                 "Equal({:?}, {:?}, {:?})",
-                find(*a, inst),
-                find(*b, inst),
+                subst(*a, inst),
+                subst(*b, inst),
                 loc
             ),
             Constraint2::Or(a, alts, loc) => println!(
                 "Or({:?}, {:?}, {:?})",
-                find(*a, inst),
+                subst(*a, inst),
                 (*alts)
                     .iter()
-                    .map(|t| find(*t, inst))
+                    .map(|t| subst(*t, inst))
                     .collect::<Vec<TypeID>>(),
                 loc
             ),
             Constraint2::Field(a, name, b, loc) => println!(
                 "Field({:?}, {:?}, {:?}, {:?})",
-                find(*a, inst),
+                subst(*a, inst),
                 name,
-                find(*b, inst),
+                subst(*b, inst),
                 loc
             ),
         }
@@ -125,7 +125,6 @@ fn constraints_hash(constraints: &[Constraint2]) -> u64 {
 }
 
 pub fn print_constraints(constraints: &[Constraint2], inst: &Instance) {
-    println!("NEW constraints after solve: ");
     for c in constraints {
         c.print(inst);
     }
@@ -152,6 +151,10 @@ pub fn solve_constraints(
     instance: &mut Instance,
     decls: &[Decl],
 ) -> Result<(), TypeError> {
+
+    println!("NEW constraints before solve: ");
+    print_constraints(constraints, &Instance::new());
+
     // Continue to propagate as long as we
     // can make changes.
     let mut i = 0;
@@ -168,6 +171,7 @@ pub fn solve_constraints(
         i += 1;
     }
 
+    println!("NEW constraints after solve: ");
     print_constraints(constraints, instance);
 
     solved_constraints(constraints, instance)?;
