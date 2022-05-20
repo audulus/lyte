@@ -495,6 +495,7 @@ impl Checker {
 
             self.type_graph = TypeGraph::new();
             self.inst.clear();
+            self.constraints.clear();
 
             for param in &func_decl.params {
                 self.vars.push(Var {
