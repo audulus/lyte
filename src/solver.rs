@@ -14,6 +14,25 @@ pub enum Constraint2 {
     Field(TypeID, Name, TypeID, Loc),
 }
 
+impl Constraint2 {
+    pub fn solved(&self, inst: &Instance) -> bool {
+        match self {
+            Constraint2::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
+            Constraint2::Or(_, _, _) => false,
+            Constraint2::Field(struct_ty, _, ft, _) => 
+                solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
+        }
+    }
+
+    pub fn loc(&self) -> Loc {
+        match self {
+            Constraint2::Equal(_, _, loc) => *loc,
+            Constraint2::Or(_, _, loc) => *loc,
+            Constraint2::Field(_, _, _, loc) => *loc,
+        }
+    }
+}
+
 pub fn iterate_solver(
     constraints: &mut [Constraint2],
     instance: &mut Instance,
