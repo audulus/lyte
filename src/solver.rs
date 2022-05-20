@@ -98,18 +98,31 @@ pub fn iterate_solver(
                 }
             }
             Constraint2::Field(struct_ty, field_name, ft, loc) => {
-                if let Type::Name(struct_name, _) = *find(*struct_ty, instance) {
-                    let decl = find_decl(decls, struct_name).unwrap();
+                match *find(*struct_ty, instance) {
+                    Type::Name(struct_name, _) => {
+                        let decl = find_decl(decls, struct_name).unwrap();
 
-                    // We've narrowed it down. Better unify!
-                    if let Some(field) = decl.find_field(*field_name) {
-                        *constraint = Constraint2::Equal(field.ty, *ft, *loc);
-                    } else {
-                        return Err(TypeError {
-                            location: *loc,
-                            message: format!("no such field: {:?}", field_name).into(),
-                        });
+                        // We've narrowed it down. Better unify!
+                        if let Some(field) = decl.find_field(*field_name) {
+                            *constraint = Constraint2::Equal(field.ty, *ft, *loc);
+                        } else {
+                            return Err(TypeError {
+                                location: *loc,
+                                message: format!("no such field: {:?}", field_name).into(),
+                            });
+                        }
                     }
+                    Type::Array(_, _) => {
+                        if *field_name == Name::new("len".into()) {
+                            *constraint = Constraint2::Equal(mk_type(Type::Int32), *ft, *loc);
+                        } else {
+                            return Err(TypeError {
+                                location: *loc,
+                                message: format!("array only has len field, not {:?}", field_name).into(),
+                            });
+                        }
+                    }
+                    _ => ()
                 }
             }
         }
