@@ -168,8 +168,7 @@ pub fn solve_constraints(
     println!("NEW constraints before solve: ");
     print_constraints(constraints, &Instance::new());
 
-    // Continue to propagate as long as we
-    // can make changes.
+    // Continue as long as we can make changes.
     let mut i = 0;
     loop {
         let h = constraints_hash(constraints);
