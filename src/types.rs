@@ -105,9 +105,9 @@ pub fn solved(t: TypeID) -> bool {
 pub fn solved_inst(t: TypeID, inst: &Instance) -> bool {
     let tt = find(t, inst);
     match &*tt {
-        Type::Tuple(v) => v.iter().all(|t| solved(*t)),
-        Type::Func(a, b) => solved(*a) && solved(*b),
-        Type::Array(a, _) => solved(*a),
+        Type::Tuple(v) => v.iter().all(|t| solved_inst(*t, inst)),
+        Type::Func(a, b) => solved_inst(*a, inst) && solved_inst(*b, inst),
+        Type::Array(a, _) => solved_inst(*a, inst),
         Type::Var(_) => true,
         Type::Anon(_) => false,
         _ => true,
