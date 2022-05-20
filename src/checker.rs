@@ -549,6 +549,8 @@ impl Checker {
                 println!("❌ unable to solve type graph");
             }
 
+            solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
+
             Ok(())
         } else {
             Ok(())
