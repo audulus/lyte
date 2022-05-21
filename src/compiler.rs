@@ -98,11 +98,13 @@ trait Checker2: Parser {
 }
 
 /// Check a single declaration.
-fn check_decl(_db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
+fn check_decl(db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
+
+    let decls = db.decls();
 
     let mut checker = Checker::new();
 
-    let result = match checker.check_decl(&decl, &tree.exprs, &tree.decls) {
+    let result = match checker.check_decl(&decl, &tree.exprs, &decls) {
         Ok(_) => true,
         Err(err) => {
             println!(
