@@ -26,21 +26,17 @@ pub trait Inputs {
 }
 
 #[salsa::query_group(ParserStorage)]
-trait Parser {
-
-    #[salsa::input]
-    fn source(&self, key: ()) -> Arc<String>;
-
-    fn ast(&self, key: ()) -> Tree;
+trait Parser: Inputs {
+    fn ast(&self, name: String) -> Tree;
 }
 
-fn ast(db: &dyn Parser, (): ()) -> Tree {
+fn ast(db: &dyn Parser, name: String) -> Tree {
+
     // Read the input string:
-    let input_string = db.source(());
+    let input_string = db.input_file(name.clone());
+    let mut lexer = Lexer::new(&input_string, &name);
 
     let mut tree = Tree::new();
-
-    let mut lexer = Lexer::new(&input_string, "unknown path".into());
 
     lexer.next();
     match parse_program(&mut lexer, &mut tree.exprs) {
@@ -58,16 +54,16 @@ fn ast(db: &dyn Parser, (): ()) -> Tree {
     tree
 }
 
-#[salsa::database(ParserStorage)]
+//#[salsa::database(ParserStorage)]
 pub struct Compiler {
-    storage: salsa::Storage<Self>,
+    //storage: salsa::Storage<Self>,
     pub trees: HashMap<String, Option<Tree>>,
     pub decls: Vec<Decl>,
     pub exprs: ExprArena,
     pub checker: Checker,
 }
 
-impl salsa::Database for Compiler {}
+//impl salsa::Database for Compiler {}
 
 fn parse_file(path: &str) -> Option<Tree> {
 
@@ -102,7 +98,7 @@ fn parse_file(path: &str) -> Option<Tree> {
 impl Compiler {
     pub fn new() -> Self {
         Self {
-            storage: salsa::Storage::default(),
+            //storage: salsa::Storage::default(),
             trees: HashMap::new(),
             decls: vec![],
             exprs: ExprArena::new(),
