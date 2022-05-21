@@ -34,6 +34,21 @@ fn ast(db: &dyn ASTForFile, (): ()) -> Tree {
 
     let mut tree = Tree::new();
 
+    let mut lexer = Lexer::new(&input_string, "unknown path".into());
+    
+    lexer.next();
+    match parse_program(&mut lexer, &mut tree.exprs) {
+        Ok(decls) => {
+            tree.decls.extend(decls);
+        }
+        Err(err) => {
+            println!(
+                "{}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+        }
+    }
+
     tree
 }
 
