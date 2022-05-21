@@ -28,8 +28,7 @@ pub trait Inputs {
 #[salsa::query_group(ParserStorage)]
 trait Parser: Inputs {
     fn ast(&self, path: String) -> Tree;
-    fn program_ast(&self) -> Tree;
-    fn program_ast2(&self) -> Vec<Tree>;
+    fn program_ast(&self) -> Vec<Tree>;
     fn decls(&self) -> Vec<Decl>;
 }
 
@@ -58,16 +57,8 @@ fn ast(db: &dyn Parser, path: String) -> Tree {
     tree
 }
 
-fn program_ast(db: &dyn Parser) -> Tree {
-    let paths = db.paths();
-
-    assert_eq!(paths.len(), 1); // XXX: for now
-
-    db.ast(paths[0].clone())
-}
-
 /// ASTs for all files.
-fn program_ast2(db: &dyn Parser) -> Vec<Tree> {
+fn program_ast(db: &dyn Parser) -> Vec<Tree> {
     let paths = db.paths();
     let mut trees = vec![];
 
@@ -82,7 +73,7 @@ fn program_ast2(db: &dyn Parser) -> Vec<Tree> {
 fn decls(db: &dyn Parser) -> Vec<Decl> {
 
     let mut decls = vec![];
-    let mut trees = db.program_ast2();
+    let mut trees = db.program_ast();
 
     for tree in &mut trees {
         decls.append(&mut tree.decls);
@@ -126,7 +117,7 @@ fn check_decl(db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
 
 fn check(db: &dyn Checker2) -> bool {
 
-    let trees = db.program_ast2();
+    let trees = db.program_ast();
     let mut result = true;
 
     for tree in trees {
