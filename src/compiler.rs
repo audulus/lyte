@@ -20,6 +20,9 @@ impl Tree {
 #[salsa::query_group(InputsStorage)]
 pub trait Inputs {
     #[salsa::input]
+    fn paths(&self) -> Vec<String>;
+
+    #[salsa::input]
     fn source_text(&self, name: String) -> String;
 }
 
