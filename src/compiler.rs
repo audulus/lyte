@@ -29,6 +29,7 @@ pub trait Inputs {
 trait Parser: Inputs {
     fn ast(&self, path: String) -> Tree;
     fn program_ast(&self) -> Tree;
+    fn program_ast2(&self) -> Vec<Tree>;
     fn decls(&self) -> Vec<Decl>;
 }
 
@@ -64,13 +65,24 @@ fn program_ast(db: &dyn Parser) -> Tree {
     db.ast(paths[0].clone())
 }
 
-fn decls(db: &dyn Parser) -> Vec<Decl> {
+fn program_ast2(db: &dyn Parser) -> Vec<Tree> {
     let paths = db.paths();
-
-    let mut decls = vec![];
+    let mut trees = vec![];
 
     for path in paths {
-        decls.append(&mut db.ast(path).decls);
+        trees.push(db.ast(path));
+    }
+
+    trees
+}
+
+fn decls(db: &dyn Parser) -> Vec<Decl> {
+
+    let mut decls = vec![];
+    let mut trees = db.program_ast2();
+
+    for tree in &mut trees {
+        decls.append(&mut tree.decls);
     }
 
     decls
