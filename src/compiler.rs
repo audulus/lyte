@@ -23,19 +23,19 @@ pub trait Inputs {
     fn paths(&self) -> Vec<String>;
 
     #[salsa::input]
-    fn source_text(&self, name: String) -> String;
+    fn source_text(&self, path: String) -> String;
 }
 
 #[salsa::query_group(ParserStorage)]
 trait Parser: Inputs {
-    fn ast(&self, name: String) -> Tree;
+    fn ast(&self, path: String) -> Tree;
 }
 
-fn ast(db: &dyn Parser, name: String) -> Tree {
+fn ast(db: &dyn Parser, path: String) -> Tree {
 
     // Read the input string:
-    let input_string = db.source_text(name.clone());
-    let mut lexer = Lexer::new(&input_string, &name);
+    let input_string = db.source_text(path.clone());
+    let mut lexer = Lexer::new(&input_string, &path);
 
     let mut tree = Tree::new();
 
