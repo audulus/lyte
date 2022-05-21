@@ -21,7 +21,7 @@ impl Tree {
 #[salsa::query_group(InputsStorage)]
 pub trait Inputs {
     #[salsa::input]
-    fn input_file(&self, name: String) -> String;
+    fn source_text(&self, name: String) -> String;
 }
 
 #[salsa::query_group(ParserStorage)]
@@ -32,7 +32,7 @@ trait Parser: Inputs {
 fn ast(db: &dyn Parser, name: String) -> Tree {
 
     // Read the input string:
-    let input_string = db.input_file(name.clone());
+    let input_string = db.source_text(name.clone());
     let mut lexer = Lexer::new(&input_string, &name);
 
     let mut tree = Tree::new();
