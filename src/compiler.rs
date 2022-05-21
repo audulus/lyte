@@ -53,6 +53,13 @@ fn ast(db: &dyn Parser, name: String) -> Tree {
     tree
 }
 
+#[salsa::database(InputsStorage, ParserStorage)]
+struct Database {
+    storage: salsa::Storage<Self>
+}
+
+impl salsa::Database for Database {}
+
 //#[salsa::database(ParserStorage)]
 pub struct Compiler {
     //storage: salsa::Storage<Self>,
