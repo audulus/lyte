@@ -76,16 +76,15 @@ fn check(db: &dyn Checker2) -> bool {
     let mut checker = Checker::new();
 
     match checker.check(&tree.exprs, &tree.decls) {
-        Ok(_) => {}
+        Ok(_) => true,
         Err(err) => {
             println!(
                 "❌ {}:{}: {}",
                 err.location.file, err.location.line, err.message
             );
-            return false;
+            false
         }
     }
-    true
     
 }
 
