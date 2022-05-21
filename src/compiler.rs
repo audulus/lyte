@@ -115,26 +115,6 @@ fn check_decl(db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
         }
     };
 
-    result
-}
-
-fn check(db: &dyn Checker2) -> bool {
-
-    let tree = db.program_ast();
-
-    let mut checker = Checker::new();
-
-    let result = match checker.check(&tree.exprs, &tree.decls) {
-        Ok(_) => true,
-        Err(err) => {
-            println!(
-                "❌ {}:{}: {}",
-                err.location.file, err.location.line, err.message
-            );
-            false
-        }
-    };
-
     let mut i = 0;
     for expr in &tree.exprs.exprs {
         println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
@@ -142,7 +122,22 @@ fn check(db: &dyn Checker2) -> bool {
     }
 
     result
-    
+}
+
+fn check(db: &dyn Checker2) -> bool {
+
+    let trees = db.program_ast2();
+    let mut result = true;
+
+    for tree in trees {
+        for decl in &tree.decls {
+            if !db.check_decl(decl.clone(), tree.clone()) {
+                result = false;
+            }
+        }
+    }
+
+    result
 }
 
 #[salsa::database(InputsStorage, ParserStorage, CheckerStorage)]
