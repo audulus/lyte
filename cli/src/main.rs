@@ -13,29 +13,24 @@ fn main() {
 
     let args = Args::parse();
     let mut compiler = lyte::Compiler::new();
+    let mut paths = vec![];
 
-    if let Ok(paths) = fs::read_dir(args.file.clone()) {
-        for path in paths {
-            if !compiler.parse_file(&path.unwrap().path()) {
-                std::process::exit(1)
-            }
+    if let Ok(entries) = fs::read_dir(args.file.clone()) {
+        for entry in entries {
+            let path = entry.unwrap().path();
+            paths.push(path.into_os_string().into_string().unwrap());
         }
     } else {
-        let file = args.file;
-        if !compiler.parse_file(Path::new(&file)) {
-            std::process::exit(1)
-        }
+        paths.push(args.file.clone());
     }
 
-    let passed = compiler.check();
-
-    for decl in &compiler.decls {
-        println!("decl: {:?}", decl);
+    for path in &paths {
+        compiler.update_path(&path);
     }
 
-    compiler.print_exprs();
+    compiler.set_paths(paths);
 
-    if !passed {
+    if !compiler.check() {
         std::process::exit(1)
     }
 }

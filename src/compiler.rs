@@ -1,6 +1,5 @@
 use crate::*;
 use std::fs;
-use std::path::Path;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct Tree {
@@ -75,7 +74,7 @@ fn check(db: &dyn Checker2) -> bool {
 
     let mut checker = Checker::new();
 
-    match checker.check(&tree.exprs, &tree.decls) {
+    let result = match checker.check(&tree.exprs, &tree.decls) {
         Ok(_) => true,
         Err(err) => {
             println!(
@@ -84,7 +83,15 @@ fn check(db: &dyn Checker2) -> bool {
             );
             false
         }
+    };
+
+    let mut i = 0;
+    for expr in &tree.exprs.exprs {
+        println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
+        i += 1;
     }
+
+    result
     
 }
 
@@ -98,18 +105,12 @@ impl salsa::Database for Database {}
 
 pub struct Compiler {
     db: Database,
-    pub decls: Vec<Decl>,
-    pub exprs: ExprArena,
-    pub checker: Checker,
 }
 
 impl Compiler {
     pub fn new() -> Self {
         Self {
             db: Database::default(),
-            decls: vec![],
-            exprs: ExprArena::new(),
-            checker: Checker::new(),
         }
     }
 
@@ -121,63 +122,12 @@ impl Compiler {
         }
     }
 
-    /// Returns all declarations in the program.
-    // pub fn get_decls(&mut self) -> Vec<Decl> {
-
-    //     let decls = vec![];
-
-    //     for (path, tree) in &mut self.trees {
-    //         if tree.is_none() {
-    //             *tree = parse_file(&path);
-    //         }
-    //     }
-
-    //     decls
-    // }
-
-    pub fn parse_file(&mut self, path: &Path) -> bool {
-        if let Ok(string) = fs::read_to_string(path) {
-            println!("parsing file: {:?}", path);
-            let mut lexer = Lexer::new(&string, path.to_str().unwrap());
-            lexer.next();
-            match parse_program(&mut lexer, &mut self.exprs) {
-                Ok(decls) => {
-                    self.decls.extend(decls);
-                    true
-                }
-                Err(err) => {
-                    println!(
-                        "{}:{}: {}",
-                        err.location.file, err.location.line, err.message
-                    );
-                    false
-                }
-            }
-        } else {
-            println!("error reading file: {:?}", path);
-            false
-        }
+    pub fn set_paths(&mut self, paths: Vec<String>) {
+        self.db.set_paths(paths);
     }
 
     pub fn check(&mut self) -> bool {
-        match self.checker.check(&self.exprs, &self.decls) {
-            Ok(_) => {}
-            Err(err) => {
-                println!(
-                    "❌ {}:{}: {}",
-                    err.location.file, err.location.line, err.message
-                );
-                return false;
-            }
-        }
-        true
+        self.db.check()
     }
 
-    pub fn print_exprs(&self) {
-        let mut i = 0;
-        for expr in &self.exprs.exprs {
-            println!("{}: {:?}, {:?}", i, expr, self.checker.types[i]);
-            i += 1;
-        }
-    }
 }
