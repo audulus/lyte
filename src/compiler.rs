@@ -125,6 +125,11 @@ impl Compiler {
     /// Let the compiler know that the contents of a file
     /// has changed.
     pub fn update_path(&mut self, path: &str) {
+
+        if let Ok(string) = fs::read_to_string(path) {
+            self.db.set_source_text(path.into(), string);
+        }
+
         *self.trees.entry(path.into()).or_insert(None) = None;
     }
 
