@@ -1,7 +1,6 @@
 use crate::*;
 use std::fs;
 use std::path::Path;
-use std::collections::HashMap;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct Tree {
@@ -63,89 +62,42 @@ impl salsa::Database for Database {}
 
 pub struct Compiler {
     db: Database,
-    pub trees: HashMap<String, Option<Tree>>,
     pub decls: Vec<Decl>,
     pub exprs: ExprArena,
     pub checker: Checker,
-}
-
-//impl salsa::Database for Compiler {}
-
-fn parse_file(path: &str) -> Option<Tree> {
-
-    let mut tree = Tree::new();
-
-    let path = Path::new(path);
-
-    if let Ok(string) = fs::read_to_string(path) {
-        println!("parsing file: {:?}", path);
-        let mut lexer = Lexer::new(&string, path.to_str().unwrap());
-        lexer.next();
-        match parse_program(&mut lexer, &mut tree.exprs) {
-            Ok(decls) => {
-                tree.decls.extend(decls);
-            }
-            Err(err) => {
-                println!(
-                    "{}:{}: {}",
-                    err.location.file, err.location.line, err.message
-                );
-                return None;
-            }
-        }
-    } else {
-        println!("error reading file: {:?}", path);
-        return None;
-    }
-
-    Some(tree)
 }
 
 impl Compiler {
     pub fn new() -> Self {
         Self {
             db: Database::default(),
-            trees: HashMap::new(),
             decls: vec![],
             exprs: ExprArena::new(),
             checker: Checker::new(),
         }
     }
 
-    /// Add a path to the program.
-    pub fn add_path(&mut self, path: &str) {
-        self.trees.entry(path.into()).or_insert(None);
-    }
-
-    /// Remove a file path from the program.
-    pub fn remove_path(&mut self, path: &str) {
-        self.trees.remove(path.into());
-    }
-
     /// Let the compiler know that the contents of a file
     /// has changed.
     pub fn update_path(&mut self, path: &str) {
-
         if let Ok(string) = fs::read_to_string(path) {
             self.db.set_source_text(path.into(), string);
         }
-
-        *self.trees.entry(path.into()).or_insert(None) = None;
     }
 
     /// Returns all declarations in the program.
-    pub fn get_decls(&mut self) -> Vec<Decl> {
+    // pub fn get_decls(&mut self) -> Vec<Decl> {
 
-        let decls = vec![];
+    //     let decls = vec![];
 
-        for (path, tree) in &mut self.trees {
-            if tree.is_none() {
-                *tree = parse_file(&path);
-            }
-        }
+    //     for (path, tree) in &mut self.trees {
+    //         if tree.is_none() {
+    //             *tree = parse_file(&path);
+    //         }
+    //     }
 
-        decls
-    }
+    //     decls
+    // }
 
     pub fn parse_file(&mut self, path: &Path) -> bool {
         if let Ok(string) = fs::read_to_string(path) {
