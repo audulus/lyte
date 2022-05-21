@@ -35,7 +35,6 @@ trait Parser: Inputs {
 /// The AST for a file.
 fn ast(db: &dyn Parser, path: String) -> Tree {
 
-    // Read the input string:
     let input_string = db.source_text(path.clone());
     let mut lexer = Lexer::new(&input_string, &path);
 
