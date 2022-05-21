@@ -25,8 +25,8 @@ pub trait Inputs {
     fn input_file(&self, name: String) -> String;
 }
 
-#[salsa::query_group(LyteStorage)]
-trait ASTForString {
+#[salsa::query_group(ParserStorage)]
+trait Parser {
 
     #[salsa::input]
     fn source(&self, key: ()) -> Arc<String>;
@@ -34,7 +34,7 @@ trait ASTForString {
     fn ast(&self, key: ()) -> Tree;
 }
 
-fn ast(db: &dyn ASTForString, (): ()) -> Tree {
+fn ast(db: &dyn Parser, (): ()) -> Tree {
     // Read the input string:
     let input_string = db.source(());
 
@@ -58,7 +58,7 @@ fn ast(db: &dyn ASTForString, (): ()) -> Tree {
     tree
 }
 
-#[salsa::database(LyteStorage)]
+#[salsa::database(ParserStorage)]
 pub struct Compiler {
     storage: salsa::Storage<Self>,
     pub trees: HashMap<String, Option<Tree>>,
