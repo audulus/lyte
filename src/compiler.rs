@@ -54,15 +54,15 @@ fn ast(db: &dyn Parser, name: String) -> Tree {
 }
 
 #[salsa::database(InputsStorage, ParserStorage)]
+#[derive(Default)]
 struct Database {
     storage: salsa::Storage<Self>
 }
 
 impl salsa::Database for Database {}
 
-//#[salsa::database(ParserStorage)]
 pub struct Compiler {
-    //storage: salsa::Storage<Self>,
+    db: Database,
     pub trees: HashMap<String, Option<Tree>>,
     pub decls: Vec<Decl>,
     pub exprs: ExprArena,
@@ -104,7 +104,7 @@ fn parse_file(path: &str) -> Option<Tree> {
 impl Compiler {
     pub fn new() -> Self {
         Self {
-            //storage: salsa::Storage::default(),
+            db: Database::default(),
             trees: HashMap::new(),
             decls: vec![],
             exprs: ExprArena::new(),
