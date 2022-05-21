@@ -89,7 +89,7 @@ fn check(db: &dyn Checker2) -> bool {
     
 }
 
-#[salsa::database(InputsStorage, ParserStorage)]
+#[salsa::database(InputsStorage, ParserStorage, CheckerStorage)]
 #[derive(Default)]
 struct Database {
     storage: salsa::Storage<Self>
