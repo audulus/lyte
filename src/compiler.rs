@@ -29,6 +29,7 @@ pub trait Inputs {
 #[salsa::query_group(ParserStorage)]
 trait Parser: Inputs {
     fn ast(&self, path: String) -> Tree;
+    fn program_ast(&self) -> Tree;
 }
 
 fn ast(db: &dyn Parser, path: String) -> Tree {
@@ -53,6 +54,39 @@ fn ast(db: &dyn Parser, path: String) -> Tree {
     }
 
     tree
+}
+
+fn program_ast(db: &dyn Parser) -> Tree {
+    let paths = db.paths();
+
+    assert_eq!(paths.len(), 1); // XXX: for now
+
+    db.ast(paths[0].clone())
+}
+
+#[salsa::query_group(CheckerStorage)]
+trait Checker2: Parser {
+    fn check(&self) -> bool;
+}
+
+fn check(db: &dyn Checker2) -> bool {
+
+    let tree = db.program_ast();
+
+    let mut checker = Checker::new();
+
+    match checker.check(&tree.exprs, &tree.decls) {
+        Ok(_) => {}
+        Err(err) => {
+            println!(
+                "❌ {}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+            return false;
+        }
+    }
+    true
+    
 }
 
 #[salsa::database(InputsStorage, ParserStorage)]
