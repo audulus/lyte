@@ -118,19 +118,19 @@ pub struct Param {
     pub ty: TypeID,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Field {
     pub name: Name,
     pub ty: TypeID,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct InterfaceConstraint {
     pub interface_name: Name,
     pub typevars: Vec<Name>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FuncDecl {
     pub name: Name,
     pub typevars: Vec<Name>,
@@ -140,7 +140,7 @@ pub struct FuncDecl {
     pub constraints: Vec<InterfaceConstraint>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Decl {
     Func(FuncDecl),
     Macro(FuncDecl),

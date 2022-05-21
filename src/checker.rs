@@ -508,7 +508,7 @@ impl Checker {
         Ok(())
     }
 
-    fn check_decl(
+    fn _check_decl(
         &mut self,
         decl: &Decl,
         arena: &ExprArena,
@@ -526,8 +526,15 @@ impl Checker {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         for decl in decls {
-            self.check_decl(decl, arena, decls)?;
+            self._check_decl(decl, arena, decls)?;
         }
+        Ok(())
+    }
+
+    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+        self.types.resize(arena.exprs.len(), mk_type(Type::Void));
+        self.lvalue.resize(arena.exprs.len(), false);
+        self._check_decl(decl, arena, decls)?;
         Ok(())
     }
 }

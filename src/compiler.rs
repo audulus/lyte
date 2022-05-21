@@ -1,7 +1,7 @@
 use crate::*;
 use std::fs;
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub struct Tree {
     pub decls: Vec<Decl>,
     pub exprs: ExprArena
@@ -93,7 +93,27 @@ fn decls(db: &dyn Parser) -> Vec<Decl> {
 
 #[salsa::query_group(CheckerStorage)]
 trait Checker2: Parser {
+    fn check_decl(&self, decl: Decl, tree: Tree) -> bool;
     fn check(&self) -> bool;
+}
+
+/// Check a single declaration.
+fn check_decl(_db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
+
+    let mut checker = Checker::new();
+
+    let result = match checker.check_decl(&decl, &tree.exprs, &tree.decls) {
+        Ok(_) => true,
+        Err(err) => {
+            println!(
+                "❌ {}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+            false
+        }
+    };
+
+    result
 }
 
 fn check(db: &dyn Checker2) -> bool {
