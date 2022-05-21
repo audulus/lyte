@@ -20,7 +20,7 @@ impl Tree {
 }
 
 #[salsa::query_group(LyteStorage)]
-trait ASTForFile {
+trait ASTForString {
 
     #[salsa::input]
     fn source(&self, key: ()) -> Arc<String>;
@@ -28,14 +28,14 @@ trait ASTForFile {
     fn ast(&self, key: ()) -> Tree;
 }
 
-fn ast(db: &dyn ASTForFile, (): ()) -> Tree {
+fn ast(db: &dyn ASTForString, (): ()) -> Tree {
     // Read the input string:
     let input_string = db.source(());
 
     let mut tree = Tree::new();
 
     let mut lexer = Lexer::new(&input_string, "unknown path".into());
-    
+
     lexer.next();
     match parse_program(&mut lexer, &mut tree.exprs) {
         Ok(decls) => {
