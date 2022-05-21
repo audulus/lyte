@@ -2,7 +2,6 @@ use crate::*;
 use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct Tree {
