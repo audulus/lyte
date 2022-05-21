@@ -29,6 +29,7 @@ pub trait Inputs {
 trait Parser: Inputs {
     fn ast(&self, path: String) -> Tree;
     fn program_ast(&self) -> Tree;
+    fn decls(&self) -> Vec<Decl>;
 }
 
 fn ast(db: &dyn Parser, path: String) -> Tree {
@@ -61,6 +62,18 @@ fn program_ast(db: &dyn Parser) -> Tree {
     assert_eq!(paths.len(), 1); // XXX: for now
 
     db.ast(paths[0].clone())
+}
+
+fn decls(db: &dyn Parser) -> Vec<Decl> {
+    let paths = db.paths();
+
+    let mut decls = vec![];
+
+    for path in paths {
+        decls.append(&mut db.ast(path).decls);
+    }
+
+    decls
 }
 
 #[salsa::query_group(CheckerStorage)]
