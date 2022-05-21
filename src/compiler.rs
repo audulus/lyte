@@ -4,6 +4,7 @@ use std::path::Path;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub struct Tree {
     pub decls: Vec<Decl>,
     pub exprs: ExprArena
@@ -23,6 +24,17 @@ trait ASTForFile {
 
     #[salsa::input]
     fn source(&self, key: ()) -> Arc<String>;
+
+    fn ast(&self, key: ()) -> Tree;
+}
+
+fn ast(db: &dyn ASTForFile, (): ()) -> Tree {
+    // Read the input string:
+    let input_string = db.source(());
+
+    let mut tree = Tree::new();
+
+    tree
 }
 
 #[salsa::database(LyteStorage)]

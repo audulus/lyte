@@ -140,7 +140,7 @@ pub struct FuncDecl {
     pub constraints: Vec<InterfaceConstraint>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Decl {
     Func(FuncDecl),
     Macro(FuncDecl),

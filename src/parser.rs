@@ -9,7 +9,7 @@ pub struct ParseError {
     pub message: String,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct ExprArena {
     pub exprs: Vec<Expr>,
     pub locs: Vec<Loc>,
