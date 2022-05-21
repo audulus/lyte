@@ -33,6 +33,7 @@ trait Parser: Inputs {
     fn decls(&self) -> Vec<Decl>;
 }
 
+/// The AST for a file.
 fn ast(db: &dyn Parser, path: String) -> Tree {
 
     // Read the input string:
@@ -65,6 +66,7 @@ fn program_ast(db: &dyn Parser) -> Tree {
     db.ast(paths[0].clone())
 }
 
+/// ASTs for all files.
 fn program_ast2(db: &dyn Parser) -> Vec<Tree> {
     let paths = db.paths();
     let mut trees = vec![];
@@ -76,6 +78,7 @@ fn program_ast2(db: &dyn Parser) -> Vec<Tree> {
     trees
 }
 
+/// Declarations in all files.
 fn decls(db: &dyn Parser) -> Vec<Decl> {
 
     let mut decls = vec![];
