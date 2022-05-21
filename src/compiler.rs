@@ -2,6 +2,7 @@ use crate::*;
 use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct Tree {
     pub decls: Vec<Decl>,
@@ -17,12 +18,23 @@ impl Tree {
     }
 }
 
+#[salsa::query_group(LyteStorage)]
+trait ASTForFile {
+
+    #[salsa::input]
+    fn source(&self, key: ()) -> Arc<String>;
+}
+
+#[salsa::database(LyteStorage)]
 pub struct Compiler {
+    storage: salsa::Storage<Self>,
     pub trees: HashMap<String, Option<Tree>>,
     pub decls: Vec<Decl>,
     pub exprs: ExprArena,
     pub checker: Checker,
 }
+
+impl salsa::Database for Compiler {}
 
 fn parse_file(path: &str) -> Option<Tree> {
 
@@ -57,6 +69,7 @@ fn parse_file(path: &str) -> Option<Tree> {
 impl Compiler {
     pub fn new() -> Self {
         Self {
+            storage: salsa::Storage::default(),
             trees: HashMap::new(),
             decls: vec![],
             exprs: ExprArena::new(),
