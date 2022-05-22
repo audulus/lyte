@@ -115,7 +115,7 @@ pub enum Expr {
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Param {
     pub name: Name,
-    pub ty: TypeID,
+    pub ty: Option<TypeID>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

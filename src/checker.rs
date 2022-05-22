@@ -425,12 +425,13 @@ impl Checker {
                 let n = self.vars.len();
                 let mut param_types = vec![];
                 for param in params {
+                    let ty = param.ty.unwrap_or_else(|| self.fresh());
                     self.vars.push(Var {
                         name: param.name,
-                        ty: param.ty,
                         mutable: false,
+                        ty: ty,
                     });
-                    param_types.push(param.ty);
+                    param_types.push(ty);
                 }
 
                 self.check_expr(*body, arena, decls)?;
@@ -476,7 +477,7 @@ impl Checker {
             for param in &func_decl.params {
                 self.vars.push(Var {
                     name: param.name,
-                    ty: param.ty,
+                    ty: param.ty.unwrap(),
                     mutable: false,
                 });
             }

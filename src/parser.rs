@@ -183,11 +183,9 @@ fn parse_paramlist(lexer: &mut Lexer) -> Result<Vec<Param>, ParseError> {
             // In the case of lambdas, we can omit the types.
             let ty = if lexer.tok == Token::Colon {
                 lexer.next();
-                parse_type(lexer)?
+                Some(parse_type(lexer)?)
             } else {
-                // XXX: need to increment a count here unfortunately.
-                //      though perhaps we can fill it in later.
-                mk_type(Type::Anon(0))
+                None
             };
 
             r.push(Param {

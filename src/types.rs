@@ -72,7 +72,7 @@ pub fn tuple(types: Vec<TypeID>) -> TypeID {
 }
 
 fn params_ty(params: &Vec<Param>) -> TypeID {
-    tuple(params.into_iter().map(|p| p.ty).collect())
+    tuple(params.into_iter().map(|p| p.ty.unwrap()).collect())
 }
 
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
