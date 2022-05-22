@@ -118,11 +118,12 @@ pub fn iterate_solver(
                         } else {
                             return Err(TypeError {
                                 location: *loc,
-                                message: format!("array only has len field, not {:?}", field_name).into(),
+                                message: format!("array only has len field, not {:?}", field_name)
+                                    .into(),
                             });
                         }
                     }
-                    _ => ()
+                    _ => (),
                 }
             }
         }
@@ -164,7 +165,6 @@ pub fn solve_constraints(
     instance: &mut Instance,
     decls: &[Decl],
 ) -> Result<(), TypeError> {
-
     println!("constraints before solve: ");
     print_constraints(constraints, &Instance::new());
 

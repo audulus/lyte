@@ -178,9 +178,12 @@ impl Checker {
 
                     at
                 } else if op.arithmetic() {
-                    
                     let ft = self.fresh();
-                    self.constraints.push(Constraint::Or(ft, self.arith_overloads.clone(), arena.locs[id]));
+                    self.constraints.push(Constraint::Or(
+                        ft,
+                        self.arith_overloads.clone(),
+                        arena.locs[id],
+                    ));
 
                     let r = self.fresh();
 
@@ -188,10 +191,7 @@ impl Checker {
                         func(tuple(vec![at, bt]), r),
                         ft,
                         arena.locs[id],
-                        &format!(
-                            "no match for arithemtic between {:?} and {:?}",
-                            at, bt
-                        ),
+                        &format!("no match for arithemtic between {:?} and {:?}", at, bt),
                     )?;
 
                     r
@@ -223,7 +223,11 @@ impl Checker {
                     lhs,
                     ft,
                     arena.locs[id],
-                    &format!("arguments ({:?}) don't match function ({:?})", find(lhs, &self.inst), find(ft, &self.inst)),
+                    &format!(
+                        "arguments ({:?}) don't match function ({:?})",
+                        find(lhs, &self.inst),
+                        find(ft, &self.inst)
+                    ),
                 )?;
 
                 ret
@@ -531,7 +535,12 @@ impl Checker {
         Ok(())
     }
 
-    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+    pub fn check_decl(
+        &mut self,
+        decl: &Decl,
+        arena: &ExprArena,
+        decls: &[Decl],
+    ) -> Result<(), TypeError> {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         self._check_decl(decl, arena, decls)?;

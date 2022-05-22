@@ -5,7 +5,7 @@ use std::sync::Arc;
 #[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub struct Tree {
     pub decls: Vec<Decl>,
-    pub exprs: ExprArena
+    pub exprs: ExprArena,
 }
 
 impl Tree {
@@ -35,7 +35,6 @@ trait ParserQueries: InputQueries {
 
 /// The AST for a file.
 fn ast(db: &dyn ParserQueries, path: String) -> Arc<Tree> {
-
     let input_string = db.source_text(path.clone());
     let mut lexer = Lexer::new(&input_string, &path);
 
@@ -71,7 +70,6 @@ fn program_ast(db: &dyn ParserQueries) -> Vec<Arc<Tree>> {
 
 /// Declarations in all files.
 fn decls(db: &dyn ParserQueries) -> Vec<Decl> {
-
     let mut decls = vec![];
     let mut trees = db.program_ast();
 
@@ -90,7 +88,6 @@ trait CheckerQueries: ParserQueries {
 
 /// Check a single declaration.
 fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
-
     let decls = db.decls();
 
     let mut checker = Checker::new();
@@ -116,7 +113,6 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
 }
 
 fn check(db: &dyn CheckerQueries) -> bool {
-
     let trees = db.program_ast();
     let mut result = true;
 
@@ -134,7 +130,7 @@ fn check(db: &dyn CheckerQueries) -> bool {
 #[salsa::database(InputsStorage, ParserStorage, CheckerStorage)]
 #[derive(Default)]
 struct Database {
-    storage: salsa::Storage<Self>
+    storage: salsa::Storage<Self>,
 }
 
 impl salsa::Database for Database {}
@@ -165,7 +161,6 @@ impl Compiler {
     pub fn check(&mut self) -> bool {
         self.db.check()
     }
-
 }
 
 impl Default for Compiler {
