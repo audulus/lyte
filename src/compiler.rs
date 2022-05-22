@@ -17,7 +17,7 @@ impl Tree {
 }
 
 #[salsa::query_group(InputsStorage)]
-pub trait Inputs {
+pub trait InputQueries {
     #[salsa::input]
     fn paths(&self) -> Vec<String>;
 
@@ -26,7 +26,7 @@ pub trait Inputs {
 }
 
 #[salsa::query_group(ParserStorage)]
-trait ParserQueries: Inputs {
+trait ParserQueries: InputQueries {
     fn ast(&self, path: String) -> Tree;
     fn program_ast(&self) -> Vec<Tree>;
     fn decls(&self) -> Vec<Decl>;
