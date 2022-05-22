@@ -223,7 +223,7 @@ impl Checker {
                     lhs,
                     ft,
                     arena.locs[id],
-                    &format!("arguments ({:?}) don't match function ({:?})", lhs, ft),
+                    &format!("arguments ({:?}) don't match function ({:?})", find(lhs, &self.inst), find(ft, &self.inst)),
                 )?;
 
                 ret
