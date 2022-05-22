@@ -1,5 +1,6 @@
 use crate::*;
 use std::fs;
+use std::sync::Arc;
 
 #[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub struct Tree {
@@ -27,13 +28,13 @@ pub trait InputQueries {
 
 #[salsa::query_group(ParserStorage)]
 trait ParserQueries: InputQueries {
-    fn ast(&self, path: String) -> Tree;
-    fn program_ast(&self) -> Vec<Tree>;
+    fn ast(&self, path: String) -> Arc<Tree>;
+    fn program_ast(&self) -> Vec<Arc<Tree>>;
     fn decls(&self) -> Vec<Decl>;
 }
 
 /// The AST for a file.
-fn ast(db: &dyn ParserQueries, path: String) -> Tree {
+fn ast(db: &dyn ParserQueries, path: String) -> Arc<Tree> {
 
     let input_string = db.source_text(path.clone());
     let mut lexer = Lexer::new(&input_string, &path);
@@ -53,11 +54,11 @@ fn ast(db: &dyn ParserQueries, path: String) -> Tree {
         }
     }
 
-    tree
+    Arc::new(tree)
 }
 
 /// ASTs for all files.
-fn program_ast(db: &dyn ParserQueries) -> Vec<Tree> {
+fn program_ast(db: &dyn ParserQueries) -> Vec<Arc<Tree>> {
     let paths = db.paths();
     let mut trees = vec![];
 
@@ -75,7 +76,7 @@ fn decls(db: &dyn ParserQueries) -> Vec<Decl> {
     let mut trees = db.program_ast();
 
     for tree in &mut trees {
-        decls.append(&mut tree.decls);
+        decls.append(&mut tree.decls.clone());
     }
 
     decls
@@ -83,12 +84,12 @@ fn decls(db: &dyn ParserQueries) -> Vec<Decl> {
 
 #[salsa::query_group(CheckerStorage)]
 trait CheckerQueries: ParserQueries {
-    fn check_decl(&self, decl: Decl, tree: Tree) -> bool;
+    fn check_decl(&self, decl: Decl, tree: Arc<Tree>) -> bool;
     fn check(&self) -> bool;
 }
 
 /// Check a single declaration.
-fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Tree) -> bool {
+fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
 
     let decls = db.decls();
 
