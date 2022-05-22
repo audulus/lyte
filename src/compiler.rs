@@ -26,14 +26,14 @@ pub trait Inputs {
 }
 
 #[salsa::query_group(ParserStorage)]
-trait Parser: Inputs {
+trait ParserQueries: Inputs {
     fn ast(&self, path: String) -> Tree;
     fn program_ast(&self) -> Vec<Tree>;
     fn decls(&self) -> Vec<Decl>;
 }
 
 /// The AST for a file.
-fn ast(db: &dyn Parser, path: String) -> Tree {
+fn ast(db: &dyn ParserQueries, path: String) -> Tree {
 
     let input_string = db.source_text(path.clone());
     let mut lexer = Lexer::new(&input_string, &path);
@@ -57,7 +57,7 @@ fn ast(db: &dyn Parser, path: String) -> Tree {
 }
 
 /// ASTs for all files.
-fn program_ast(db: &dyn Parser) -> Vec<Tree> {
+fn program_ast(db: &dyn ParserQueries) -> Vec<Tree> {
     let paths = db.paths();
     let mut trees = vec![];
 
@@ -69,7 +69,7 @@ fn program_ast(db: &dyn Parser) -> Vec<Tree> {
 }
 
 /// Declarations in all files.
-fn decls(db: &dyn Parser) -> Vec<Decl> {
+fn decls(db: &dyn ParserQueries) -> Vec<Decl> {
 
     let mut decls = vec![];
     let mut trees = db.program_ast();
@@ -82,7 +82,7 @@ fn decls(db: &dyn Parser) -> Vec<Decl> {
 }
 
 #[salsa::query_group(CheckerStorage)]
-trait CheckerQueries: Parser {
+trait CheckerQueries: ParserQueries {
     fn check_decl(&self, decl: Decl, tree: Tree) -> bool;
     fn check(&self) -> bool;
 }
