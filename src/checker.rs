@@ -498,10 +498,7 @@ impl Checker {
             solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
 
             println!("instance:");
-
-            for (k, v) in &self.inst {
-                println!("  {:?} ➡️ {:?}", k, v);
-            }
+            print_instance(&self.inst);
 
             Ok(())
         } else {
