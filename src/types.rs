@@ -45,6 +45,12 @@ impl fmt::Debug for TypeID {
 
 pub type Instance = HashMap<TypeID, TypeID>;
 
+pub fn print_instance(inst: &Instance) {
+    for (k, v) in inst {
+        println!("  {:?} ➡️ {:?}", k, v);
+    }
+}
+
 pub fn mk_type(proto: Type) -> TypeID {
     TypeID::new(proto)
 }
