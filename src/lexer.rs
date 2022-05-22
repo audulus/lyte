@@ -138,7 +138,7 @@ impl Lexer {
         }
 
         // Identifier.
-        if bytes[self.i].is_ascii_alphabetic() {
+        if bytes[self.i].is_ascii_alphabetic() || bytes[self.i] == b'_' {
             let mut id = String::new();
             while self.i < n && id_byte(bytes[self.i]) {
                 id.push(bytes[self.i] as char);
@@ -377,6 +377,7 @@ mod tests {
         assert_eq!(tokens("\n    \n"), vec![Endl]);
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
+        assert_eq!(tokens("_x"), vec![id("_x")]);
         assert_eq!(tokens("42"), vec![Integer(42)]);
         assert_eq!(tokens("42.0"), vec![Real("42.0".to_string())]);
         assert_eq!(tokens(".5"), vec![Real(".5".to_string())]);
