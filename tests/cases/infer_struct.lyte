@@ -1,0 +1,16 @@
+
+
+assert(cond: bool) → void
+
+struct Person {
+    name: [i8],
+    age: i32
+}
+
+infer_person {
+    let f = |p| p.age
+    var tay: Person
+    tay.age = 27
+    assert(f(tay) == 27)
+}
+
