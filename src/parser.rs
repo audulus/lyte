@@ -53,9 +53,11 @@ fn expect(lexer: &mut Lexer, tok: Token) -> Result<(), ParseError> {
     }
 }
 
-fn expect_id(lexer: &Lexer) -> Result<Name, ParseError> {
+fn expect_id(lexer: &mut Lexer) -> Result<Name, ParseError> {
     if let Token::Id(string) = &lexer.tok {
-        Ok(Name::new(string.clone()))
+        let result = Ok(Name::new(string.clone()));
+        lexer.next();
+        result
     } else {
         let message = format!("expected identifier, got {:?}", lexer.tok);
         println!("{:?}", message);
@@ -94,14 +96,12 @@ fn parse_basic_type(lexer: &mut Lexer) -> Result<TypeID, ParseError> {
         Token::Lmath => {
             lexer.next();
             let name = expect_id(lexer)?;
-            lexer.next();
             expect(lexer, Token::Rmath)?;
             return Ok(typevar(&name));
         }
         Token::Typevar => {
             lexer.next();
             let name = expect_id(lexer)?;
-            lexer.next();
             return Ok(typevar(&name));
         }
         Token::Lbracket => {
@@ -406,7 +406,6 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, Par
             Token::Dot => {
                 lexer.next();
                 let field = expect_id(lexer)?;
-                lexer.next();
                 e = arena.add(Expr::Field(e, field), lexer.loc);
             }
             _ => {
@@ -434,7 +433,6 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         Token::Dot => {
             lexer.next();
             let name = expect_id(lexer)?;
-            lexer.next();
             arena.add(Expr::Enum(name), lexer.loc)
         }
         Token::Integer(x) => {
@@ -487,7 +485,6 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
 
             let name = expect_id(lexer)?;
 
-            lexer.next();
             expect(lexer, Token::Lparen)?;
             let params = parse_exprlist(lexer, arena)?;
             expect(lexer, Token::Rparen)?;
@@ -555,7 +552,6 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<ExprID, ParseE
         Token::Var | Token::Let => {
             lexer.next();
             let name = expect_id(lexer)?;
-            lexer.next();
 
             if lexer.tok == Token::Assign {
                 lexer.next();
@@ -626,7 +622,6 @@ fn parse_fieldlist(lexer: &mut Lexer) -> Result<Vec<Field>, ParseError> {
         skip_newlines(lexer);
 
         let name = expect_id(lexer)?;
-        lexer.next();
 
         expect(lexer, Token::Colon)?;
 
@@ -674,7 +669,6 @@ pub fn parse_typevar_list(lexer: &mut Lexer) -> Result<Vec<Name>, ParseError> {
     loop {
         let name = expect_id(lexer)?;
         r.push(name);
-        lexer.next();
 
         if lexer.tok != Token::Comma {
             break;
@@ -726,7 +720,6 @@ fn parse_func_decl(
 
         while !token_in(&lexer.tok, &[Token::Lbrace, Token::Rbrace, Token::Endl]) {
             let interface_name = expect_id(lexer)?;
-            lexer.next();
             let typevars = parse_typevar_list(lexer)?;
             constraints.push(InterfaceConstraint {
                 interface_name,
@@ -757,14 +750,12 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, Par
 
     let name = expect_id(lexer)?;
 
-    lexer.next();
     expect(lexer, Token::Lbrace)?;
 
     let mut funcs = vec![];
 
     while lexer.tok != Token::Rbrace {
         let name = expect_id(lexer)?;
-        lexer.next();
         funcs.push(parse_func_decl(name, lexer, arena)?)
     }
 
@@ -786,7 +777,6 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             let name = expect_id(lexer)?;
 
-            lexer.next();
             Ok(Decl::Macro(parse_func_decl(name, lexer, arena)?))
         }
         Token::Struct => {
@@ -794,8 +784,6 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             lexer.next();
 
             let name = expect_id(lexer)?;
-
-            lexer.next();
 
             let mut typevars = vec![];
             if lexer.tok == Token::Less {
@@ -817,8 +805,6 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
 
             let name = expect_id(lexer)?;
 
-            lexer.next();
-
             expect(lexer, Token::Lbrace)?;
             let cases = parse_caselist(lexer)?;
             expect(lexer, Token::Rbrace)?;
@@ -829,8 +815,6 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Result<Decl, ParseErr
             lexer.next();
 
             let name = expect_id(lexer)?;
-
-            lexer.next();
 
             expect(lexer, Token::Colon)?;
 
