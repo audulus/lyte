@@ -82,13 +82,13 @@ fn decls(db: &dyn Parser) -> Vec<Decl> {
 }
 
 #[salsa::query_group(CheckerStorage)]
-trait Checker2: Parser {
+trait CheckerQueries: Parser {
     fn check_decl(&self, decl: Decl, tree: Tree) -> bool;
     fn check(&self) -> bool;
 }
 
 /// Check a single declaration.
-fn check_decl(db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
+fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Tree) -> bool {
 
     let decls = db.decls();
 
@@ -114,7 +114,7 @@ fn check_decl(db: &dyn Checker2, decl: Decl, tree: Tree) -> bool {
     result
 }
 
-fn check(db: &dyn Checker2) -> bool {
+fn check(db: &dyn CheckerQueries) -> bool {
 
     let trees = db.program_ast();
     let mut result = true;
