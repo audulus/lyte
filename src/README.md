@@ -26,3 +26,5 @@ Interfaces are used to provide functions that must exist when another function i
 [Bidirectional Typing](https://arxiv.org/pdf/1908.05839.pdf)
 
 [Query-Based Compilers](https://ollef.github.io/blog/posts/query-based-compilers.html)
+
+[Rust Analyzer Architecture](https://github.com/rust-lang/rust-analyzer/blob/master/docs/dev/architecture.md)
