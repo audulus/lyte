@@ -412,6 +412,11 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> ExprID {
                 let field = expect_id(lexer, &mut arena.errors);
                 e = arena.add(Expr::Field(e, field), lexer.loc);
             }
+            Token::As => {
+                lexer.next();
+                let ty = parse_type(lexer, &mut arena.errors);
+                e = arena.add(Expr::AsTy(e, ty), lexer.loc);
+            }
             _ => {
                 return e;
             }
@@ -1021,6 +1026,7 @@ mod tests {
                 "var b = [0; a.len]",
                 "a = -b",
                 "-a.y",
+                "x as i8",
             ],
         );
     }

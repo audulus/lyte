@@ -61,6 +61,7 @@ pub enum Token {
     And,
     Or,
     Not,
+    As,
     Char(char),
     String(String),
     Pipe,
@@ -166,6 +167,7 @@ impl Lexer {
                 "typevar" => Token::Typevar,
                 "interface" => Token::Interface,
                 "where" => Token::Where,
+                "as" => Token::As,
                 _ => Token::Id(id),
             };
         }
