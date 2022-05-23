@@ -158,6 +158,10 @@ impl Compiler {
     pub fn check(&mut self) -> bool {
         self.db.check()
     }
+
+    pub fn print_ast(&mut self) {
+        println!("{:?}", self.db.program_ast());
+    }
 }
 
 impl Default for Compiler {

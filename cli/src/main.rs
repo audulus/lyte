@@ -6,6 +6,9 @@ use std::path::Path;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     file: String,
+
+    #[clap(long)]
+    ast: bool,
 }
 
 fn main() {
@@ -29,6 +32,10 @@ fn main() {
     }
 
     compiler.set_paths(paths);
+
+    if args.ast {
+        compiler.print_ast();
+    }
 
     if !compiler.check() {
         std::process::exit(1)
