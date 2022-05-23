@@ -3,7 +3,7 @@ use crate::lexer::*;
 use crate::types::*;
 use std::hash::Hash;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct ParseError {
     pub location: Loc,
     pub message: String,
@@ -13,6 +13,7 @@ pub struct ParseError {
 pub struct ExprArena {
     pub exprs: Vec<Expr>,
     pub locs: Vec<Loc>,
+    pub errors: Vec<ParseError>,
 }
 
 impl ExprArena {
@@ -20,6 +21,7 @@ impl ExprArena {
         Self {
             exprs: vec![],
             locs: vec![],
+            errors: vec![],
         }
     }
 
