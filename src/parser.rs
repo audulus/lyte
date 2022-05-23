@@ -46,7 +46,6 @@ fn expect(lexer: &mut Lexer, tok: Token, errors: &mut Vec<ParseError>) {
         lexer.next();
     } else {
         let message = format!("expected {:?}, got {:?}", tok, lexer.tok);
-        println!("{:?}", message);
         errors.push(ParseError {
             location: lexer.loc,
             message,
