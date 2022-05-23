@@ -41,16 +41,13 @@ fn ast(db: &dyn ParserQueries, path: String) -> Arc<Tree> {
     let mut tree = Tree::new();
 
     lexer.next();
-    match parse_program(&mut lexer, &mut tree.exprs) {
-        Ok(decls) => {
-            tree.decls.extend(decls);
-        }
-        Err(err) => {
-            println!(
-                "{}:{}: {}",
-                err.location.file, err.location.line, err.message
-            );
-        }
+    tree.decls = parse_program(&mut lexer, &mut tree.exprs);
+
+    for err in &tree.exprs.errors {
+        println!(
+            "{}:{}: {}",
+            err.location.file, err.location.line, err.message
+        );
     }
 
     Arc::new(tree)
