@@ -38,7 +38,7 @@ pub struct Checker {
     /// Overloads for negation of built-in types.
     neg_overloads: Vec<TypeID>,
 
-    /// New constraints.
+    /// Constraints on types.
     constraints: Vec<Constraint>,
 }
 
