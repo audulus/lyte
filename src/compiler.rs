@@ -31,6 +31,7 @@ trait ParserQueries: InputQueries {
     fn ast(&self, path: String) -> Arc<Tree>;
     fn program_ast(&self) -> Vec<Arc<Tree>>;
     fn decls(&self) -> Vec<Decl>;
+    fn parsed(&self) -> bool;
 }
 
 /// The AST for a file.
@@ -75,6 +76,17 @@ fn decls(db: &dyn ParserQueries) -> Vec<Decl> {
     }
 
     decls
+}
+
+fn parsed(db: &dyn ParserQueries) -> bool {
+    let trees = db.program_ast();
+
+    for tree in trees {
+        if !tree.exprs.errors.is_empty() {
+            return false
+        }
+    }
+    true
 }
 
 #[salsa::query_group(CheckerStorage)]
@@ -153,6 +165,10 @@ impl Compiler {
 
     pub fn set_paths(&mut self, paths: Vec<String>) {
         self.db.set_paths(paths);
+    }
+
+    pub fn parsed(&mut self) -> bool {
+        self.db.parsed()
     }
 
     pub fn check(&mut self) -> bool {
