@@ -4,10 +4,20 @@ for file in tests/cases/*.lyte
 do
     cd cli
     cargo run -- ../$file >& /dev/null
-    if [ $? -eq 0 ]; then
-      echo ✅ $file
+    result=$?
+
+    if grep -q "expect failure" "../$file" ; then
+        if [ $result -eq 0 ]; then
+            echo ❌ $file expected failure
+        else
+            echo ✅ $file expected failure
+        fi
     else
-      echo ❌ $file
+        if [ $result -eq 0 ]; then
+            echo ✅ $file
+        else
+            echo ❌ $file
+        fi
     fi
     cd ..
 done
