@@ -78,7 +78,7 @@ impl Checker {
         loc: Loc,
         error_message: &str,
     ) -> Result<(), TypeError> {
-        self.constraints.push(Constraint::Equal(lhs, rhs, loc));
+        self.add_constraint(Constraint::Equal(lhs, rhs, loc));
         if unify(lhs, rhs, &mut self.inst) {
             Ok(())
         } else {
@@ -93,6 +93,11 @@ impl Checker {
         let t = mk_type(Type::Anon(self.next_anon));
         self.next_anon += 1;
         t
+    }
+
+    fn add_constraint(&mut self, c: Constraint) {
+        println!("adding constraint {:?}", &c);
+        self.constraints.push(c);
     }
 
     fn check_expr(
@@ -134,8 +139,7 @@ impl Checker {
                         }
                     }
 
-                    self.constraints
-                        .push(Constraint::Or(t, alternatives, arena.locs[id]));
+                    self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));
 
                     if !found {
                         return Err(TypeError {
@@ -179,7 +183,7 @@ impl Checker {
                     at
                 } else if op.arithmetic() {
                     let ft = self.fresh();
-                    self.constraints.push(Constraint::Or(
+                    self.add_constraint(Constraint::Or(
                         ft,
                         self.arith_overloads.clone(),
                         arena.locs[id],
