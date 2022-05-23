@@ -14,35 +14,35 @@ struct Var {
 }
 
 pub struct Checker {
-    /// Expression types.
-    pub types: Vec<TypeID>,
-
-    /// Is an expression assignable?
-    lvalue: Vec<bool>,
-
-    /// Current type variable instance.
-    inst: Instance,
-
-    /// Next anonymous type variable index.
-    next_anon: usize,
-
-    /// Currently declared vars, as we're checking.
-    vars: Vec<Var>,
-
     /// Overloads for arithmetic with built-in types.
     arith_overloads: Vec<TypeID>,
-
-    /// Overloads for relational operations with built-in types.
-    rel_overloads: Vec<TypeID>,
-
-    /// Overloads for negation of built-in types.
-    neg_overloads: Vec<TypeID>,
 
     /// Overloads for casting.
     cast_overloads: Vec<TypeID>,
 
     /// Constraints on types.
     constraints: Vec<Constraint>,
+
+    /// Current type variable instance.
+    inst: Instance,
+
+    /// Is an expression assignable?
+    lvalue: Vec<bool>,
+
+    /// Overloads for negation of built-in types.
+    neg_overloads: Vec<TypeID>,
+
+    /// Next anonymous type variable index.
+    next_anon: usize,
+
+    /// Overloads for relational operations with built-in types.
+    rel_overloads: Vec<TypeID>,
+
+    /// Expression types.
+    pub types: Vec<TypeID>,
+
+    /// Currently declared vars, as we're checking.
+    vars: Vec<Var>,
 }
 
 impl Checker {
