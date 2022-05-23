@@ -1,5 +1,5 @@
 
 test {
    var x: i8
-   x = 42
+   x = 42 as i8
 }

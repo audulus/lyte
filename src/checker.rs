@@ -38,12 +38,17 @@ pub struct Checker {
     /// Overloads for negation of built-in types.
     neg_overloads: Vec<TypeID>,
 
+    /// Overloads for casting.
+    cast_overloads: Vec<TypeID>,
+
     /// Constraints on types.
     constraints: Vec<Constraint>,
 }
 
 impl Checker {
     pub fn new() -> Self {
+        let int8 = mk_type(Type::Int8);
+        let int32: TypeID = mk_type(Type::Int32);
         let types = [Type::Int32, Type::Float32];
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
@@ -58,6 +63,10 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
+        let mut cast_overloads = vec![];
+        cast_overloads.push(func(int8, int32));
+        cast_overloads.push(func(int32, int8));
+
         Self {
             types: vec![],
             lvalue: vec![],
@@ -67,6 +76,7 @@ impl Checker {
             arith_overloads,
             rel_overloads,
             neg_overloads,
+            cast_overloads,
             constraints: vec![],
         }
     }
@@ -202,6 +212,26 @@ impl Checker {
                 } else {
                     self.fresh()
                 }
+            }
+            Expr::AsTy(e, ty) => {
+                let et = self.check_expr(*e, arena, decls)?;
+
+                let ft = self.fresh();
+
+                self.add_constraint(Constraint::Or(
+                    ft,
+                    self.cast_overloads.clone(),
+                    arena.locs[id],
+                ));
+
+                self.eq(
+                    func(et, *ty),
+                    ft,
+                    arena.locs[id],
+                    &format!("no match for cast between {:?} and {:?}", et, ty),
+                )?;
+
+                *ty
             }
             Expr::Call(f, args) => {
                 let lhs = self.check_expr(*f, arena, decls)?;
