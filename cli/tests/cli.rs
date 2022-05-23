@@ -7,9 +7,9 @@ fn file_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("lyte")?;
 
     cmd.arg("test/file/doesnt/exist");
-    // cmd.assert()
-    //      .failure()
-    //      .stderr(predicate::str::contains("could not read file"));
+    cmd.assert()
+         .failure()
+         .stderr(predicate::str::contains("could not read file"));
 
     Ok(())
 }

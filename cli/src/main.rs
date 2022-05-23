@@ -28,7 +28,12 @@ fn main() {
     }
 
     for path in &paths {
-        compiler.update_path(&path);
+        if let Ok(contents) = fs::read_to_string(path) {
+            compiler.update_path(&path, contents);
+        } else {
+            eprintln!("could not read file {:?}", path);
+            std::process::exit(1)
+        }
     }
 
     compiler.set_paths(paths);
