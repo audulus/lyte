@@ -37,6 +37,10 @@ fn main() {
         compiler.print_ast();
     }
 
+    if !compiler.parsed() {
+        std::process::exit(1)
+    }
+
     if !compiler.check() {
         std::process::exit(1)
     }
