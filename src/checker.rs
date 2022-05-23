@@ -369,13 +369,19 @@ impl Checker {
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 let t = self.fresh();
-                self.check_expr(*array_expr, arena, decls)?;
+                let array_t = self.check_expr(*array_expr, arena, decls)?;
                 let idx_t = self.check_expr(*index_expr, arena, decls)?;
                 self.eq(
                     idx_t,
                     mk_type(Type::Int32),
                     arena.locs[*index_expr],
                     "array index must be an i32",
+                )?;
+                self.eq(
+                    array_t,
+                    mk_type(Type::Array(t, 0)),
+                    arena.locs[*array_expr],
+                    "must index into an array"
                 )?;
                 t
             }
