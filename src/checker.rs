@@ -193,9 +193,22 @@ impl Checker {
                     at
                 } else if op.arithmetic() {
                     let ft = self.fresh();
+
+                    let mut alternatives = self.arith_overloads.clone();
+                    let overload_name = Name::new(op.overload_name().into());
+
+                    for d in decls {
+                        if let Decl::Func(FuncDecl { name: fname, .. }) = d {
+                            if *fname == overload_name {
+                                let dt = fresh(d.ty(), &mut self.next_anon);
+                                alternatives.push(dt);
+                            }
+                        }
+                    }
+
                     self.add_constraint(Constraint::Or(
                         ft,
-                        self.arith_overloads.clone(),
+                        alternatives,
                         arena.locs[id],
                     ));
 

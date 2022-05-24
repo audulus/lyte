@@ -75,6 +75,16 @@ impl Binop {
     pub fn arithmetic(self) -> bool {
         self == Binop::Plus || self == Binop::Minus || self == Binop::Mult || self == Binop::Div
     }
+
+    pub fn overload_name(self) -> &'static str {
+        match self {
+            Binop::Plus => "__add",
+            Binop::Minus => "__sub",
+            Binop::Mult => "__mul",
+            Binop::Div => "__div",
+            _ => panic!()
+        }
+    }
 }
 
 pub type ExprID = usize;

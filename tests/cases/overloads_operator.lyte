@@ -7,33 +7,33 @@ struct Point {
     y: i32
 }
 
-add(lhs: Point, rhs: Point) → Point {
+__add(lhs: Point, rhs: Point) → Point {
     var p: Point
     p.x = lhs.x + rhs.x
     p.y = lhs.y + rhs.y
     return p
 }
 
-sub(lhs: Point, rhs: Point) → Point {
+__sub(lhs: Point, rhs: Point) → Point {
     var p: Point
     p.x = lhs.x - rhs.x
     p.y = lhs.y - rhs.y
     return p
 }
 
-mult(lhs: Point, rhs: i32) → Point {
+__mul(lhs: Point, rhs: i32) → Point {
     var p: Point
     p.x = lhs.x * rhs
     p.y = lhs.y * rhs
     return p
 }
 
-neg(a: Point) → Point {
-    var p: Point
-    p.x = -a.x
-    p.y = -a.y
-    return p
-}
+// __neg(a: Point) → Point {
+//     var p: Point
+//     p.x = -a.x
+//     p.y = -a.y
+//     return p
+// }
 
 test {
     var p0: Point
@@ -59,8 +59,8 @@ test {
     assert(s.x == 2)
     assert(s.y == 4)
 
-    var n: Point
-    n = -p0
-    assert(n.x == -1)
-    assert(n.y == -2)
+    //var n: Point
+    //n = -p0
+    //assert(n.x == -1)
+    //assert(n.y == -2)
 }
