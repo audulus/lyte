@@ -83,7 +83,7 @@ fn parsed(db: &dyn ParserQueries) -> bool {
 
     for tree in trees {
         if !tree.exprs.errors.is_empty() {
-            return false
+            return false;
         }
     }
     true

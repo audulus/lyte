@@ -411,7 +411,7 @@ impl Checker {
                     array_t,
                     mk_type(Type::Array(t, 0)),
                     arena.locs[*array_expr],
-                    "must index into an array"
+                    "must index into an array",
                 )?;
                 t
             }

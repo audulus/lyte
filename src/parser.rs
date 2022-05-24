@@ -90,10 +90,22 @@ fn parse_typelist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<TypeID
 
 fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
     let t = mk_type(match &lexer.tok {
-        Token::Void => { lexer.next(); Type::Void }
-        Token::Bool => { lexer.next(); Type::Bool }
-        Token::Int8 => { lexer.next(); Type::Int8 }
-        Token::Int32 => { lexer.next(); Type::Int32 }
+        Token::Void => {
+            lexer.next();
+            Type::Void
+        }
+        Token::Bool => {
+            lexer.next();
+            Type::Bool
+        }
+        Token::Int8 => {
+            lexer.next();
+            Type::Int8
+        }
+        Token::Int32 => {
+            lexer.next();
+            Type::Int32
+        }
         Token::Lmath => {
             lexer.next();
             let name = expect_id(lexer, errors);
@@ -699,11 +711,7 @@ fn token_in(tok: &Token, set: &[Token]) -> bool {
     set.iter().position(|x| x == tok) != None
 }
 
-fn parse_func_decl(
-    name: Name,
-    lexer: &mut Lexer,
-    arena: &mut ExprArena,
-) -> FuncDecl {
+fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> FuncDecl {
     let mut params = vec![];
     let mut typevars = vec![];
     let mut constraints = vec![];
@@ -845,7 +853,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
             });
 
             return None;
-        },
+        }
     })
 }
 
@@ -924,18 +932,12 @@ mod tests {
         Ok(r)
     }
 
-    fn test<T: std::fmt::Debug>(
-        string: &str,
-        f: fn(&mut Lexer, &mut ExprArena) -> T,
-    ) {
+    fn test<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer, &mut ExprArena) -> T) {
         let mut arena = ExprArena::new();
         assert!(parse_fn(string, &mut arena, f).is_ok());
     }
 
-    fn test_strings<T: std::fmt::Debug>(
-        f: fn(&mut Lexer, &mut ExprArena) -> T,
-        strings: &[&str],
-    ) {
+    fn test_strings<T: std::fmt::Debug>(f: fn(&mut Lexer, &mut ExprArena) -> T, strings: &[&str]) {
         for string in strings {
             let mut arena = ExprArena::new();
             assert!(parse_fn(string, &mut arena, f).is_ok());
