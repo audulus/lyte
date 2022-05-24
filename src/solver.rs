@@ -186,6 +186,9 @@ pub fn solve_constraints(
     println!("constraints after solve: ");
     print_constraints(constraints, instance);
 
+    println!("instance after solve: ");
+    print_instance(instance);
+
     solved_constraints(constraints, instance)?;
 
     Ok(())
