@@ -474,13 +474,11 @@ impl Checker {
                     param_types.push(ty);
                 }
 
-                self.check_expr(*body, arena, decls)?;
+                let rt = self.check_expr(*body, arena, decls)?;
 
                 while self.vars.len() > n {
                     self.vars.pop();
                 }
-
-                let rt = self.fresh();
 
                 func(tuple(param_types), rt)
             }
