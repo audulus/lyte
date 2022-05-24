@@ -482,7 +482,7 @@ impl Checker {
 
                 let rt = self.fresh();
 
-                func(mk_type(Type::Tuple(param_types)), rt)
+                func(tuple(param_types), rt)
             }
             _ => {
                 println!("haven't yet implemented {:?}", &arena[id]);
