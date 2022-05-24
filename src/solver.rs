@@ -72,7 +72,7 @@ pub fn iterate_solver(
                 if !unify(*a, *b, instance) {
                     return Err(TypeError {
                         location: *loc,
-                        message: "failed equal constraint".into(),
+                        message: format!("failed equal constraint: {:?} == {:?}", a, b).into(),
                     });
                 }
             }
@@ -104,6 +104,7 @@ pub fn iterate_solver(
 
                         // We've narrowed it down. Better unify!
                         if let Some(field) = decl.find_field(*field_name) {
+                            // XXX: should apply generic type substitutions here!
                             *constraint = Constraint::Equal(field.ty, *ft, *loc);
                         } else {
                             return Err(TypeError {
