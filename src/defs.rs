@@ -186,6 +186,15 @@ impl Decl {
     }
 }
 
+pub fn find_field(fields: &[Field], name: Name) -> Option<Field> {
+    for field in fields {
+        if field.name == name {
+            return Some(field.clone());
+        }
+    }
+    None
+}
+
 impl Decl {
     pub fn name(&self) -> Name {
         match self {

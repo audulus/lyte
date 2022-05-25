@@ -100,12 +100,11 @@ pub fn iterate_solver(
             Constraint::Field(struct_ty, field_name, ft, loc) => {
                 match &*find(*struct_ty, instance) {
                     Type::Name(struct_name, vars) => {
-                        let decl = find_decl(decls, *struct_name).unwrap();
 
-                        if let Decl::Struct{typevars, ..} = decl {
+                        if let Some(Decl::Struct{typevars, fields, ..}) = find_decl(decls, *struct_name) {
 
                             // We've narrowed it down. Better unify!
-                            if let Some(field) = decl.find_field(*field_name) {
+                            if let Some(field) = find_field(fields, *field_name) {
 
                                 let field_ty = if let Type::Var(name) = *field.ty {
                                     let index = typevars.iter().position(|&n| n == name).unwrap();
