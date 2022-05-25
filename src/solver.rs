@@ -102,11 +102,10 @@ pub fn iterate_solver(
                     Type::Name(struct_name, vars) => {
                         let decl = find_decl(decls, *struct_name).unwrap();
 
-                        if let Decl::Struct{name, typevars, fields} = decl {
+                        if let Decl::Struct{typevars, ..} = decl {
 
                             // We've narrowed it down. Better unify!
                             if let Some(field) = decl.find_field(*field_name) {
-                                // XXX: should apply generic type substitutions here!
 
                                 let field_ty = if let Type::Var(name) = *field.ty {
                                     let index = typevars.iter().position(|&n| n == name).unwrap();
