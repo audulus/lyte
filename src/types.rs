@@ -284,5 +284,8 @@ mod tests {
         let vd = mk_type(Type::Void);
         typevars(vd, &mut|_name| ());
 
+        let v = typevar("T");
+        typevars(v, &mut|name| ( assert_eq!(name, Name::new("T".into()))));
+
     }
 }
