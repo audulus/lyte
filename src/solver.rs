@@ -102,16 +102,30 @@ pub fn iterate_solver(
                     Type::Name(struct_name, vars) => {
                         let decl = find_decl(decls, *struct_name).unwrap();
 
-                        // We've narrowed it down. Better unify!
-                        if let Some(field) = decl.find_field(*field_name) {
-                            // XXX: should apply generic type substitutions here!
-                            *constraint = Constraint::Equal(field.ty, *ft, *loc);
+                        if let Decl::Struct{name, typevars, fields} = decl {
+
+                            // We've narrowed it down. Better unify!
+                            if let Some(field) = decl.find_field(*field_name) {
+                                // XXX: should apply generic type substitutions here!
+
+                                //let field_ty = if let Type::Var(name) = *field.ty {
+                                //    let index = decl.typevars.iter().position(|&n| n == name).unwrap();
+                                //}
+
+                                *constraint = Constraint::Equal(field.ty, *ft, *loc);
+                            } else {
+                                return Err(TypeError {
+                                    location: *loc,
+                                    message: format!("no such field: {:?}", field_name).into(),
+                                });
+                            }
                         } else {
                             return Err(TypeError {
                                 location: *loc,
-                                message: format!("no such field: {:?}", field_name).into(),
+                                message: format!("{:?} does not refer to a struct", struct_name).into(),
                             });
                         }
+                        
                     }
                     Type::Array(_, _) => {
                         if *field_name == Name::new("len".into()) {
