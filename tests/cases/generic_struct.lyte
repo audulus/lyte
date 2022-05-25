@@ -16,9 +16,9 @@ generic_struct_fn<A>(s: GenericStruct<A>) {
     assert(true)
 }
 
-//generic_struct_check(s: GenericStruct<A>, f: GenericStruct<A> → i32) {
-//    assert(f(s) == 42)
-//}
+generic_struct_check(s: GenericStruct<A>, f: GenericStruct<A> → i32) {
+    assert(f(s) == 42)
+}
 
 //test {
 //    var s: GenericStruct<i32>
