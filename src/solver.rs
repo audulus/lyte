@@ -108,11 +108,14 @@ pub fn iterate_solver(
                             if let Some(field) = decl.find_field(*field_name) {
                                 // XXX: should apply generic type substitutions here!
 
-                                //let field_ty = if let Type::Var(name) = *field.ty {
-                                //    let index = decl.typevars.iter().position(|&n| n == name).unwrap();
-                                //}
+                                let field_ty = if let Type::Var(name) = *field.ty {
+                                    let index = typevars.iter().position(|&n| n == name).unwrap();
+                                    vars[index]
+                                } else {
+                                    field.ty
+                                };
 
-                                *constraint = Constraint::Equal(field.ty, *ft, *loc);
+                                *constraint = Constraint::Equal(field_ty, *ft, *loc);
                             } else {
                                 return Err(TypeError {
                                     location: *loc,
