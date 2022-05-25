@@ -12,9 +12,9 @@ return_generic_struct → GenericStruct<i32> {
     return s
 }
 
-//generic_struct_fn(s: GenericStruct<A>) {
-//    assert(true)
-//}
+generic_struct_fn<A>(s: GenericStruct<A>) {
+    assert(true)
+}
 
 //generic_struct_check(s: GenericStruct<A>, f: GenericStruct<A> → i32) {
 //    assert(f(s) == 42)
