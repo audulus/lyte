@@ -215,6 +215,21 @@ impl Decl {
     }
 }
 
+fn typevars(ty: TypeID, f: &mut impl FnMut(Name)) {
+    match &*ty {
+        Type::Tuple(v) => {
+            v.iter().for_each(|t| typevars(*t, f));
+        }
+        Type::Array(a, _sz) => typevars(*a, f),
+        Type::Func(dom, rng) => {
+            typevars(*dom, f);
+            typevars(*rng, f);
+        }
+        Type::Var(name) => (*f)(*name),
+        _ => (),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +275,13 @@ mod tests {
             let tup = mk_type(Type::Tuple(vec![b]));
             assert!(unify(var, func(tup, vd), &mut inst));
         }
+    }
+
+    #[test]
+    fn test_typevars() {
+
+        let vd = mk_type(Type::Void);
+        typevars(vd, &mut|_name| ());
+
     }
 }
