@@ -845,13 +845,13 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
         }
         Token::Interface => parse_interface(lexer, arena),
         _ => {
-            lexer.next();
 
             arena.errors.push(ParseError {
                 location: lexer.loc,
-                message: String::from("Expected declaration"),
+                message: format!("Expected declaration, got {:?}", lexer.tok).into(),
             });
 
+            lexer.next();
             return None;
         }
     })
