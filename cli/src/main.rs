@@ -42,11 +42,15 @@ fn main() {
         compiler.print_ast();
     }
 
+    let mut result = 0;
+
     if !compiler.parsed() {
-        std::process::exit(1)
+        result = 1;
     }
 
     if !compiler.check() {
-        std::process::exit(1)
+        result = 1;
     }
+
+    std::process::exit(result)
 }
