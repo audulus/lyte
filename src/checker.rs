@@ -86,17 +86,9 @@ impl Checker {
         lhs: TypeID,
         rhs: TypeID,
         loc: Loc,
-        error_message: &str,
-    ) -> Result<(), TypeError> {
+        _error_message: &str,
+    ) {
         self.add_constraint(Constraint::Equal(lhs, rhs, loc));
-        if unify(lhs, rhs, &mut self.inst) {
-            Ok(())
-        } else {
-            Err(TypeError {
-                location: loc,
-                message: error_message.into(),
-            })
-        }
     }
 
     fn fresh(&mut self) -> TypeID {
@@ -174,7 +166,7 @@ impl Checker {
                             "equality operator requres equal types, got {:?} and {:?}",
                             at, bt
                         ),
-                    )?;
+                    );
 
                     mk_type(Type::Bool)
                 } else if let Binop::Assign = op {
@@ -188,7 +180,7 @@ impl Checker {
                             "assignment operator requres equal types, got {:?} and {:?}",
                             at, bt
                         ),
-                    )?;
+                    );
 
                     at
                 } else if op.arithmetic() {
@@ -219,7 +211,7 @@ impl Checker {
                         ft,
                         arena.locs[id],
                         &format!("no match for arithemtic between {:?} and {:?}", at, bt),
-                    )?;
+                    );
 
                     r
                 } else {
@@ -242,7 +234,7 @@ impl Checker {
                     ft,
                     arena.locs[id],
                     &format!("no match for cast between {:?} and {:?}", et, ty),
-                )?;
+                );
 
                 *ty
             }
@@ -256,7 +248,7 @@ impl Checker {
                     func(v1, ret),
                     arena.locs[id],
                     "attempt to call a non-function",
-                )?;
+                );
 
                 let mut arg_types = vec![];
                 for e in args {
@@ -275,7 +267,7 @@ impl Checker {
                         find(lhs, &self.inst),
                         find(ft, &self.inst)
                     ),
-                )?;
+                );
 
                 ret
             }
@@ -313,7 +305,7 @@ impl Checker {
                     ft,
                     arena.locs[id],
                     "arguments don't match macro definition",
-                )?;
+                );
 
                 ret
             }
@@ -388,7 +380,7 @@ impl Checker {
                         init_ty,
                         arena.locs[id],
                         "variable initializer type must match",
-                    )?;
+                    );
                 }
 
                 self.vars.push(Var {
@@ -419,13 +411,13 @@ impl Checker {
                     mk_type(Type::Int32),
                     arena.locs[*index_expr],
                     "array index must be an i32",
-                )?;
+                );
                 self.eq(
                     array_t,
                     mk_type(Type::Array(t, 0)),
                     arena.locs[*array_expr],
                     "must index into an array",
-                )?;
+                );
                 t
             }
             Expr::Array(value, size) => {
@@ -437,7 +429,7 @@ impl Checker {
                     mk_type(Type::Int32),
                     arena.locs[*size],
                     "array size must be an i32",
-                )?;
+                );
 
                 mk_type(Type::Array(value_t, 0))
             }
@@ -448,7 +440,7 @@ impl Checker {
                     mk_type(Type::Bool),
                     arena.locs[*cond],
                     "while loop control must be a bool",
-                )?;
+                );
                 self.check_expr(*body, arena, decls)?;
                 mk_type(Type::Void)
             }
@@ -460,7 +452,7 @@ impl Checker {
                     mk_type(Type::Bool),
                     arena.locs[*cond],
                     "if expression conditional must be a bool",
-                )?;
+                );
                 self.check_expr(*then_expr, arena, decls)?;
                 if let Some(else_expr) = else_expr {
                     self.check_expr(*else_expr, arena, decls)?;
@@ -541,7 +533,7 @@ impl Checker {
                     func_decl.ret,
                     arena.locs[body],
                     "return type must match function return type",
-                )?;
+                );
             }
 
             self.vars.clear();
