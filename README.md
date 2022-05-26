@@ -4,7 +4,7 @@ A simple programming langauge for writing Audulus nodes, and maybe other things 
 
 - "dynamic ownership" mememory management, no GC
 - function and operator overloading
-- generics
+- generics with "interfaces"
 - familiar syntax (a mix of rust and swift)
 - arena allocation for realtime
 - type inference
