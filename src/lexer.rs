@@ -101,36 +101,30 @@ impl Lexer {
 
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
-        let n = self.code.len();
+        let n = bytes.len();
 
-        // Skip whitespace and comments.
+        // Skip whitespace.
         let mut has_newline = false;
-        while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-            // Whitespace.
-            while self.i < bytes.len() && bytes[self.i].is_ascii_whitespace() {
-                if bytes[self.i] == b'\n' {
-                    self.loc.line += 1;
-                    has_newline = true;
-                }
+        while self.i < n && bytes[self.i].is_ascii_whitespace() {
+            if bytes[self.i] == b'\n' {
+                self.loc.line += 1;
                 self.i += 1;
+                return Token::Endl;
             }
-
-            // Comments.
-            if self.i + 1 < n && bytes[self.i] == b'/' && bytes[self.i + 1] == b'/' {
-                self.i += 2;
-                while self.i < n {
-                    if bytes[self.i] == b'\n' {
-                        self.loc.line += 1;
-                        has_newline = true;
-                        break;
-                    }
-                    self.i += 1
-                }
-            }
+            self.i += 1;
         }
 
-        if has_newline {
-            return Token::Endl;
+        // Comments.
+        if self.i + 1 < n && bytes[self.i] == b'/' && bytes[self.i + 1] == b'/' {
+            self.i += 2;
+            while self.i < n {
+                if bytes[self.i] == b'\n' {
+                    self.loc.line += 1;
+                    self.i += 1;
+                    return Token::Endl;
+                }
+                self.i += 1
+            }
         }
 
         // End of string.
@@ -376,7 +370,7 @@ mod tests {
         assert_eq!(tokens(""), vec![]);
         assert_eq!(tokens(" "), vec![]);
         assert_eq!(tokens("\n"), vec![Endl]);
-        assert_eq!(tokens("\n    \n"), vec![Endl]);
+        assert_eq!(tokens("\n    \n"), vec![Endl, Endl]);
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
         assert_eq!(tokens("_x"), vec![id("_x")]);
@@ -421,6 +415,7 @@ mod tests {
         assert_eq!(tokens("'x'"), vec![Char('x')]);
         assert_eq!(tokens("!"), vec![Not]);
         assert_eq!(tokens("x // comment"), vec![id("x")]);
+        assert_eq!(tokens("// comment"), vec![]);
         tokens("]VV)y<)'");
         tokens("<qVyA]V<");
         tokens("'\\B");
