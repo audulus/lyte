@@ -557,7 +557,7 @@ impl Checker {
         }
     }
 
-    fn check_struct_decl(&self, name: Name, typevars: &[Name], fields: &[Field]) -> Result<(), TypeError> {
+    fn check_struct_decl(&self, _name: Name, typevars: &[Name], fields: &[Field]) -> Result<(), TypeError> {
 
         let mut errors = vec![];
 
