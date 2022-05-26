@@ -8,9 +8,9 @@ do
 
     if grep -q "expect failure" "../$file" ; then
         if [ $result -eq 0 ]; then
-            echo ❌ $file expected failure
+            echo ❌ $file \(expected failure\)
         else
-            echo ✅ $file expected failure
+            echo ✅ $file \(expected failure\)
         fi
     else
         if [ $result -eq 0 ]; then
