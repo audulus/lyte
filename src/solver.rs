@@ -68,12 +68,13 @@ pub fn iterate_solver(
     errors: &mut Vec<TypeError>
 ) {
     for constraint in constraints {
+        let constraint_clone = constraint.clone();
         match constraint {
             Constraint::Equal(a, b, loc) => {
                 if !unify(*a, *b, instance) {
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!("failed equal constraint: {:?} == {:?}", a, b).into(),
+                        message: format!("no solution for {:?}", constraint_clone).into(),
                     });
                 }
             }
@@ -89,7 +90,7 @@ pub fn iterate_solver(
                 if alts.is_empty() {
                     errors.push(TypeError {
                         location: *loc,
-                        message: "failed or constraint".into(),
+                        message: format!("no solution for {:?}", constraint_clone).into(),
                     });
                 }
 
