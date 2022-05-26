@@ -65,12 +65,13 @@ pub fn iterate_solver(
     constraints: &mut [Constraint],
     instance: &mut Instance,
     decls: &[Decl],
-) -> Result<(), TypeError> {
+    errors: &mut Vec<TypeError>
+) {
     for constraint in constraints {
         match constraint {
             Constraint::Equal(a, b, loc) => {
                 if !unify(*a, *b, instance) {
-                    return Err(TypeError {
+                    errors.push(TypeError {
                         location: *loc,
                         message: format!("failed equal constraint: {:?} == {:?}", a, b).into(),
                     });
@@ -86,7 +87,7 @@ pub fn iterate_solver(
 
                 // Nothing works!
                 if alts.is_empty() {
-                    return Err(TypeError {
+                    errors.push(TypeError {
                         location: *loc,
                         message: "failed or constraint".into(),
                     });
@@ -115,13 +116,13 @@ pub fn iterate_solver(
 
                                 *constraint = Constraint::Equal(field_ty, *ft, *loc);
                             } else {
-                                return Err(TypeError {
+                                errors.push(TypeError {
                                     location: *loc,
                                     message: format!("no such field: {:?}", field_name).into(),
                                 });
                             }
                         } else {
-                            return Err(TypeError {
+                            errors.push(TypeError {
                                 location: *loc,
                                 message: format!("{:?} does not refer to a struct", struct_name).into(),
                             });
@@ -132,7 +133,7 @@ pub fn iterate_solver(
                         if *field_name == Name::new("len".into()) {
                             *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc);
                         } else {
-                            return Err(TypeError {
+                            errors.push(TypeError {
                                 location: *loc,
                                 message: format!("array only has len field, not {:?}", field_name)
                                     .into(),
@@ -145,7 +146,6 @@ pub fn iterate_solver(
         }
     }
 
-    Ok(())
 }
 
 fn constraints_hash(constraints: &[Constraint]) -> u64 {
@@ -190,7 +190,13 @@ pub fn solve_constraints(
         let h = constraints_hash(constraints);
         println!("---- solve iteration {}", i);
         let old_instance = instance.clone();
-        iterate_solver(constraints, instance, decls)?;
+
+        let mut errors = vec![];
+        iterate_solver(constraints, instance, decls, &mut errors);
+
+        if !errors.is_empty() {
+            return Err(errors[0].clone());
+        }
 
         if h == constraints_hash(constraints) && *instance == old_instance {
             // No more progress.
@@ -221,7 +227,9 @@ mod tests {
         let mut constraints = [Constraint::Equal(vd, t, test_loc())];
         let mut instance = Instance::new();
 
-        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
+        let mut errors = vec![];
+        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        assert!(errors.is_empty());
         assert_eq!(instance[&t], vd);
     }
 
@@ -232,7 +240,9 @@ mod tests {
         let mut constraints = [Constraint::Equal(vd, int8, test_loc())];
         let mut instance = Instance::new();
 
-        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_err());
+        let mut errors = vec![];
+        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        assert!(!errors.is_empty());
     }
 
     #[test]
@@ -246,7 +256,9 @@ mod tests {
         ];
         let mut instance = Instance::new();
 
-        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_err());
+        let mut errors = vec![];
+        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        assert!(!errors.is_empty());
     }
 
     #[test]
@@ -257,8 +269,11 @@ mod tests {
         let mut constraints = [Constraint::Or(i, vec![i, f], test_loc())];
 
         let mut instance = Instance::new();
-        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
-        assert!(iterate_solver(&mut constraints, &mut instance, &[]).is_ok());
+        let mut errors = vec![];
+        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        assert!(errors.is_empty());
+        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        assert!(errors.is_empty());
     }
 
     #[test]
@@ -279,7 +294,10 @@ mod tests {
         let mut constraints = [Constraint::Field(struct_ty, xname, v, test_loc())];
 
         let mut instance = Instance::new();
-        assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
-        assert!(iterate_solver(&mut constraints, &mut instance, &decls).is_ok());
+        let mut errors = vec![];
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
+        assert!(errors.is_empty());
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
+        assert!(errors.is_empty());
     }
 }
