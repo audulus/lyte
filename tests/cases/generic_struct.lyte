@@ -20,10 +20,10 @@ generic_struct_check<A>(s: GenericStruct<A>, f: GenericStruct<A> → i32) {
     assert(f(s) == 42)
 }
 
-//test {
-//    var s: GenericStruct<i32>
-//    s = return_generic_struct()
-//    assert(s.x == 42)
-//    generic_struct_fn(s)
-//    generic_struct_check(s, |s| s.x )
-//}
+test {
+    var s: GenericStruct<i32>
+    s = return_generic_struct()
+    assert(s.x == 42)
+    //generic_struct_fn(s)
+    //generic_struct_check(s, |s| s.x )
+}
