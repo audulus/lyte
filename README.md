@@ -4,7 +4,7 @@ A simple programming langauge for writing Audulus nodes, and maybe other things 
 
 Goals:
 
-- "dynamic ownership" mememory management, no GC
+- "dynamic ownership" memory management, no GC
 - function and operator overloading
 - generics constrained by "interfaces"
 - familiar syntax (a mix of rust and swift)
