@@ -266,7 +266,14 @@ impl Lexer {
             ':' => Token::Colon,
             ';' => Token::Semi,
             '.' => Token::Dot,
-            '|' => Token::Pipe,
+            '|' => {
+                if self.i < n && bytes[self.i] == b'|' {
+                    self.i += 1;
+                    Token::Or
+                } else {
+                    Token::Pipe
+                }
+            }
             '@' => Token::At,
             '<' => {
                 if self.i < n && bytes[self.i] == b'=' {

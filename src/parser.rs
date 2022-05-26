@@ -970,7 +970,7 @@ mod tests {
         test("f(x)", parse_expr);
         test("f(x, y)", parse_expr);
         test("f(x) + g(x)", parse_expr);
-        test("|| x", parse_lambda);
+        test("| | x", parse_lambda);
         test("|x: i8| x", parse_lambda);
         test("|x| x", parse_lambda);
     }
@@ -1005,7 +1005,7 @@ mod tests {
                 "var x = y",
                 "var x:i32",
                 "let x = y",
-                "let x = || x",
+                "let x = | | x",
                 "let x = if x { a } else { b }",
                 "let x = if x { a+b } else { b }",
                 "if x { }",
