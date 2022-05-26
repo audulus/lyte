@@ -1,0 +1,5 @@
+// expect failure
+
+struct s { 
+    x: typevar T
+}
