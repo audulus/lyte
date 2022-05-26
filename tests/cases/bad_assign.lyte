@@ -1,0 +1,6 @@
+// expect failure
+
+f {
+   var x: i32
+   x = 42.0
+}
