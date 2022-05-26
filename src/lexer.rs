@@ -188,7 +188,11 @@ impl Lexer {
             return if fraction {
                 Token::Real(self.code[start..self.i].into())
             } else {
-                Token::Integer(self.code[start..self.i].parse().unwrap())
+                if let Ok(int_value) = self.code[start..self.i].parse() {
+                    Token::Integer(int_value)
+                } else {
+                    Token::Error
+                }
             };
         }
 
@@ -425,5 +429,6 @@ mod tests {
         tokens("]VV)y<)'");
         tokens("<qVyA]V<");
         tokens("'\\B");
+        tokens("trueA[1|7777777777777777777777");
     }
 }
