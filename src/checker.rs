@@ -557,6 +557,11 @@ impl Checker {
         }
     }
 
+    fn check_struct_decl(&self, name: Name, typevars: &[Name], fields: &[Field]) -> Result<(), TypeError> {
+
+        Ok(())
+    }
+
     fn check_interface(&self, _name: Name, _funcs: &[FuncDecl]) -> Result<(), TypeError> {
         Ok(())
     }
@@ -571,6 +576,7 @@ impl Checker {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Interface { name, funcs } => self.check_interface(*name, funcs),
+            Decl::Struct { name, typevars, fields } => self.check_struct_decl(*name, typevars, fields),
             _ => Ok(()),
         }
     }
