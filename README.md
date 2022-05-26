@@ -2,6 +2,8 @@
 
 A simple programming langauge for writing Audulus nodes, and maybe other things too :)
 
+Goals:
+
 - "dynamic ownership" mememory management, no GC
 - function and operator overloading
 - generics constrained by "interfaces"
