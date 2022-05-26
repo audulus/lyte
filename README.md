@@ -9,6 +9,7 @@ Goals:
 - generics constrained by "interfaces"
 - familiar syntax (a mix of rust and swift)
 - arena allocation for realtime
+- memory safety
 - type inference
 - incremental query-based compiler
 - LLVM backend
