@@ -573,7 +573,14 @@ impl Checker {
                 }
             })
         }
-        Ok(())
+
+        // XXX: should return a list of type errors.
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors[0].clone())
+        }
+
     }
 
     fn check_interface(&self, _name: Name, _funcs: &[FuncDecl]) -> Result<(), TypeError> {
