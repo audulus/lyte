@@ -651,7 +651,7 @@ fn parse_fieldlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Field
         expect(lexer, Token::Colon, errors);
 
         let ty = parse_type(lexer, errors);
-        r.push(Field { name, ty });
+        r.push(Field { name, ty, loc: lexer.loc });
 
         skip_newlines(lexer);
 

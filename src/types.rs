@@ -216,7 +216,7 @@ impl Decl {
 }
 
 /// Calls a function for each type variable in the type.
-fn typevars(ty: TypeID, f: &mut impl FnMut(Name)) {
+pub fn typevars(ty: TypeID, f: &mut impl FnMut(Name)) {
     match &*ty {
         Type::Tuple(v) => {
             v.iter().for_each(|t| typevars(*t, f));

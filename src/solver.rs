@@ -269,7 +269,7 @@ mod tests {
 
         let decls = vec![Decl::Struct {
             name: s0name,
-            fields: vec![Field { name: xname, ty: i }],
+            fields: vec![Field { name: xname, ty: i, loc: test_loc() }],
             typevars: vec![],
         }];
 

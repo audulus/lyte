@@ -559,6 +559,20 @@ impl Checker {
 
     fn check_struct_decl(&self, name: Name, typevars: &[Name], fields: &[Field]) -> Result<(), TypeError> {
 
+        let mut errors = vec![];
+
+        for field in fields {
+            crate::typevars(field.ty, &mut |name| {
+                if typevars.iter().position(|n| *n == name).is_none() {
+                    errors.push(
+                        TypeError {
+                            location: field.loc,
+                            message: format!("unknown type variable: {}", name)
+                        }
+                    )
+                }
+            })
+        }
         Ok(())
     }
 

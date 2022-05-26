@@ -132,6 +132,7 @@ pub struct Param {
 pub struct Field {
     pub name: Name,
     pub ty: TypeID,
+    pub loc: Loc,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
