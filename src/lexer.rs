@@ -104,7 +104,6 @@ impl Lexer {
         let n = bytes.len();
 
         // Skip whitespace.
-        let mut has_newline = false;
         while self.i < n && bytes[self.i].is_ascii_whitespace() {
             if bytes[self.i] == b'\n' {
                 self.loc.line += 1;
