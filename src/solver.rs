@@ -164,24 +164,24 @@ pub fn print_constraints(constraints: &[Constraint], inst: &Instance) {
 pub fn solved_constraints(
     constraints: &[Constraint],
     instance: &Instance,
-) -> Result<(), TypeError> {
+    errors: &mut Vec<TypeError>,
+) {
     for c in constraints {
         if !c.solved(instance) {
-            return Err(TypeError {
+            errors.push(TypeError {
                 location: c.loc(),
                 message: format!("ambiguous constraint: {:?}", c).into(),
             });
         }
     }
-
-    Ok(())
 }
 
 pub fn solve_constraints(
     constraints: &mut [Constraint],
     instance: &mut Instance,
     decls: &[Decl],
-) -> Result<(), TypeError> {
+    errors: &mut Vec<TypeError>,
+) {
     println!("constraints before solve: ");
     print_constraints(constraints, &Instance::new());
 
@@ -195,10 +195,6 @@ pub fn solve_constraints(
         let mut errors = vec![];
         iterate_solver(constraints, instance, decls, &mut errors);
 
-        if !errors.is_empty() {
-            return Err(errors[0].clone());
-        }
-
         if h == constraints_hash(constraints) && *instance == old_instance {
             // No more progress.
             break;
@@ -206,15 +202,17 @@ pub fn solve_constraints(
         i += 1;
     }
 
+    // Iterate once more to get any errors.
+    iterate_solver(constraints, instance, decls, errors);
+
     println!("constraints after solve: ");
     print_constraints(constraints, instance);
 
     println!("instance after solve: ");
     print_instance(instance);
 
-    solved_constraints(constraints, instance)?;
+    solved_constraints(constraints, instance, errors);
 
-    Ok(())
 }
 
 #[cfg(test)]

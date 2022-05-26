@@ -43,6 +43,9 @@ pub struct Checker {
 
     /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
+
+    /// Accumulated type errors while checking.
+    pub errors: Vec<TypeError>
 }
 
 impl Checker {
@@ -78,6 +81,7 @@ impl Checker {
             neg_overloads,
             cast_overloads,
             constraints: vec![],
+            errors: vec![],
         }
     }
 
@@ -107,7 +111,7 @@ impl Checker {
         id: ExprID,
         arena: &ExprArena,
         decls: &[Decl],
-    ) -> Result<TypeID, TypeError> {
+    ) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
             Expr::Int(_) => mk_type(Type::Int32),
@@ -144,7 +148,7 @@ impl Checker {
                     self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));
 
                     if !found {
-                        return Err(TypeError {
+                        self.errors.push(TypeError {
                             location: arena.locs[id],
                             message: format!("undeclared identifier: {:?}", *name),
                         });
@@ -152,10 +156,10 @@ impl Checker {
                     t
                 }
             }
-            Expr::Unop(a) => self.check_expr(*a, arena, decls)?,
+            Expr::Unop(a) => self.check_expr(*a, arena, decls),
             Expr::Binop(op, a, b) => {
-                let at = self.check_expr(*a, arena, decls)?;
-                let bt = self.check_expr(*b, arena, decls)?;
+                let at = self.check_expr(*a, arena, decls);
+                let bt = self.check_expr(*b, arena, decls);
 
                 if op.equality() {
                     self.eq(
@@ -219,7 +223,7 @@ impl Checker {
                 }
             }
             Expr::AsTy(e, ty) => {
-                let et = self.check_expr(*e, arena, decls)?;
+                let et = self.check_expr(*e, arena, decls);
 
                 let ft = self.fresh();
 
@@ -239,7 +243,7 @@ impl Checker {
                 *ty
             }
             Expr::Call(f, args) => {
-                let lhs = self.check_expr(*f, arena, decls)?;
+                let lhs = self.check_expr(*f, arena, decls);
 
                 let ret = self.fresh();
                 let v1 = self.fresh();
@@ -252,7 +256,7 @@ impl Checker {
 
                 let mut arg_types = vec![];
                 for e in args {
-                    self.check_expr(*e, arena, decls)?;
+                    self.check_expr(*e, arena, decls);
                     arg_types.push(self.types[*e]);
                 }
 
@@ -285,7 +289,7 @@ impl Checker {
                 }
 
                 if !found {
-                    return Err(TypeError {
+                    self.errors.push(TypeError {
                         location: arena.locs[id],
                         message: format!("unknown macro: {:?}", *name),
                     });
@@ -293,7 +297,7 @@ impl Checker {
 
                 let mut arg_types = vec![];
                 for e in args {
-                    self.check_expr(*e, arena, decls)?;
+                    self.check_expr(*e, arena, decls);
                     arg_types.push(self.types[*e]);
                 }
 
@@ -310,7 +314,7 @@ impl Checker {
                 ret
             }
             Expr::Field(lhs, name) => {
-                let lhs_t = self.check_expr(*lhs, arena, decls)?;
+                let lhs_t = self.check_expr(*lhs, arena, decls);
 
                 self.lvalue[id] = self.lvalue[*lhs];
 
@@ -362,7 +366,7 @@ impl Checker {
                 let n = self.vars.len();
                 let mut t = mk_type(Type::Void);
                 for e in exprs {
-                    t = self.check_expr(*e, arena, decls)?;
+                    t = self.check_expr(*e, arena, decls);
                 }
                 while self.vars.len() > n {
                     self.vars.pop();
@@ -373,7 +377,7 @@ impl Checker {
                 let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
 
                 if let Some(e) = init {
-                    let init_ty = self.check_expr(*e, arena, decls)?;
+                    let init_ty = self.check_expr(*e, arena, decls);
 
                     self.eq(
                         ty,
@@ -391,12 +395,12 @@ impl Checker {
 
                 ty
             }
-            Expr::Arena(block) => self.check_expr(*block, arena, decls)?,
-            Expr::Return(expr) => self.check_expr(*expr, arena, decls)?,
+            Expr::Arena(block) => self.check_expr(*block, arena, decls),
+            Expr::Return(expr) => self.check_expr(*expr, arena, decls),
             Expr::ArrayLiteral(exprs) => {
                 let t = self.fresh();
                 for e in exprs {
-                    let elem_t = self.check_expr(*e, arena, decls)?;
+                    let elem_t = self.check_expr(*e, arena, decls);
                     self.constraints
                         .push(Constraint::Equal(t, elem_t, arena.locs[*e]));
                 }
@@ -404,8 +408,8 @@ impl Checker {
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 let t = self.fresh();
-                let array_t = self.check_expr(*array_expr, arena, decls)?;
-                let idx_t = self.check_expr(*index_expr, arena, decls)?;
+                let array_t = self.check_expr(*array_expr, arena, decls);
+                let idx_t = self.check_expr(*index_expr, arena, decls);
                 self.eq(
                     idx_t,
                     mk_type(Type::Int32),
@@ -421,8 +425,8 @@ impl Checker {
                 t
             }
             Expr::Array(value, size) => {
-                let value_t = self.check_expr(*value, arena, decls)?;
-                let size_t = self.check_expr(*size, arena, decls)?;
+                let value_t = self.check_expr(*value, arena, decls);
+                let size_t = self.check_expr(*size, arena, decls);
 
                 self.eq(
                     size_t,
@@ -434,35 +438,35 @@ impl Checker {
                 mk_type(Type::Array(value_t, 0))
             }
             Expr::While(cond, body) => {
-                let cond_t = self.check_expr(*cond, arena, decls)?;
+                let cond_t = self.check_expr(*cond, arena, decls);
                 self.eq(
                     cond_t,
                     mk_type(Type::Bool),
                     arena.locs[*cond],
                     "while loop control must be a bool",
                 );
-                self.check_expr(*body, arena, decls)?;
+                self.check_expr(*body, arena, decls);
                 mk_type(Type::Void)
             }
             Expr::If(cond, then_expr, else_expr) => {
                 let t = self.fresh();
-                let cond_t = self.check_expr(*cond, arena, decls)?;
+                let cond_t = self.check_expr(*cond, arena, decls);
                 self.eq(
                     cond_t,
                     mk_type(Type::Bool),
                     arena.locs[*cond],
                     "if expression conditional must be a bool",
                 );
-                self.check_expr(*then_expr, arena, decls)?;
+                self.check_expr(*then_expr, arena, decls);
                 if let Some(else_expr) = else_expr {
-                    self.check_expr(*else_expr, arena, decls)?;
+                    self.check_expr(*else_expr, arena, decls);
                 }
                 t
             }
             Expr::Tuple(exprs) => {
                 let mut types = vec![];
                 for e in exprs {
-                    types.push(self.check_expr(*e, arena, decls)?);
+                    types.push(self.check_expr(*e, arena, decls));
                 }
                 mk_type(Type::Tuple(types))
             }
@@ -479,7 +483,7 @@ impl Checker {
                     param_types.push(ty);
                 }
 
-                let rt = self.check_expr(*body, arena, decls)?;
+                let rt = self.check_expr(*body, arena, decls);
 
                 while self.vars.len() > n {
                     self.vars.pop();
@@ -493,7 +497,7 @@ impl Checker {
             }
         };
         self.types[id] = ty;
-        Ok(ty)
+        ty
     }
 
     fn find(&self, name: Name) -> Option<Var> {
@@ -510,7 +514,7 @@ impl Checker {
         func_decl: &FuncDecl,
         arena: &ExprArena,
         decls: &[Decl],
-    ) -> Result<(), TypeError> {
+    ) {
         if let Some(body) = func_decl.body {
             println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
@@ -525,7 +529,7 @@ impl Checker {
                 });
             }
 
-            let ty = self.check_expr(body, arena, decls)?;
+            let ty = self.check_expr(body, arena, decls);
 
             if func_decl.ret != mk_type(Type::Void) {
                 self.eq(
@@ -538,25 +542,20 @@ impl Checker {
 
             self.vars.clear();
 
-            solve_constraints(&mut self.constraints, &mut self.inst, decls)?;
+            solve_constraints(&mut self.constraints, &mut self.inst, decls, &mut self.errors);
 
             println!("instance:");
             print_instance(&self.inst);
 
-            Ok(())
-        } else {
-            Ok(())
         }
     }
 
-    fn check_struct_decl(&self, _name: Name, typevars: &[Name], fields: &[Field]) -> Result<(), TypeError> {
-
-        let mut errors = vec![];
+    fn check_struct_decl(&mut self, _name: Name, typevars: &[Name], fields: &[Field]) {
 
         for field in fields {
             crate::typevars(field.ty, &mut |name| {
                 if typevars.iter().position(|n| *n == name).is_none() {
-                    errors.push(
+                    self.errors.push(
                         TypeError {
                             location: field.loc,
                             message: format!("unknown type variable: {}", name)
@@ -566,17 +565,10 @@ impl Checker {
             })
         }
 
-        // XXX: should return a list of type errors.
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors[0].clone())
-        }
-
     }
 
-    fn check_interface(&self, _name: Name, _funcs: &[FuncDecl]) -> Result<(), TypeError> {
-        Ok(())
+    fn check_interface(&mut self, _name: Name, _funcs: &[FuncDecl]) {
+        
     }
 
     fn _check_decl(
@@ -584,23 +576,22 @@ impl Checker {
         decl: &Decl,
         arena: &ExprArena,
         decls: &[Decl],
-    ) -> Result<(), TypeError> {
+    ) {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Interface { name, funcs } => self.check_interface(*name, funcs),
             Decl::Struct { name, typevars, fields } => self.check_struct_decl(*name, typevars, fields),
-            _ => Ok(()),
+            _ => (),
         }
     }
 
-    pub fn check(&mut self, arena: &ExprArena, decls: &[Decl]) -> Result<(), TypeError> {
+    pub fn check(&mut self, arena: &ExprArena, decls: &[Decl]) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         for decl in decls {
-            self._check_decl(decl, arena, decls)?;
+            self._check_decl(decl, arena, decls);
         }
-        Ok(())
     }
 
     pub fn check_decl(
@@ -608,10 +599,9 @@ impl Checker {
         decl: &Decl,
         arena: &ExprArena,
         decls: &[Decl],
-    ) -> Result<(), TypeError> {
+    ) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
-        self._check_decl(decl, arena, decls)?;
-        Ok(())
+        self._check_decl(decl, arena, decls);
     }
 }

@@ -101,16 +101,14 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
 
     let mut checker = Checker::new();
 
-    let result = match checker.check_decl(&decl, &tree.exprs, &decls) {
-        Ok(_) => true,
-        Err(err) => {
-            println!(
-                "❌ {}:{}: {}",
-                err.location.file, err.location.line, err.message
-            );
-            false
-        }
-    };
+    checker.check_decl(&decl, &tree.exprs, &decls);
+
+    for err in &checker.errors {
+        println!(
+            "❌ {}:{}: {}",
+            err.location.file, err.location.line, err.message
+        );
+    }
 
     let mut i = 0;
     for expr in &tree.exprs.exprs {
@@ -118,7 +116,7 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
         i += 1;
     }
 
-    result
+    checker.errors.is_empty()
 }
 
 fn check(db: &dyn CheckerQueries) -> bool {
