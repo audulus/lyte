@@ -102,7 +102,7 @@ impl Checker {
     }
 
     fn add_constraint(&mut self, c: Constraint) {
-        println!("adding constraint {:?}", &c);
+        // println!("adding constraint {:?}", &c);
         self.constraints.push(c);
     }
 
@@ -516,7 +516,7 @@ impl Checker {
         decls: &[Decl],
     ) {
         if let Some(body) = func_decl.body {
-            println!("🟧 checking function {:?} 🟧", *func_decl.name);
+            // println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
             self.inst.clear();
             self.constraints.clear();
@@ -544,8 +544,8 @@ impl Checker {
 
             solve_constraints(&mut self.constraints, &mut self.inst, decls, &mut self.errors);
 
-            println!("instance:");
-            print_instance(&self.inst);
+            //println!("instance:");
+            //print_instance(&self.inst);
 
         }
     }

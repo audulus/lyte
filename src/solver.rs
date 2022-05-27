@@ -182,14 +182,14 @@ pub fn solve_constraints(
     decls: &[Decl],
     errors: &mut Vec<TypeError>,
 ) {
-    println!("constraints before solve: ");
-    print_constraints(constraints, &Instance::new());
+    //println!("constraints before solve: ");
+    //print_constraints(constraints, &Instance::new());
 
     // Continue as long as we can make changes.
     let mut i = 0;
     loop {
         let h = constraints_hash(constraints);
-        println!("---- solve iteration {}", i);
+        //println!("---- solve iteration {}", i);
         let old_instance = instance.clone();
 
         let mut errors = vec![];
@@ -205,11 +205,11 @@ pub fn solve_constraints(
     // Iterate once more to get any errors.
     iterate_solver(constraints, instance, decls, errors);
 
-    println!("constraints after solve: ");
-    print_constraints(constraints, instance);
+    //println!("constraints after solve: ");
+    //print_constraints(constraints, instance);
 
-    println!("instance after solve: ");
-    print_instance(instance);
+    //println!("instance after solve: ");
+    //print_instance(instance);
 
     solved_constraints(constraints, instance, errors);
 

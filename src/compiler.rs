@@ -110,11 +110,11 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
         );
     }
 
-    let mut i = 0;
-    for expr in &tree.exprs.exprs {
-        println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
-        i += 1;
-    }
+    // let mut i = 0;
+    // for expr in &tree.exprs.exprs {
+    //     println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
+    //     i += 1;
+    // }
 
     checker.errors.is_empty()
 }
