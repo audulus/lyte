@@ -49,12 +49,16 @@ fn main() {
                 std::process::exit(1)
             }
 
+            if expect_failure {
+                println!("   expecting errors for {}", path);
+            }
+
             let mut success = compiler.parsed() && compiler.check();
             if expect_failure {
                 success = !success;
             }
 
-            println!("{} {} {}", if success { "✅" } else { "❌"}, path, if expect_failure { "(expected failure)" } else { "" });
+            println!("{} {}", if success { "✅" } else { "❌"}, path);
 
             if !success {
                 any_failed = true;
