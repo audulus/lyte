@@ -14,6 +14,35 @@ struct Args {
     test: bool,
 }
 
+fn test_path(path: &str) -> bool {
+
+    let mut compiler = lyte::Compiler::new();
+    compiler.set_paths(vec![String::from(path)]);
+
+    let mut expect_failure = false;
+    
+    if let Ok(contents) = fs::read_to_string(path) {
+        expect_failure = contents.starts_with("// expect failure");
+        compiler.update_path(&path, contents);
+    } else {
+        eprintln!("could not read file {:?}", path);
+        std::process::exit(1)
+    }
+
+    if expect_failure {
+        println!("   expecting errors for {}", path);
+    }
+
+    let mut success = compiler.parsed() && compiler.check();
+    if expect_failure {
+        success = !success;
+    }
+
+    println!("{} {}", if success { "✅" } else { "❌"}, path);
+
+    success
+}
+
 fn main() {
     println!("🎸");
 
@@ -35,35 +64,9 @@ fn main() {
         let mut any_failed = false;
 
         for path in &paths {
-            
-            let mut compiler = lyte::Compiler::new();
-            compiler.set_paths(vec![path.clone()]);
-
-            let mut expect_failure = false;
-            
-            if let Ok(contents) = fs::read_to_string(path) {
-                expect_failure = contents.starts_with("// expect failure");
-                compiler.update_path(&path, contents);
-            } else {
-                eprintln!("could not read file {:?}", path);
-                std::process::exit(1)
-            }
-
-            if expect_failure {
-                println!("   expecting errors for {}", path);
-            }
-
-            let mut success = compiler.parsed() && compiler.check();
-            if expect_failure {
-                success = !success;
-            }
-
-            println!("{} {}", if success { "✅" } else { "❌"}, path);
-
-            if !success {
+            if !test_path(path) {
                 any_failed = true;
             }
-
         }
 
         if any_failed {
