@@ -20,6 +20,9 @@ pub enum Type {
     Name(Name, Vec<TypeID>),
 }
 
+/// An interned type.
+/// 
+/// Newtyped so we can implement more traits.
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct TypeID(Intern<Type>);
 
@@ -43,6 +46,10 @@ impl fmt::Debug for TypeID {
     }
 }
 
+/// A substitution from type variables to
+/// other types.
+/// 
+/// "Substitution" might be better terminology.
 pub type Instance = HashMap<TypeID, TypeID>;
 
 pub fn print_instance(inst: &Instance) {
@@ -51,30 +58,43 @@ pub fn print_instance(inst: &Instance) {
     }
 }
 
+/// Convenience to create new TypeIDs from types.
+/// 
+/// Kinda questionable wrapper over TypeID::new.
 pub fn mk_type(proto: Type) -> TypeID {
     TypeID::new(proto)
 }
 
+/// Create a new named type variable.
 pub fn typevar(name: &str) -> TypeID {
     mk_type(Type::Var(Name::new(String::from(name))))
 }
 
+/// Create a new anonymous type variable with an index.
+/// 
+/// Should we also include a location?
 pub fn anon(index: usize) -> TypeID {
     mk_type(Type::Anon(index))
 }
 
+/// Convenience to create a function type.
 pub fn func(dom: TypeID, range: TypeID) -> TypeID {
     mk_type(Type::Func(dom, range))
 }
 
+/// Convenience to create a tuple type.
 pub fn tuple(types: Vec<TypeID>) -> TypeID {
     mk_type(Type::Tuple(types))
 }
 
+/// Convenience to create a tuple type from parameters.
 fn params_ty(params: &Vec<Param>) -> TypeID {
     tuple(params.into_iter().map(|p| p.ty.unwrap()).collect())
 }
 
+/// Look up a type in an instance, following as far as possible.
+/// 
+/// There better not be cycles!
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
     let mut id = id;
     while let Some(t) = inst.get(&id) {
@@ -83,6 +103,7 @@ pub fn find(id: TypeID, inst: &Instance) -> TypeID {
     id
 }
 
+/// Apply type variable substitutions to a type.
 pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
     //println!("subst {:?}", t);
     let t = find(t, inst);
@@ -97,6 +118,7 @@ pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
     }
 }
 
+/// Does the type contain any anonymous type variables?
 pub fn solved(t: TypeID) -> bool {
     match &*t {
         Type::Tuple(v) => v.iter().all(|t| solved(*t)),
@@ -108,6 +130,7 @@ pub fn solved(t: TypeID) -> bool {
     }
 }
 
+/// Is the type solved when substitutions are applied from an instance?
 pub fn solved_inst(t: TypeID, inst: &Instance) -> bool {
     let tt = find(t, inst);
     match &*tt {
@@ -120,6 +143,11 @@ pub fn solved_inst(t: TypeID, inst: &Instance) -> bool {
     }
 }
 
+/// Find a substitution which makes two types equal.
+/// 
+/// Returns false if such a substituion doesn't exist.
+/// I think this is pretty much textbook Hindley-Milner.
+/// It's more or less what's in the dragon book.
 pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     let lhs = find(lhs, inst);
     let rhs = find(rhs, inst);
