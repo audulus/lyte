@@ -863,6 +863,7 @@ fn skip_newlines(lexer: &mut Lexer) {
     }
 }
 
+/// Parser entry point for a single file.
 pub fn parse_program(lexer: &mut Lexer, arena: &mut ExprArena) -> Vec<Decl> {
     let mut decls = vec![];
 
