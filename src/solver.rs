@@ -69,7 +69,10 @@ pub fn iterate_solver(
     errors: &mut Vec<TypeError>
 ) {
     for constraint in constraints {
+
+        // Kind of an unfortunate clone.
         let constraint_clone = constraint.clone();
+
         match constraint {
             Constraint::Equal(a, b, loc) => {
                 if !unify(*a, *b, instance) {
@@ -101,6 +104,9 @@ pub fn iterate_solver(
                 }
             }
             Constraint::Field(struct_ty, field_name, ft, loc) => {
+
+                // This starts feeling a bit too nested.
+                
                 match &*find(*struct_ty, instance) {
                     Type::Name(struct_name, vars) => {
 
