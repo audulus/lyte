@@ -1,0 +1,6 @@
+// expect failure
+
+struct s { 
+    x: i32,
+    x: i32
+}

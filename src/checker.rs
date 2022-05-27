@@ -1,4 +1,5 @@
 use crate::*;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
 pub struct TypeError {
@@ -553,7 +554,21 @@ impl Checker {
 
     fn check_struct_decl(&mut self, _name: Name, typevars: &[Name], fields: &[Field]) {
 
+        let mut names = HashSet::new();
+
         for field in fields {
+
+            if names.contains(&field.name) {
+                self.errors.push(
+                    TypeError {
+                        location: field.loc,
+                        message: format!("repeated field: {}", &field.name)
+                    }
+                )
+            } else {
+                names.insert(field.name);
+            }
+
             crate::typevars(field.ty, &mut |name| {
                 if typevars.iter().position(|n| *n == name).is_none() {
                     self.errors.push(
@@ -565,6 +580,8 @@ impl Checker {
                 }
             })
         }
+
+
 
     }
 
