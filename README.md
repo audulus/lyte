@@ -13,3 +13,4 @@ Goals:
 - type inference
 - incremental query-based compiler
 - LLVM backend
+- VM for environments where you can't JIT (iOS)
