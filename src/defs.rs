@@ -61,7 +61,6 @@ pub enum Binop {
     Greater,
     Leq,
     Geq,
-    Cond,
 }
 
 impl Binop {
