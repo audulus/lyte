@@ -16,6 +16,9 @@ pub enum Constraint {
 }
 
 impl Constraint {
+
+    /// Have we eliminated all type variables and
+    /// resolved disjuctions?
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
             Constraint::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
@@ -168,6 +171,7 @@ pub fn print_constraints(constraints: &[Constraint], inst: &Instance) {
     }
 }
 
+/// Looks for ambigious constraints and outputs errors.
 pub fn solved_constraints(
     constraints: &[Constraint],
     instance: &Instance,
