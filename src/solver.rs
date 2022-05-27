@@ -176,6 +176,10 @@ pub fn solved_constraints(
     }
 }
 
+/// Solves a set of type constraints.
+/// 
+/// Note that this solver doesn't backtrack, so it doesn't have exponential runtime,
+/// but may fail to solve some cases (the compiler will ask for more type annotations).
 pub fn solve_constraints(
     constraints: &mut [Constraint],
     instance: &mut Instance,
