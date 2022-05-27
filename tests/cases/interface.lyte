@@ -1,0 +1,4 @@
+
+//interface Compare<A> {
+    // cmp(lhs: typevar A, rhs: typevar A) -> i32
+//}
