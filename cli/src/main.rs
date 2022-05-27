@@ -14,6 +14,7 @@ struct Args {
     test: bool,
 }
 
+/// Test the compiler for a single path.
 fn test_path(path: &str) -> bool {
 
     let mut compiler = lyte::Compiler::new();
