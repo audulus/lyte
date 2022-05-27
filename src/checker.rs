@@ -13,6 +13,7 @@ struct Var {
     mutable: bool,
 }
 
+/// Type-checks ASTs.
 pub struct Checker {
     /// Overloads for arithmetic with built-in types.
     arith_overloads: Vec<TypeID>,
