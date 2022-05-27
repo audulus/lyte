@@ -54,7 +54,7 @@ fn main() {
                 success = !success;
             }
 
-            println!("{} {}", if success { "✅" } else { "❌"}, path);
+            println!("{} {} {}", if success { "✅" } else { "❌"}, path, if expect_failure { "(expected failure)" } else { "" });
 
             if !success {
                 any_failed = true;
