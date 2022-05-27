@@ -1,0 +1,15 @@
+
+struct pool<T> {
+    data: [typevar T; 10000], // storage
+    end: u32,                 // the last allocated thing
+    free: [u32; 10000],
+    n_free: u32
+}
+
+struct ref<T> {
+    index: u32
+}
+
+//get<T>(r: ref<typevar T>, p: pool<typevar T>) -> T {
+//    p.data[r.index]
+//}
