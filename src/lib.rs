@@ -19,3 +19,5 @@ pub use compiler::*;
 
 mod solver;
 pub use solver::*;
+
+mod vm;
