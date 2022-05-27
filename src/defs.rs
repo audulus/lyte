@@ -4,6 +4,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::ops::Deref;
 
+/// An interned string.
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct Name(Intern<String>);
 
@@ -87,8 +88,16 @@ impl Binop {
     }
 }
 
+/// Index of an expression in an ExprArena.
 pub type ExprID = usize;
 
+/// Expressions.
+/// 
+/// We use indexes instead of boxing. This gives
+/// each expression a unique ID which can be used
+/// for derived data without mutating the expression
+/// tree. It's also faster. Most hierarchical data
+/// should be represented this way.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Expr {
     Id(Name),
