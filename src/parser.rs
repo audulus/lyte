@@ -864,6 +864,10 @@ fn skip_newlines(lexer: &mut Lexer) {
 }
 
 /// Parser entry point for a single file.
+/// 
+/// Note that parsing is only incremental on file-granularity, but salsa is
+/// smart enough to avoid invoking type-checking for everything in the file
+/// in most cases.
 pub fn parse_program(lexer: &mut Lexer, arena: &mut ExprArena) -> Vec<Decl> {
     let mut decls = vec![];
 
