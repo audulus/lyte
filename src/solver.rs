@@ -2,6 +2,7 @@ use crate::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+/// A type-inference constraint.
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Constraint {
     /// Equality.
