@@ -16,7 +16,7 @@ enum Inst {
 // According to wasm3, continuation passing is faster because
 // the function call arguments are mapped to CPU registers.
 struct Op {
-    f: fn(code: &[Op], ip: usize, mem: &[u8], sp: usize, i: i32, f: f32),
+    f: fn(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32),
 }
 
 fn read4(mem: &[u8], addr: usize) -> [u8; 4] {
@@ -24,14 +24,37 @@ fn read4(mem: &[u8], addr: usize) -> [u8; 4] {
     [mem[addr], mem[addr+1], mem[addr+2], mem[addr+3]]
 }
 
-fn i_add(code: &[Op], ip: usize, mem: &[u8], sp: usize, i: i32, f: f32) {
+fn write4(mem: &mut [u8], addr: usize, word: [u8; 4]) {
+    assert!(addr+3 < mem.len());
+    mem[addr] = word[0];
+    mem[addr+1] = word[1];
+    mem[addr+2] = word[2];
+    mem[addr+3] = word[3];
+}
+
+fn i_add(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = i32::from_ne_bytes(read4(mem, sp));
     (code[ip+1].f)(code, ip+1, mem, sp, i + x, f);
 }
 
-fn f_add(code: &[Op], ip: usize, mem: &[u8], sp: usize, i: i32, f: f32) {
+fn f_add(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
     (code[ip+1].f)(code, ip+1, mem, sp, i, f + x);
+}
+
+fn f_mul(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    let x = f32::from_ne_bytes(read4(mem, sp));
+    (code[ip+1].f)(code, ip+1, mem, sp, i, f * x);
+}
+
+fn f_load(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
+    let x = f32::from_ne_bytes(read4(mem, sp));
+    (code[ip+1].f)(code, ip+1, mem, sp, i, x);
+}
+
+fn f_store(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    write4(mem, sp, f.to_ne_bytes());
+    (code[ip+1].f)(code, ip+1, mem, sp, i, f);
 }
 
 /// On some platforms (iOS) we can't generate machine code, so 
