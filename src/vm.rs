@@ -136,3 +136,22 @@ impl Vm {
         }
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_imm_store() {
+        let code = [Op{f: f_imm}, Op{f: f_store}, Op{f: halt}];
+        let imm = (42.0 as f32).to_ne_bytes();
+        let mut mem = [0 as u8; 4];
+
+        assert_ne!(f32::from_ne_bytes(mem), 42.0);
+        
+        (code[0].f)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
+
+        assert_eq!(f32::from_ne_bytes(mem), 42.0);
+    }
+}
