@@ -5,6 +5,8 @@
 
 // More specific to rust: https://pliniker.github.io/post/dispatchers/
 
+// "Nostradamus Distributor": http://www.emulators.com/docs/nx25_nostradamus.htm
+
 // According to wasm3, tail recursion is faster because
 // the function call arguments are mapped to CPU registers.
 struct Op(fn(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32));
