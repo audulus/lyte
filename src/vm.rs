@@ -163,4 +163,15 @@ mod tests {
 
         assert_eq!(f32::from_ne_bytes(mem), 42.0);
     }
+
+    #[test]
+    fn test_call() {
+        let code = [Op(call), Op(end), Op(f_imm), Op(f_store), Op(end)];
+        let imm = [(2 as i32).to_ne_bytes(), (0 as i32).to_ne_bytes(), (42.0 as f32).to_ne_bytes()].concat();
+        let mut mem = [0 as u8; 4];
+        
+        (code[0].0)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
+
+        assert_eq!(f32::from_ne_bytes(mem), 42.0);
+    }
 }
