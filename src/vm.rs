@@ -109,7 +109,7 @@ fn f_bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
     (code[ip].0)(code, imm, ip, mem, sp, i, f);
 }
 
-/// Call a function. This uses our own call stack to store the return address.
+/// Call a function. This uses our own call stack to store the registers.
 fn call(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let func = u32::from_ne_bytes(read4(imm, ip * 4)) as usize;
     (code[func].0)(code, imm, func, mem, sp, i, f);
