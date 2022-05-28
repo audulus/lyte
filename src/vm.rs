@@ -42,6 +42,11 @@ fn f_mul(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, 
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f * x);
 }
 
+fn f_div(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    let x = f32::from_ne_bytes(read4(mem, sp));
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f / x);
+}
+
 /// Load value top of stack into fp register.
 fn f_load(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
