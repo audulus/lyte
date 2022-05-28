@@ -24,6 +24,11 @@ fn read4(mem: &[u8], addr: usize) -> [u8; 4] {
     [mem[addr], mem[addr+1], mem[addr+2], mem[addr+3]]
 }
 
+fn i_add(code: &[Op], ip: usize, mem: &[u8], sp: usize, i: i32, f: f32) {
+    let x = i32::from_ne_bytes(read4(mem, sp));
+    (code[ip+1].f)(code, ip+1, mem, sp, i + x, f);
+}
+
 fn f_add(code: &[Op], ip: usize, mem: &[u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
     (code[ip+1].f)(code, ip+1, mem, sp, i, f + x);
