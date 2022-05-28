@@ -7,6 +7,8 @@
 
 // "Nostradamus Distributor": http://www.emulators.com/docs/nx25_nostradamus.htm
 
+// Ok this code is useless. https://stackoverflow.com/questions/59257543/when-is-tail-recursion-guaranteed-in-rust
+
 // According to wasm3, tail recursion is faster because
 // the function call arguments are mapped to CPU registers.
 struct Op(fn(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32));
