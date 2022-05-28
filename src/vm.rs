@@ -69,6 +69,8 @@ fn f_bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
     (code[ip].f)(code, imm, ip, mem, sp, i, f);
 }
 
+fn halt(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
+
 #[derive(Clone, Copy)]
 enum Inst {
     Iadd(Reg, Reg, Reg),
