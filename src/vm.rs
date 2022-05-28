@@ -1,18 +1,6 @@
 
 // See https://github.com/wasm3/wasm3/blob/main/docs/Interpreter.md
 
-type Reg = u8;
-
-#[derive(Clone, Copy)]
-enum Inst {
-    Iadd(Reg, Reg, Reg),
-    Fadd(Reg, Reg, Reg),
-    LoadIntImm(Reg, usize),
-    StoreIntImm(Reg, usize),
-    LoadFloatImm(Reg, usize),
-    StoreFloatImm(Reg, usize),
-}
-
 // According to wasm3, continuation passing is faster because
 // the function call arguments are mapped to CPU registers.
 struct Op {
@@ -56,6 +44,18 @@ fn f_store(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     write4(mem, sp, f.to_ne_bytes());
     (code[ip+1].f)(code, ip+1, mem, sp, i, f);
 }
+
+#[derive(Clone, Copy)]
+enum Inst {
+    Iadd(Reg, Reg, Reg),
+    Fadd(Reg, Reg, Reg),
+    LoadIntImm(Reg, usize),
+    StoreIntImm(Reg, usize),
+    LoadFloatImm(Reg, usize),
+    StoreFloatImm(Reg, usize),
+}
+
+type Reg = u8;
 
 /// On some platforms (iOS) we can't generate machine code, so 
 /// here's an attempt at a VM.
