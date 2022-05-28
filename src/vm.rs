@@ -17,6 +17,14 @@ fn write4(mem: &mut [u8], addr: usize, word: [u8; 4]) {
     mem[addr + 3] = word[3];
 }
 
+fn sp_up(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp+4, i, f);
+}
+
+fn sp_down(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp-4, i, f);
+}
+
 fn i_add(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = i32::from_ne_bytes(read4(mem, sp));
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i + x, f);
