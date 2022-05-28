@@ -45,8 +45,17 @@ fn f_store(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32
 }
 
 fn f_imm(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
-    let x = f32::from_ne_bytes(read4(imm, ip * 4));
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, x);
+    let f = f32::from_ne_bytes(read4(imm, ip * 4));
+    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, f);
+}
+
+fn bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    let ip = if i == 0 {
+        u32::from_ne_bytes(read4(imm, ip * 4)) as usize
+    } else {
+        ip + 1
+    };
+    (code[ip].f)(code, imm, ip, mem, sp, i, f);
 }
 
 #[derive(Clone, Copy)]
