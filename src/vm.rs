@@ -116,6 +116,11 @@ fn call(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
     (code[ip+1].0)(code, imm, ip+1, mem, sp, i, f);
 }
 
+/// Allocates memory on the stack.
+fn alloca(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    (code[ip+1].0)(code, imm, ip+1, mem, sp+i as usize, sp as i32, f);
+}
+
 /// End of the code or end of a function. Terminates tail recursion.
 fn end(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
 
