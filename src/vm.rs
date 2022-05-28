@@ -1,6 +1,6 @@
 // See https://github.com/wasm3/wasm3/blob/main/docs/Interpreter.md
 
-// According to wasm3, continuation passing is faster because
+// According to wasm3, tail recursion is faster because
 // the function call arguments are mapped to CPU registers.
 struct Op(fn(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32));
 
@@ -102,73 +102,6 @@ fn call(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
 
 /// End of the code or end of a function. Terminates tail recursion.
 fn end(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
-
-#[derive(Clone, Copy)]
-enum Inst {
-    Iadd(Reg, Reg, Reg),
-    Fadd(Reg, Reg, Reg),
-    LoadIntImm(Reg, usize),
-    StoreIntImm(Reg, usize),
-    LoadFloatImm(Reg, usize),
-    StoreFloatImm(Reg, usize),
-}
-
-type Reg = u8;
-
-/// On some platforms (iOS) we can't generate machine code, so
-/// here's an attempt at a VM.
-struct Vm {
-    code: Vec<Inst>,
-    mem: Vec<u8>,
-}
-
-impl Vm {
-    fn read4(&self, addr: usize) -> [u8; 4] {
-        [
-            self.mem[addr],
-            self.mem[addr + 1],
-            self.mem[addr + 2],
-            self.mem[addr + 3],
-        ]
-    }
-
-    fn write4(&mut self, addr: usize, word: [u8; 4]) {
-        self.mem[addr] = word[0];
-        self.mem[addr + 1] = word[1];
-        self.mem[addr + 2] = word[2];
-        self.mem[addr + 3] = word[3];
-    }
-
-    fn run(&mut self) {
-        let mut ireg = [0 as i32; 256];
-        let mut freg = [0.0 as f32; 256];
-        let ip = 0 as usize;
-
-        let inst = self.code[ip];
-
-        match inst {
-            Inst::Iadd(dst, a, b) => {
-                ireg[dst as usize] = ireg[a as usize] + ireg[b as usize];
-            }
-            Inst::Fadd(dst, a, b) => {
-                freg[dst as usize] = freg[a as usize] + freg[b as usize];
-            }
-            Inst::LoadIntImm(dst, addr) => {
-                ireg[dst as usize] = i32::from_ne_bytes(self.read4(addr))
-            }
-            Inst::StoreIntImm(dst, addr) => {
-                self.write4(addr, ireg[dst as usize].to_ne_bytes());
-            }
-            Inst::LoadFloatImm(dst, addr) => {
-                freg[dst as usize] = f32::from_ne_bytes(self.read4(addr))
-            }
-            Inst::StoreFloatImm(dst, addr) => {
-                self.write4(addr, freg[dst as usize].to_ne_bytes());
-            }
-        }
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
