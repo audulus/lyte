@@ -32,16 +32,19 @@ fn f_mul(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, 
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f * x);
 }
 
+/// Load value top of stack into fp register.
 fn f_load(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, x);
 }
 
+/// Save fp register to top of stack.
 fn f_store(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     write4(mem, sp, f.to_ne_bytes());
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f);
 }
 
+/// Load immediate floating point value into f.
 fn f_imm(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
     let f = f32::from_ne_bytes(read4(imm, ip * 4));
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f);
