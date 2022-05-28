@@ -119,6 +119,17 @@ fn call(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
 /// End of the code or end of a function. Terminates tail recursion.
 fn end(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
 
+impl Op {
+    fn name(&self) -> &'static str {
+        let i = self.0 as usize;
+        if i == end as usize { "end" } 
+        else if i == f_imm as usize { "f_imm" }
+        else if i == f_store as usize { "f_store" }
+        else if i == call as usize { "call" }
+        else { panic!() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +137,9 @@ mod tests {
     #[test]
     fn test_imm_store() {
         let code = [Op(f_imm), Op(f_store), Op(end)];
+
+        code.iter().for_each(|op| println!("{}", op.name()));
+
         let imm = (42.0 as f32).to_ne_bytes();
         let mut mem = [0 as u8; 4];
 
@@ -139,6 +153,9 @@ mod tests {
     #[test]
     fn test_call() {
         let code = [Op(call), Op(end), Op(f_imm), Op(f_store), Op(end)];
+
+        code.iter().for_each(|op| println!("{}", op.name()));
+
         let imm = [(2 as i32).to_ne_bytes(), (0 as i32).to_ne_bytes(), (42.0 as f32).to_ne_bytes()].concat();
         let mut mem = [0 as u8; 4];
         
