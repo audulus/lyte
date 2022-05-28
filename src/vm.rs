@@ -1,3 +1,6 @@
+/// On some platforms (iOS) we can't generate machine code, so 
+/// here's an attempt at a VM.
+
 // See https://github.com/wasm3/wasm3/blob/main/docs/Interpreter.md
 
 // According to wasm3, tail recursion is faster because
