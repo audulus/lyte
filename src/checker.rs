@@ -47,7 +47,7 @@ pub struct Checker {
     vars: Vec<Var>,
 
     /// Accumulated type errors while checking.
-    pub errors: Vec<TypeError>
+    pub errors: Vec<TypeError>,
 }
 
 impl Checker {
@@ -87,13 +87,7 @@ impl Checker {
         }
     }
 
-    fn eq(
-        &mut self,
-        lhs: TypeID,
-        rhs: TypeID,
-        loc: Loc,
-        _error_message: &str,
-    ) {
+    fn eq(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, _error_message: &str) {
         self.add_constraint(Constraint::Equal(lhs, rhs, loc));
     }
 
@@ -108,12 +102,7 @@ impl Checker {
         self.constraints.push(c);
     }
 
-    fn check_expr(
-        &mut self,
-        id: ExprID,
-        arena: &ExprArena,
-        decls: &[Decl],
-    ) -> TypeID {
+    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &[Decl]) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
             Expr::Int(_) => mk_type(Type::Int32),
@@ -204,11 +193,7 @@ impl Checker {
                         }
                     }
 
-                    self.add_constraint(Constraint::Or(
-                        ft,
-                        alternatives,
-                        arena.locs[id],
-                    ));
+                    self.add_constraint(Constraint::Or(ft, alternatives, arena.locs[id]));
 
                     let r = self.fresh();
 
@@ -511,12 +496,7 @@ impl Checker {
         None
     }
 
-    fn check_fn_decl(
-        &mut self,
-        func_decl: &FuncDecl,
-        arena: &ExprArena,
-        decls: &[Decl],
-    ) {
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, arena: &ExprArena, decls: &[Decl]) {
         if let Some(body) = func_decl.body {
             // println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
@@ -544,62 +524,54 @@ impl Checker {
 
             self.vars.clear();
 
-            solve_constraints(&mut self.constraints, &mut self.inst, decls, &mut self.errors);
+            solve_constraints(
+                &mut self.constraints,
+                &mut self.inst,
+                decls,
+                &mut self.errors,
+            );
 
             //println!("instance:");
             //print_instance(&self.inst);
-
         }
     }
 
     fn check_struct_decl(&mut self, _name: Name, typevars: &[Name], fields: &[Field]) {
-
         let mut names = HashSet::new();
 
         for field in fields {
-
             if names.contains(&field.name) {
-                self.errors.push(
-                    TypeError {
-                        location: field.loc,
-                        message: format!("repeated field: {}", &field.name)
-                    }
-                )
+                self.errors.push(TypeError {
+                    location: field.loc,
+                    message: format!("repeated field: {}", &field.name),
+                })
             } else {
                 names.insert(field.name);
             }
 
             crate::typevars(field.ty, &mut |name| {
                 if typevars.iter().position(|n| *n == name).is_none() {
-                    self.errors.push(
-                        TypeError {
-                            location: field.loc,
-                            message: format!("unknown type variable: {}", name)
-                        }
-                    )
+                    self.errors.push(TypeError {
+                        location: field.loc,
+                        message: format!("unknown type variable: {}", name),
+                    })
                 }
             })
         }
-
-
-
     }
 
-    fn check_interface(&mut self, _name: Name, _funcs: &[FuncDecl]) {
-        
-    }
+    fn check_interface(&mut self, _name: Name, _funcs: &[FuncDecl]) {}
 
-    fn _check_decl(
-        &mut self,
-        decl: &Decl,
-        arena: &ExprArena,
-        decls: &[Decl],
-    ) {
+    fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Interface { name, funcs } => self.check_interface(*name, funcs),
-            Decl::Struct { name, typevars, fields } => self.check_struct_decl(*name, typevars, fields),
+            Decl::Struct {
+                name,
+                typevars,
+                fields,
+            } => self.check_struct_decl(*name, typevars, fields),
             _ => (),
         }
     }
@@ -612,12 +584,7 @@ impl Checker {
         }
     }
 
-    pub fn check_decl(
-        &mut self,
-        decl: &Decl,
-        arena: &ExprArena,
-        decls: &[Decl],
-    ) {
+    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         self._check_decl(decl, arena, decls);

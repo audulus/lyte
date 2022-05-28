@@ -21,7 +21,7 @@ pub enum Type {
 }
 
 /// An interned type.
-/// 
+///
 /// Newtyped so we can implement more traits.
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct TypeID(Intern<Type>);
@@ -48,7 +48,7 @@ impl fmt::Debug for TypeID {
 
 /// A substitution from type variables to
 /// other types.
-/// 
+///
 /// "Substitution" might be better terminology.
 pub type Instance = HashMap<TypeID, TypeID>;
 
@@ -59,7 +59,7 @@ pub fn print_instance(inst: &Instance) {
 }
 
 /// Convenience to create new TypeIDs from types.
-/// 
+///
 /// Kinda questionable wrapper over TypeID::new.
 pub fn mk_type(proto: Type) -> TypeID {
     TypeID::new(proto)
@@ -71,7 +71,7 @@ pub fn typevar(name: &str) -> TypeID {
 }
 
 /// Create a new anonymous type variable with an index.
-/// 
+///
 /// Should we also include a location?
 pub fn anon(index: usize) -> TypeID {
     mk_type(Type::Anon(index))
@@ -93,7 +93,7 @@ fn params_ty(params: &Vec<Param>) -> TypeID {
 }
 
 /// Look up a type in an instance, following as far as possible.
-/// 
+///
 /// There better not be cycles!
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
     let mut id = id;
@@ -144,7 +144,7 @@ pub fn solved_inst(t: TypeID, inst: &Instance) -> bool {
 }
 
 /// Find a substitution which makes two types equal.
-/// 
+///
 /// Returns false if such a substituion doesn't exist.
 /// I think this is pretty much textbook Hindley-Milner.
 /// It's more or less what's in the dragon book.
@@ -308,12 +308,10 @@ mod tests {
 
     #[test]
     fn test_typevars() {
-
         let vd = mk_type(Type::Void);
-        typevars(vd, &mut|_name| ());
+        typevars(vd, &mut |_name| ());
 
         let v = typevar("T");
-        typevars(v, &mut|name| ( assert_eq!(name, Name::new("T".into()))));
-
+        typevars(v, &mut |name| (assert_eq!(name, Name::new("T".into()))));
     }
 }

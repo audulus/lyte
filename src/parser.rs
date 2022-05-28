@@ -651,7 +651,11 @@ fn parse_fieldlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Field
         expect(lexer, Token::Colon, errors);
 
         let ty = parse_type(lexer, errors);
-        r.push(Field { name, ty, loc: lexer.loc });
+        r.push(Field {
+            name,
+            ty,
+            loc: lexer.loc,
+        });
 
         skip_newlines(lexer);
 
@@ -845,7 +849,6 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
         }
         Token::Interface => parse_interface(lexer, arena),
         _ => {
-
             arena.errors.push(ParseError {
                 location: lexer.loc,
                 message: format!("Expected declaration, got {:?}", lexer.tok).into(),
@@ -864,7 +867,7 @@ fn skip_newlines(lexer: &mut Lexer) {
 }
 
 /// Parser entry point for a single file.
-/// 
+///
 /// Note that parsing is only incremental on file-granularity, but salsa is
 /// smart enough to avoid invoking type-checking for everything in the file
 /// in most cases.

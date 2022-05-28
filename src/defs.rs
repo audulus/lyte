@@ -82,7 +82,7 @@ impl Binop {
             Binop::Minus => "__sub",
             Binop::Mult => "__mul",
             Binop::Div => "__div",
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
@@ -91,7 +91,7 @@ impl Binop {
 pub type ExprID = usize;
 
 /// Expressions.
-/// 
+///
 /// We use indexes instead of boxing. This gives
 /// each expression a unique ID which can be used
 /// for derived data without mutating the expression

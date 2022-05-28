@@ -1,4 +1,3 @@
-
 // See https://github.com/wasm3/wasm3/blob/main/docs/Interpreter.md
 
 // According to wasm3, continuation passing is faster because
@@ -8,41 +7,41 @@ struct Op {
 }
 
 fn read4(mem: &[u8], addr: usize) -> [u8; 4] {
-    assert!(addr+3 < mem.len());
-    [mem[addr], mem[addr+1], mem[addr+2], mem[addr+3]]
+    assert!(addr + 3 < mem.len());
+    [mem[addr], mem[addr + 1], mem[addr + 2], mem[addr + 3]]
 }
 
 fn write4(mem: &mut [u8], addr: usize, word: [u8; 4]) {
-    assert!(addr+3 < mem.len());
+    assert!(addr + 3 < mem.len());
     mem[addr] = word[0];
-    mem[addr+1] = word[1];
-    mem[addr+2] = word[2];
-    mem[addr+3] = word[3];
+    mem[addr + 1] = word[1];
+    mem[addr + 2] = word[2];
+    mem[addr + 3] = word[3];
 }
 
 fn i_add(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = i32::from_ne_bytes(read4(mem, sp));
-    (code[ip+1].f)(code, ip+1, mem, sp, i + x, f);
+    (code[ip + 1].f)(code, ip + 1, mem, sp, i + x, f);
 }
 
 fn f_add(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
-    (code[ip+1].f)(code, ip+1, mem, sp, i, f + x);
+    (code[ip + 1].f)(code, ip + 1, mem, sp, i, f + x);
 }
 
 fn f_mul(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
-    (code[ip+1].f)(code, ip+1, mem, sp, i, f * x);
+    (code[ip + 1].f)(code, ip + 1, mem, sp, i, f * x);
 }
 
 fn f_load(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
-    (code[ip+1].f)(code, ip+1, mem, sp, i, x);
+    (code[ip + 1].f)(code, ip + 1, mem, sp, i, x);
 }
 
 fn f_store(code: &[Op], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     write4(mem, sp, f.to_ne_bytes());
-    (code[ip+1].f)(code, ip+1, mem, sp, i, f);
+    (code[ip + 1].f)(code, ip + 1, mem, sp, i, f);
 }
 
 #[derive(Clone, Copy)]
@@ -57,7 +56,7 @@ enum Inst {
 
 type Reg = u8;
 
-/// On some platforms (iOS) we can't generate machine code, so 
+/// On some platforms (iOS) we can't generate machine code, so
 /// here's an attempt at a VM.
 struct Vm {
     code: Vec<Inst>,
@@ -65,20 +64,23 @@ struct Vm {
 }
 
 impl Vm {
-
     fn read4(&self, addr: usize) -> [u8; 4] {
-        [self.mem[addr], self.mem[addr+1], self.mem[addr+2], self.mem[addr+3]]
+        [
+            self.mem[addr],
+            self.mem[addr + 1],
+            self.mem[addr + 2],
+            self.mem[addr + 3],
+        ]
     }
 
     fn write4(&mut self, addr: usize, word: [u8; 4]) {
         self.mem[addr] = word[0];
-        self.mem[addr+1] = word[1];
-        self.mem[addr+2] = word[2];
-        self.mem[addr+3] = word[3];
+        self.mem[addr + 1] = word[1];
+        self.mem[addr + 2] = word[2];
+        self.mem[addr + 3] = word[3];
     }
-    
-    fn run(&mut self) {
 
+    fn run(&mut self) {
         let mut ireg = [0 as i32; 256];
         let mut freg = [0.0 as f32; 256];
         let ip = 0 as usize;
@@ -96,13 +98,13 @@ impl Vm {
                 ireg[dst as usize] = i32::from_ne_bytes(self.read4(addr))
             }
             Inst::StoreIntImm(dst, addr) => {
-                self.write4(addr,  ireg[dst as usize].to_ne_bytes());
+                self.write4(addr, ireg[dst as usize].to_ne_bytes());
             }
             Inst::LoadFloatImm(dst, addr) => {
                 freg[dst as usize] = f32::from_ne_bytes(self.read4(addr))
             }
             Inst::StoreFloatImm(dst, addr) => {
-                self.write4(addr,  freg[dst as usize].to_ne_bytes());
+                self.write4(addr, freg[dst as usize].to_ne_bytes());
             }
         }
     }

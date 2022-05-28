@@ -2,7 +2,7 @@ use crate::*;
 use std::sync::Arc;
 
 // An AST.
-// 
+//
 // I've read that some IDE-oriented compilers prefer to
 // have a full syntax tree (which can represent the exact formatting of evertying)
 // but that seems like a real pain.

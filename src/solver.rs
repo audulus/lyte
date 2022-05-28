@@ -16,7 +16,6 @@ pub enum Constraint {
 }
 
 impl Constraint {
-
     /// Have we eliminated all type variables and
     /// resolved disjuctions?
     pub fn solved(&self, inst: &Instance) -> bool {
@@ -69,10 +68,9 @@ pub fn iterate_solver(
     constraints: &mut [Constraint],
     instance: &mut Instance,
     decls: &[Decl],
-    errors: &mut Vec<TypeError>
+    errors: &mut Vec<TypeError>,
 ) {
     for constraint in constraints {
-
         // Kind of an unfortunate clone.
         let constraint_clone = constraint.clone();
 
@@ -107,17 +105,16 @@ pub fn iterate_solver(
                 }
             }
             Constraint::Field(struct_ty, field_name, ft, loc) => {
-
                 // This starts feeling a bit too nested.
-                
+
                 match &*find(*struct_ty, instance) {
                     Type::Name(struct_name, vars) => {
-
-                        if let Some(Decl::Struct{typevars, fields, ..}) = find_decl(decls, *struct_name) {
-
+                        if let Some(Decl::Struct {
+                            typevars, fields, ..
+                        }) = find_decl(decls, *struct_name)
+                        {
                             // We've narrowed it down. Better unify!
                             if let Some(field) = find_field(fields, *field_name) {
-
                                 let field_ty = if let Type::Var(name) = *field.ty {
                                     let index = typevars.iter().position(|&n| n == name).unwrap();
                                     vars[index]
@@ -135,10 +132,10 @@ pub fn iterate_solver(
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
-                                message: format!("{:?} does not refer to a struct", struct_name).into(),
+                                message: format!("{:?} does not refer to a struct", struct_name)
+                                    .into(),
                             });
                         }
-                        
                     }
                     Type::Array(_, _) => {
                         if *field_name == Name::new("len".into()) {
@@ -156,7 +153,6 @@ pub fn iterate_solver(
             }
         }
     }
-
 }
 
 fn constraints_hash(constraints: &[Constraint]) -> u64 {
@@ -188,7 +184,7 @@ pub fn solved_constraints(
 }
 
 /// Solves a set of type constraints.
-/// 
+///
 /// Note that this solver doesn't backtrack, so it doesn't have exponential runtime,
 /// but may fail to solve some cases (the compiler will ask for more type annotations).
 pub fn solve_constraints(
@@ -227,7 +223,6 @@ pub fn solve_constraints(
     //print_instance(instance);
 
     solved_constraints(constraints, instance, errors);
-
 }
 
 #[cfg(test)]
@@ -298,7 +293,11 @@ mod tests {
 
         let decls = vec![Decl::Struct {
             name: s0name,
-            fields: vec![Field { name: xname, ty: i, loc: test_loc() }],
+            fields: vec![Field {
+                name: xname,
+                ty: i,
+                loc: test_loc(),
+            }],
             typevars: vec![],
         }];
 
