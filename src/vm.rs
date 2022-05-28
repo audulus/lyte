@@ -2,9 +2,7 @@
 
 // According to wasm3, continuation passing is faster because
 // the function call arguments are mapped to CPU registers.
-struct Op {
-    f: fn(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32),
-}
+struct Op(fn(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32));
 
 fn read4(mem: &[u8], addr: usize) -> [u8; 4] {
     assert!(addr + 3 < mem.len());
@@ -21,32 +19,32 @@ fn write4(mem: &mut [u8], addr: usize, word: [u8; 4]) {
 
 fn i_add(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = i32::from_ne_bytes(read4(mem, sp));
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i + x, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i + x, f);
 }
 
 fn f_add(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, f + x);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f + x);
 }
 
 fn f_mul(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, f * x);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f * x);
 }
 
 fn f_load(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, x);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, x);
 }
 
 fn f_store(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     write4(mem, sp, f.to_ne_bytes());
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f);
 }
 
 fn f_imm(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, _f: f32) {
     let f = f32::from_ne_bytes(read4(imm, ip * 4));
-    (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f);
 }
 
 /// Branch if zero.
@@ -56,7 +54,7 @@ fn bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: 
     } else {
         ip + 1
     };
-    (code[ip].f)(code, imm, ip, mem, sp, i, f);
+    (code[ip].0)(code, imm, ip, mem, sp, i, f);
 }
 
 /// Branch if f is zero.
@@ -66,7 +64,7 @@ fn f_bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
     } else {
         ip + 1
     };
-    (code[ip].f)(code, imm, ip, mem, sp, i, f);
+    (code[ip].0)(code, imm, ip, mem, sp, i, f);
 }
 
 fn halt(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
@@ -144,13 +142,13 @@ mod tests {
     
     #[test]
     fn test_imm_store() {
-        let code = [Op{f: f_imm}, Op{f: f_store}, Op{f: halt}];
+        let code = [Op(f_imm), Op(f_store), Op(halt)];
         let imm = (42.0 as f32).to_ne_bytes();
         let mut mem = [0 as u8; 4];
 
         assert_ne!(f32::from_ne_bytes(mem), 42.0);
         
-        (code[0].f)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
+        (code[0].0)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
 
         assert_eq!(f32::from_ne_bytes(mem), 42.0);
     }
