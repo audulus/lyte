@@ -49,8 +49,19 @@ fn f_imm(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, 
     (code[ip + 1].f)(code, imm, ip + 1, mem, sp, i, f);
 }
 
+/// Branch if zero.
 fn bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let ip = if i == 0 {
+        u32::from_ne_bytes(read4(imm, ip * 4)) as usize
+    } else {
+        ip + 1
+    };
+    (code[ip].f)(code, imm, ip, mem, sp, i, f);
+}
+
+/// Branch if f is zero.
+fn f_bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    let ip = if f == 0.0 {
         u32::from_ne_bytes(read4(imm, ip * 4)) as usize
     } else {
         ip + 1
