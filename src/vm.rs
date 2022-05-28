@@ -67,7 +67,15 @@ fn f_bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
     (code[ip].0)(code, imm, ip, mem, sp, i, f);
 }
 
-fn halt(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
+/// Call a function. This uses our own call stack to store the return address.
+fn call(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    let func = u32::from_ne_bytes(read4(imm, ip * 4)) as usize;
+    (code[func].0)(code, imm, func, mem, sp, i, f);
+    (code[ip+1].0)(code, imm, ip+1, mem, sp, i, f);
+}
+
+/// End of the code or end of a function. Terminates tail recursion.
+fn end(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
 
 #[derive(Clone, Copy)]
 enum Inst {
@@ -142,7 +150,7 @@ mod tests {
     
     #[test]
     fn test_imm_store() {
-        let code = [Op(f_imm), Op(f_store), Op(halt)];
+        let code = [Op(f_imm), Op(f_store), Op(end)];
         let imm = (42.0 as f32).to_ne_bytes();
         let mut mem = [0 as u8; 4];
 
