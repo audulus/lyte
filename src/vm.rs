@@ -22,6 +22,11 @@ fn i_add(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, 
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i + x, f);
 }
 
+fn i_sub(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
+    let x = i32::from_ne_bytes(read4(mem, sp));
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i - x, f);
+}
+
 fn f_add(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let x = f32::from_ne_bytes(read4(mem, sp));
     (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f + x);
