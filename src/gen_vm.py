@@ -42,20 +42,26 @@ print("}")
 
 # Generate interpreter function
 
-def exec2(name, op):
+def exec2(name, r, op):
     for i in range(regs):
         for j in range(regs):
             if i != j:
-                print("            %s%d_%d => { r%d %s r%d; ip += 4; }" % (name, i, j, i, op, j))
+                print("            %s%d_%d => { %s%d %s %s%d; ip += 4; }" % (name, i, j, r, i, op, r, j))
 
 print("fn vm() {")
+print("    let mut ip = 0;")
 for i in range(regs):
     print("    let mut r%d:i32 = 0;" % i)
 for i in range(regs):
     print("    let mut f%d:f32 = 0.0;" % i)
 print("    loop {")
 print("        match op {")
-exec2("Add", "+=")
+exec2("Add", "r", "+=")
+exec2("Sub", "r", "-=")
+exec2("Mul", "r", "*=")
+exec2("FAdd", "f", "+=")
+exec2("FSub", "f", "-=")
+exec2("FMul", "f", "*=")
 print("        }")
 print("    }")
 print("}")
