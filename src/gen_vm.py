@@ -27,6 +27,7 @@ def instr3(name):
 
 # Generate instruction enum
 
+print("#[derive(Clone, Copy)]")
 print("enum Inst {")
 
 print("    // Move")
@@ -52,16 +53,17 @@ def exec2(name, r, op):
     for i in range(regs):
         for j in range(regs):
             if i != j:
-                print("            %s%d_%d => { %s%d %s %s%d; ip += 4; }" % (name, i, j, r, i, op, r, j))
+                print("            Inst::%s%d_%d => { %s%d %s %s%d; ip += 4; }" % (name, i, j, r, i, op, r, j))
 
-print("fn vm() {")
+print("fn vm(code: &[Inst]) {")
 print("    let mut ip = 0;")
 for i in range(regs):
     print("    let mut r%d:i32 = 0;" % i)
 for i in range(regs):
     print("    let mut f%d:f32 = 0.0;" % i)
 print("    loop {")
-print("        match op {")
+print("        match code[ip] {")
+exec2("Mv", "r", "=")
 exec2("Add", "r", "+=")
 exec2("Sub", "r", "-=")
 exec2("Mul", "r", "*=")
