@@ -4,6 +4,12 @@
 # virtual registers, then it will run faster.
 # But it may be too hard on the branch predictor.
 
+# References.
+# See https://github.com/wasm3/wasm3/blob/main/docs/Interpreter.md
+# More specific to rust: https://pliniker.github.io/post/dispatchers/
+# "Nostradamus Distributor": http://www.emulators.com/docs/nx25_nostradamus.htm
+# https://stackoverflow.com/questions/59257543/when-is-tail-recursion-guaranteed-in-rust
+
 regs = 8
 
 def instr2(name):
