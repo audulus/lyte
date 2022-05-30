@@ -58,13 +58,13 @@ def exec2(name, r, op):
     for i in range(regs):
         for j in range(regs):
             if i != j:
-                print("            Inst::%s%d_%d => { %s%d %s %s%d; ip += 4; }" % (name, i, j, r, i, op, r, j))
+                print("            Inst::%s%d_%d => { %s%d %s %s%d; ip += 1; }" % (name, i, j, r, i, op, r, j))
 
 def cmp():
     for i in range(regs):
         for j in range(regs):
             if i != j:
-                print("            Inst::Cmp%d_%d => { flags = cmp(r%d, r%d); ip += 4; }" % (i, j, i, j))
+                print("            Inst::Cmp%d_%d => { flags = cmp(r%d, r%d); ip += 1; }" % (i, j, i, j))
 
 print("fn vm(code: &[Inst]) {")
 print("    let mut ip:i32 = 0;")
