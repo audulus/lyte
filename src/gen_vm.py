@@ -49,6 +49,8 @@ print("    // Float multiplication")
 instr2("FMul")
 print("    // Integer comparison")
 instr2("Cmp")
+print("    // Integer load")
+instr2("Ld")
 
 print("}")
 
@@ -66,7 +68,13 @@ def cmp():
             if i != j:
                 print("            Inst::Cmp%d_%d => { flags = cmp(r%d, r%d); ip += 1; }" % (i, j, i, j))
 
-print("fn vm(code: &[Inst]) {")
+def ld():
+    for i in range(regs):
+        for j in range(regs):
+            if i != j:
+                print("            Inst::Ld%d_%d => { r%d = i32::from_ne_bytes(read4(mem, r%d as usize)); ip += 1; }" % (i, j, i, j))
+
+print("fn vm(code: &[Inst], mem: &mut [u8]) {")
 print("    let mut ip:i32 = 0;")
 print("    let mut flags:i32 = 0;")
 for i in range(regs):
@@ -83,6 +91,7 @@ exec2("FAdd", "f", "+=")
 exec2("FSub", "f", "-=")
 exec2("FMul", "f", "*=")
 cmp()
+ld()
 print("        }")
 print("    }")
 print("}")
