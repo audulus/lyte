@@ -11,3 +11,7 @@ pub fn write4(mem: &mut [u8], addr: usize, word: [u8; 4]) {
     mem[addr + 2] = word[2];
     mem[addr + 3] = word[3];
 }
+
+pub fn cmp(a: i32, b: i32) -> i32 {
+    if a < b { 1 } else { 0 }
+}
