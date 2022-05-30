@@ -21,3 +21,5 @@ mod solver;
 pub use solver::*;
 
 mod vm;
+mod util;
+pub use util::*;
