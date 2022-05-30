@@ -51,7 +51,7 @@ def instr3(name):
 # Generate instruction enum
 
 print("#[derive(Clone, Copy)]")
-print("enum Inst {")
+print("pub enum Inst {")
 
 print("    // Move")
 instr2("Mv")
@@ -94,7 +94,7 @@ def ld():
             if i != j:
                 print("            Inst::Ld%d_%d => { r%d = i32::from_ne_bytes(read4(mem, r%d as usize)); ip += 1; }" % (i, j, i, j))
 
-print("fn vm(code: &[Inst], mem: &mut [u8]) {")
+print("pub fn vm(code: &[Inst], mem: &mut [u8]) {")
 print("    let mut ip:i32 = 0;")
 print("    let mut flags:i32 = 0;")
 for i in range(regs):
