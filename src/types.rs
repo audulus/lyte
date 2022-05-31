@@ -220,6 +220,10 @@ fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
             fresh_aux(*dom, index, inst),
             fresh_aux(*rng, index, inst),
         )),
+        Type::Name(name, params) => {
+            let fresh_params = params.iter().map(|param| fresh_aux(*param, index, inst)).collect();
+            mk_type(Type::Name(*name, fresh_params))
+        }
         _ => ty,
     }
 }
@@ -313,5 +317,20 @@ mod tests {
 
         let v = typevar("T");
         typevars(v, &mut |name| (assert_eq!(name, Name::new("T".into()))));
+    }
+
+    #[test]
+    fn test_fresh() {
+        let t = mk_type(Type::Name(Name::new("MyType".into()), vec![typevar("T")]));
+
+        let mut i = 0;
+        let tt = fresh(t, &mut i);
+
+        if let Type::Name(name, params) = &*tt {
+            assert_eq!(*name, Name::new("MyType".into()));
+            assert_eq!(params[0], anon(0));
+        } else {
+            assert!(false);
+        }
     }
 }
