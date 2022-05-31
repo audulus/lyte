@@ -13,6 +13,9 @@ pub enum Constraint {
 
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
+
+    /// Satisfies an interface.
+    Where(Name, Vec<TypeID>, Loc)
 }
 
 impl Constraint {
@@ -25,6 +28,9 @@ impl Constraint {
             Constraint::Field(struct_ty, _, ft, _) => {
                 solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
             }
+            Constraint::Where(_, types, _) => {
+                types.iter().all(|t| solved_inst(*t, inst))
+            }
         }
     }
 
@@ -33,6 +39,7 @@ impl Constraint {
             Constraint::Equal(_, _, loc) => *loc,
             Constraint::Or(_, _, loc) => *loc,
             Constraint::Field(_, _, _, loc) => *loc,
+            Constraint::Where(_, _, loc) => *loc,
         }
     }
 
@@ -60,6 +67,15 @@ impl Constraint {
                 subst(*b, inst),
                 loc
             ),
+            Constraint::Where(name, types, loc) => {
+                let mapped_types: Vec<TypeID> = types.iter().map(|t| subst(*t, inst)).collect();
+                println!(
+                    "Where({:?}, {:?}, {:?})",
+                    name,
+                    mapped_types,
+                    loc
+                )
+            }
         }
     }
 }
@@ -150,6 +166,9 @@ pub fn iterate_solver(
                     }
                     _ => (),
                 }
+            }
+            Constraint::Where(_name, _types, _loc) => {
+                // XXX: nothing yet!
             }
         }
     }
