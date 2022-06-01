@@ -178,6 +178,7 @@ pub enum Decl {
     },
     Interface {
         name: Name,
+        typevars: Vec<Name>,
         funcs: Vec<FuncDecl>,
     },
 }

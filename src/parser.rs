@@ -777,6 +777,8 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     skip_newlines(lexer);
 
+    let typevars = vec![];
+
     expect(lexer, Token::Lbrace, &mut arena.errors);
 
     skip_newlines(lexer);
@@ -791,7 +793,7 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     lexer.next();
 
-    Decl::Interface { name, funcs }
+    Decl::Interface { name, typevars, funcs }
 }
 
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
