@@ -775,13 +775,18 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     let name = expect_id(lexer, &mut arena.errors);
 
+    skip_newlines(lexer);
+
     expect(lexer, Token::Lbrace, &mut arena.errors);
+
+    skip_newlines(lexer);
 
     let mut funcs = vec![];
 
     while lexer.tok != Token::Rbrace {
         let name = expect_id(lexer, &mut arena.errors);
-        funcs.push(parse_func_decl(name, lexer, arena))
+        funcs.push(parse_func_decl(name, lexer, arena));
+        skip_newlines(lexer);
     }
 
     lexer.next();
@@ -1094,6 +1099,9 @@ mod tests {
                 "macro m() { }",
                 "interface x { }",
                 "interface x { f(x: i8) }",
+                "interface Compare {
+                    cmp(lhs: typevar A, rhs: typevar A) -> i32
+                }",
             ],
         );
     }
