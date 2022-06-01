@@ -167,8 +167,16 @@ pub fn iterate_solver(
                     _ => (),
                 }
             }
-            Constraint::Where(_name, _types, _loc) => {
-                // XXX: nothing yet!
+            Constraint::Where(name, _types, loc) => {
+                if let Some(Decl::Interface { funcs, .. }) = find_decl(decls, *name) {
+                    // XXX: write me
+                } else {
+                    errors.push(TypeError {
+                        location: *loc,
+                        message: format!("unknown interface {:?}", name)
+                            .into(),
+                    });
+                }
             }
         }
     }
