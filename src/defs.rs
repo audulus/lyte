@@ -279,3 +279,28 @@ pub fn find_enums_with_case(decls: &[Decl], case_name: Name, f: &mut impl FnMut(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_sorted_decls() {
+        let decls = vec![
+            Decl::Global { name: Name::new("a".into()), ty: mk_type(Type::Void) },
+            Decl::Global { name: Name::new("b".into()), ty: mk_type(Type::Void) },
+            Decl::Global { name: Name::new("b".into()), ty: mk_type(Type::Void) },
+            Decl::Global { name: Name::new("c".into()), ty: mk_type(Type::Void) },
+        ];
+
+        let sorted = SortedDecls::new(decls);
+        let d = sorted.find(Name::new("z".into()));
+        assert_eq!(d.len(), 0);
+
+        let d = sorted.find(Name::new("b".into()));
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].name(), Name::new("b".into()));
+        assert_eq!(d[1].name(), Name::new("b".into()));
+    }
+}
