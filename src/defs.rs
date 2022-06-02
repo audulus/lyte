@@ -237,9 +237,8 @@ impl SortedDecls {
 
     /// Returns a slice of all decls which match name.
     pub fn find(&self, name: Name) -> &[Decl] {
-        let lower = self.decls.lower_bound_by(|x| x.name().cmp(&name));
-        let upper = self.decls.upper_bound_by(|x| x.name().cmp(&name));
-        &self.decls[lower..upper]
+        let range = self.decls.equal_range_by(|x| x.name().cmp(&name));
+        &self.decls[range]
     }
 }
 
