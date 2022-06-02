@@ -113,6 +113,9 @@ impl Checker {
                 mk_type(Type::Array(int8, s.bytes().len() as i64))
             }
             Expr::Id(name) => {
+
+                // Local variables will override all declarations.
+                // Is this what we want?
                 if let Some(v) = self.find(*name) {
                     self.lvalue[id] = v.mutable;
                     v.ty
