@@ -777,7 +777,11 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     skip_newlines(lexer);
 
-    let typevars = vec![];
+    let mut typevars = vec![];
+
+    if lexer.tok == Token::Less {
+        typevars = parse_typevar_list(lexer, &mut arena.errors);
+    }
 
     expect(lexer, Token::Lbrace, &mut arena.errors);
 
@@ -1102,6 +1106,9 @@ mod tests {
                 "interface x { }",
                 "interface x { f(x: i8) }",
                 "interface Compare {
+                    cmp(lhs: typevar A, rhs: typevar A) -> i32
+                }",
+                "interface Compare<A> {
                     cmp(lhs: typevar A, rhs: typevar A) -> i32
                 }",
             ],
