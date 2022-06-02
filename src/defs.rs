@@ -157,6 +157,7 @@ pub struct FuncDecl {
     pub body: Option<ExprID>,
     pub ret: TypeID,
     pub constraints: Vec<InterfaceConstraint>,
+    pub loc: Loc,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

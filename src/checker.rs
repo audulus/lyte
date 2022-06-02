@@ -560,7 +560,16 @@ impl Checker {
         }
     }
 
-    fn check_interface(&mut self, _name: Name, _funcs: &[FuncDecl]) {}
+    fn check_interface(&mut self, _name: Name, funcs: &[FuncDecl]) {
+        for func in funcs {
+            if func.body.is_some() {
+                self.errors.push(TypeError {
+                    location: func.loc,
+                    message: format!("interface function can't have body: {}", func.name),
+                })
+            }
+        }
+    }
 
     fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
         match decl {

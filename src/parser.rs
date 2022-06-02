@@ -719,6 +719,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
     let mut params = vec![];
     let mut typevars = vec![];
     let mut constraints = vec![];
+    let loc = lexer.loc;
 
     if lexer.tok == Token::Less {
         typevars = parse_typevar_list(lexer, &mut arena.errors);
@@ -767,6 +768,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
         body,
         ret,
         constraints,
+        loc,
     }
 }
 
