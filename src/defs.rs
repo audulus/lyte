@@ -5,7 +5,7 @@ use std::hash::Hash;
 use std::ops::Deref;
 
 /// An interned string.
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Name(Intern<String>);
 
 impl Name {
@@ -216,6 +216,17 @@ impl Decl {
             Decl::Global { name, .. } => *name,
             Decl::Interface { name, .. } => *name,
         }
+    }
+}
+
+struct SortedDecls {
+    decls: Vec<Decl>
+}
+
+impl SortedDecls {
+    pub fn new(mut decls: Vec<Decl>) -> Self {
+        decls.sort_by(|a,b| a.name().cmp(&b.name()));
+        Self { decls: decls }
     }
 }
 
