@@ -102,7 +102,7 @@ impl Checker {
         self.constraints.push(c);
     }
 
-    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &[Decl]) -> TypeID {
+    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &SortedDecls) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
             Expr::Int(_) => mk_type(Type::Int32),
@@ -120,19 +120,15 @@ impl Checker {
                     let t = self.fresh();
                     let mut alternatives = vec![];
                     let mut found = false;
-                    for d in decls {
-                        if let Decl::Func(FuncDecl { name: fname, .. }) = d {
-                            if fname == name {
-                                let dt = fresh(d.ty(), &mut self.next_anon);
-                                alternatives.push(dt);
-                                found = true;
-                            }
+                    for d in decls.find(*name) {
+                        if let Decl::Func(_) = d {
+                            let dt = fresh(d.ty(), &mut self.next_anon);
+                            alternatives.push(dt);
+                            found = true;
                         }
-                        if let Decl::Global { name: gname, .. } = d {
-                            if gname == name {
-                                alternatives.push(d.ty());
-                                found = true;
-                            }
+                        if let Decl::Global { .. } = d {
+                            alternatives.push(d.ty());
+                            found = true;
                         }
                     }
 
@@ -184,12 +180,10 @@ impl Checker {
                     let mut alternatives = self.arith_overloads.clone();
                     let overload_name = Name::new(op.overload_name().into());
 
-                    for d in decls {
-                        if let Decl::Func(FuncDecl { name: fname, .. }) = d {
-                            if *fname == overload_name {
-                                let dt = fresh(d.ty(), &mut self.next_anon);
-                                alternatives.push(dt);
-                            }
+                    for d in decls.find(overload_name) {
+                        if let Decl::Func(_) = d {
+                            let dt = fresh(d.ty(), &mut self.next_anon);
+                            alternatives.push(dt);
                         }
                     }
 
@@ -265,13 +259,13 @@ impl Checker {
             Expr::Macro(name, args) => {
                 let mut found = false;
                 let mut macro_type = mk_type(Type::Void);
-                for d in decls {
-                    if let Decl::Macro(fn_decl) = d {
-                        if fn_decl.name == *name {
-                            // Found our macro.
-                            found = true;
-                            macro_type = fresh(d.ty(), &mut self.next_anon);
-                        }
+
+                // XXX: overloaded macros?
+                for d in decls.find(*name) {
+                    if let Decl::Macro(_) = d {
+                        // Found our macro.
+                        found = true;
+                        macro_type = fresh(d.ty(), &mut self.next_anon);
                     }
                 }
 
@@ -309,7 +303,7 @@ impl Checker {
 
                 // Find all the struct declarations with that field.
                 let mut structs = vec![];
-                for d in decls {
+                for d in &decls.decls {
                     if let Decl::Struct {
                         name: struct_name,
                         typevars: _,
@@ -339,7 +333,7 @@ impl Checker {
                 let mut alternatives = vec![];
 
                 // Find all the enum declarations with that name.
-                find_enums_with_case(decls, *name, &mut |enum_name| {
+                find_enums_with_case(&decls.decls, *name, &mut |enum_name| {
                     let enum_ty = mk_type(Type::Name(enum_name, vec![]));
                     alternatives.push(enum_ty);
                 });
@@ -496,7 +490,7 @@ impl Checker {
         None
     }
 
-    fn check_fn_decl(&mut self, func_decl: &FuncDecl, arena: &ExprArena, decls: &[Decl]) {
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, arena: &ExprArena, decls: &SortedDecls) {
         if let Some(body) = func_decl.body {
             // println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
@@ -571,7 +565,7 @@ impl Checker {
         }
     }
 
-    fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
+    fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &SortedDecls) {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
@@ -585,15 +579,15 @@ impl Checker {
         }
     }
 
-    pub fn check(&mut self, arena: &ExprArena, decls: &[Decl]) {
+    pub fn check(&mut self, arena: &ExprArena, decls: &SortedDecls) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
-        for decl in decls {
+        for decl in &decls.decls {
             self._check_decl(decl, arena, decls);
         }
     }
 
-    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &[Decl]) {
+    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &SortedDecls) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         self._check_decl(decl, arena, decls);

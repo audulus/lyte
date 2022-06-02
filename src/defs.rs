@@ -221,8 +221,9 @@ impl Decl {
     }
 }
 
-struct SortedDecls {
-    decls: Vec<Decl>
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct SortedDecls {
+    pub decls: Vec<Decl>
 }
 
 fn decl_cmp(a: &Decl, b: &Decl) -> Ordering {

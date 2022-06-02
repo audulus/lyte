@@ -83,7 +83,7 @@ impl Constraint {
 pub fn iterate_solver(
     constraints: &mut [Constraint],
     instance: &mut Instance,
-    decls: &[Decl],
+    decls: &SortedDecls,
     errors: &mut Vec<TypeError>,
 ) {
     for constraint in constraints {
@@ -125,9 +125,12 @@ pub fn iterate_solver(
 
                 match &*find(*struct_ty, instance) {
                     Type::Name(struct_name, vars) => {
+
+                        let d = decls.find(*struct_name);
+
                         if let Some(Decl::Struct {
                             typevars, fields, ..
-                        }) = find_decl(decls, *struct_name)
+                        }) = d.first()
                         {
                             // We've narrowed it down. Better unify!
                             if let Some(field) = find_field(fields, *field_name) {
@@ -152,6 +155,7 @@ pub fn iterate_solver(
                                     .into(),
                             });
                         }
+                        
                     }
                     Type::Array(_, _) => {
                         if *field_name == Name::new("len".into()) {
@@ -168,7 +172,7 @@ pub fn iterate_solver(
                 }
             }
             Constraint::Where(name, _types, loc) => {
-                if let Some(Decl::Interface { funcs, .. }) = find_decl(decls, *name) {
+                if let Some(Decl::Interface { funcs, .. }) = decls.find(*name).first() {
                     // XXX: write me
                 } else {
                     errors.push(TypeError {
@@ -217,7 +221,7 @@ pub fn solved_constraints(
 pub fn solve_constraints(
     constraints: &mut [Constraint],
     instance: &mut Instance,
-    decls: &[Decl],
+    decls: &SortedDecls,
     errors: &mut Vec<TypeError>,
 ) {
     //println!("constraints before solve: ");
@@ -264,7 +268,8 @@ mod tests {
         let mut instance = Instance::new();
 
         let mut errors = vec![];
-        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        let decls = SortedDecls::new(vec![]);
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(errors.is_empty());
         assert_eq!(instance[&t], vd);
     }
@@ -277,7 +282,8 @@ mod tests {
         let mut instance = Instance::new();
 
         let mut errors = vec![];
-        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        let decls = SortedDecls::new(vec![]);
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(!errors.is_empty());
     }
 
@@ -293,7 +299,8 @@ mod tests {
         let mut instance = Instance::new();
 
         let mut errors = vec![];
-        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        let decls = SortedDecls::new(vec![]);
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(!errors.is_empty());
     }
 
@@ -306,9 +313,10 @@ mod tests {
 
         let mut instance = Instance::new();
         let mut errors = vec![];
-        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        let decls = SortedDecls::new(vec![]);
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(errors.is_empty());
-        iterate_solver(&mut constraints, &mut instance, &[], &mut errors);
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(errors.is_empty());
     }
 
@@ -318,7 +326,7 @@ mod tests {
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
 
-        let decls = vec![Decl::Struct {
+        let decls = SortedDecls::new(vec![Decl::Struct {
             name: s0name,
             fields: vec![Field {
                 name: xname,
@@ -326,7 +334,7 @@ mod tests {
                 loc: test_loc(),
             }],
             typevars: vec![],
-        }];
+        }]);
 
         let struct_ty = mk_type(Type::Name(s0name, vec![]));
         let v = anon(0);
