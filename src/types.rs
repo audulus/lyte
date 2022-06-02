@@ -195,15 +195,6 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     }
 }
 
-fn find_decls_unify(decls: &Vec<Decl>, name: Name, f: impl Fn(&Decl), t: TypeID) {
-    for d in decls {
-        let mut inst = Instance::new();
-        if d.name() == name && unify(d.ty(), t, &mut inst) {
-            f(d)
-        }
-    }
-}
-
 fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
     match &*ty {
         Type::Tuple(v) => {
