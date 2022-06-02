@@ -119,27 +119,28 @@ impl Checker {
                 } else {
                     let t = self.fresh();
                     let mut alternatives = vec![];
-                    let mut found = false;
-                    for d in decls.find(*name) {
-                        if let Decl::Func(_) = d {
-                            let dt = fresh(d.ty(), &mut self.next_anon);
-                            alternatives.push(dt);
-                            found = true;
-                        }
-                        if let Decl::Global { .. } = d {
-                            alternatives.push(d.ty());
-                            found = true;
-                        }
-                    }
+                    let sl = decls.find(*name);
 
-                    self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));
-
-                    if !found {
+                    if sl.is_empty() {
                         self.errors.push(TypeError {
                             location: arena.locs[id],
                             message: format!("undeclared identifier: {:?}", *name),
                         });
                     }
+
+                    for d in sl {
+                        if let Decl::Func(_) = d {
+                            let dt = fresh(d.ty(), &mut self.next_anon);
+                            alternatives.push(dt);
+                        }
+                        if let Decl::Global { .. } = d {
+                            alternatives.push(d.ty());
+                        }
+                    }
+
+                    self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));
+
+                    
                     t
                 }
             }
