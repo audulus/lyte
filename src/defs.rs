@@ -242,15 +242,6 @@ impl SortedDecls {
     }
 }
 
-/// Finds all decls which match name.
-pub fn find_decls(decls: &[Decl], name: Name, f: &mut impl FnMut(&Decl)) {
-    for d in decls {
-        if d.name() == name {
-            f(d)
-        }
-    }
-}
-
 pub fn find_decl(decls: &[Decl], name: Name) -> Option<&Decl> {
     for d in decls {
         if d.name() == name {
