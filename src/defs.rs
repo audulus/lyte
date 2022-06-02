@@ -1,8 +1,10 @@
 use crate::*;
 use internment::Intern;
+use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
 use std::ops::Deref;
+use superslice::Ext;
 
 /// An interned string.
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -223,10 +225,20 @@ struct SortedDecls {
     decls: Vec<Decl>
 }
 
+fn decl_cmp(a: &Decl, b: &Decl) -> Ordering {
+    a.name().cmp(&b.name())
+}
+
 impl SortedDecls {
     pub fn new(mut decls: Vec<Decl>) -> Self {
-        decls.sort_by(|a,b| a.name().cmp(&b.name()));
+        decls.sort_by(decl_cmp);
         Self { decls: decls }
+    }
+
+    pub fn find(&self, name: Name) -> &[Decl] {
+        let lower = self.decls.lower_bound_by(|x| x.name().cmp(&name));
+        let upper = self.decls.upper_bound_by(|x| x.name().cmp(&name));
+        &self.decls[lower..upper]
     }
 }
 
