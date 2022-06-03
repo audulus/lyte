@@ -136,6 +136,9 @@ impl Checker {
                             Decl::Func(_) => {
                                 let dt = fresh(d.ty(), &mut self.next_anon);
                                 alternatives.push(dt);
+
+                                // XXX: we don't know which interface constraint to add
+                                //      because the functions are overloaded.
                             }
                             Decl::Global{ .. } => {
                                 alternatives.push(d.ty());
