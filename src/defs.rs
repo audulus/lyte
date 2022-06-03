@@ -257,6 +257,18 @@ impl SortedDecls {
         let range = self.decls.equal_range_by(|x| x.name().cmp(&name));
         &self.decls[range]
     }
+
+    /// Calls f for every enum containing a case named name.
+    /// This is for resolving .enum_case expressions.
+    pub fn find_enum(&self, name: Name, f: &mut impl FnMut(Name)) {
+        let range = self.enum_cases.equal_range_by(|x| x.0.cmp(&name));
+        for i in range {
+            if let Decl::Enum { name, .. } = self.decls[i] {
+                f(name)
+            }
+        }
+    }
+
 }
 
 pub fn find_decl(decls: &[Decl], name: Name) -> Option<&Decl> {
