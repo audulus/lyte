@@ -162,6 +162,8 @@ pub struct FuncDecl {
     pub loc: Loc,
 }
 
+/// Provides a set of functions that some type variables
+/// must satisfy.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Interface {
     pub name: Name,
