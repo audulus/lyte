@@ -132,12 +132,15 @@ impl Checker {
                     }
 
                     for d in sl {
-                        if let Decl::Func(_) = d {
-                            let dt = fresh(d.ty(), &mut self.next_anon);
-                            alternatives.push(dt);
-                        }
-                        if let Decl::Global { .. } = d {
-                            alternatives.push(d.ty());
+                        match d {
+                            Decl::Func(_) => {
+                                let dt = fresh(d.ty(), &mut self.next_anon);
+                                alternatives.push(dt);
+                            }
+                            Decl::Global{ .. } => {
+                                alternatives.push(d.ty());
+                            }
+                            _ => ()
                         }
                     }
 
