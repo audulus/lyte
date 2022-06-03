@@ -551,7 +551,7 @@ impl Checker {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
-            Decl::Interface { name, typevars, funcs } => self.check_interface(*name, funcs),
+            Decl::Interface { name, funcs, .. } => self.check_interface(*name, funcs),
             Decl::Struct {
                 name,
                 typevars,
