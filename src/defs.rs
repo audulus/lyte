@@ -271,15 +271,6 @@ impl SortedDecls {
 
 }
 
-pub fn find_decl(decls: &[Decl], name: Name) -> Option<&Decl> {
-    for d in decls {
-        if d.name() == name {
-            return Some(d);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
 
