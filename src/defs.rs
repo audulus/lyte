@@ -281,14 +281,14 @@ impl SortedDecls {
     }
 
     /// Returns all types for a declaration name.
-    pub fn types(&self, name: Name, alts: &mut Vec<TypeID>, next_anon: &mut usize) {
+    pub fn types(&self, name: Name) -> Vec<TypeID> {
         let sl = self.find(name);
+        let mut alts = vec![];
 
         for d in sl {
             match d {
                 Decl::Func(_) => {
-                    let dt = fresh(d.ty(), next_anon);
-                    alts.push(dt);
+                    alts.push(d.ty());
                 }
                 Decl::Global{ .. } => {
                     alts.push(d.ty());
@@ -296,6 +296,8 @@ impl SortedDecls {
                 _ => ()
             }
         }
+
+        alts
     }
 
 }
