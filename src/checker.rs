@@ -122,29 +122,13 @@ impl Checker {
                 } else {
                     let t = self.fresh();
                     let mut alternatives = vec![];
-                    let sl = decls.find(*name);
+                    decls.types(*name, &mut alternatives, &mut self.next_anon);
 
-                    if sl.is_empty() {
+                    if alternatives.is_empty() {
                         self.errors.push(TypeError {
                             location: arena.locs[id],
                             message: format!("undeclared identifier: {:?}", *name),
                         });
-                    }
-
-                    for d in sl {
-                        match d {
-                            Decl::Func(_) => {
-                                let dt = fresh(d.ty(), &mut self.next_anon);
-                                alternatives.push(dt);
-
-                                // XXX: we don't know which interface constraint to add
-                                //      because the functions are overloaded.
-                            }
-                            Decl::Global{ .. } => {
-                                alternatives.push(d.ty());
-                            }
-                            _ => ()
-                        }
                     }
 
                     self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));

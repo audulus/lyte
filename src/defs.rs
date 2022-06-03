@@ -280,6 +280,27 @@ impl SortedDecls {
         }
     }
 
+    /// Returns all types for a declaration name.
+    pub fn types(&self, name: Name, alts: &mut Vec<TypeID>, next_anon: &mut usize) {
+        let sl = self.find(name);
+
+        for d in sl {
+            match d {
+                Decl::Func(_) => {
+                    let dt = fresh(d.ty(), next_anon);
+                    alts.push(dt);
+
+                    // XXX: we don't know which interface constraint to add
+                    //      because the functions are overloaded.
+                }
+                Decl::Global{ .. } => {
+                    alts.push(d.ty());
+                }
+                _ => ()
+            }
+        }
+    }
+
 }
 
 #[cfg(test)]
