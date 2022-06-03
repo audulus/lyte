@@ -228,7 +228,6 @@ pub fn solve_constraints(
     //print_constraints(constraints, &Instance::new());
 
     // Continue as long as we can make changes.
-    let mut i = 0;
     loop {
         let h = constraints_hash(constraints);
         //println!("---- solve iteration {}", i);
@@ -241,7 +240,6 @@ pub fn solve_constraints(
             // No more progress.
             break;
         }
-        i += 1;
     }
 
     // Iterate once more to get any errors.
