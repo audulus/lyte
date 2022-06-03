@@ -337,7 +337,7 @@ impl Checker {
                 let mut alternatives = vec![];
 
                 // Find all the enum declarations with that name.
-                find_enums_with_case(&decls.decls, *name, &mut |enum_name| {
+                decls.find_enum(*name, &mut |enum_name| {
                     let enum_ty = mk_type(Type::Name(enum_name, vec![]));
                     alternatives.push(enum_ty);
                 });
