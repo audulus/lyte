@@ -145,8 +145,6 @@ impl Checker {
                     }
 
                     self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));
-
-                    
                     t
                 }
             }
