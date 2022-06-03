@@ -227,6 +227,9 @@ impl Decl {
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct SortedDecls {
     pub decls: Vec<Decl>,
+
+    /// For quickly finding enums which contain a case.
+    /// This is for resolving .enum_case expressions.
     pub enum_cases: Vec<(Name, usize)>,
 }
 
