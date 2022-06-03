@@ -172,7 +172,9 @@ pub fn iterate_solver(
                 }
             }
             Constraint::Where(name, types, loc) => {
-                if let Some(Decl::Interface { typevars, funcs, .. }) = decls.find(*name).first() {
+                if let Some(Decl::Interface { name, typevars, funcs, .. }) = decls.find(*name).first() {
+
+                    // Is the interface satisfied by the types?
 
                     // Create a substitution for the type variables in the interface.
                     let mut inst = Instance::new();
@@ -180,7 +182,21 @@ pub fn iterate_solver(
                         inst.insert(typevar(&*v), *t);
                     }
 
-                    // XXX: finish me
+                    // Find functions among decls that have the same type.
+                    for func in funcs {
+                        
+                        let d = decls.find(func.name);
+                        let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst) );
+
+                        if !found {
+                            errors.push(TypeError {
+                                location: *loc,
+                                message: format!("function {:?} for interface {:?} is required", func.name, name)
+                                    .into(),
+                            });
+                        }
+
+                    }
 
                 } else {
                     errors.push(TypeError {
