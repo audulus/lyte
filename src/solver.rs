@@ -172,7 +172,7 @@ pub fn iterate_solver(
                 }
             }
             Constraint::Where(name, types, loc) => {
-                if let Some(Decl::Interface { name, typevars, funcs, .. }) = decls.find(*name).first() {
+                if let Some(Decl::Interface(Interface{ name, typevars, funcs, .. })) = decls.find(*name).first() {
 
                     // Is the interface satisfied by the types?
 

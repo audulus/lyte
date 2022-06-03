@@ -163,6 +163,13 @@ pub struct FuncDecl {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Interface {
+    pub name: Name,
+    pub typevars: Vec<Name>,
+    pub funcs: Vec<FuncDecl>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Decl {
     Func(FuncDecl),
     Macro(FuncDecl),
@@ -179,11 +186,7 @@ pub enum Decl {
         name: Name,
         ty: TypeID,
     },
-    Interface {
-        name: Name,
-        typevars: Vec<Name>,
-        funcs: Vec<FuncDecl>,
-    },
+    Interface(Interface),
 }
 
 impl Decl {
@@ -216,7 +219,7 @@ impl Decl {
             Decl::Struct { name, .. } => *name,
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,
-            Decl::Interface { name, .. } => *name,
+            Decl::Interface(Interface { name, .. }) => *name,
         }
     }
 }

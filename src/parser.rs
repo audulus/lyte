@@ -799,7 +799,7 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     lexer.next();
 
-    Decl::Interface { name, typevars, funcs }
+    Decl::Interface(Interface{ name, typevars, funcs })
 }
 
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
