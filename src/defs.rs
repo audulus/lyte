@@ -223,7 +223,8 @@ impl Decl {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct SortedDecls {
-    pub decls: Vec<Decl>
+    pub decls: Vec<Decl>,
+    pub enum_cases: Vec<(Name, usize)>,
 }
 
 fn decl_cmp(a: &Decl, b: &Decl) -> Ordering {
@@ -233,7 +234,22 @@ fn decl_cmp(a: &Decl, b: &Decl) -> Ordering {
 impl SortedDecls {
     pub fn new(mut decls: Vec<Decl>) -> Self {
         decls.sort_by(decl_cmp);
-        Self { decls: decls }
+
+        let mut enum_cases = vec![];
+
+        let mut i = 0;
+        for decl in &decls {
+            if let Decl::Enum { cases, .. } = decl {
+                for case in cases {
+                    enum_cases.push( (*case, i ) )
+                }
+            }
+            i += 1;
+        }
+
+        enum_cases.sort();
+
+        Self { decls, enum_cases }
     }
 
     /// Returns a slice of all decls which match name.
