@@ -238,6 +238,12 @@ impl Decl {
     }
 }
 
+impl FuncDecl {
+    pub fn ty(&self) -> TypeID {
+        func(params_ty(&self.params), self.ret)
+    }
+}
+
 /// Calls a function for each type variable in the type.
 pub fn typevars(ty: TypeID, f: &mut impl FnMut(Name)) {
     match &*ty {
