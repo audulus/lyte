@@ -305,28 +305,6 @@ impl Checker {
 
                 let t = self.fresh();
 
-                // Find all the struct declarations with that field.
-                let mut structs = vec![];
-                for d in &decls.decls {
-                    if let Decl::Struct {
-                        name: struct_name,
-                        typevars: _,
-                        fields,
-                    } = d
-                    {
-                        for field in fields {
-                            if field.name == *name {
-                                structs.push(mk_type(Type::Name(*struct_name, vec![])));
-                            }
-                        }
-                    }
-                }
-
-                // Special case for len on arrays.
-                if *name == Name::new("len".into()) {
-                    structs.push(lhs_t);
-                }
-
                 self.constraints
                     .push(Constraint::Field(lhs_t, *name, t, arena.locs[id]));
 
