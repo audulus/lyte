@@ -224,6 +224,7 @@ impl Decl {
     }
 }
 
+/// Table of top level declarations.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct SortedDecls {
 
