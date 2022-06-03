@@ -186,6 +186,8 @@ pub fn iterate_solver(
                     for func in funcs {
                         
                         let d = decls.find(func.name);
+
+                        // Do we want to unify instead?
                         let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst) );
 
                         if !found {
