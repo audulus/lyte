@@ -171,9 +171,17 @@ pub fn iterate_solver(
                     _ => (),
                 }
             }
-            Constraint::Where(name, _types, loc) => {
-                if let Some(Decl::Interface { funcs, .. }) = decls.find(*name).first() {
-                    // XXX: write me
+            Constraint::Where(name, types, loc) => {
+                if let Some(Decl::Interface { typevars, funcs, .. }) = decls.find(*name).first() {
+
+                    // Create a substitution for the type variables in the interface.
+                    let mut inst = Instance::new();
+                    for (v, t) in typevars.iter().zip(types) {
+                        inst.insert(typevar(&*v), *t);
+                    }
+
+                    // XXX: finish me
+
                 } else {
                     errors.push(TypeError {
                         location: *loc,
