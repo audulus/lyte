@@ -124,6 +124,9 @@ impl Checker {
                     let mut alternatives = vec![];
                     decls.types(*name, &mut alternatives, &mut self.next_anon);
 
+                    // XXX: will need to introduce more type variables for interface
+                    // constraints.
+
                     if alternatives.is_empty() {
                         self.errors.push(TypeError {
                             location: arena.locs[id],

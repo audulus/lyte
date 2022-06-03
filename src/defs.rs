@@ -289,9 +289,6 @@ impl SortedDecls {
                 Decl::Func(_) => {
                     let dt = fresh(d.ty(), next_anon);
                     alts.push(dt);
-
-                    // XXX: we don't know which interface constraint to add
-                    //      because the functions are overloaded.
                 }
                 Decl::Global{ .. } => {
                     alts.push(d.ty());
