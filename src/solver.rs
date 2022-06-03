@@ -257,6 +257,7 @@ pub fn solve_constraints(
         //println!("---- solve iteration {}", i);
         let old_instance = instance.clone();
 
+        // Errors only matter once we can no longer make progress.
         let mut errors = vec![];
         iterate_solver(constraints, instance, decls, &mut errors);
 
