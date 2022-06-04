@@ -121,23 +121,26 @@ impl Checker {
                     v.ty
                 } else {
                     let t = self.fresh();
-                    let mut alternatives = decls.types(*name);
-
-                    for alt in &mut alternatives {
-                        *alt = fresh(*alt, &mut self.next_anon)
+                    let mut alts = vec![];
+                    
+                    for ty in decls.types(*name) {
+                        alts.push(Alternative{
+                            ty: fresh(ty, &mut self.next_anon),
+                            interfaces: vec![],
+                        })
                     }
 
                     // XXX: will need to introduce more type variables for interface
                     // constraints.
 
-                    if alternatives.is_empty() {
+                    if alts.is_empty() {
                         self.errors.push(TypeError {
                             location: arena.locs[id],
                             message: format!("undeclared identifier: {:?}", *name),
                         });
                     }
 
-                    self.add_constraint(Constraint::Or(t, alternatives, arena.locs[id]));
+                    self.add_constraint(Constraint::Or(t, alts, arena.locs[id]));
                     t
                 }
             }
@@ -175,17 +178,21 @@ impl Checker {
                 } else if op.arithmetic() {
                     let ft = self.fresh();
 
-                    let mut alternatives = self.arith_overloads.clone();
-                    let overload_name = Name::new(op.overload_name().into());
+                    let mut alts = vec![];
 
+                    for ty in &self.arith_overloads {
+                        alts.push(Alternative{ty: *ty, interfaces: vec![]});
+                    }
+
+                    let overload_name = Name::new(op.overload_name().into());
                     for d in decls.find(overload_name) {
                         if let Decl::Func(_) = d {
                             let dt = fresh(d.ty(), &mut self.next_anon);
-                            alternatives.push(dt);
+                            alts.push(Alternative{ty: dt, interfaces: vec![]});
                         }
                     }
 
-                    self.add_constraint(Constraint::Or(ft, alternatives, arena.locs[id]));
+                    self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
 
                     let r = self.fresh();
 
@@ -206,9 +213,14 @@ impl Checker {
 
                 let ft = self.fresh();
 
+                let mut alts = vec![];
+                for ty in &self.cast_overloads {
+                    alts.push(Alternative{ty: *ty, interfaces: vec![]});
+                }
+
                 self.add_constraint(Constraint::Or(
                     ft,
-                    self.cast_overloads.clone(),
+                    alts,
                     arena.locs[id],
                 ));
 
@@ -306,16 +318,16 @@ impl Checker {
             }
             Expr::Enum(name) => {
                 let t = self.fresh();
-                let mut alternatives = vec![];
+                let mut alts = vec![];
 
                 // Find all the enum declarations with that name.
                 decls.find_enum(*name, &mut |enum_name| {
                     let enum_ty = mk_type(Type::Name(enum_name, vec![]));
-                    alternatives.push(enum_ty);
+                    alts.push(Alternative{ty: enum_ty, interfaces: vec![]});
                 });
 
                 self.constraints
-                    .push(Constraint::Or(t, alternatives, arena.locs[id]));
+                    .push(Constraint::Or(t, alts, arena.locs[id]));
 
                 t
             }

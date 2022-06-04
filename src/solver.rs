@@ -2,6 +2,12 @@ use crate::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Alternative {
+    pub ty: TypeID,
+    pub interfaces: Vec<InterfaceConstraint>
+}
+
 /// A type-inference constraint.
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Constraint {
@@ -9,7 +15,7 @@ pub enum Constraint {
     Equal(TypeID, TypeID, Loc),
 
     /// Function overloads, enum leading dot syntax.
-    Or(TypeID, Vec<TypeID>, Loc),
+    Or(TypeID, Vec<Alternative>, Loc),
 
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
@@ -56,7 +62,7 @@ impl Constraint {
                 subst(*a, inst),
                 (*alts)
                     .iter()
-                    .map(|t| subst(*t, inst))
+                    .map(|t| subst(t.ty, inst))
                     .collect::<Vec<TypeID>>(),
                 loc
             ),
@@ -101,10 +107,10 @@ pub fn iterate_solver(
             }
             Constraint::Or(t, alts, loc) => {
                 // Try to narrow it down.
-                alts.retain(|tt| {
+                alts.retain(|alt| {
                     // Start from the instance we know so far.
                     let mut inst = instance.clone();
-                    unify(*t, *tt, &mut inst)
+                    unify(*t, alt.ty, &mut inst)
                 });
 
                 // Nothing works!
@@ -117,7 +123,7 @@ pub fn iterate_solver(
 
                 // Just a single option. Better unify!
                 if alts.len() == 1 {
-                    *constraint = Constraint::Equal(*t, alts[0], *loc);
+                    *constraint = Constraint::Equal(*t, alts[0].ty, *loc);
                 }
             }
             Constraint::Field(struct_ty, field_name, ft, loc) => {
@@ -334,7 +340,10 @@ mod tests {
         let i = mk_type(Type::Int32);
         let f = mk_type(Type::Float32);
 
-        let mut constraints = [Constraint::Or(i, vec![i, f], test_loc())];
+        let i_alt = Alternative{ty: i, interfaces: vec![]};
+        let f_alt = Alternative{ty: f, interfaces: vec![]};
+
+        let mut constraints = [Constraint::Or(i, vec![i_alt, f_alt], test_loc())];
 
         let mut instance = Instance::new();
         let mut errors = vec![];
