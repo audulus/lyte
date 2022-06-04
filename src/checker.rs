@@ -505,6 +505,11 @@ impl Checker {
                             mutable: false,
                         });
                     }
+                } else {
+                    self.errors.push(TypeError {
+                        location: func_decl.loc,
+                        message: format!("unknown interface: {}", constraint.interface_name),
+                    })
                 }
             }
 
