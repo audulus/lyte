@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
 
+/// The kind of type. Usually we're passing
+/// around TypeIDs.
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Type {
     Void,
