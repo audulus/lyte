@@ -121,13 +121,10 @@ impl Checker {
                     v.ty
                 } else {
                     let t = self.fresh();
-                    let mut alts = vec![];
+                    let mut alts = decls.alts(*name);
                     
-                    for ty in decls.types(*name) {
-                        alts.push(Alternative{
-                            ty: fresh(ty, &mut self.next_anon),
-                            interfaces: vec![],
-                        })
+                    for alt in &mut alts {
+                        alt.ty = fresh(alt.ty, &mut self.next_anon);
                     }
 
                     // XXX: will need to introduce more type variables for interface
