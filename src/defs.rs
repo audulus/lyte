@@ -300,6 +300,7 @@ impl SortedDecls {
         alts
     }
 
+    /// Returns all alternatives for a declaration name.
     pub fn alts(&self, name: Name) -> Vec<Alternative> {
         let sl = self.find(name);
         let mut alts = vec![];
