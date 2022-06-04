@@ -513,6 +513,7 @@ impl Checker {
                 }
             }
 
+            // Check the body of the function.
             let ty = self.check_expr(body, arena, decls);
 
             if func_decl.ret != mk_type(Type::Void) {
