@@ -1,4 +1,4 @@
-use crate::defs::*;
+use crate::*;
 use internment::Intern;
 use std::collections::HashMap;
 use std::fmt;
@@ -243,6 +243,42 @@ impl Decl {
 impl FuncDecl {
     pub fn ty(&self) -> TypeID {
         func(params_ty(&self.params), self.ret)
+    }
+}
+
+impl Interface {
+
+    /// Is an interface satisfied?
+    pub fn satisfied(&self, types: &[TypeID], decls: &SortedDecls, errors: &mut Vec<TypeError>, loc: Loc) -> bool {
+
+        let mut inst = Instance::new();
+        for (v, t) in self.typevars.iter().zip(types) {
+            inst.insert(typevar(&*v), *t);
+        }
+
+        let mut satisfied = true;
+
+        // Find functions among decls that have the same type.
+        for func in &self.funcs {
+                        
+            let d = decls.find(func.name);
+
+            // Do we want to unify instead?
+            let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst) );
+
+            if !found {
+                satisfied = false;
+                errors.push(TypeError {
+                    location: loc,
+                    message: format!("function {:?} for interface {:?} is required", func.name, self.name)
+                        .into(),
+                });
+            }
+
+        }
+
+        satisfied
+
     }
 }
 
