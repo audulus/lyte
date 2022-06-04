@@ -488,17 +488,22 @@ impl Checker {
             }
 
             // Add interface functions to available functions.
-            // XXX: we'll still need to map the type variables.
             for constraint in &func_decl.constraints {
-                for decl in  decls.find(constraint.interface_name) {
-                    if let Decl::Interface(interface) = decl {
-                        for func in &interface.funcs {
-                            self.vars.push(Var {
-                                name: func.name,
-                                ty: func.ty(),
-                                mutable: false,
-                            });
-                        }
+                if let Some(Decl::Interface(interface)) = decls.find(constraint.interface_name).first() {
+                    let mut inst = Instance::new();
+
+                    constraint.typevars.iter().zip(&interface.typevars).for_each(|pair| {
+                        let t0 = mk_type(Type::Var(*pair.0));
+                        let t1 = mk_type(Type::Var(*pair.1));
+                        inst.insert(t0, t1);
+                    });
+
+                    for func in &interface.funcs {
+                        self.vars.push(Var {
+                            name: func.name,
+                            ty: subst(func.ty(), &inst),
+                            mutable: false,
+                        });
                     }
                 }
             }
