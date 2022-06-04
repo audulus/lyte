@@ -3,4 +3,6 @@ interface Compare<A> {
     cmp(lhs: typevar A, rhs: typevar A) -> i32
 }
 
-sort<T>(array: [typevar T]) -> [typevar T] where Compare<T>
+sort<T>(array: [typevar T]) -> [typevar T] where Compare<T> {
+    array
+}
