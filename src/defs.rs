@@ -300,6 +300,25 @@ impl SortedDecls {
         alts
     }
 
+    pub fn alts(&self, name: Name) -> Vec<Alternative> {
+        let sl = self.find(name);
+        let mut alts = vec![];
+
+        for d in sl {
+            match d {
+                Decl::Func(FuncDecl { constraints, .. }) => {
+                    alts.push(Alternative{ty: d.ty(), interfaces: constraints.clone()} );
+                }
+                Decl::Global{ .. } => {
+                    alts.push(Alternative{ty: d.ty(), interfaces: vec![]});
+                }
+                _ => ()
+            }
+        }
+
+        alts
+    }
+
 }
 
 #[cfg(test)]
