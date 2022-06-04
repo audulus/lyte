@@ -175,14 +175,14 @@ impl Checker {
                     let mut alts = vec![];
 
                     for ty in &self.arith_overloads {
-                        alts.push(Alternative{ty: *ty, interfaces: vec![]});
+                        alts.push(Alt{ty: *ty, interfaces: vec![]});
                     }
 
                     let overload_name = Name::new(op.overload_name().into());
                     for d in decls.find(overload_name) {
                         if let Decl::Func(_) = d {
                             let dt = fresh(d.ty(), &mut self.next_anon);
-                            alts.push(Alternative{ty: dt, interfaces: vec![]});
+                            alts.push(Alt{ty: dt, interfaces: vec![]});
                         }
                     }
 
@@ -209,7 +209,7 @@ impl Checker {
 
                 let mut alts = vec![];
                 for ty in &self.cast_overloads {
-                    alts.push(Alternative{ty: *ty, interfaces: vec![]});
+                    alts.push(Alt{ty: *ty, interfaces: vec![]});
                 }
 
                 self.add_constraint(Constraint::Or(
@@ -317,7 +317,7 @@ impl Checker {
                 // Find all the enum declarations with that name.
                 decls.find_enum(*name, &mut |enum_name| {
                     let enum_ty = mk_type(Type::Name(enum_name, vec![]));
-                    alts.push(Alternative{ty: enum_ty, interfaces: vec![]});
+                    alts.push(Alt{ty: enum_ty, interfaces: vec![]});
                 });
 
                 self.constraints

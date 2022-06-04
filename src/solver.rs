@@ -3,7 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct Alternative {
+pub struct Alt {
     pub ty: TypeID,
     pub interfaces: Vec<InterfaceConstraint>
 }
@@ -15,7 +15,7 @@ pub enum Constraint {
     Equal(TypeID, TypeID, Loc),
 
     /// Function overloads, enum leading dot syntax.
-    Or(TypeID, Vec<Alternative>, Loc),
+    Or(TypeID, Vec<Alt>, Loc),
 
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
@@ -340,8 +340,8 @@ mod tests {
         let i = mk_type(Type::Int32);
         let f = mk_type(Type::Float32);
 
-        let i_alt = Alternative{ty: i, interfaces: vec![]};
-        let f_alt = Alternative{ty: f, interfaces: vec![]};
+        let i_alt = Alt{ty: i, interfaces: vec![]};
+        let f_alt = Alt{ty: f, interfaces: vec![]};
 
         let mut constraints = [Constraint::Or(i, vec![i_alt, f_alt], test_loc())];
 
