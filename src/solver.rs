@@ -101,7 +101,7 @@ pub fn iterate_solver(
                 if !unify(*a, *b, instance) {
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!("no solution for {:?}", constraint_clone).into(),
+                        message: format!("no solution for {:?} == {:?}", subst(*a, instance), subst(*b, instance)).into(),
                     });
                 }
             }
