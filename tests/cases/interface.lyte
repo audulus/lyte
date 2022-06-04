@@ -4,5 +4,10 @@ interface Compare<A> {
 }
 
 sort<T>(array: [typevar T]) -> [typevar T] where Compare<T> {
+    // cmp(array[0], array[1])
     array
+}
+
+test {
+    sort([1,2,3])
 }
