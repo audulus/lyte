@@ -487,6 +487,22 @@ impl Checker {
                 });
             }
 
+            // Add interface functions to available functions.
+            // XXX: we'll still need to map the type variables.
+            for constraint in &func_decl.constraints {
+                for decl in  decls.find(constraint.interface_name) {
+                    if let Decl::Interface(interface) = decl {
+                        for func in &interface.funcs {
+                            self.vars.push(Var {
+                                name: func.name,
+                                ty: func.ty(),
+                                mutable: false,
+                            });
+                        }
+                    }
+                }
+            }
+
             let ty = self.check_expr(body, arena, decls);
 
             if func_decl.ret != mk_type(Type::Void) {
