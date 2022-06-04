@@ -127,9 +127,6 @@ impl Checker {
                         alt.ty = fresh(alt.ty, &mut self.next_anon);
                     }
 
-                    // XXX: will need to introduce more type variables for interface
-                    // constraints.
-
                     if alts.is_empty() {
                         self.errors.push(TypeError {
                             location: arena.locs[id],
