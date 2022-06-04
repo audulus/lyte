@@ -4,7 +4,7 @@ interface Compare<A> {
 }
 
 sort<T>(array: [typevar T]) -> [typevar T] where Compare<T> {
-    // cmp(array[0], array[1])
+    cmp(array[0], array[1])
     array
 }
 
