@@ -492,7 +492,7 @@ impl Checker {
                 if let Some(Decl::Interface(interface)) = decls.find(constraint.interface_name).first() {
                     let mut inst = Instance::new();
 
-                    constraint.typevars.iter().zip(&interface.typevars).for_each(|pair| {
+                    interface.typevars.iter().zip(&constraint.typevars).for_each(|pair| {
                         let t0 = mk_type(Type::Var(*pair.0));
                         let t1 = mk_type(Type::Var(*pair.1));
                         inst.insert(t0, t1);
