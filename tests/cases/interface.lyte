@@ -4,6 +4,8 @@ interface Compare<A> {
 }
 
 sort<T>(array: [typevar T]) -> [typevar T] where Compare<T> {
+    // We aren't actually doing any sorting, just need
+    // to verify that calling the function type checks.
     cmp(array[0], array[1])
     array
 }
