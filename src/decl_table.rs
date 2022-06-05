@@ -3,6 +3,9 @@ use std::cmp::Ordering;
 use superslice::Ext;
 
 /// Table of top level declarations.
+/// 
+/// Currently we're just using a sorted Vec.
+/// In the future we could use a hash table.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct DeclTable {
 
