@@ -14,6 +14,7 @@ pub struct DeclTable {
     pub enum_cases: Vec<(Name, usize)>,
 }
 
+/// Comparison function to sort declarations by name.
 fn decl_cmp(a: &Decl, b: &Decl) -> Ordering {
     a.name().cmp(&b.name())
 }
