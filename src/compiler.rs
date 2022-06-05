@@ -34,7 +34,7 @@ pub trait InputQueries {
 trait ParserQueries: InputQueries {
     fn ast(&self, path: String) -> Arc<Tree>;
     fn program_ast(&self) -> Vec<Arc<Tree>>;
-    fn decls(&self) -> SortedDecls;
+    fn decls(&self) -> DeclTable;
     fn parsed(&self) -> bool;
 }
 
@@ -71,7 +71,7 @@ fn program_ast(db: &dyn ParserQueries) -> Vec<Arc<Tree>> {
 }
 
 /// Declarations in all files.
-fn decls(db: &dyn ParserQueries) -> SortedDecls {
+fn decls(db: &dyn ParserQueries) -> DeclTable {
     let mut decls = vec![];
     let mut trees = db.program_ast();
 
@@ -79,7 +79,7 @@ fn decls(db: &dyn ParserQueries) -> SortedDecls {
         decls.append(&mut tree.decls.clone());
     }
 
-    SortedDecls::new(decls)
+    DeclTable::new(decls)
 }
 
 fn parsed(db: &dyn ParserQueries) -> bool {

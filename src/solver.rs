@@ -26,7 +26,7 @@ impl AltInterface {
     }
 
     /// Is the constraint satisfied in the current environment?
-    pub fn satisfied(&self, instance: &Instance, decls: &SortedDecls, loc: Loc) -> bool {
+    pub fn satisfied(&self, instance: &Instance, decls: &DeclTable, loc: Loc) -> bool {
         if let Some(Decl::Interface(interface)) = decls.find(self.interface).first() {
 
             let mut types = vec![];
@@ -141,7 +141,7 @@ impl Constraint {
 pub fn iterate_solver(
     constraints: &mut [Constraint],
     instance: &mut Instance,
-    decls: &SortedDecls,
+    decls: &DeclTable,
     errors: &mut Vec<TypeError>,
 ) {
     for constraint in constraints {
@@ -293,7 +293,7 @@ pub fn solved_constraints(
 pub fn solve_constraints(
     constraints: &mut [Constraint],
     instance: &mut Instance,
-    decls: &SortedDecls,
+    decls: &DeclTable,
     errors: &mut Vec<TypeError>,
 ) {
     //println!("constraints before solve: ");
@@ -339,7 +339,7 @@ mod tests {
         let mut instance = Instance::new();
 
         let mut errors = vec![];
-        let decls = SortedDecls::new(vec![]);
+        let decls = DeclTable::new(vec![]);
         iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(errors.is_empty());
         assert_eq!(instance[&t], vd);
@@ -353,7 +353,7 @@ mod tests {
         let mut instance = Instance::new();
 
         let mut errors = vec![];
-        let decls = SortedDecls::new(vec![]);
+        let decls = DeclTable::new(vec![]);
         iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(!errors.is_empty());
     }
@@ -370,7 +370,7 @@ mod tests {
         let mut instance = Instance::new();
 
         let mut errors = vec![];
-        let decls = SortedDecls::new(vec![]);
+        let decls = DeclTable::new(vec![]);
         iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(!errors.is_empty());
     }
@@ -387,7 +387,7 @@ mod tests {
 
         let mut instance = Instance::new();
         let mut errors = vec![];
-        let decls = SortedDecls::new(vec![]);
+        let decls = DeclTable::new(vec![]);
         iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
         assert!(errors.is_empty());
         iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
@@ -400,7 +400,7 @@ mod tests {
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
 
-        let decls = SortedDecls::new(vec![Decl::Struct {
+        let decls = DeclTable::new(vec![Decl::Struct {
             name: s0name,
             fields: vec![Field {
                 name: xname,

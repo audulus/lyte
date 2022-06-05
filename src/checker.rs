@@ -106,7 +106,7 @@ impl Checker {
         self.constraints.push(c);
     }
 
-    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &SortedDecls) -> TypeID {
+    fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &DeclTable) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
             Expr::Int(_) => mk_type(Type::Int32),
@@ -476,7 +476,7 @@ impl Checker {
         None
     }
 
-    fn check_fn_decl(&mut self, func_decl: &FuncDecl, arena: &ExprArena, decls: &SortedDecls) {
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, arena: &ExprArena, decls: &DeclTable) {
         if let Some(body) = func_decl.body {
             // println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
@@ -578,7 +578,7 @@ impl Checker {
         }
     }
 
-    fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &SortedDecls) {
+    fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &DeclTable) {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
@@ -592,7 +592,7 @@ impl Checker {
         }
     }
 
-    pub fn check(&mut self, arena: &ExprArena, decls: &SortedDecls) {
+    pub fn check(&mut self, arena: &ExprArena, decls: &DeclTable) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         for decl in &decls.decls {
@@ -600,7 +600,7 @@ impl Checker {
         }
     }
 
-    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &SortedDecls) {
+    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &DeclTable) {
         self.types.resize(arena.exprs.len(), mk_type(Type::Void));
         self.lvalue.resize(arena.exprs.len(), false);
         self._check_decl(decl, arena, decls);

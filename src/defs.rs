@@ -228,7 +228,7 @@ impl Decl {
 
 /// Table of top level declarations.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct SortedDecls {
+pub struct DeclTable {
 
     /// All declarations, sorted by name.
     pub decls: Vec<Decl>,
@@ -242,7 +242,7 @@ fn decl_cmp(a: &Decl, b: &Decl) -> Ordering {
     a.name().cmp(&b.name())
 }
 
-impl SortedDecls {
+impl DeclTable {
     pub fn new(mut decls: Vec<Decl>) -> Self {
         decls.sort_by(decl_cmp);
 
@@ -347,7 +347,7 @@ mod tests {
             Decl::Global { name: Name::new("c".into()), ty: mk_type(Type::Void) },
         ];
 
-        let sorted = SortedDecls::new(decls);
+        let sorted = DeclTable::new(decls);
         let d = sorted.find(Name::new("z".into()));
         assert_eq!(d.len(), 0);
 

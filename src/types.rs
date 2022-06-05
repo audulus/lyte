@@ -261,7 +261,7 @@ impl FuncDecl {
 impl Interface {
 
     /// Is an interface satisfied?
-    pub fn satisfied(&self, types: &[TypeID], decls: &SortedDecls, errors: &mut Vec<TypeError>, loc: Loc) -> bool {
+    pub fn satisfied(&self, types: &[TypeID], decls: &DeclTable, errors: &mut Vec<TypeError>, loc: Loc) -> bool {
 
         let mut inst = Instance::new();
         for (v, t) in self.typevars.iter().zip(types) {
