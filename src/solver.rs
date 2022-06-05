@@ -25,6 +25,7 @@ impl AltInterface {
         }
     }
 
+    /// Is the constraint satisfied in the current environment?
     pub fn satisfied(&self, instance: &Instance, decls: &SortedDecls, loc: Loc) -> bool {
         if let Some(Decl::Interface(interface)) = decls.find(self.interface).first() {
 
