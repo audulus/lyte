@@ -773,6 +773,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
 }
 
 fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
+    let loc = lexer.loc;
     lexer.next();
 
     let name = expect_id(lexer, &mut arena.errors);
@@ -799,7 +800,7 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     lexer.next();
 
-    Decl::Interface(Interface{ name, typevars, funcs })
+    Decl::Interface(Interface{ name, typevars, funcs, loc })
 }
 
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {

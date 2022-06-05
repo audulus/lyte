@@ -168,6 +168,7 @@ pub struct Interface {
     pub name: Name,
     pub typevars: Vec<Name>,
     pub funcs: Vec<FuncDecl>,
+    pub loc: Loc,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
