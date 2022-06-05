@@ -29,14 +29,10 @@ impl AltInterface {
     pub fn satisfied(&self, instance: &Instance, decls: &SortedDecls, loc: Loc) -> bool {
         if let Some(Decl::Interface(interface)) = decls.find(self.interface).first() {
 
-            println!("Found interface");
-
             let mut types = vec![];
             for ty in &self.typevars {
                 types.push(subst(*ty, instance));
             }
-
-            println!("types: {:?}", types);
 
             let mut tmp_errors = vec![];
             return interface.satisfied(&types, decls, &mut tmp_errors, loc);
