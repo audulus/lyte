@@ -16,6 +16,8 @@ pub struct AltInterface {
 }
 
 impl AltInterface {
+
+    /// Applies a type substitution to the constraint.
     pub fn subst(&self, inst: &Instance) -> AltInterface {
         AltInterface {
             interface: self.interface,
@@ -36,6 +38,9 @@ pub struct Alt {
 }
 
 impl Alt {
+
+    /// Replaces named type variables with anonymous type variables,
+    /// including in constraints.
     pub fn fresh(&self, next_anon: &mut usize) -> Alt {
         let mut inst = Instance::new();
 
