@@ -2,6 +2,13 @@ use crate::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+/// An satisfies-interface constraint. This is close
+/// to InterfaceConstraint except the types will be
+/// anonymous type variables.
+/// 
+/// Note: we could use the same type for both AltInterface
+/// and InterfaceConstraint, but InterfaceConstraint reflects
+/// that the typevars must be a list of names.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct AltInterface {
     pub interface: Name,
@@ -17,6 +24,11 @@ impl AltInterface {
     }
 }
 
+/// An alternative choice for a type. May also need
+/// to satisfy interface constraints.
+/// 
+/// Note: hopefully we can get away with this instead of
+/// having a hierarchy of constraints like the Swift type checker.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Alt {
     pub ty: TypeID,
