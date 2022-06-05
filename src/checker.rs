@@ -269,7 +269,7 @@ impl Checker {
                     if let Decl::Macro(_) = d {
                         // Found our macro.
                         found = true;
-                        macro_type = fresh(d.ty(), &mut self.next_anon);
+                        macro_type = d.ty().fresh(&mut self.next_anon);
                     }
                 }
 
