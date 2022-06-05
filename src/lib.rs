@@ -23,3 +23,6 @@ pub use solver::*;
 mod vm;
 mod util;
 pub use util::*;
+
+mod decl_table;
+pub use decl_table::*;
