@@ -40,6 +40,10 @@ impl TypeID {
     pub fn subst(self, inst: &Instance) -> TypeID {
         subst(self, inst)
     }
+
+    pub fn solved(self) -> bool {
+        solved(self)
+    }
 }
 
 impl Deref for TypeID {
