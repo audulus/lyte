@@ -308,7 +308,18 @@ impl SortedDecls {
         for d in sl {
             match d {
                 Decl::Func(FuncDecl { constraints, .. }) => {
-                    alts.push(Alt{ty: d.ty(), interfaces: constraints.clone()} );
+
+                    let mut interfaces = vec![];
+                    for c in constraints {
+                        interfaces.push(
+                            AltInterface{
+                                interface: c.interface_name,
+                                typevars: c.typevars.iter().map(|name| typevar(&*name)).collect()
+                            }
+                        )
+                    }
+
+                    alts.push(Alt{ty: d.ty(), interfaces} );
                 }
                 Decl::Global{ .. } => {
                     alts.push(Alt{ty: d.ty(), interfaces: vec![]});

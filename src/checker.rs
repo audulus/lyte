@@ -121,11 +121,11 @@ impl Checker {
                     v.ty
                 } else {
                     let t = self.fresh();
-                    let mut alts = decls.alts(*name);
-                    
-                    for alt in &mut alts {
-                        alt.ty = fresh(alt.ty, &mut self.next_anon);
-                    }
+                    let mut alts: Vec<Alt> = decls
+                        .alts(*name)
+                        .iter()
+                        .map(|alt| alt.fresh(&mut self.next_anon))
+                        .collect();
 
                     if alts.is_empty() {
                         self.errors.push(TypeError {

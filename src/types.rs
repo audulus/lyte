@@ -197,7 +197,7 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     }
 }
 
-fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
+pub fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
     match &*ty {
         Type::Tuple(v) => {
             let vv = v.iter().map(|t| fresh_aux(*t, index, inst)).collect();

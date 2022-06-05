@@ -3,9 +3,37 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct AltInterface {
+    pub interface: Name,
+    pub typevars: Vec<TypeID>
+}
+
+impl AltInterface {
+    pub fn subst(&self, inst: &Instance) -> AltInterface {
+        AltInterface {
+            interface: self.interface,
+            typevars: self.typevars.iter().map(|ty| subst(*ty, inst)).collect()
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Alt {
     pub ty: TypeID,
-    pub interfaces: Vec<InterfaceConstraint>
+    pub interfaces: Vec<AltInterface>
+}
+
+impl Alt {
+    pub fn fresh(&self, next_anon: &mut usize) -> Alt {
+        let mut inst = Instance::new();
+
+        let ty = fresh_aux(self.ty, next_anon, &mut inst);
+        let interfaces = self.interfaces.iter().map(|alt_interface| {
+            alt_interface.subst(&inst)
+        }).collect();
+
+        Alt{ ty, interfaces }
+    }
 }
 
 /// A type-inference constraint.
@@ -93,8 +121,6 @@ pub fn iterate_solver(
     errors: &mut Vec<TypeError>,
 ) {
     for constraint in constraints {
-        // Kind of an unfortunate clone.
-        let constraint_clone = constraint.clone();
 
         match constraint {
             Constraint::Equal(a, b, loc) => {
@@ -106,8 +132,37 @@ pub fn iterate_solver(
                 }
             }
             Constraint::Or(t, alts, loc) => {
+
+                let alts_clone = alts.clone();
+
                 // Try to narrow it down.
                 alts.retain(|alt| {
+
+                    // println!("Processing alt {:?}", alt);
+
+                    // Throw out alternatives where the interfaces aren't satisfied.
+                    let mut tmp_errors = vec![];
+                    for interface_constraint in &alt.interfaces {
+                        if let Some(Decl::Interface(interface)) = decls.find(interface_constraint.interface).first() {
+
+                            //println!("Found interface");
+
+                            let mut types = vec![];
+                            for ty in &interface_constraint.typevars {
+                                types.push(subst(*ty, instance));
+                            }
+
+                            //println!("types: {:?}", types);
+
+                            if !interface.satisfied(&types, decls, &mut tmp_errors, *loc) {
+                                return false;
+                            }
+                        } else {
+                            // Unknown interface!
+                            return false;
+                        }
+                    }
+
                     // Start from the instance we know so far.
                     let mut inst = instance.clone();
                     unify(*t, alt.ty, &mut inst)
@@ -117,7 +172,7 @@ pub fn iterate_solver(
                 if alts.is_empty() {
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!("no solution for {:?}", constraint_clone).into(),
+                        message: format!("no solution for {:?} is one of {:?}", subst(*t, instance), alts_clone).into(),
                     });
                 }
 
