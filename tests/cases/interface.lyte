@@ -13,5 +13,5 @@ sort<T>(array: [typevar T]) -> [typevar T] where Compare<T> {
 cmp(lhs: i32, rhs: i32) -> i32
 
 test {
-    // sort([1,2,3])
+    sort([1,2,3])
 }

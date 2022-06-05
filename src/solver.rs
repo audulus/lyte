@@ -99,7 +99,7 @@ impl Constraint {
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
             Constraint::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
-            Constraint::Or(_, _, _) => false,
+            Constraint::Or(t, alts, _) => solved_inst(*t, inst) && alts.iter().len() == 1 && solved_inst(alts[0].ty, inst),
             Constraint::Field(struct_ty, _, ft, _) => {
                 solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
             }
@@ -165,16 +165,6 @@ pub fn iterate_solver(
 
                 // Try to narrow it down.
                 alts.retain(|alt| {
-
-                    println!("Processing {:?}", alt);
-
-                    // Throw out alternatives where the interfaces aren't satisfied.
-                    for interface_constraint in &alt.interfaces {
-                        if !interface_constraint.satisfied(instance, decls, *loc) {
-                            return false;
-                        }
-                    }
-
                     // Start from the instance we know so far.
                     let mut inst = instance.clone();
                     unify(*t, alt.ty, &mut inst)
@@ -190,7 +180,31 @@ pub fn iterate_solver(
 
                 // Just a single option. Better unify!
                 if alts.len() == 1 {
-                    *constraint = Constraint::Equal(*t, alts[0].ty, *loc);
+
+                    if unify(*t, alts[0].ty, instance) {
+
+                        // Check that all the interfaces are satisfied.
+                        let mut satisfied = true;
+                        for interface_constraint in &alts[0].interfaces {
+                            if !interface_constraint.satisfied(instance, decls, *loc) {
+                                satisfied = false;
+                            }
+                        }
+
+                        if !satisfied {
+                            errors.push(TypeError {
+                                location: *loc,
+                                message: format!("interface constraints not satisfied").into(),
+                            });
+                        }
+
+                    } else {
+                        errors.push(TypeError {
+                            location: *loc,
+                            message: format!("no solution for {:?} == {:?}", subst(*t, instance), subst(alts[0].ty, instance)).into(),
+                        });
+                    }
+                    
                 }
             }
             Constraint::Field(struct_ty, field_name, ft, loc) => {
