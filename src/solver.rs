@@ -52,7 +52,7 @@ impl Alt {
 /// 
 /// We're currently only using a list of constraints (no sub-constraints).
 /// Hopefully this is adequate, since a constraint hierachy
-/// would imply branching/backtracking which can leads to potential
+/// would imply branching/backtracking which can lead to potential
 /// exponention runtime behavior. This is why the Swift type checker
 /// has a timeout (!!).
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
