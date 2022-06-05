@@ -181,7 +181,7 @@ impl Checker {
                     let overload_name = Name::new(op.overload_name().into());
                     for d in decls.find(overload_name) {
                         if let Decl::Func(_) = d {
-                            let dt = fresh(d.ty(), &mut self.next_anon);
+                            let dt = d.ty().fresh(&mut self.next_anon);
                             alts.push(Alt{ty: dt, interfaces: vec![]});
                         }
                     }
