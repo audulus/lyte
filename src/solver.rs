@@ -165,27 +165,11 @@ pub fn iterate_solver(
                 // Try to narrow it down.
                 alts.retain(|alt| {
 
-                    // println!("Processing alt {:?}", alt);
+                    println!("Processing {:?}", alt);
 
                     // Throw out alternatives where the interfaces aren't satisfied.
-                    let mut tmp_errors = vec![];
                     for interface_constraint in &alt.interfaces {
-                        if let Some(Decl::Interface(interface)) = decls.find(interface_constraint.interface).first() {
-
-                            //println!("Found interface");
-
-                            let mut types = vec![];
-                            for ty in &interface_constraint.typevars {
-                                types.push(subst(*ty, instance));
-                            }
-
-                            //println!("types: {:?}", types);
-
-                            if !interface.satisfied(&types, decls, &mut tmp_errors, *loc) {
-                                return false;
-                            }
-                        } else {
-                            // Unknown interface!
+                        if !interface_constraint.satisfied(instance, decls, *loc) {
                             return false;
                         }
                     }
