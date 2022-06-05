@@ -12,7 +12,7 @@ impl AltInterface {
     pub fn subst(&self, inst: &Instance) -> AltInterface {
         AltInterface {
             interface: self.interface,
-            typevars: self.typevars.iter().map(|ty| subst(*ty, inst)).collect()
+            typevars: self.typevars.iter().map(|ty| ty.subst(inst)).collect()
         }
     }
 }
