@@ -121,7 +121,7 @@ impl Checker {
                     v.ty
                 } else {
                     let t = self.fresh();
-                    let mut alts: Vec<Alt> = decls
+                    let alts: Vec<Alt> = decls
                         .alts(*name)
                         .iter()
                         .map(|alt| alt.fresh(&mut self.next_anon))
