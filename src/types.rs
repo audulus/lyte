@@ -32,6 +32,14 @@ impl TypeID {
     pub fn new(ty: Type) -> Self {
         Self(Intern::new(ty))
     }
+
+    pub fn fresh(self, index: &mut usize) -> TypeID {
+        fresh(self, index)
+    }
+
+    pub fn subst(self, inst: &Instance) -> TypeID {
+        subst(self, inst)
+    }
 }
 
 impl Deref for TypeID {
