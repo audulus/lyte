@@ -47,9 +47,6 @@ pub enum Constraint {
 
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
-
-    /// Satisfies an interface.
-    Where(Name, Vec<TypeID>, Loc)
 }
 
 impl Constraint {
@@ -62,9 +59,6 @@ impl Constraint {
             Constraint::Field(struct_ty, _, ft, _) => {
                 solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
             }
-            Constraint::Where(_, types, _) => {
-                types.iter().all(|t| solved_inst(*t, inst))
-            }
         }
     }
 
@@ -73,7 +67,6 @@ impl Constraint {
             Constraint::Equal(_, _, loc) => *loc,
             Constraint::Or(_, _, loc) => *loc,
             Constraint::Field(_, _, _, loc) => *loc,
-            Constraint::Where(_, _, loc) => *loc,
         }
     }
 
@@ -101,15 +94,6 @@ impl Constraint {
                 subst(*b, inst),
                 loc
             ),
-            Constraint::Where(name, types, loc) => {
-                let mapped_types: Vec<TypeID> = types.iter().map(|t| subst(*t, inst)).collect();
-                println!(
-                    "Where({:?}, {:?}, {:?})",
-                    name,
-                    mapped_types,
-                    loc
-                )
-            }
         }
     }
 }
@@ -230,43 +214,6 @@ pub fn iterate_solver(
                         }
                     }
                     _ => (),
-                }
-            }
-            Constraint::Where(name, types, loc) => {
-                if let Some(Decl::Interface(Interface{ name, typevars, funcs, .. })) = decls.find(*name).first() {
-
-                    // Is the interface satisfied by the types?
-
-                    // Create a substitution for the type variables in the interface.
-                    let mut inst = Instance::new();
-                    for (v, t) in typevars.iter().zip(types) {
-                        inst.insert(typevar(&*v), *t);
-                    }
-
-                    // Find functions among decls that have the same type.
-                    for func in funcs {
-                        
-                        let d = decls.find(func.name);
-
-                        // Do we want to unify instead?
-                        let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst) );
-
-                        if !found {
-                            errors.push(TypeError {
-                                location: *loc,
-                                message: format!("function {:?} for interface {:?} is required", func.name, name)
-                                    .into(),
-                            });
-                        }
-
-                    }
-
-                } else {
-                    errors.push(TypeError {
-                        location: *loc,
-                        message: format!("unknown interface {:?}", name)
-                            .into(),
-                    });
                 }
             }
         }
