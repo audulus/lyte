@@ -226,7 +226,10 @@ pub fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
             fresh_aux(*rng, index, inst),
         )),
         Type::Name(name, params) => {
-            let fresh_params = params.iter().map(|param| fresh_aux(*param, index, inst)).collect();
+            let fresh_params = params
+                .iter()
+                .map(|param| fresh_aux(*param, index, inst))
+                .collect();
             mk_type(Type::Name(*name, fresh_params))
         }
         _ => ty,
@@ -259,10 +262,14 @@ impl FuncDecl {
 }
 
 impl Interface {
-
     /// Is an interface satisfied?
-    pub fn satisfied(&self, types: &[TypeID], decls: &DeclTable, errors: &mut Vec<TypeError>, loc: Loc) -> bool {
-
+    pub fn satisfied(
+        &self,
+        types: &[TypeID],
+        decls: &DeclTable,
+        errors: &mut Vec<TypeError>,
+        loc: Loc,
+    ) -> bool {
         let mut inst = Instance::new();
         for (v, t) in self.typevars.iter().zip(types) {
             inst.insert(typevar(&*v), *t);
@@ -272,25 +279,25 @@ impl Interface {
 
         // Find functions among decls that have the same type.
         for func in &self.funcs {
-                        
             let d = decls.find(func.name);
 
             // Do we want to unify instead?
-            let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst) );
+            let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst));
 
             if !found {
                 satisfied = false;
                 errors.push(TypeError {
                     location: loc,
-                    message: format!("function {:?} for interface {:?} is required", func.name, self.name)
-                        .into(),
+                    message: format!(
+                        "function {:?} for interface {:?} is required",
+                        func.name, self.name
+                    )
+                    .into(),
                 });
             }
-
         }
 
         satisfied
-
     }
 }
 

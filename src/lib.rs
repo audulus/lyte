@@ -20,8 +20,8 @@ pub use compiler::*;
 mod solver;
 pub use solver::*;
 
-mod vm;
 mod util;
+mod vm;
 pub use util::*;
 
 mod decl_table;

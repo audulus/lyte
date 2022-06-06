@@ -1,4 +1,4 @@
-/// On some platforms (iOS) we can't generate machine code, so 
+/// On some platforms (iOS) we can't generate machine code, so
 /// here's an attempt at a VM.
 
 // See https://github.com/wasm3/wasm3/blob/main/docs/Interpreter.md
@@ -27,11 +27,11 @@ fn write4(mem: &mut [u8], addr: usize, word: [u8; 4]) {
 }
 
 fn sp_up(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
-    (code[ip + 1].0)(code, imm, ip + 1, mem, sp+4, i, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp + 4, i, f);
 }
 
 fn sp_down(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
-    (code[ip + 1].0)(code, imm, ip + 1, mem, sp-4, i, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp - 4, i, f);
 }
 
 fn i_add(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
@@ -122,32 +122,38 @@ fn f_bz(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f
 fn call(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
     let func = u32::from_ne_bytes(read4(imm, ip * 4)) as usize;
     (code[func].0)(code, imm, func, mem, sp, i, f);
-    (code[ip+1].0)(code, imm, ip+1, mem, sp, i, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp, i, f);
 }
 
 /// Allocates memory on the stack.
 fn alloca(code: &[Op], imm: &[u8], ip: usize, mem: &mut [u8], sp: usize, i: i32, f: f32) {
-    (code[ip+1].0)(code, imm, ip+1, mem, sp+i as usize, sp as i32, f);
+    (code[ip + 1].0)(code, imm, ip + 1, mem, sp + i as usize, sp as i32, f);
 }
 
 /// End of the code or end of a function. Terminates tail recursion.
-fn end(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) { }
+fn end(_code: &[Op], _imm: &[u8], _ip: usize, _mem: &mut [u8], _sp: usize, _i: i32, _f: f32) {}
 
 impl Op {
     fn name(&self) -> &'static str {
         let i = self.0 as usize;
-        if i == end as usize { "end" } 
-        else if i == f_imm as usize { "f_imm" }
-        else if i == f_store as usize { "f_store" }
-        else if i == call as usize { "call" }
-        else { panic!() }
+        if i == end as usize {
+            "end"
+        } else if i == f_imm as usize {
+            "f_imm"
+        } else if i == f_store as usize {
+            "f_store"
+        } else if i == call as usize {
+            "call"
+        } else {
+            panic!()
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_imm_store() {
         let code = [Op(f_imm), Op(f_store), Op(end)];
@@ -158,7 +164,7 @@ mod tests {
         let mut mem = [0 as u8; 4];
 
         assert_ne!(f32::from_ne_bytes(mem), 42.0);
-        
+
         (code[0].0)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
 
         assert_eq!(f32::from_ne_bytes(mem), 42.0);
@@ -170,9 +176,14 @@ mod tests {
 
         code.iter().for_each(|op| println!("{}", op.name()));
 
-        let imm = [(2 as i32).to_ne_bytes(), (0 as i32).to_ne_bytes(), (42.0 as f32).to_ne_bytes()].concat();
+        let imm = [
+            (2 as i32).to_ne_bytes(),
+            (0 as i32).to_ne_bytes(),
+            (42.0 as f32).to_ne_bytes(),
+        ]
+        .concat();
         let mut mem = [0 as u8; 4];
-        
+
         (code[0].0)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
 
         assert_eq!(f32::from_ne_bytes(mem), 42.0);

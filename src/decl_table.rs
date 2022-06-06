@@ -3,12 +3,11 @@ use std::cmp::Ordering;
 use superslice::Ext;
 
 /// Table of top level declarations.
-/// 
+///
 /// Currently we're just using a sorted Vec.
 /// In the future we could use a hash table.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct DeclTable {
-
     /// All declarations, sorted by name.
     pub decls: Vec<Decl>,
 
@@ -32,7 +31,7 @@ impl DeclTable {
         for decl in &decls {
             if let Decl::Enum { cases, .. } = decl {
                 for case in cases {
-                    enum_cases.push( (*case, i ) )
+                    enum_cases.push((*case, i))
                 }
             }
             i += 1;
@@ -70,10 +69,10 @@ impl DeclTable {
                 Decl::Func(_) => {
                     alts.push(d.ty());
                 }
-                Decl::Global{ .. } => {
+                Decl::Global { .. } => {
                     alts.push(d.ty());
                 }
-                _ => ()
+                _ => (),
             }
         }
 
@@ -88,29 +87,31 @@ impl DeclTable {
         for d in sl {
             match d {
                 Decl::Func(FuncDecl { constraints, .. }) => {
-
                     let mut interfaces = vec![];
                     for c in constraints {
-                        interfaces.push(
-                            AltInterface{
-                                interface: c.interface_name,
-                                typevars: c.typevars.iter().map(|name| typevar(&*name)).collect()
-                            }
-                        )
+                        interfaces.push(AltInterface {
+                            interface: c.interface_name,
+                            typevars: c.typevars.iter().map(|name| typevar(&*name)).collect(),
+                        })
                     }
 
-                    alts.push(Alt{ty: d.ty(), interfaces} );
+                    alts.push(Alt {
+                        ty: d.ty(),
+                        interfaces,
+                    });
                 }
-                Decl::Global{ .. } => {
-                    alts.push(Alt{ty: d.ty(), interfaces: vec![]});
+                Decl::Global { .. } => {
+                    alts.push(Alt {
+                        ty: d.ty(),
+                        interfaces: vec![],
+                    });
                 }
-                _ => ()
+                _ => (),
             }
         }
 
         alts
     }
-
 }
 
 #[cfg(test)]
@@ -121,10 +122,22 @@ mod tests {
     #[test]
     fn test_sorted_decls() {
         let decls = vec![
-            Decl::Global { name: Name::new("a".into()), ty: mk_type(Type::Void) },
-            Decl::Global { name: Name::new("b".into()), ty: mk_type(Type::Void) },
-            Decl::Global { name: Name::new("b".into()), ty: mk_type(Type::Void) },
-            Decl::Global { name: Name::new("c".into()), ty: mk_type(Type::Void) },
+            Decl::Global {
+                name: Name::new("a".into()),
+                ty: mk_type(Type::Void),
+            },
+            Decl::Global {
+                name: Name::new("b".into()),
+                ty: mk_type(Type::Void),
+            },
+            Decl::Global {
+                name: Name::new("b".into()),
+                ty: mk_type(Type::Void),
+            },
+            Decl::Global {
+                name: Name::new("c".into()),
+                ty: mk_type(Type::Void),
+            },
         ];
 
         let sorted = DeclTable::new(decls);

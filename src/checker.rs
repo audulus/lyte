@@ -117,7 +117,6 @@ impl Checker {
                 mk_type(Type::Array(int8, s.bytes().len() as i64))
             }
             Expr::Id(name) => {
-
                 // Local variables will override all declarations.
                 // Is this what we want?
                 if let Some(v) = self.find(*name) {
@@ -179,14 +178,20 @@ impl Checker {
                     let mut alts = vec![];
 
                     for ty in &self.arith_overloads {
-                        alts.push(Alt{ty: *ty, interfaces: vec![]});
+                        alts.push(Alt {
+                            ty: *ty,
+                            interfaces: vec![],
+                        });
                     }
 
                     let overload_name = Name::new(op.overload_name().into());
                     for d in decls.find(overload_name) {
                         if let Decl::Func(_) = d {
                             let dt = d.ty().fresh(&mut self.next_anon);
-                            alts.push(Alt{ty: dt, interfaces: vec![]});
+                            alts.push(Alt {
+                                ty: dt,
+                                interfaces: vec![],
+                            });
                         }
                     }
 
@@ -213,14 +218,13 @@ impl Checker {
 
                 let mut alts = vec![];
                 for ty in &self.cast_overloads {
-                    alts.push(Alt{ty: *ty, interfaces: vec![]});
+                    alts.push(Alt {
+                        ty: *ty,
+                        interfaces: vec![],
+                    });
                 }
 
-                self.add_constraint(Constraint::Or(
-                    ft,
-                    alts,
-                    arena.locs[id],
-                ));
+                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
 
                 self.eq(
                     func(et, *ty),
@@ -321,7 +325,10 @@ impl Checker {
                 // Find all the enum declarations with that name.
                 decls.find_enum(*name, &mut |enum_name| {
                     let enum_ty = mk_type(Type::Name(enum_name, vec![]));
-                    alts.push(Alt{ty: enum_ty, interfaces: vec![]});
+                    alts.push(Alt {
+                        ty: enum_ty,
+                        interfaces: vec![],
+                    });
                 });
 
                 self.constraints
@@ -493,14 +500,20 @@ impl Checker {
 
             // Add interface functions to available functions.
             for constraint in &func_decl.constraints {
-                if let Some(Decl::Interface(interface)) = decls.find(constraint.interface_name).first() {
+                if let Some(Decl::Interface(interface)) =
+                    decls.find(constraint.interface_name).first()
+                {
                     let mut inst = Instance::new();
 
-                    interface.typevars.iter().zip(&constraint.typevars).for_each(|pair| {
-                        let t0 = mk_type(Type::Var(*pair.0));
-                        let t1 = mk_type(Type::Var(*pair.1));
-                        inst.insert(t0, t1);
-                    });
+                    interface
+                        .typevars
+                        .iter()
+                        .zip(&constraint.typevars)
+                        .for_each(|pair| {
+                            let t0 = mk_type(Type::Var(*pair.0));
+                            let t1 = mk_type(Type::Var(*pair.1));
+                            inst.insert(t0, t1);
+                        });
 
                     for func in &interface.funcs {
                         self.vars.push(Var {
@@ -582,7 +595,7 @@ impl Checker {
         match decl {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
-            Decl::Interface(Interface{ name, funcs, .. }) => self.check_interface(*name, funcs),
+            Decl::Interface(Interface { name, funcs, .. }) => self.check_interface(*name, funcs),
             Decl::Struct {
                 name,
                 typevars,

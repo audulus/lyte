@@ -36,7 +36,7 @@ impl fmt::Display for Name {
 }
 
 /// Source code location.
-/// 
+///
 /// Should this be a span instead?
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
 pub struct Loc {
@@ -228,4 +228,3 @@ impl Decl {
         }
     }
 }
-

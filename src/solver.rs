@@ -5,30 +5,28 @@ use std::hash::{Hash, Hasher};
 /// An satisfies-interface constraint. This is close
 /// to InterfaceConstraint except the types will be
 /// anonymous type variables.
-/// 
+///
 /// Note: we could use the same type for both AltInterface
 /// and InterfaceConstraint, but InterfaceConstraint reflects
 /// that the typevars must be a list of names.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct AltInterface {
     pub interface: Name,
-    pub typevars: Vec<TypeID>
+    pub typevars: Vec<TypeID>,
 }
 
 impl AltInterface {
-
     /// Applies a type substitution to the constraint.
     pub fn subst(&self, inst: &Instance) -> AltInterface {
         AltInterface {
             interface: self.interface,
-            typevars: self.typevars.iter().map(|ty| ty.subst(inst)).collect()
+            typevars: self.typevars.iter().map(|ty| ty.subst(inst)).collect(),
         }
     }
 
     /// Is the constraint satisfied in the current environment?
     pub fn satisfied(&self, instance: &Instance, decls: &DeclTable, loc: Loc) -> bool {
         if let Some(Decl::Interface(interface)) = decls.find(self.interface).first() {
-
             let mut types = vec![];
             for ty in &self.typevars {
                 types.push(subst(*ty, instance));
@@ -45,33 +43,34 @@ impl AltInterface {
 
 /// An alternative choice for a type. May also need
 /// to satisfy interface constraints.
-/// 
+///
 /// Note: hopefully we can get away with this instead of
 /// having a hierarchy of constraints like the Swift type checker.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Alt {
     pub ty: TypeID,
-    pub interfaces: Vec<AltInterface>
+    pub interfaces: Vec<AltInterface>,
 }
 
 impl Alt {
-
     /// Replaces named type variables with anonymous type variables,
     /// including in constraints.
     pub fn fresh(&self, next_anon: &mut usize) -> Alt {
         let mut inst = Instance::new();
 
         let ty = fresh_aux(self.ty, next_anon, &mut inst);
-        let interfaces = self.interfaces.iter().map(|alt_interface| {
-            alt_interface.subst(&inst)
-        }).collect();
+        let interfaces = self
+            .interfaces
+            .iter()
+            .map(|alt_interface| alt_interface.subst(&inst))
+            .collect();
 
-        Alt{ ty, interfaces }
+        Alt { ty, interfaces }
     }
 }
 
 /// A type-inference constraint.
-/// 
+///
 /// We're currently only using a list of constraints (no sub-constraints).
 /// Hopefully this is adequate, since a constraint hierachy
 /// would imply branching/backtracking which can lead to potential
@@ -95,7 +94,9 @@ impl Constraint {
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
             Constraint::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
-            Constraint::Or(t, alts, _) => solved_inst(*t, inst) && alts.iter().len() == 1 && solved_inst(alts[0].ty, inst),
+            Constraint::Or(t, alts, _) => {
+                solved_inst(*t, inst) && alts.iter().len() == 1 && solved_inst(alts[0].ty, inst)
+            }
             Constraint::Field(struct_ty, _, ft, _) => {
                 solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
             }
@@ -145,18 +146,21 @@ pub fn iterate_solver(
     errors: &mut Vec<TypeError>,
 ) {
     for constraint in constraints {
-
         match constraint {
             Constraint::Equal(a, b, loc) => {
                 if !unify(*a, *b, instance) {
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!("no solution for {:?} == {:?}", subst(*a, instance), subst(*b, instance)).into(),
+                        message: format!(
+                            "no solution for {:?} == {:?}",
+                            subst(*a, instance),
+                            subst(*b, instance)
+                        )
+                        .into(),
                     });
                 }
             }
             Constraint::Or(t, alts, loc) => {
-
                 let alts_clone = alts.clone();
 
                 // Try to narrow it down.
@@ -170,15 +174,18 @@ pub fn iterate_solver(
                 if alts.is_empty() {
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!("no solution for {:?} is one of {:?}", subst(*t, instance), alts_clone).into(),
+                        message: format!(
+                            "no solution for {:?} is one of {:?}",
+                            subst(*t, instance),
+                            alts_clone
+                        )
+                        .into(),
                     });
                 }
 
                 // Just a single option. Better unify!
                 if alts.len() == 1 {
-
                     if unify(*t, alts[0].ty, instance) {
-
                         // Check that all the interfaces are satisfied.
                         let mut satisfied = true;
                         for interface_constraint in &alts[0].interfaces {
@@ -193,14 +200,17 @@ pub fn iterate_solver(
                                 message: format!("interface constraints not satisfied").into(),
                             });
                         }
-
                     } else {
                         errors.push(TypeError {
                             location: *loc,
-                            message: format!("no solution for {:?} == {:?}", subst(*t, instance), subst(alts[0].ty, instance)).into(),
+                            message: format!(
+                                "no solution for {:?} == {:?}",
+                                subst(*t, instance),
+                                subst(alts[0].ty, instance)
+                            )
+                            .into(),
                         });
                     }
-                    
                 }
             }
             Constraint::Field(struct_ty, field_name, ft, loc) => {
@@ -208,7 +218,6 @@ pub fn iterate_solver(
 
                 match &*find(*struct_ty, instance) {
                     Type::Name(struct_name, vars) => {
-
                         let d = decls.find(*struct_name);
 
                         if let Some(Decl::Struct {
@@ -238,7 +247,6 @@ pub fn iterate_solver(
                                     .into(),
                             });
                         }
-                        
                     }
                     Type::Array(_, _) => {
                         if *field_name == Name::new("len".into()) {
@@ -380,8 +388,14 @@ mod tests {
         let i = mk_type(Type::Int32);
         let f = mk_type(Type::Float32);
 
-        let i_alt = Alt{ty: i, interfaces: vec![]};
-        let f_alt = Alt{ty: f, interfaces: vec![]};
+        let i_alt = Alt {
+            ty: i,
+            interfaces: vec![],
+        };
+        let f_alt = Alt {
+            ty: f,
+            interfaces: vec![],
+        };
 
         let mut constraints = [Constraint::Or(i, vec![i_alt, f_alt], test_loc())];
 
