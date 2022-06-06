@@ -27,14 +27,12 @@ impl DeclTable {
 
         let mut enum_cases = vec![];
 
-        let mut i = 0;
-        for decl in &decls {
+        for (i, decl) in decls.iter().enumerate() {
             if let Decl::Enum { cases, .. } = decl {
                 for case in cases {
                     enum_cases.push((*case, i))
                 }
             }
-            i += 1;
         }
 
         enum_cases.sort();
