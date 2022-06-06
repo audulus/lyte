@@ -33,10 +33,38 @@ impl TypeID {
         Self(Intern::new(ty))
     }
 
+    /// Replaces named type variables with anonymous type variables, using instance for substitutions.
+    pub fn fresh_aux(self, index: &mut usize, inst: &mut Instance) -> TypeID {
+        match &*self {
+            Type::Tuple(v) => {
+                let vv = v.iter().map(|t| t.fresh_aux(index, inst)).collect();
+                mk_type(Type::Tuple(vv))
+            }
+            Type::Array(a, sz) => mk_type(Type::Array(a.fresh_aux(index, inst), *sz)),
+            Type::Var(_) => *inst.entry(self).or_insert_with(|| {
+                let t = mk_type(Type::Anon(*index));
+                *index += 1;
+                t
+            }),
+            Type::Func(dom, rng) => mk_type(Type::Func(
+                dom.fresh_aux(index, inst),
+                rng.fresh_aux(index, inst),
+            )),
+            Type::Name(name, params) => {
+                let fresh_params = params
+                    .iter()
+                    .map(|param| param.fresh_aux(index, inst))
+                    .collect();
+                mk_type(Type::Name(*name, fresh_params))
+            }
+            _ => self,
+        }
+    }
+
     /// Replaces named type variables with anonymous type variables.
     pub fn fresh(self, index: &mut usize) -> TypeID {
         let mut inst = Instance::new();
-        fresh_aux(self, index, &mut inst)
+        self.fresh_aux(index, &mut inst)
     }
 
     /// Apply type variable substitutions to a type.
@@ -217,33 +245,6 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             _ => false,
         }
-    }
-}
-
-pub fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
-    match &*ty {
-        Type::Tuple(v) => {
-            let vv = v.iter().map(|t| fresh_aux(*t, index, inst)).collect();
-            mk_type(Type::Tuple(vv))
-        }
-        Type::Array(a, sz) => mk_type(Type::Array(fresh_aux(*a, index, inst), *sz)),
-        Type::Var(_) => *inst.entry(ty).or_insert_with(|| {
-            let t = mk_type(Type::Anon(*index));
-            *index += 1;
-            t
-        }),
-        Type::Func(dom, rng) => mk_type(Type::Func(
-            fresh_aux(*dom, index, inst),
-            fresh_aux(*rng, index, inst),
-        )),
-        Type::Name(name, params) => {
-            let fresh_params = params
-                .iter()
-                .map(|param| fresh_aux(*param, index, inst))
-                .collect();
-            mk_type(Type::Name(*name, fresh_params))
-        }
-        _ => ty,
     }
 }
 

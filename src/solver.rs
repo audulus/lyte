@@ -58,7 +58,7 @@ impl Alt {
     pub fn fresh(&self, next_anon: &mut usize) -> Alt {
         let mut inst = Instance::new();
 
-        let ty = fresh_aux(self.ty, next_anon, &mut inst);
+        let ty = self.ty.fresh_aux(next_anon, &mut inst);
         let interfaces = self
             .interfaces
             .iter()
