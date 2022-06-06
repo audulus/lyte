@@ -82,9 +82,16 @@ pub enum Token {
 /// lexer is a separate salsa function?
 #[derive(Debug)]
 pub struct Lexer {
+    /// The code string we're analyzing.
     code: String,
+
+    /// Current index in code.
     pub i: usize,
+
+    /// Current token.
     pub tok: Token,
+
+    /// Current source code location.
     pub loc: Loc,
 }
 
