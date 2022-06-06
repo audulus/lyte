@@ -519,7 +519,7 @@ impl Checker {
                     for func in &interface.funcs {
                         self.vars.push(Var {
                             name: func.name,
-                            ty: subst(func.ty(), &inst),
+                            ty: func.ty().subst(&inst),
                             mutable: false,
                         });
                     }

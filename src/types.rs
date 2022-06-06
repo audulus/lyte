@@ -37,8 +37,19 @@ impl TypeID {
         fresh(self, index)
     }
 
+    /// Apply type variable substitutions to a type.
     pub fn subst(self, inst: &Instance) -> TypeID {
-        subst(self, inst)
+        //println!("subst {:?}", t);
+        let t = find(self, inst);
+        //println!("maps to {:?}", t);
+
+        match &*t {
+            Type::Tuple(v) => mk_type(Type::Tuple(v.iter().map(|t| t.subst(inst)).collect())),
+            Type::Func(a, b) => mk_type(Type::Func(a.subst(inst), b.subst(inst))),
+            Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), *n)),
+            Type::Anon(_) => find(t, inst),
+            _ => t,
+        }
     }
 
     /// Does the type contain any anonymous type variables?
@@ -140,21 +151,6 @@ pub fn find(id: TypeID, inst: &Instance) -> TypeID {
         id = *t;
     }
     id
-}
-
-/// Apply type variable substitutions to a type.
-pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
-    //println!("subst {:?}", t);
-    let t = find(t, inst);
-    //println!("maps to {:?}", t);
-
-    match &*t {
-        Type::Tuple(v) => mk_type(Type::Tuple(v.iter().map(|t| subst(*t, inst)).collect())),
-        Type::Func(a, b) => mk_type(Type::Func(subst(*a, inst), subst(*b, inst))),
-        Type::Array(a, n) => mk_type(Type::Array(subst(*a, inst), *n)),
-        Type::Anon(_) => find(t, inst),
-        _ => t,
-    }
 }
 
 /// Is the type solved when substitutions are applied from an instance?
@@ -295,7 +291,7 @@ impl Interface {
             let d = decls.find(func.name);
 
             // Do we want to unify instead?
-            let found = d.iter().any(|d| d.ty() == subst(func.ty(), &inst));
+            let found = d.iter().any(|d| d.ty() == func.ty().subst(&inst));
 
             if !found {
                 satisfied = false;
