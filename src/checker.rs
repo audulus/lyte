@@ -122,6 +122,9 @@ impl Checker {
                 if let Some(v) = self.find(*name) {
                     self.lvalue[id] = v.mutable;
                     v.ty
+                } else if let Some(Decl::Global { name, ty }) = decls.find(*name).first() {
+                    self.lvalue[id] = true;
+                    *ty
                 } else {
                     let t = self.fresh();
                     let alts: Vec<Alt> = decls
@@ -159,7 +162,13 @@ impl Checker {
 
                     mk_type(Type::Bool)
                 } else if let Binop::Assign = op {
-                    // XXX: lhs should be lvalue.
+
+                    if !self.lvalue[*a] {
+                        self.errors.push(TypeError {
+                            location: arena.locs[id],
+                            message: format!("left-hand side of assignment isn't assignable"),
+                        });
+                    }
 
                     self.eq(
                         at,

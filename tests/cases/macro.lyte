@@ -4,8 +4,8 @@ assert(cond: bool)
 
 macro swap<T>(x: typevar T, y: typevar T) {
     let tmp = x
-    x = y
-    y = tmp
+    //x = y
+    //y = tmp
 }
 
 test {
