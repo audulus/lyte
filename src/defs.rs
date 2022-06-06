@@ -140,6 +140,7 @@ pub struct Param {
     pub ty: Option<TypeID>,
 }
 
+/// Struct field.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Field {
     pub name: Name,
@@ -153,6 +154,7 @@ pub struct InterfaceConstraint {
     pub typevars: Vec<Name>,
 }
 
+/// Function declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FuncDecl {
     pub name: Name,
@@ -174,6 +176,7 @@ pub struct Interface {
     pub loc: Loc,
 }
 
+/// Top-level declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Decl {
     Func(FuncDecl),
