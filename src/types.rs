@@ -44,6 +44,23 @@ impl TypeID {
     pub fn solved(self) -> bool {
         solved(self)
     }
+
+    /// Calls a function for each type variable in the type.
+    pub fn typevars(self, f: &mut impl FnMut(Name)) {
+        match &*self {
+            Type::Tuple(v) => {
+                v.iter().for_each(|t| typevars(*t, f));
+            }
+            Type::Array(a, _sz) => typevars(*a, f),
+            Type::Func(dom, rng) => {
+                typevars(*dom, f);
+                typevars(*rng, f);
+            }
+            Type::Var(name) => (*f)(*name),
+            _ => (),
+        }
+    }
+    
 }
 
 impl Deref for TypeID {
