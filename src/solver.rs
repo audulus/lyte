@@ -187,18 +187,13 @@ pub fn iterate_solver(
                 if alts.len() == 1 {
                     if unify(*t, alts[0].ty, instance) {
                         // Check that all the interfaces are satisfied.
-                        let mut satisfied = true;
                         for interface_constraint in &alts[0].interfaces {
                             if !interface_constraint.satisfied(instance, decls, *loc) {
-                                satisfied = false;
+                                errors.push(TypeError {
+                                    location: *loc,
+                                    message: format!("interface constraint {:?} not satisfied", interface_constraint.interface).into(),
+                                });
                             }
-                        }
-
-                        if !satisfied {
-                            errors.push(TypeError {
-                                location: *loc,
-                                message: format!("interface constraints not satisfied").into(),
-                            });
                         }
                     } else {
                         errors.push(TypeError {
