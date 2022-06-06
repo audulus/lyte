@@ -33,8 +33,10 @@ impl TypeID {
         Self(Intern::new(ty))
     }
 
+    /// Replaces named type variables with anonymous type variables.
     pub fn fresh(self, index: &mut usize) -> TypeID {
-        fresh(self, index)
+        let mut inst = Instance::new();
+        fresh_aux(self, index, &mut inst)
     }
 
     /// Apply type variable substitutions to a type.
@@ -245,12 +247,6 @@ pub fn fresh_aux(ty: TypeID, index: &mut usize, inst: &mut Instance) -> TypeID {
     }
 }
 
-/// Replaces named type variables with anonymous type variables.
-pub fn fresh(ty: TypeID, index: &mut usize) -> TypeID {
-    let mut inst = Instance::new();
-    fresh_aux(ty, index, &mut inst)
-}
-
 impl Decl {
     pub fn ty(&self) -> TypeID {
         match self {
@@ -370,7 +366,7 @@ mod tests {
         let t = mk_type(Type::Name(Name::new("MyType".into()), vec![typevar("T")]));
 
         let mut i = 0;
-        let tt = fresh(t, &mut i);
+        let tt = t.fresh(&mut i);
 
         if let Type::Name(name, params) = &*tt {
             assert_eq!(*name, Name::new("MyType".into()));
