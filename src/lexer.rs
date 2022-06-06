@@ -75,6 +75,11 @@ pub enum Token {
     Error,
 }
 
+/// Traditional-style lexer which operates on
+/// a string and produces a stream of tokens.
+/// 
+/// Should the output be a Vec of tokens so the
+/// lexer is a separate salsa function?
 #[derive(Debug)]
 pub struct Lexer {
     code: String,
