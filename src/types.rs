@@ -94,6 +94,19 @@ impl TypeID {
         }
     }
 
+    /// Is the type solved when substitutions are applied from an instance?
+    pub fn solved_inst(self, inst: &Instance) -> bool {
+        let tt = find(self, inst);
+        match &*tt {
+            Type::Tuple(v) => v.iter().all(|t| t.solved_inst(inst)),
+            Type::Func(a, b) => a.solved_inst(inst) && b.solved_inst(inst),
+            Type::Array(a, _) => a.solved_inst(inst),
+            Type::Var(_) => true,
+            Type::Anon(_) => false,
+            _ => true,
+        }
+    }
+
     /// Calls a function for each type variable in the type.
     pub fn typevars(self, f: &mut impl FnMut(Name)) {
         match &*self {
@@ -181,19 +194,6 @@ pub fn find(id: TypeID, inst: &Instance) -> TypeID {
         id = *t;
     }
     id
-}
-
-/// Is the type solved when substitutions are applied from an instance?
-pub fn solved_inst(t: TypeID, inst: &Instance) -> bool {
-    let tt = find(t, inst);
-    match &*tt {
-        Type::Tuple(v) => v.iter().all(|t| solved_inst(*t, inst)),
-        Type::Func(a, b) => solved_inst(*a, inst) && solved_inst(*b, inst),
-        Type::Array(a, _) => solved_inst(*a, inst),
-        Type::Var(_) => true,
-        Type::Anon(_) => false,
-        _ => true,
-    }
 }
 
 /// Find a substitution which makes two types equal.

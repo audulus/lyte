@@ -93,12 +93,12 @@ impl Constraint {
     /// resolved disjuctions?
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
-            Constraint::Equal(a, b, _) => solved_inst(*a, inst) && solved_inst(*b, inst),
+            Constraint::Equal(a, b, _) => a.solved_inst(inst) && b.solved_inst(inst),
             Constraint::Or(t, alts, _) => {
-                solved_inst(*t, inst) && alts.iter().len() == 1 && solved_inst(alts[0].ty, inst)
+                t.solved_inst(inst) && alts.iter().len() == 1 && alts[0].ty.solved_inst(inst)
             }
             Constraint::Field(struct_ty, _, ft, _) => {
-                solved_inst(*struct_ty, inst) && solved_inst(*ft, inst)
+                struct_ty.solved_inst(inst) && ft.solved_inst(inst)
             }
         }
     }
