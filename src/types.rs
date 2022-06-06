@@ -41,8 +41,16 @@ impl TypeID {
         subst(self, inst)
     }
 
+    /// Does the type contain any anonymous type variables?
     pub fn solved(self) -> bool {
-        solved(self)
+        match &*self {
+            Type::Tuple(v) => v.iter().all(|t| t.solved()),
+            Type::Func(a, b) => a.solved() && b.solved(),
+            Type::Array(a, _) => a.solved(),
+            Type::Var(_) => true,
+            Type::Anon(_) => false,
+            _ => true,
+        }
     }
 
     /// Calls a function for each type variable in the type.
@@ -146,18 +154,6 @@ pub fn subst(t: TypeID, inst: &Instance) -> TypeID {
         Type::Array(a, n) => mk_type(Type::Array(subst(*a, inst), *n)),
         Type::Anon(_) => find(t, inst),
         _ => t,
-    }
-}
-
-/// Does the type contain any anonymous type variables?
-pub fn solved(t: TypeID) -> bool {
-    match &*t {
-        Type::Tuple(v) => v.iter().all(|t| solved(*t)),
-        Type::Func(a, b) => solved(*a) && solved(*b),
-        Type::Array(a, _) => solved(*a),
-        Type::Var(_) => true,
-        Type::Anon(_) => false,
-        _ => true,
     }
 }
 
@@ -338,11 +334,11 @@ mod tests {
         let mut inst = Instance::new();
         assert!(unify(vd, vd, &mut inst));
         assert!(!unify(vd, int8, &mut inst));
-        assert!(solved(vd));
+        assert!(vd.solved());
 
         let var = anon(0);
         assert!(unify(var, int8, &mut inst));
-        assert!(!solved(var));
+        assert!(!var.solved());
 
         let var2 = anon(1);
         assert!(unify(var, var2, &mut inst));
