@@ -355,6 +355,7 @@ impl Lexer {
         }
     }
 
+    /// Advance the lexer to the next token.
     pub fn next(&mut self) {
         self.tok = self._next();
     }
