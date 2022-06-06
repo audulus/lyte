@@ -82,6 +82,7 @@ fn decls(db: &dyn ParserQueries) -> DeclTable {
     DeclTable::new(decls)
 }
 
+/// Did the program successfully parse?
 fn parsed(db: &dyn ParserQueries) -> bool {
     let trees = db.program_ast();
 
