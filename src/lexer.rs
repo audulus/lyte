@@ -69,6 +69,7 @@ pub enum Token {
     Typevar,
     Interface,
     Where,
+    Underscore,
     Endl,
     End,
     Error,
@@ -161,6 +162,7 @@ impl Lexer {
                 "interface" => Token::Interface,
                 "where" => Token::Where,
                 "as" => Token::As,
+                "_" => Token::Underscore,
                 _ => Token::Id(id),
             };
         }
