@@ -291,8 +291,7 @@ impl Interface {
                     message: format!(
                         "function {:?} for interface {:?} is required",
                         func.name, self.name
-                    )
-                    .into(),
+                    ),
                 });
             }
         }

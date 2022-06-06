@@ -160,8 +160,8 @@ mod tests {
 
         code.iter().for_each(|op| println!("{}", op.name()));
 
-        let imm = (42.0 as f32).to_ne_bytes();
-        let mut mem = [0 as u8; 4];
+        let imm = 42.0_f32.to_ne_bytes();
+        let mut mem = [0_u8; 4];
 
         assert_ne!(f32::from_ne_bytes(mem), 42.0);
 
@@ -177,12 +177,12 @@ mod tests {
         code.iter().for_each(|op| println!("{}", op.name()));
 
         let imm = [
-            (2 as i32).to_ne_bytes(),
-            (0 as i32).to_ne_bytes(),
-            (42.0 as f32).to_ne_bytes(),
+            2_i32.to_ne_bytes(),
+            0_i32.to_ne_bytes(),
+            42.0_f32.to_ne_bytes(),
         ]
         .concat();
-        let mut mem = [0 as u8; 4];
+        let mut mem = [0_u8; 4];
 
         (code[0].0)(&code, &imm, 0, &mut mem, 0, 0, 0.0);
 

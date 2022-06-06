@@ -33,10 +33,10 @@ impl AltInterface {
             }
 
             let mut tmp_errors = vec![];
-            return interface.satisfied(&types, decls, &mut tmp_errors, loc);
+            interface.satisfied(&types, decls, &mut tmp_errors, loc)
         } else {
             // Unknown interface!
-            return false;
+            false
         }
     }
 }
@@ -155,8 +155,7 @@ pub fn iterate_solver(
                             "no solution for {:?} == {:?}",
                             a.subst(instance),
                             b.subst(instance)
-                        )
-                        .into(),
+                        ),
                     });
                 }
             }
@@ -178,8 +177,7 @@ pub fn iterate_solver(
                             "no solution for {:?} is one of {:?}",
                             t.subst(instance),
                             alts_clone
-                        )
-                        .into(),
+                        ),
                     });
                 }
 
@@ -191,7 +189,7 @@ pub fn iterate_solver(
                             if !interface_constraint.satisfied(instance, decls, *loc) {
                                 errors.push(TypeError {
                                     location: *loc,
-                                    message: format!("interface constraint {:?} not satisfied", interface_constraint.interface).into(),
+                                    message: format!("interface constraint {:?} not satisfied", interface_constraint.interface),
                                 });
                             }
                         }
@@ -202,8 +200,7 @@ pub fn iterate_solver(
                                 "no solution for {:?} == {:?}",
                                 t.subst(instance),
                                 alts[0].ty.subst(instance)
-                            )
-                            .into(),
+                            ),
                         });
                     }
                 }
@@ -232,14 +229,13 @@ pub fn iterate_solver(
                             } else {
                                 errors.push(TypeError {
                                     location: *loc,
-                                    message: format!("no such field: {:?}", field_name).into(),
+                                    message: format!("no such field: {:?}", field_name),
                                 });
                             }
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
-                                message: format!("{:?} does not refer to a struct", struct_name)
-                                    .into(),
+                                message: format!("{:?} does not refer to a struct", struct_name),
                             });
                         }
                     }
@@ -249,8 +245,7 @@ pub fn iterate_solver(
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
-                                message: format!("array only has len field, not {:?}", field_name)
-                                    .into(),
+                                message: format!("array only has len field, not {:?}", field_name),
                             });
                         }
                     }
@@ -283,7 +278,7 @@ pub fn solved_constraints(
         if !c.solved(instance) {
             errors.push(TypeError {
                 location: c.loc(),
-                message: format!("ambiguous constraint: {:?}", c).into(),
+                message: format!("ambiguous constraint: {:?}", c),
             });
         }
     }

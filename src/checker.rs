@@ -453,7 +453,7 @@ impl Checker {
                     self.vars.push(Var {
                         name: param.name,
                         mutable: false,
-                        ty: ty,
+                        ty,
                     });
                     param_types.push(ty);
                 }
@@ -571,7 +571,7 @@ impl Checker {
             }
 
             crate::typevars(field.ty, &mut |name| {
-                if typevars.iter().position(|n| *n == name).is_none() {
+                if !typevars.iter().any(|n| *n == name) {
                     self.errors.push(TypeError {
                         location: field.loc,
                         message: format!("unknown type variable: {}", name),

@@ -89,7 +89,8 @@ fn parse_typelist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<TypeID
 }
 
 fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
-    let t = mk_type(match &lexer.tok {
+    
+    mk_type(match &lexer.tok {
         Token::Void => {
             lexer.next();
             Type::Void
@@ -161,8 +162,7 @@ fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
             });
             Type::Void
         }
-    });
-    t
+    })
 }
 
 fn parse_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
@@ -870,7 +870,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
         _ => {
             arena.errors.push(ParseError {
                 location: lexer.loc,
-                message: format!("Expected declaration, got {:?}", lexer.tok).into(),
+                message: format!("Expected declaration, got {:?}", lexer.tok),
             });
 
             lexer.next();

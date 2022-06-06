@@ -201,12 +201,10 @@ impl Lexer {
 
             return if fraction {
                 Token::Real(self.code[start..self.i].into())
+            } else if let Ok(int_value) = self.code[start..self.i].parse() {
+                Token::Integer(int_value)
             } else {
-                if let Ok(int_value) = self.code[start..self.i].parse() {
-                    Token::Integer(int_value)
-                } else {
-                    Token::Error
-                }
+                Token::Error
             };
         }
 
