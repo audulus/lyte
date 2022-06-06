@@ -29,7 +29,7 @@ impl AltInterface {
         if let Some(Decl::Interface(interface)) = decls.find(self.interface).first() {
             let mut types = vec![];
             for ty in &self.typevars {
-                types.push(subst(*ty, instance));
+                types.push(ty.subst(instance));
             }
 
             let mut tmp_errors = vec![];
@@ -115,24 +115,24 @@ impl Constraint {
         match self {
             Constraint::Equal(a, b, loc) => println!(
                 "Equal({:?}, {:?}, {:?})",
-                subst(*a, inst),
-                subst(*b, inst),
+                a.subst(inst),
+                b.subst(inst),
                 loc
             ),
             Constraint::Or(a, alts, loc) => println!(
                 "Or({:?}, {:?}, {:?})",
-                subst(*a, inst),
+                a.subst(inst),
                 (*alts)
                     .iter()
-                    .map(|t| subst(t.ty, inst))
+                    .map(|t| t.ty.subst(inst))
                     .collect::<Vec<TypeID>>(),
                 loc
             ),
             Constraint::Field(a, name, b, loc) => println!(
                 "Field({:?}, {:?}, {:?}, {:?})",
-                subst(*a, inst),
+                a.subst(inst),
                 name,
-                subst(*b, inst),
+                b.subst(inst),
                 loc
             ),
         }
@@ -153,8 +153,8 @@ pub fn iterate_solver(
                         location: *loc,
                         message: format!(
                             "no solution for {:?} == {:?}",
-                            subst(*a, instance),
-                            subst(*b, instance)
+                            a.subst(instance),
+                            b.subst(instance)
                         )
                         .into(),
                     });
@@ -176,7 +176,7 @@ pub fn iterate_solver(
                         location: *loc,
                         message: format!(
                             "no solution for {:?} is one of {:?}",
-                            subst(*t, instance),
+                            t.subst(instance),
                             alts_clone
                         )
                         .into(),
@@ -200,8 +200,8 @@ pub fn iterate_solver(
                             location: *loc,
                             message: format!(
                                 "no solution for {:?} == {:?}",
-                                subst(*t, instance),
-                                subst(alts[0].ty, instance)
+                                t.subst(instance),
+                                alts[0].ty.subst(instance)
                             )
                             .into(),
                         });
