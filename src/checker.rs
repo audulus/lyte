@@ -570,7 +570,7 @@ impl Checker {
                 names.insert(field.name);
             }
 
-            crate::typevars(field.ty, &mut |name| {
+            field.ty.typevars(&mut |name| {
                 if !typevars.iter().any(|n| *n == name) {
                     self.errors.push(TypeError {
                         location: field.loc,

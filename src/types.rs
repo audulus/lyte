@@ -49,18 +49,18 @@ impl TypeID {
     pub fn typevars(self, f: &mut impl FnMut(Name)) {
         match &*self {
             Type::Tuple(v) => {
-                v.iter().for_each(|t| typevars(*t, f));
+                v.iter().for_each(|t| t.typevars(f));
             }
-            Type::Array(a, _sz) => typevars(*a, f),
+            Type::Array(a, _sz) => a.typevars(f),
             Type::Func(dom, rng) => {
-                typevars(*dom, f);
-                typevars(*rng, f);
+                dom.typevars(f);
+                rng.typevars(f);
             }
             Type::Var(name) => (*f)(*name),
             _ => (),
         }
     }
-    
+
 }
 
 impl Deref for TypeID {
@@ -317,22 +317,6 @@ impl Interface {
     }
 }
 
-/// Calls a function for each type variable in the type.
-pub fn typevars(ty: TypeID, f: &mut impl FnMut(Name)) {
-    match &*ty {
-        Type::Tuple(v) => {
-            v.iter().for_each(|t| typevars(*t, f));
-        }
-        Type::Array(a, _sz) => typevars(*a, f),
-        Type::Func(dom, rng) => {
-            typevars(*dom, f);
-            typevars(*rng, f);
-        }
-        Type::Var(name) => (*f)(*name),
-        _ => (),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,10 +367,10 @@ mod tests {
     #[test]
     fn test_typevars() {
         let vd = mk_type(Type::Void);
-        typevars(vd, &mut |_name| ());
+        vd.typevars(&mut |_name| ());
 
         let v = typevar("T");
-        typevars(v, &mut |name| (assert_eq!(name, Name::new("T".into()))));
+        v.typevars(&mut |name| (assert_eq!(name, Name::new("T".into()))));
     }
 
     #[test]
