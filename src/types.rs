@@ -103,7 +103,7 @@ pub fn tuple(types: Vec<TypeID>) -> TypeID {
 
 /// Convenience to create a tuple type from parameters.
 fn params_ty(params: &Vec<Param>) -> TypeID {
-    tuple(params.into_iter().map(|p| p.ty.unwrap()).collect())
+    tuple(params.iter().map(|p| p.ty.unwrap()).collect())
 }
 
 /// Look up a type in an instance, following as far as possible.
