@@ -134,6 +134,7 @@ pub enum Expr {
     Arena(ExprID),
 }
 
+/// Formal parameter.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Param {
     pub name: Name,
