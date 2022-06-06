@@ -103,6 +103,7 @@ impl Constraint {
         }
     }
 
+    /// Returns source code location of the constraint.
     pub fn loc(&self) -> Loc {
         match self {
             Constraint::Equal(_, _, loc) => *loc,
@@ -111,6 +112,7 @@ impl Constraint {
         }
     }
 
+    /// Pretty-prints the constraint.
     pub fn print(&self, inst: &Instance) {
         match self {
             Constraint::Equal(a, b, loc) => println!(
