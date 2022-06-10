@@ -308,6 +308,8 @@ impl Interface {
 
 #[cfg(test)]
 mod tests {
+    use std::any::type_name;
+
     use super::*;
 
     #[test]
@@ -375,5 +377,21 @@ mod tests {
         } else {
             assert!(false);
         }
+    }
+
+    #[test]
+    fn test_subst_typevar() {
+        let t = mk_type(
+            Type::Name(Name::new("TestType".into()), vec![])
+        );
+
+        let tt = typevar("TestType");
+
+        let mut inst = Instance::new();
+        inst.insert(t, tt);
+
+        let tt2 = t.subst(&inst);
+
+        assert_eq!(tt, tt2);
     }
 }
