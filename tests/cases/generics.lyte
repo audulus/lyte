@@ -2,7 +2,7 @@
 
 assert(cond: bool) → void
 
-map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
+map<T0, T1>(a: [T0], f: T0 → T1) → [T1] {
    var i = 0
    var b: [typevar T1]
    while i < a.len {
@@ -12,7 +12,7 @@ map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
    b
 }
 
-id<T>(x: typevar T) → typevar T { x }
+id<T>(x: T) → T { x }
 
 add_one(x: i32) → i32 { x + 1 }
 
