@@ -30,6 +30,7 @@ pub enum Token {
     NotEqual,
     Assign,
     Dot,
+    Range,
     Arrow,
     TokMod,
     Lmath,
@@ -280,7 +281,14 @@ impl Lexer {
             '?' => Token::Cond,
             ':' => Token::Colon,
             ';' => Token::Semi,
-            '.' => Token::Dot,
+            '.' => {
+                if self.i < n && bytes[self.i] == b'.' {
+                    self.i += 1;
+                    Token::Range
+                } else {
+                    Token::Dot
+                }
+            }
             '|' => {
                 if self.i < n && bytes[self.i] == b'|' {
                     self.i += 1;
