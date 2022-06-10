@@ -78,6 +78,9 @@ impl TypeID {
             Type::Func(a, b) => mk_type(Type::Func(a.subst(inst), b.subst(inst))),
             Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), *n)),
             Type::Anon(_) => find(t, inst),
+            Type::Name(name, vars) => {
+                mk_type(Type::Name(*name, vars.iter().map(|t| t.subst(inst)).collect()))
+            }
             _ => t,
         }
     }
