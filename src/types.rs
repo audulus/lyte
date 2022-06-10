@@ -262,6 +262,8 @@ impl Decl {
 }
 
 impl FuncDecl {
+
+    /// Returns the type for this function declaration.
     pub fn ty(&self) -> TypeID {
         func(params_ty(&self.params), self.ret)
     }
