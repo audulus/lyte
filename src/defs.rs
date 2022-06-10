@@ -167,6 +167,24 @@ pub struct FuncDecl {
     pub loc: Loc,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct StructDecl {
+    pub name: Name,
+    pub typevars: Vec<Name>,
+    pub fields: Vec<Field>,
+}
+
+impl StructDecl {
+    pub fn find_field(&self, name: Name) -> Option<Field> {
+        for field in &self.fields {
+            if field.name == name {
+                return Some(field.clone());
+            }
+        }
+        None
+    }
+}
+
 /// Provides a set of functions that some type variables
 /// must satisfy.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -182,11 +200,7 @@ pub struct Interface {
 pub enum Decl {
     Func(FuncDecl),
     Macro(FuncDecl),
-    Struct {
-        name: Name,
-        typevars: Vec<Name>,
-        fields: Vec<Field>,
-    },
+    Struct(StructDecl),
     Enum {
         name: Name,
         cases: Vec<Name>,
@@ -200,14 +214,11 @@ pub enum Decl {
 
 impl Decl {
     pub fn find_field(&self, name: Name) -> Option<Field> {
-        if let Decl::Struct { fields, .. } = self {
-            for field in fields {
-                if field.name == name {
-                    return Some(field.clone());
-                }
-            }
+        if let Decl::Struct(st) = self {
+            st.find_field(name)
+        } else {
+            None
         }
-        None
     }
 }
 
@@ -225,7 +236,7 @@ impl Decl {
         match self {
             Decl::Func(FuncDecl { name, .. }) => *name,
             Decl::Macro(FuncDecl { name, .. }) => *name,
-            Decl::Struct { name, .. } => *name,
+            Decl::Struct(StructDecl { name, .. }) => *name,
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,
             Decl::Interface(Interface { name, .. }) => *name,

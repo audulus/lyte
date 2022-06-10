@@ -566,10 +566,10 @@ impl Checker {
         }
     }
 
-    fn check_struct_decl(&mut self, _name: Name, typevars: &[Name], fields: &[Field]) {
+    fn check_struct_decl(&mut self, st: &StructDecl) {
         let mut names = HashSet::new();
 
-        for field in fields {
+        for field in &st.fields {
             if names.contains(&field.name) {
                 self.errors.push(TypeError {
                     location: field.loc,
@@ -580,7 +580,7 @@ impl Checker {
             }
 
             field.ty.typevars(&mut |name| {
-                if !typevars.iter().any(|n| *n == name) {
+                if !st.typevars.iter().any(|n| *n == name) {
                     self.errors.push(TypeError {
                         location: field.loc,
                         message: format!("unknown type variable: {}", name),
@@ -606,11 +606,7 @@ impl Checker {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
             Decl::Interface(Interface { name, funcs, .. }) => self.check_interface(*name, funcs),
-            Decl::Struct {
-                name,
-                typevars,
-                fields,
-            } => self.check_struct_decl(*name, typevars, fields),
+            Decl::Struct(struct_decl) => self.check_struct_decl(struct_decl),
             _ => (),
         }
     }

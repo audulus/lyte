@@ -214,14 +214,12 @@ pub fn iterate_solver(
                     Type::Name(struct_name, vars) => {
                         let d = decls.find(*struct_name);
 
-                        if let Some(Decl::Struct {
-                            typevars, fields, ..
-                        }) = d.first()
+                        if let Some(Decl::Struct(st)) = d.first()
                         {
                             // We've narrowed it down. Better unify!
-                            if let Some(field) = find_field(fields, *field_name) {
+                            if let Some(field) = find_field(&st.fields, *field_name) {
                                 let field_ty = if let Type::Var(name) = *field.ty {
-                                    let index = typevars.iter().position(|&n| n == name).unwrap();
+                                    let index = st.typevars.iter().position(|&n| n == name).unwrap();
                                     vars[index]
                                 } else {
                                     field.ty
@@ -406,7 +404,7 @@ mod tests {
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
 
-        let decls = DeclTable::new(vec![Decl::Struct {
+        let decls = DeclTable::new(vec![Decl::Struct( StructDecl{
             name: s0name,
             fields: vec![Field {
                 name: xname,
@@ -414,7 +412,7 @@ mod tests {
                 loc: test_loc(),
             }],
             typevars: vec![],
-        }]);
+        })]);
 
         let struct_ty = mk_type(Type::Name(s0name, vec![]));
         let v = anon(0);

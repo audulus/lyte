@@ -257,7 +257,7 @@ impl Decl {
             Decl::Interface { .. } => mk_type(Type::Void),
             Decl::Func(FuncDecl { params, ret, .. }) => func(params_ty(params), *ret),
             Decl::Macro(FuncDecl { params, ret, .. }) => func(params_ty(params), *ret),
-            Decl::Struct { name, .. } => mk_type(Type::Name(*name, vec![])),
+            Decl::Struct(StructDecl { name, .. }) => mk_type(Type::Name(*name, vec![])),
             Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Global { ty, .. } => *ty,
         }
