@@ -761,7 +761,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
 
     skip_newlines(lexer);
 
-    FuncDecl {
+    let mut f = FuncDecl {
         name,
         typevars,
         params,
@@ -769,7 +769,11 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
         ret,
         constraints,
         loc,
-    }
+    };
+
+    f.subst_typevars();
+
+    f
 }
 
 fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
