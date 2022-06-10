@@ -3,7 +3,7 @@
 assert(cond: bool) → void
 
 struct GenericStruct<T> {
-    x: typevar T
+    x: T
 }
 
 return_generic_struct → GenericStruct<i32> {
