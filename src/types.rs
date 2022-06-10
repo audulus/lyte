@@ -282,6 +282,8 @@ impl FuncDecl {
                 *ty = ty.subst(&inst)
             }
         }
+
+        self.ret = self.ret.subst(&inst);
     }
 }
 
