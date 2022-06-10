@@ -265,6 +265,22 @@ impl FuncDecl {
     pub fn ty(&self) -> TypeID {
         func(params_ty(&self.params), self.ret)
     }
+
+    /// Replaces any named types with type variables.
+    pub fn subst_typevars(&mut self) {
+
+        let mut inst = Instance::new();
+
+        for tv in &self.typevars {
+            inst.insert(mk_type(Type::Name(*tv, vec![])), mk_type(Type::Var(*tv)));
+        }
+
+        for param in &mut self.params {
+            if let Some(ty) = &mut param.ty {
+                *ty = ty.subst(&inst)
+            }
+        }
+    }
 }
 
 impl Interface {
