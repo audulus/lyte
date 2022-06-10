@@ -842,11 +842,15 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
             let fields = parse_fieldlist(lexer, &mut arena.errors);
             expect(lexer, Token::Rbrace, &mut arena.errors);
 
-            Decl::Struct(StructDecl {
+            let mut st = StructDecl {
                 name,
                 typevars,
                 fields,
-            })
+            };
+
+            st.subst_typevars();
+
+            Decl::Struct(st)
         }
         Token::Enum => {
             lexer.next();
