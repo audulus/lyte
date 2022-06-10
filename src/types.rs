@@ -290,6 +290,23 @@ impl FuncDecl {
     }
 }
 
+impl StructDecl {
+
+    /// Replaces any named types with type variables.
+    pub fn subst_typevars(&mut self) {
+
+        let mut inst = Instance::new();
+
+        for tv in &self.typevars {
+            inst.insert(mk_type(Type::Name(*tv, vec![])), mk_type(Type::Var(*tv)));
+        }
+
+        for field in &mut self.fields {
+            field.ty = field.ty.subst(&inst)
+        }
+    }
+}
+
 impl Interface {
     /// Is an interface satisfied?
     pub fn satisfied(
