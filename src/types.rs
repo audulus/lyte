@@ -344,6 +344,26 @@ impl Interface {
 
         satisfied
     }
+
+    /// Replaces any named types with type variables.
+    pub fn subst_typevars(&mut self) {
+
+        let mut inst = Instance::new();
+
+        for tv in &self.typevars {
+            inst.insert(mk_type(Type::Name(*tv, vec![])), mk_type(Type::Var(*tv)));
+        }
+
+        for func in &mut self.funcs {
+            for param in &mut func.params {
+                if let Some(ty) = &mut param.ty {
+                    *ty = ty.subst(&inst)
+                }
+            }
+    
+            func.ret = func.ret.subst(&inst);
+        }
+    }
 }
 
 #[cfg(test)]
