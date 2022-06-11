@@ -10,6 +10,6 @@ struct ref<T> {
     index: u32
 }
 
-//get<T>(r: ref<typevar T>, p: pool<typevar T>) -> T {
+//get<T>(r: ref<T>, p: pool<T>) -> T {
 //    p.data[r.index]
 //}
