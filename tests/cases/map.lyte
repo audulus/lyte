@@ -2,9 +2,9 @@
 
 assert(cond: bool) → void
 
-map<T0, T1>(a: [typevar T0], f: typevar T0 → typevar T1) → [typevar T1] {
+map<T0, T1>(a: [T0], f: T0 → T1) → [T1] {
    var i = 0
-   var b: [typevar T1]
+   var b: [T1]
    while i < a.len {
        b[i] = f(a[i])
        i = i + 1
