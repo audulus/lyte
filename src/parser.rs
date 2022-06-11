@@ -1086,7 +1086,7 @@ mod tests {
     #[test]
     fn test_parse_decl() {
         test_strings(
-            |lexer, arena, typevars| parse_decl(lexer, arena),
+            |lexer, arena, _| parse_decl(lexer, arena),
             &[
                 "f(){}",
                 "f(x: i8) { g(x) }",
@@ -1128,7 +1128,7 @@ mod tests {
     #[test]
     fn test_parse_program() {
         test_strings(
-            |lexer, arena, typevars| parse_program(lexer, arena),
+            |lexer, arena, _| parse_program(lexer, arena),
             &["", "\n", "\nf()", "f(){} g(){}", "f(){}\n g(){}", "f()\n{}"],
         );
     }
