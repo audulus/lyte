@@ -69,12 +69,12 @@ fn expect_id(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Name {
     }
 }
 
-fn parse_typelist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<TypeID> {
+fn parse_typelist(lexer: &mut Lexer, vars: &[Name], errors: &mut Vec<ParseError>) -> Vec<TypeID> {
     let mut r = vec![];
     expect(lexer, Token::Less, errors);
 
     loop {
-        r.push(parse_basic_type(lexer, errors));
+        r.push(parse_basic_type(lexer, vars, errors));
 
         if lexer.tok != Token::Comma {
             break;
@@ -88,7 +88,7 @@ fn parse_typelist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<TypeID
     r
 }
 
-fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
+fn parse_basic_type(lexer: &mut Lexer, vars: &[Name], errors: &mut Vec<ParseError>) -> TypeID {
     
     mk_type(match &lexer.tok {
         Token::Void => {
@@ -120,7 +120,7 @@ fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
         }
         Token::Lbracket => {
             lexer.next();
-            let r = parse_type(lexer, errors);
+            let r = parse_type(lexer, vars, errors);
             if lexer.tok == Token::Semi {
                 lexer.next();
                 if let Token::Integer(n) = lexer.tok.clone() {
@@ -142,15 +142,22 @@ fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
         Token::Id(name) => {
             let name = Name::new(name.clone());
             lexer.next();
+
+            // Do typevar substitutions here for
+            // efficiency.
+            if vars.contains(&name) {
+                return mk_type(Type::Var(name));
+            }
+            
             let mut args = vec![];
             if lexer.tok == Token::Less {
-                args = parse_typelist(lexer, errors);
+                args = parse_typelist(lexer, vars, errors);
             }
             return mk_type(Type::Name(name, args));
         }
         Token::Lparen => {
             lexer.next();
-            let t = parse_type(lexer, errors);
+            let t = parse_type(lexer, vars, errors);
             expect(lexer, Token::Rparen, errors);
             return t;
         }
@@ -165,12 +172,12 @@ fn parse_basic_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
     })
 }
 
-fn parse_type(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> TypeID {
-    let mut lhs = parse_basic_type(lexer, errors);
+fn parse_type(lexer: &mut Lexer, vars: &[Name], errors: &mut Vec<ParseError>) -> TypeID {
+    let mut lhs = parse_basic_type(lexer, vars, errors);
 
     while lexer.tok == Token::Arrow {
         lexer.next();
-        let rhs = parse_basic_type(lexer, errors);
+        let rhs = parse_basic_type(lexer, vars, errors);
 
         // Ensure we're always calling with a tuple.
         if let Type::Tuple(_) = *lhs {
@@ -195,7 +202,7 @@ fn parse_paramlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Param
             // In the case of lambdas, we can omit the types.
             let ty = if lexer.tok == Token::Colon {
                 lexer.next();
-                Some(parse_type(lexer, errors))
+                Some(parse_type(lexer, &[], errors))
             } else {
                 None
             };
@@ -410,7 +417,7 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> ExprID {
             }
             Token::Colon => {
                 lexer.next();
-                let t = parse_type(lexer, &mut arena.errors);
+                let t = parse_type(lexer, &[], &mut arena.errors);
                 e = arena.add(Expr::AsTy(e, t), lexer.loc);
             }
             Token::Lbracket => {
@@ -426,7 +433,7 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena) -> ExprID {
             }
             Token::As => {
                 lexer.next();
-                let ty = parse_type(lexer, &mut arena.errors);
+                let ty = parse_type(lexer, &[], &mut arena.errors);
                 e = arena.add(Expr::AsTy(e, ty), lexer.loc);
             }
             _ => {
@@ -583,7 +590,7 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena) -> ExprID {
                 arena.add(Expr::Var(name, Some(e), None), lexer.loc)
             } else if lexer.tok == Token::Colon {
                 lexer.next();
-                let t = parse_type(lexer, &mut arena.errors);
+                let t = parse_type(lexer, &[], &mut arena.errors);
                 arena.add(Expr::Var(name, None, Some(t)), lexer.loc)
             } else {
                 arena.errors.push(ParseError {
@@ -650,7 +657,7 @@ fn parse_fieldlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Field
 
         expect(lexer, Token::Colon, errors);
 
-        let ty = parse_type(lexer, errors);
+        let ty = parse_type(lexer, &[], errors);
         r.push(Field {
             name,
             ty,
@@ -736,7 +743,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
     let mut ret = mk_type(Type::Void);
     if lexer.tok == Token::Arrow {
         lexer.next();
-        ret = parse_type(lexer, &mut arena.errors);
+        ret = parse_type(lexer, &[], &mut arena.errors);
     }
 
     skip_newlines(lexer);
@@ -874,7 +881,7 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
 
             expect(lexer, Token::Colon, &mut arena.errors);
 
-            let ty = parse_type(lexer, &mut arena.errors);
+            let ty = parse_type(lexer, &[], &mut arena.errors);
 
             Decl::Global { name, ty }
         }
@@ -927,7 +934,7 @@ mod tests {
         let mut lexer = Lexer::new(string, "parser tests");
         lexer.next();
         let mut errors = vec![];
-        let t = parse_type(&mut lexer, &mut errors);
+        let t = parse_type(&mut lexer, &[], &mut errors);
         assert!(errors.is_empty());
         t
     }
