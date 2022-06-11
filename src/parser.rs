@@ -804,12 +804,16 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
 
     lexer.next();
 
-    Decl::Interface(Interface {
+    let mut iface = Interface {
         name,
         typevars,
         funcs,
         loc,
-    })
+    };
+
+    iface.subst_typevars();
+
+    Decl::Interface(iface)
 }
 
 fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
