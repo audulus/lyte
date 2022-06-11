@@ -1,6 +1,6 @@
 
 struct pool<T> {
-    data: [typevar T; 10000], // storage
+    data: [T; 10000], // storage
     end: u32,                 // the last allocated thing
     free: [u32; 10000],
     n_free: u32
