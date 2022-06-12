@@ -645,7 +645,7 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> E
     arena.add(Expr::Block(r), lexer.loc)
 }
 
-fn parse_fieldlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Field> {
+fn parse_fieldlist(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>) -> Vec<Field> {
     let mut r = vec![];
 
     skip_newlines(lexer);
@@ -657,7 +657,7 @@ fn parse_fieldlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Field
 
         expect(lexer, Token::Colon, errors);
 
-        let ty = parse_type(lexer, &[], errors);
+        let ty = parse_type(lexer, typevars, errors);
         r.push(Field {
             name,
             ty,
@@ -850,18 +850,14 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
             }
 
             expect(lexer, Token::Lbrace, &mut arena.errors);
-            let fields = parse_fieldlist(lexer, &mut arena.errors);
+            let fields = parse_fieldlist(lexer, &typevars, &mut arena.errors);
             expect(lexer, Token::Rbrace, &mut arena.errors);
 
-            let mut st = StructDecl {
+            Decl::Struct(StructDecl {
                 name,
                 typevars,
                 fields,
-            };
-
-            st.subst_typevars();
-
-            Decl::Struct(st)
+            })
         }
         Token::Enum => {
             lexer.next();
