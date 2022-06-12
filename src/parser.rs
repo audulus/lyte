@@ -191,7 +191,7 @@ fn parse_type(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>
     lhs
 }
 
-fn parse_paramlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Param> {
+fn parse_paramlist(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>) -> Vec<Param> {
     let mut r = vec![];
 
     loop {
@@ -202,7 +202,7 @@ fn parse_paramlist(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Param
             // In the case of lambdas, we can omit the types.
             let ty = if lexer.tok == Token::Colon {
                 lexer.next();
-                Some(parse_type(lexer, &[], errors))
+                Some(parse_type(lexer, typevars, errors))
             } else {
                 None
             };
@@ -251,7 +251,7 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
 fn parse_lambda(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
     if lexer.tok == Token::Pipe {
         lexer.next();
-        let params = parse_paramlist(lexer, &mut arena.errors);
+        let params = parse_paramlist(lexer, typevars, &mut arena.errors);
         expect(lexer, Token::Pipe, &mut arena.errors);
 
         let body = parse_lambda(lexer, arena, typevars);
@@ -734,7 +734,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
 
     if lexer.tok == Token::Lparen {
         expect(lexer, Token::Lparen, &mut arena.errors);
-        params = parse_paramlist(lexer, &mut arena.errors);
+        params = parse_paramlist(lexer, &typevars, &mut arena.errors);
         expect(lexer, Token::Rparen, &mut arena.errors);
     }
 
@@ -743,7 +743,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
     let mut ret = mk_type(Type::Void);
     if lexer.tok == Token::Arrow {
         lexer.next();
-        ret = parse_type(lexer, &[], &mut arena.errors);
+        ret = parse_type(lexer, &typevars, &mut arena.errors);
     }
 
     skip_newlines(lexer);
@@ -768,7 +768,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
 
     skip_newlines(lexer);
 
-    let mut f = FuncDecl {
+    FuncDecl {
         name,
         typevars,
         params,
@@ -776,11 +776,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
         ret,
         constraints,
         loc,
-    };
-
-    f.subst_typevars();
-
-    f
+    }
 }
 
 fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
