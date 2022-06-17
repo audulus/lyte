@@ -26,3 +26,5 @@ pub use util::*;
 
 mod decl_table;
 pub use decl_table::*;
+
+mod ir;
