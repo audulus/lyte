@@ -162,7 +162,6 @@ impl Checker {
 
                     mk_type(Type::Bool)
                 } else if let Binop::Assign = op {
-
                     if !self.lvalue[*a] {
                         self.errors.push(TypeError {
                             location: arena.locs[id],

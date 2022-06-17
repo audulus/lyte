@@ -201,14 +201,8 @@ pub enum Decl {
     Func(FuncDecl),
     Macro(FuncDecl),
     Struct(StructDecl),
-    Enum {
-        name: Name,
-        cases: Vec<Name>,
-    },
-    Global {
-        name: Name,
-        ty: TypeID,
-    },
+    Enum { name: Name, cases: Vec<Name> },
+    Global { name: Name, ty: TypeID },
     Interface(Interface),
 }
 

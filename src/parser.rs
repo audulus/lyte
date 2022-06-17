@@ -69,7 +69,11 @@ fn expect_id(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Name {
     }
 }
 
-fn parse_typelist(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>) -> Vec<TypeID> {
+fn parse_typelist(
+    lexer: &mut Lexer,
+    typevars: &[Name],
+    errors: &mut Vec<ParseError>,
+) -> Vec<TypeID> {
     let mut r = vec![];
     expect(lexer, Token::Less, errors);
 
@@ -89,7 +93,6 @@ fn parse_typelist(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseEr
 }
 
 fn parse_basic_type(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>) -> TypeID {
-    
     mk_type(match &lexer.tok {
         Token::Void => {
             lexer.next();
@@ -148,7 +151,7 @@ fn parse_basic_type(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<Parse
             if typevars.contains(&name) {
                 return mk_type(Type::Var(name));
             }
-            
+
             let mut args = vec![];
             if lexer.tok == Token::Less {
                 args = parse_typelist(lexer, typevars, errors);
@@ -191,7 +194,11 @@ fn parse_type(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>
     lhs
 }
 
-fn parse_paramlist(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>) -> Vec<Param> {
+fn parse_paramlist(
+    lexer: &mut Lexer,
+    typevars: &[Name],
+    errors: &mut Vec<ParseError>,
+) -> Vec<Param> {
     let mut r = vec![];
 
     loop {
@@ -645,7 +652,11 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> E
     arena.add(Expr::Block(r), lexer.loc)
 }
 
-fn parse_fieldlist(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<ParseError>) -> Vec<Field> {
+fn parse_fieldlist(
+    lexer: &mut Lexer,
+    typevars: &[Name],
+    errors: &mut Vec<ParseError>,
+) -> Vec<Field> {
     let mut r = vec![];
 
     skip_newlines(lexer);
@@ -975,7 +986,10 @@ mod tests {
         assert!(parse_fn(string, &mut arena, f).is_ok());
     }
 
-    fn test_strings<T: std::fmt::Debug>(f: fn(&mut Lexer, &mut ExprArena, &[Name]) -> T, strings: &[&str]) {
+    fn test_strings<T: std::fmt::Debug>(
+        f: fn(&mut Lexer, &mut ExprArena, &[Name]) -> T,
+        strings: &[&str],
+    ) {
         for string in strings {
             let mut arena = ExprArena::new();
             assert!(parse_fn(string, &mut arena, f).is_ok());

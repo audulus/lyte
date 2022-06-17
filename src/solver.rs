@@ -115,12 +115,9 @@ impl Constraint {
     /// Pretty-prints the constraint.
     pub fn print(&self, inst: &Instance) {
         match self {
-            Constraint::Equal(a, b, loc) => println!(
-                "Equal({:?}, {:?}, {:?})",
-                a.subst(inst),
-                b.subst(inst),
-                loc
-            ),
+            Constraint::Equal(a, b, loc) => {
+                println!("Equal({:?}, {:?}, {:?})", a.subst(inst), b.subst(inst), loc)
+            }
             Constraint::Or(a, alts, loc) => println!(
                 "Or({:?}, {:?}, {:?})",
                 a.subst(inst),
@@ -191,7 +188,10 @@ pub fn iterate_solver(
                             if !interface_constraint.satisfied(instance, decls, *loc) {
                                 errors.push(TypeError {
                                     location: *loc,
-                                    message: format!("interface constraint {:?} not satisfied", interface_constraint.interface),
+                                    message: format!(
+                                        "interface constraint {:?} not satisfied",
+                                        interface_constraint.interface
+                                    ),
                                 });
                             }
                         }
@@ -214,12 +214,12 @@ pub fn iterate_solver(
                     Type::Name(struct_name, vars) => {
                         let d = decls.find(*struct_name);
 
-                        if let Some(Decl::Struct(st)) = d.first()
-                        {
+                        if let Some(Decl::Struct(st)) = d.first() {
                             // We've narrowed it down. Better unify!
                             if let Some(field) = find_field(&st.fields, *field_name) {
                                 let field_ty = if let Type::Var(name) = *field.ty {
-                                    let index = st.typevars.iter().position(|&n| n == name).unwrap();
+                                    let index =
+                                        st.typevars.iter().position(|&n| n == name).unwrap();
                                     vars[index]
                                 } else {
                                     field.ty
@@ -404,7 +404,7 @@ mod tests {
         let xname = Name::new("x".into());
         let s0name = Name::new("S0".into());
 
-        let decls = DeclTable::new(vec![Decl::Struct( StructDecl{
+        let decls = DeclTable::new(vec![Decl::Struct(StructDecl {
             name: s0name,
             fields: vec![Field {
                 name: xname,
