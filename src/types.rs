@@ -78,9 +78,10 @@ impl TypeID {
             Type::Func(a, b) => mk_type(Type::Func(a.subst(inst), b.subst(inst))),
             Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), *n)),
             Type::Anon(_) => find(t, inst),
-            Type::Name(name, vars) => {
-                mk_type(Type::Name(*name, vars.iter().map(|t| t.subst(inst)).collect()))
-            }
+            Type::Name(name, vars) => mk_type(Type::Name(
+                *name,
+                vars.iter().map(|t| t.subst(inst)).collect(),
+            )),
             _ => t,
         }
     }
@@ -125,7 +126,6 @@ impl TypeID {
             _ => (),
         }
     }
-
 }
 
 impl Deref for TypeID {
@@ -311,7 +311,6 @@ impl Interface {
 
     /// Replaces any named types with type variables.
     pub fn subst_typevars(&mut self) {
-
         let mut inst = Instance::new();
 
         for tv in &self.typevars {
@@ -324,7 +323,7 @@ impl Interface {
                     *ty = ty.subst(&inst)
                 }
             }
-    
+
             func.ret = func.ret.subst(&inst);
         }
     }
@@ -405,9 +404,7 @@ mod tests {
 
     #[test]
     fn test_subst_typevar() {
-        let t = mk_type(
-            Type::Name(Name::new("TestType".into()), vec![])
-        );
+        let t = mk_type(Type::Name(Name::new("TestType".into()), vec![]));
 
         let tt = typevar("TestType");
 
