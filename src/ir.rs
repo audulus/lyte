@@ -15,7 +15,7 @@ enum Stmt {
 pub type BlockID = usize;
 
 enum Terminator {
-    Oo(BlockID),
+    GoTo(BlockID),
     Cond(Name, BlockID, BlockID),
     Switch(Name, Vec<BlockID>),
     Call(Name, Name, Vec<Name>, BlockID),
