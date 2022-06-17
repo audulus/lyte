@@ -1,8 +1,8 @@
 use crate::*;
 
 enum Constant {
-    float(f32),
-    int(i32),
+    Float(f32),
+    Int(i32),
 }
 
 enum Stmt {
