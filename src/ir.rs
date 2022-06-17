@@ -6,6 +6,7 @@ enum Constant {
 }
 
 enum Stmt {
+    Var(Name, Type),
     Load(Name, Constant),
     Unop(Name, Name),
     Binop(Name, Name, Binop, Name),
@@ -24,4 +25,8 @@ enum Terminator {
 struct BasicBlock {
     stmts: Vec<Stmt>,
     term: Terminator,
+}
+
+struct BlockArena {
+    pub blocks: Vec<BasicBlock>,
 }
