@@ -3,3 +3,6 @@
 foo(
 
 struct s { }
+
+// expected stdout:
+// ../tests/cases/partial_function.lyte:4: expected Rparen, got Endl

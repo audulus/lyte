@@ -4,3 +4,6 @@ f {
    var x: i32
    x = 42.0
 }
+
+// expected stdout:
+// ❌ ../tests/cases/bad_assign.lyte:6: no solution for Int32 == Float32
