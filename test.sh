@@ -3,4 +3,4 @@
 cargo test
 
 cd cli
-cargo run -- --test ../tests/cases/
+cargo test
