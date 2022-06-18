@@ -1,8 +1,6 @@
-// expect failure
+// expected stdout:
+// ../tests/cases/partial_function.lyte:5: expected Rparen, got Endl
 
 foo(
 
 struct s { }
-
-// expected stdout:
-// ../tests/cases/partial_function.lyte:4: expected Rparen, got Endl
