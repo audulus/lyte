@@ -13,6 +13,10 @@ Instead of ownership of arrays being expressed in the type system, it is express
 
 Interfaces are used to provide functions that must exist when another function is called. Typically this is used to constrain generics. It can also be used for a static form of dependency injection, if the interface is not itself generic.
 
+## Static array bounds checking
+
+Static analysis (probably via abstract interpretation) should be used to ensure that array indexing is in bounds. If the compiler fails to prove the index is in bounds, the programmer can put a conditional around the array access.
+
 ## References
 
 [Exponential time complexity in the Swift type checker](https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html)
