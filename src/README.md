@@ -36,3 +36,5 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 [Modern Parser Generator](https://matklad.github.io/2018/06/06/modern-parser-generator.html)
 
 [Abstract Interpretation](https://www.youtube.com/watch?v=IBlfJerAcRw)
+
+[Refinement Types](https://arxiv.org/pdf/2010.07763.pdf)
