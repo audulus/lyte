@@ -331,8 +331,6 @@ impl Interface {
 
 #[cfg(test)]
 mod tests {
-    use std::any::type_name;
-
     use super::*;
 
     #[test]
