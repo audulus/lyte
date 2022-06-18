@@ -931,7 +931,6 @@ pub fn parse_program(lexer: &mut Lexer, arena: &mut ExprArena) -> Vec<Decl> {
 mod tests {
 
     use super::*;
-    use std::hash::Hasher;
 
     fn type_parser(string: &str) -> TypeID {
         let mut lexer = Lexer::new(string, "parser tests");
