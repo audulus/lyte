@@ -30,3 +30,5 @@ Interfaces are used to provide functions that must exist when another function i
 [Rust Analyzer Architecture](https://github.com/rust-lang/rust-analyzer/blob/master/docs/dev/architecture.md)
 
 [Modern Parser Generator](https://matklad.github.io/2018/06/06/modern-parser-generator.html)
+
+[Abstract Interpretation](https://www.youtube.com/watch?v=IBlfJerAcRw)
