@@ -122,7 +122,7 @@ impl Checker {
                 if let Some(v) = self.find(*name) {
                     self.lvalue[id] = v.mutable;
                     v.ty
-                } else if let Some(Decl::Global { name, ty }) = decls.find(*name).first() {
+                } else if let Some(Decl::Global { ty, .. }) = decls.find(*name).first() {
                     self.lvalue[id] = true;
                     *ty
                 } else {
