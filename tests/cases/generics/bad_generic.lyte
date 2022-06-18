@@ -1,0 +1,6 @@
+// expected stdout:
+// ❌ ../tests/cases/generics/bad_generic.lyte:6: no solution for Var("T") == Int32
+
+foo<T>(t: T) {
+    t == 0
+}
