@@ -1,8 +1,6 @@
-// expect failure
+// expected stdout:
+// ❌ ../tests/cases/unknown_type_var.lyte:6: unknown type variable: T
 
 struct s { 
     x: typevar T
 }
-
-// expected stdout:
-// ❌ ../tests/cases/unknown_type_var.lyte:5: unknown type variable: T

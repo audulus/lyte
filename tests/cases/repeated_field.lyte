@@ -1,9 +1,7 @@
-// expect failure
+// expected stdout:
+// ❌ ../tests/cases/repeated_field.lyte:7: repeated field: x
 
 struct s { 
     x: i32,
     x: i32
 }
-
-// expected stdout:
-// ❌ ../tests/cases/repeated_field.lyte:6: repeated field: x
