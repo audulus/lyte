@@ -15,7 +15,7 @@ impl Irgen {
         let name = self.tmp();
         block
             .stmts
-            .push(ir::Stmt::Load(name, ir::Constant::Bool(false)));
+            .push(ir::Stmt::Load(name, c));
         name
     }
 
