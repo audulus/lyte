@@ -1,11 +1,12 @@
 use crate::*;
 
-enum Constant {
+pub enum Constant {
     Float(f32),
-    Int(i32),
+    Int(i64),
+    Bool(bool),
 }
 
-enum Stmt {
+pub enum Stmt {
     Var(Name, Type),
     Load(Name, Constant),
     Unop(Name, Name),
@@ -15,18 +16,18 @@ enum Stmt {
 
 pub type BlockID = usize;
 
-enum Terminator {
+pub enum Terminator {
     GoTo(BlockID),
     Cond(Name, BlockID, BlockID),
     Switch(Name, Vec<BlockID>),
     Call(Name, Name, Vec<Name>, BlockID),
 }
 
-struct BasicBlock {
-    stmts: Vec<Stmt>,
-    term: Terminator,
+pub struct BasicBlock {
+    pub stmts: Vec<Stmt>,
+    pub term: Terminator,
 }
 
-struct BlockArena {
+pub struct BlockArena {
     pub blocks: Vec<BasicBlock>,
 }

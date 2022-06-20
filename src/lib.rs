@@ -28,3 +28,4 @@ mod decl_table;
 pub use decl_table::*;
 
 mod ir;
+mod irgen;
