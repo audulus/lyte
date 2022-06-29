@@ -11,24 +11,34 @@ impl Irgen {
         Name::new(format!("tmp_{}", self.next_tmp))
     }
 
-    fn load_constant(&mut self, block: &mut ir::BasicBlock, c: ir::Constant) -> Name {
+    fn load_constant(
+        &mut self,
+        block: ir::BlockID,
+        block_arena: &mut ir::BlockArena,
+        c: ir::Constant,
+    ) -> Name {
         let name = self.tmp();
-        block.stmts.push(ir::Stmt::Load(name, c));
+        block_arena.blocks[block]
+            .stmts
+            .push(ir::Stmt::Load(name, c));
         name
     }
 
     fn gen_expr(
         &mut self,
-        block: &mut ir::BasicBlock,
+        block: ir::BlockID,
+        block_arena: &mut ir::BlockArena,
         id: ExprID,
         arena: &ExprArena,
         decls: &DeclTable,
     ) -> Name {
         match &arena[id] {
-            Expr::True => self.load_constant(block, ir::Constant::Bool(true)),
-            Expr::False => self.load_constant(block, ir::Constant::Bool(false)),
-            Expr::Int(x) => self.load_constant(block, ir::Constant::Int(*x)),
-            Expr::Real(x) => self.load_constant(block, ir::Constant::Float(x.parse().unwrap())),
+            Expr::True => self.load_constant(block, block_arena, ir::Constant::Bool(true)),
+            Expr::False => self.load_constant(block, block_arena, ir::Constant::Bool(false)),
+            Expr::Int(x) => self.load_constant(block, block_arena, ir::Constant::Int(*x)),
+            Expr::Real(x) => {
+                self.load_constant(block, block_arena, ir::Constant::Float(x.parse().unwrap()))
+            }
             _ => self.tmp(),
         }
     }
@@ -41,9 +51,9 @@ impl Irgen {
         decls: &DeclTable,
     ) {
         if let Some(body) = func_decl.body {
-            let mut block = ir::BasicBlock::new();
+            let block_id = block_arena.add_block();
 
-            self.gen_expr(&mut block, body, arena, decls);
+            self.gen_expr(block_id, block_arena, body, arena, decls);
         }
     }
 }
