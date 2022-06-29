@@ -13,9 +13,7 @@ impl Irgen {
 
     fn load_constant(&mut self, block: &mut ir::BasicBlock, c: ir::Constant) -> Name {
         let name = self.tmp();
-        block
-            .stmts
-            .push(ir::Stmt::Load(name, c));
+        block.stmts.push(ir::Stmt::Load(name, c));
         name
     }
 
@@ -32,6 +30,20 @@ impl Irgen {
             Expr::Int(x) => self.load_constant(block, ir::Constant::Int(*x)),
             Expr::Real(x) => self.load_constant(block, ir::Constant::Float(x.parse().unwrap())),
             _ => self.tmp(),
+        }
+    }
+
+    fn check_fn_decl(
+        &mut self,
+        block_arena: &mut ir::BlockArena,
+        func_decl: &FuncDecl,
+        arena: &ExprArena,
+        decls: &DeclTable,
+    ) {
+        if let Some(body) = func_decl.body {
+            let mut block = ir::BasicBlock::new();
+
+            self.gen_expr(&mut block, body, arena, decls);
         }
     }
 }
