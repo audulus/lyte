@@ -24,12 +24,22 @@ pub enum Terminator {
     Cond(Name, BlockID, BlockID),
     Switch(Name, Vec<BlockID>),
     Call(Name, Name, Vec<Name>, BlockID),
+    None,
 }
 
 #[derive(Debug)]
 pub struct BasicBlock {
     pub stmts: Vec<Stmt>,
     pub term: Terminator,
+}
+
+impl BasicBlock {
+    pub fn new() -> Self {
+        BasicBlock {
+            stmts: vec![],
+            term: Terminator::None,
+        }
+    }
 }
 
 #[derive(Debug)]
