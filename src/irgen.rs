@@ -65,6 +65,18 @@ impl Irgen {
                     .push(ir::Stmt::Field(name, a, *field_name));
                 name
             }
+            Expr::Call(f, args) => {
+                let name = self.tmp();
+                let fname = self.gen_expr(block, block_arena, *f, arena, decls);
+                let argnames = args
+                    .iter()
+                    .map(|arg| self.gen_expr(block, block_arena, *arg, arena, decls))
+                    .collect();
+                block_arena.blocks[block]
+                    .stmts
+                    .push(ir::Stmt::Call(name, fname, argnames));
+                name
+            }
             _ => self.tmp(),
         }
     }

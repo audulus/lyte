@@ -14,7 +14,7 @@ pub enum Stmt {
     Unop(Name, Unop, Name),
     Binop(Name, Name, Binop, Name),
     Field(Name, Name, Name),
-    Call(Name, Name, Vec<Name>, BlockID),
+    Call(Name, Name, Vec<Name>),
 }
 
 pub type BlockID = usize;
