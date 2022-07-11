@@ -14,6 +14,7 @@ pub enum Stmt {
     Unop(Name, Unop, Name),
     Binop(Name, Name, Binop, Name),
     Field(Name, Name, Name),
+    Call(Name, Name, Vec<Name>, BlockID),
 }
 
 pub type BlockID = usize;
@@ -23,7 +24,6 @@ pub enum Terminator {
     GoTo(BlockID),
     Cond(Name, BlockID, BlockID),
     Switch(Name, Vec<BlockID>),
-    Call(Name, Name, Vec<Name>, BlockID),
     None,
 }
 
