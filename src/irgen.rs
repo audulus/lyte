@@ -39,6 +39,7 @@ impl Irgen {
             Expr::Real(x) => {
                 self.load_constant(block, block_arena, ir::Constant::Float(x.parse().unwrap()))
             }
+            Expr::Id(name) => *name,
             _ => self.tmp(),
         }
     }
