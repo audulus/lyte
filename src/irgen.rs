@@ -40,6 +40,14 @@ impl Irgen {
                 self.load_constant(block, block_arena, ir::Constant::Float(x.parse().unwrap()))
             }
             Expr::Id(name) => *name,
+            Expr::Unop(expr) => {
+                let name = self.tmp();
+                let a = self.gen_expr(block, block_arena, *expr, arena, decls);
+                block_arena.blocks[block]
+                    .stmts
+                    .push(ir::Stmt::Unop(name, a));
+                name
+            }
             _ => self.tmp(),
         }
     }
