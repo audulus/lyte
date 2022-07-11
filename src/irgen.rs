@@ -44,7 +44,7 @@ impl Irgen {
         }
     }
 
-    fn check_fn_decl(
+    fn gen_fn_decl(
         &mut self,
         block_arena: &mut ir::BlockArena,
         func_decl: &FuncDecl,
