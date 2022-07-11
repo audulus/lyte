@@ -52,6 +52,12 @@ pub fn test_loc() -> Loc {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum Unop {
+    Neg,
+    // others?
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Binop {
     Assign,
     Plus,

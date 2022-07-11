@@ -45,7 +45,7 @@ impl Irgen {
                 let a = self.gen_expr(block, block_arena, *expr, arena, decls);
                 block_arena.blocks[block]
                     .stmts
-                    .push(ir::Stmt::Unop(name, a));
+                    .push(ir::Stmt::Unop(name, Unop::Neg, a));
                 name
             }
             Expr::Binop(op, lhs, rhs) => {

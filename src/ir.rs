@@ -11,7 +11,7 @@ pub enum Constant {
 pub enum Stmt {
     Var(Name, Type),
     Load(Name, Constant),
-    Unop(Name, Name),
+    Unop(Name, Unop, Name),
     Binop(Name, Name, Binop, Name),
     Field(Name, Name, Name),
 }
