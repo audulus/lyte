@@ -57,6 +57,14 @@ impl Irgen {
                     .push(ir::Stmt::Binop(name, a, *op, b));
                 name
             }
+            Expr::Field(lhs, field_name) => {
+                let name = self.tmp();
+                let a = self.gen_expr(block, block_arena, *lhs, arena, decls);
+                block_arena.blocks[block]
+                    .stmts
+                    .push(ir::Stmt::Field(name, a, *field_name));
+                name
+            }
             _ => self.tmp(),
         }
     }
