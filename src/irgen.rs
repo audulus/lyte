@@ -108,6 +108,20 @@ impl Irgen {
 
                 name
             }
+            Expr::While(cond, body) => {
+                let name = self.tmp();
+
+                let body_block = block_arena.add_block();
+                _ = self.gen_expr(body_block, block_arena, *body, arena, decls);
+
+                let exit_block = block_arena.add_block();
+
+                let cond_block = block_arena.add_block();
+                let c = self.gen_expr(cond_block, block_arena, *cond, arena, decls);
+                block_arena.blocks[cond_block].term =
+                    ir::Terminator::Cond(c, body_block, exit_block);
+                name
+            }
             _ => self.tmp(),
         }
     }
