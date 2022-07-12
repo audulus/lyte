@@ -85,6 +85,29 @@ impl Irgen {
 
                 name
             }
+            Expr::If(cond, then, els) => {
+                let name = self.tmp();
+                let c = self.gen_expr(block, block_arena, *cond, arena, decls);
+
+                let then_block = block_arena.add_block();
+                let then_result = self.gen_expr(then_block, block_arena, *then, arena, decls);
+                block_arena.blocks[block]
+                    .stmts
+                    .push(ir::Stmt::Copy(name, then_result));
+
+                if let Some(els) = *els {
+                    let els_block = block_arena.add_block();
+                    let els_result = self.gen_expr(els_block, block_arena, els, arena, decls);
+                    block_arena.blocks[els_block]
+                        .stmts
+                        .push(ir::Stmt::Copy(name, els_result));
+                    block_arena.blocks[block].term = ir::Terminator::Cond(c, then_block, els_block);
+                } else {
+                    block_arena.blocks[block].term = ir::Terminator::If(c, then_block);
+                };
+
+                name
+            }
             _ => self.tmp(),
         }
     }
