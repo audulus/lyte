@@ -77,6 +77,14 @@ impl Irgen {
                     .push(ir::Stmt::Call(name, fname, argnames));
                 name
             }
+            Expr::Lambda { params, body } => {
+                let name = self.tmp();
+
+                let block_id = block_arena.add_block();
+                self.gen_expr(block_id, block_arena, *body, arena, decls);
+
+                name
+            }
             _ => self.tmp(),
         }
     }
