@@ -40,3 +40,5 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 [Refinement Types](https://arxiv.org/pdf/2010.07763.pdf)
 
 [Clang IR](https://facebookincubator.github.io/clangir/)
+
+[Lessons from Writing a Compiler](https://borretti.me/article/lessons-writing-compiler)
