@@ -42,3 +42,5 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 [Clang IR](https://facebookincubator.github.io/clangir/)
 
 [Lessons from Writing a Compiler](https://borretti.me/article/lessons-writing-compiler)
+
+[The Solid-State Register Allocator](https://www.mattkeeter.com/blog/2022-10-04-ssra/)
