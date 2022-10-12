@@ -50,6 +50,11 @@ pub struct BlockArena {
 }
 
 impl BlockArena {
+
+    pub fn new() -> Self {
+        BlockArena { blocks: Vec::new() }
+    }
+    
     pub fn add_block(&mut self) -> BlockID {
         let id = self.blocks.len();
         self.blocks.push(BasicBlock::new());
