@@ -169,7 +169,7 @@ fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
     ir
 }
 
-#[salsa::database(InputsStorage, ParserStorage, CheckerStorage)]
+#[salsa::database(InputsStorage, ParserStorage, CheckerStorage, CompilerStorage)]
 #[derive(Default)]
 struct Database {
     storage: salsa::Storage<Self>,
