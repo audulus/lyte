@@ -1,11 +1,20 @@
 use crate::*;
 
+#[derive(Debug)]
 pub struct Irgen {
     pub types: Vec<TypeID>,
     next_tmp: usize,
 }
 
 impl Irgen {
+
+    fn new() -> Self {
+        Self {
+            types: Vec::new(),
+            next_tmp: 0,
+        }
+    }
+
     fn tmp(&mut self) -> Name {
         self.next_tmp += 1;
         Name::new(format!("tmp_{}", self.next_tmp))
@@ -138,5 +147,33 @@ impl Irgen {
 
             self.gen_expr(block_id, block_arena, body, arena, decls);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::ir::BlockArena;
+    use super::*;
+
+    #[test]
+    fn test_irgen() {
+
+        let mut irgen = Irgen::new();
+        let mut ir = BlockArena::new();
+        let mut exprs = ExprArena::new();
+        let loc = Loc {
+            file: Name::new("test_irgen".into()),
+            line: 1,
+        };
+        let e = exprs.add(Expr::True, loc);
+        let decls = DeclTable::new(Vec::new());
+
+        let block = ir.add_block();
+        irgen.gen_expr(block, &mut ir, e, &exprs, &decls);
+
+        println!("ir: {:?}", ir);
+        assert_eq!(ir.blocks[0].stmts.len(), 1);
+        
     }
 }
