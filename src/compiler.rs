@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{*, ir::BlockArena, irgen::Irgen};
 use std::sync::Arc;
 
 // An AST.
@@ -32,9 +32,17 @@ pub trait InputQueries {
 
 #[salsa::query_group(ParserStorage)]
 trait ParserQueries: InputQueries {
+
+    /// AST for a single file.
     fn ast(&self, path: String) -> Arc<Tree>;
+
+    /// ASTs for all files.
     fn program_ast(&self) -> Vec<Arc<Tree>>;
+
+    /// All decls in the program.
     fn decls(&self) -> DeclTable;
+
+    /// Did the program parse successfully?
     fn parsed(&self) -> bool;
 }
 
@@ -137,6 +145,28 @@ fn check(db: &dyn CheckerQueries) -> bool {
     }
 
     result
+}
+
+#[salsa::query_group(CompilerStorage)]
+trait CompilerQueries: CheckerQueries {
+    fn ir(&self, decl: Decl, tree: Arc<Tree>) -> BlockArena;
+}
+
+fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
+    let mut ir = BlockArena::new();
+    let mut irgen = Irgen::new();
+    let decls = db.decls();
+
+    if let Decl::Func(f) = decl {
+        irgen.gen_fn_decl(
+            &mut ir,
+            &f,
+            &tree.exprs,
+            &decls
+        )
+    }
+
+    ir
 }
 
 #[salsa::database(InputsStorage, ParserStorage, CheckerStorage)]

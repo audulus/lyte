@@ -8,7 +8,7 @@ pub struct Irgen {
 
 impl Irgen {
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             types: Vec::new(),
             next_tmp: 0,
@@ -135,7 +135,7 @@ impl Irgen {
         }
     }
 
-    fn gen_fn_decl(
+    pub fn gen_fn_decl(
         &mut self,
         block_arena: &mut ir::BlockArena,
         func_decl: &FuncDecl,
@@ -174,6 +174,6 @@ mod tests {
 
         println!("ir: {:?}", ir);
         assert_eq!(ir.blocks[0].stmts.len(), 1);
-        
+
     }
 }

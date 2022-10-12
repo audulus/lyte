@@ -1,13 +1,13 @@
 use crate::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Constant {
-    Float(f32),
+    Float(String),
     Int(i64),
     Bool(bool),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Stmt {
     Var(Name, Type),
     Load(Name, Constant),
@@ -20,7 +20,7 @@ pub enum Stmt {
 
 pub type BlockID = usize;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Terminator {
     GoTo(BlockID),
     Cond(Name, BlockID, BlockID),
@@ -29,7 +29,7 @@ pub enum Terminator {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BasicBlock {
     pub stmts: Vec<Stmt>,
     pub term: Terminator,
@@ -44,7 +44,7 @@ impl BasicBlock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BlockArena {
     pub blocks: Vec<BasicBlock>,
 }
@@ -54,7 +54,7 @@ impl BlockArena {
     pub fn new() -> Self {
         BlockArena { blocks: Vec::new() }
     }
-    
+
     pub fn add_block(&mut self) -> BlockID {
         let id = self.blocks.len();
         self.blocks.push(BasicBlock::new());
