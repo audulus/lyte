@@ -8,6 +8,9 @@ struct Args {
 
     #[clap(long)]
     ast: bool,
+
+    #[clap(long)]
+    ir: bool,
 }
 
 fn main() {
@@ -48,6 +51,10 @@ fn main() {
 
     if !compiler.check() {
         result = 1;
+    }
+
+    if args.ir {
+        compiler.print_ir();
     }
 
     std::process::exit(result)
