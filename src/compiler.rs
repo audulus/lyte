@@ -150,6 +150,9 @@ fn check(db: &dyn CheckerQueries) -> bool {
 #[salsa::query_group(CompilerStorage)]
 trait CompilerQueries: CheckerQueries {
     fn ir(&self, decl: Decl, tree: Arc<Tree>) -> BlockArena;
+
+    /// ASTs for all files.
+    fn program_ir(&self) -> Vec<BlockArena>;
 }
 
 fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
@@ -167,6 +170,19 @@ fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
     }
 
     ir
+}
+
+fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
+    let trees = db.program_ast();
+    let mut result = vec![];
+
+    for tree in &trees {
+        for decl in &tree.decls {
+            result.push(db.ir(decl.clone(), tree.clone()))
+        }
+    }
+
+    result
 }
 
 #[salsa::database(InputsStorage, ParserStorage, CheckerStorage, CompilerStorage)]
@@ -208,6 +224,10 @@ impl Compiler {
 
     pub fn print_ast(&mut self) {
         println!("{:?}", self.db.program_ast());
+    }
+
+    pub fn print_ir(&mut self) {
+        println!("{:?}", self.db.program_ir());
     }
 }
 
