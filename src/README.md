@@ -44,3 +44,5 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 [Lessons from Writing a Compiler](https://borretti.me/article/lessons-writing-compiler)
 
 [The Solid-State Register Allocator](https://www.mattkeeter.com/blog/2022-10-04-ssra/)
+
+[Compilers and IRs](https://www.lei.chat/posts/compilers-and-irs-llvm-ir-spirv-and-mlir/)
