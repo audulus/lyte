@@ -36,12 +36,14 @@ print(preamble)
 
 regs = 8
 
+# Print an enum case for a two-operad instruction
 def instr2(name):
     for i in range(regs):
         for j in range(regs):
             if i != j:
                 print("    %s%d_%d," % (name, i, j))
 
+# Print an enum case for a three-operand instruction
 def instr3(name):
     for i in range(regs):
         for j in range(regs):
@@ -83,12 +85,14 @@ print("}")
 
 # Generate interpreter function
 
+# Print code for two-operand instructions.
 def exec2(name, r, op):
     for i in range(regs):
         for j in range(regs):
             if i != j:
                 print("            Inst::%s%d_%d => { %s%d %s %s%d; ip += 1; }" % (name, i, j, r, i, op, r, j))
 
+# Print code for three-operand instructions.
 def exec3(name, r, op):
     for i in range(regs):
         for j in range(regs):
