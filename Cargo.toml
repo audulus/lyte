@@ -10,6 +10,5 @@ edition = "2018"
 # We'll need this when we get to the backend.
 # inkwell = { git = "https://github.com/audulus/inkwell", branch = "master", features = ["llvm12-0"] }
 internment = "0.5.5"
-rustc-hash = "1.1.0"
 salsa = "0.16.1"
 superslice = "1"
