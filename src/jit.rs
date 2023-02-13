@@ -26,3 +26,16 @@ pub struct JIT {
     /// functions.
     module: JITModule,
 }
+
+impl Default for JIT {
+    fn default() -> Self {
+        let builder = JITBuilder::new(cranelift_module::default_libcall_names());
+        let module = JITModule::new(builder.unwrap());
+        Self {
+            builder_context: FunctionBuilderContext::new(),
+            ctx: module.make_context(),
+            data_ctx: DataContext::new(),
+            module,
+        }
+    }
+}
