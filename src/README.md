@@ -46,3 +46,5 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 [The Solid-State Register Allocator](https://www.mattkeeter.com/blog/2022-10-04-ssra/)
 
 [Compilers and IRs](https://www.lei.chat/posts/compilers-and-irs-llvm-ir-spirv-and-mlir/)
+
+[Cranelift JIT Demo](https://github.com/bytecodealliance/cranelift-jit-demo)
