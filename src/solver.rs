@@ -2,7 +2,7 @@ use crate::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-/// An satisfies-interface constraint. This is close
+/// A satisfies-interface constraint. This is close
 /// to InterfaceConstraint except the types will be
 /// anonymous type variables.
 ///
