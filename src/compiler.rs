@@ -1,4 +1,4 @@
-use crate::{*, ir::BlockArena, irgen::Irgen};
+use crate::{ir::BlockArena, irgen::Irgen, *};
 use std::sync::Arc;
 
 // An AST.
@@ -32,7 +32,6 @@ pub trait InputQueries {
 
 #[salsa::query_group(ParserStorage)]
 trait ParserQueries: InputQueries {
-
     /// AST for a single file.
     fn ast(&self, path: String) -> Arc<Tree>;
 
@@ -161,12 +160,7 @@ fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
     let decls = db.decls();
 
     if let Decl::Func(f) = decl {
-        irgen.gen_fn_decl(
-            &mut ir,
-            &f,
-            &tree.exprs,
-            &decls
-        )
+        irgen.gen_fn_decl(&mut ir, &f, &tree.exprs, &decls)
     }
 
     ir
