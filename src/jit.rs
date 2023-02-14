@@ -1,7 +1,8 @@
-
 // Pulled from https://github.com/bytecodealliance/cranelift-jit-demo
 
+use crate::defs::*;
 use crate::ir::*;
+use crate::ExprArena;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
@@ -41,11 +42,8 @@ impl Default for JIT {
 }
 
 impl JIT {
-
     /// Compile our IR into native code.
     pub fn compile(&mut self, input: &BlockArena) -> Result<*const u8, String> {
-
-
         let name = "main";
 
         // Next, declare the function to jit. Functions must be declared
@@ -65,9 +63,7 @@ impl JIT {
         // defined. For this toy demo for now, we'll just finalize the
         // function below.
         self.module
-            .define_function(
-                id,
-                &mut self.ctx)
+            .define_function(id, &mut self.ctx)
             .map_err(|e| e.to_string())?;
 
         // Now that compilation is finished, we can clear out the context state.
@@ -82,5 +78,39 @@ impl JIT {
         let code = self.module.get_finalized_function(id);
 
         Ok(code)
+    }
+}
+
+/// A collection of state used for translating from toy-language AST nodes
+/// into Cranelift IR.
+struct FunctionTranslator<'a> {
+    int: types::Type,
+    builder: FunctionBuilder<'a>,
+    //variables: HashMap<String, Variable>,
+    module: &'a mut JITModule,
+}
+
+impl<'a> FunctionTranslator<'a> {
+    fn translate_expr(&mut self, expr: ExprID, arena: &ExprArena) -> Value {
+        todo!()
+    }
+
+    fn translate_binop(
+        &mut self,
+        binop: Binop,
+        lhs_id: ExprID,
+        rhs_id: ExprID,
+        arena: &ExprArena,
+    ) -> Value {
+        let lhs = self.translate_expr(lhs_id, arena);
+        let rhs = self.translate_expr(rhs_id, arena);
+
+        match binop {
+            Binop::Plus => self.builder.ins().iadd(lhs, rhs),
+            Binop::Minus => self.builder.ins().isub(lhs, rhs),
+            Binop::Mult => self.builder.ins().imul(lhs, rhs),
+            Binop::Div => self.builder.ins().udiv(lhs, rhs),
+            _ => todo!(),
+        }
     }
 }
