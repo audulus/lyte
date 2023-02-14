@@ -1113,6 +1113,7 @@ mod tests {
                 "struct x { x: i8 }",
                 "struct x { x: i8\n }",
                 "struct x { x: i8, y: i8 }",
+                "struct x { x: i8\n, y: i8 }",
                 "struct x<T> { }",
                 "struct x { y: typevar T }",
                 "enum x { }",
