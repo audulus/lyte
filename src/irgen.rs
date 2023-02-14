@@ -7,7 +7,6 @@ pub struct Irgen {
 }
 
 impl Irgen {
-
     pub fn new() -> Self {
         Self {
             types: Vec::new(),
@@ -153,12 +152,11 @@ impl Irgen {
 #[cfg(test)]
 mod tests {
 
-    use crate::ir::BlockArena;
     use super::*;
+    use crate::ir::BlockArena;
 
     #[test]
     fn test_irgen() {
-
         let mut irgen = Irgen::new();
         let mut ir = BlockArena::new();
         let mut exprs = ExprArena::new();
@@ -174,6 +172,5 @@ mod tests {
 
         println!("ir: {:?}", ir);
         assert_eq!(ir.blocks[0].stmts.len(), 1);
-
     }
 }
