@@ -50,7 +50,6 @@ pub struct BlockArena {
 }
 
 impl BlockArena {
-
     pub fn new() -> Self {
         BlockArena { blocks: Vec::new() }
     }
