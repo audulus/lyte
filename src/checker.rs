@@ -106,6 +106,89 @@ impl Checker {
         self.constraints.push(c);
     }
 
+    fn check_binop(
+        &mut self,
+        id: ExprID,
+        op: Binop,
+        lhs: ExprID,
+        rhs: ExprID,
+        arena: &ExprArena,
+        decls: &DeclTable,
+    ) -> TypeID {
+        let at = self.check_expr(lhs, arena, decls);
+        let bt = self.check_expr(rhs, arena, decls);
+
+        if op.equality() {
+            self.eq(
+                at,
+                bt,
+                arena.locs[id],
+                &format!(
+                    "equality operator requres equal types, got {:?} and {:?}",
+                    at, bt
+                ),
+            );
+
+            mk_type(Type::Bool)
+        } else if let Binop::Assign = op {
+            if !self.lvalue[lhs] {
+                self.errors.push(TypeError {
+                    location: arena.locs[id],
+                    message: format!("left-hand side of assignment isn't assignable"),
+                });
+            }
+
+            self.eq(
+                at,
+                bt,
+                arena.locs[id],
+                &format!(
+                    "assignment operator requres equal types, got {:?} and {:?}",
+                    at, bt
+                ),
+            );
+
+            at
+        } else if op.arithmetic() {
+            let ft = self.fresh();
+
+            let mut alts = vec![];
+
+            for ty in &self.arith_overloads {
+                alts.push(Alt {
+                    ty: *ty,
+                    interfaces: vec![],
+                });
+            }
+
+            let overload_name = Name::new(op.overload_name().into());
+            for d in decls.find(overload_name) {
+                if let Decl::Func(_) = d {
+                    let dt = d.ty().fresh(&mut self.next_anon);
+                    alts.push(Alt {
+                        ty: dt,
+                        interfaces: vec![],
+                    });
+                }
+            }
+
+            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+
+            let r = self.fresh();
+
+            self.eq(
+                func(tuple(vec![at, bt]), r),
+                ft,
+                arena.locs[id],
+                &format!("no match for arithemtic between {:?} and {:?}", at, bt),
+            );
+
+            r
+        } else {
+            self.fresh()
+        }
+    }
+
     fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &DeclTable) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
@@ -145,80 +228,7 @@ impl Checker {
                 }
             }
             Expr::Unop(a) => self.check_expr(*a, arena, decls),
-            Expr::Binop(op, a, b) => {
-                let at = self.check_expr(*a, arena, decls);
-                let bt = self.check_expr(*b, arena, decls);
-
-                if op.equality() {
-                    self.eq(
-                        at,
-                        bt,
-                        arena.locs[id],
-                        &format!(
-                            "equality operator requres equal types, got {:?} and {:?}",
-                            at, bt
-                        ),
-                    );
-
-                    mk_type(Type::Bool)
-                } else if let Binop::Assign = op {
-                    if !self.lvalue[*a] {
-                        self.errors.push(TypeError {
-                            location: arena.locs[id],
-                            message: format!("left-hand side of assignment isn't assignable"),
-                        });
-                    }
-
-                    self.eq(
-                        at,
-                        bt,
-                        arena.locs[id],
-                        &format!(
-                            "assignment operator requres equal types, got {:?} and {:?}",
-                            at, bt
-                        ),
-                    );
-
-                    at
-                } else if op.arithmetic() {
-                    let ft = self.fresh();
-
-                    let mut alts = vec![];
-
-                    for ty in &self.arith_overloads {
-                        alts.push(Alt {
-                            ty: *ty,
-                            interfaces: vec![],
-                        });
-                    }
-
-                    let overload_name = Name::new(op.overload_name().into());
-                    for d in decls.find(overload_name) {
-                        if let Decl::Func(_) = d {
-                            let dt = d.ty().fresh(&mut self.next_anon);
-                            alts.push(Alt {
-                                ty: dt,
-                                interfaces: vec![],
-                            });
-                        }
-                    }
-
-                    self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
-
-                    let r = self.fresh();
-
-                    self.eq(
-                        func(tuple(vec![at, bt]), r),
-                        ft,
-                        arena.locs[id],
-                        &format!("no match for arithemtic between {:?} and {:?}", at, bt),
-                    );
-
-                    r
-                } else {
-                    self.fresh()
-                }
-            }
+            Expr::Binop(op, a, b) => self.check_binop(id, *op, *a, *b, arena, decls),
             Expr::AsTy(e, ty) => {
                 let et = self.check_expr(*e, arena, decls);
 
