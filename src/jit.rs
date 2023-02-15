@@ -101,12 +101,22 @@ impl<'a> FunctionTranslator<'a> {
         lhs_id: ExprID,
         rhs_id: ExprID,
         arena: &ExprArena,
+        types: &[crate::types::TypeID],
     ) -> Value {
         let lhs = self.translate_expr(lhs_id, arena);
         let rhs = self.translate_expr(rhs_id, arena);
+        let t = types[lhs_id];
 
         match binop {
-            Binop::Plus => self.builder.ins().iadd(lhs, rhs),
+            Binop::Plus => {
+                if *t == crate::types::Type::Int32 {
+                    self.builder.ins().iadd(lhs, rhs)
+                } else if *t == crate::types::Type::Float32 {
+                    self.builder.ins().fadd(lhs, rhs)
+                } else {
+                    todo!()
+                }
+            }
             Binop::Minus => self.builder.ins().isub(lhs, rhs),
             Binop::Mult => self.builder.ins().imul(lhs, rhs),
             Binop::Div => self.builder.ins().udiv(lhs, rhs),
