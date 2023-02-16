@@ -91,8 +91,15 @@ struct FunctionTranslator<'a> {
 }
 
 impl<'a> FunctionTranslator<'a> {
-    fn translate_expr(&mut self, expr: ExprID, arena: &ExprArena) -> Value {
-        todo!()
+    fn translate_expr(&mut self,
+        expr: ExprID,
+        arena: &ExprArena,
+        types: &[crate::types::TypeID]) -> Value {
+
+        match arena[expr] {
+            Expr::Binop(op, lhs_id, rhs_id) => self.translate_binop(op, lhs_id, rhs_id, arena, types),
+            _ => todo!()
+        }
     }
 
     fn translate_binop(
@@ -103,8 +110,8 @@ impl<'a> FunctionTranslator<'a> {
         arena: &ExprArena,
         types: &[crate::types::TypeID],
     ) -> Value {
-        let lhs = self.translate_expr(lhs_id, arena);
-        let rhs = self.translate_expr(rhs_id, arena);
+        let lhs = self.translate_expr(lhs_id, arena, types);
+        let rhs = self.translate_expr(rhs_id, arena, types);
         let t = types[lhs_id];
 
         match binop {
