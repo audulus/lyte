@@ -3,11 +3,13 @@
 use crate::defs::*;
 use crate::ir::*;
 use crate::ExprArena;
+use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::HashMap;
 use std::slice;
+use std::vec;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -97,9 +99,21 @@ impl<'a> FunctionTranslator<'a> {
         arena: &ExprArena,
         types: &[crate::types::TypeID],
     ) -> Value {
-        match arena[expr] {
+        match &arena[expr] {
             Expr::Binop(op, lhs_id, rhs_id) => {
-                self.translate_binop(op, lhs_id, rhs_id, arena, types)
+                self.translate_binop(*op, *lhs_id, *rhs_id, arena, types)
+            }
+            Expr::Call(fn_id, arg_ids) => {
+                let f = self.translate_expr(*fn_id, arena, types);
+
+                let mut args = vec![];
+                for arg_id in arg_ids {
+                    args.push(self.translate_expr(*arg_id, arena, types))
+                }
+                let sig = Signature::new(CallConv::Fast);
+                let sref = self.builder.import_signature(sig);
+                let call = self.builder.ins().call_indirect(sref, f, &args);
+                self.builder.inst_results(call)[0]
             }
             _ => todo!(),
         }
