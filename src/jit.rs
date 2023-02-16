@@ -126,8 +126,24 @@ impl<'a> FunctionTranslator<'a> {
                     todo!()
                 }
             }
-            Binop::Mult => self.builder.ins().imul(lhs, rhs),
-            Binop::Div => self.builder.ins().udiv(lhs, rhs),
+            Binop::Mult => {
+                if *t == crate::types::Type::Int32 {
+                    self.builder.ins().imul(lhs, rhs)
+                } else if *t == crate::types::Type::Float32 {
+                    self.builder.ins().fmul(lhs, rhs)
+                } else {
+                    todo!()
+                }
+            }
+            Binop::Div => {
+                if *t == crate::types::Type::Int32 {
+                    self.builder.ins().udiv(lhs, rhs)
+                } else if *t == crate::types::Type::Float32 {
+                    self.builder.ins().fdiv(lhs, rhs)
+                } else {
+                    todo!()
+                }
+            }
             _ => todo!(),
         }
     }
