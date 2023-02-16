@@ -1,5 +1,7 @@
 # lyte
 
+![build status](https://github.com/audulus/lyte/actions/workflows/rust.yml/badge.svg)
+
 A simple programming langauge for writing Audulus nodes, and maybe other things too :)
 
 Goals:
