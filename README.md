@@ -14,5 +14,5 @@ Goals:
 - memory safety
 - type inference
 - incremental query-based compiler
-- LLVM backend
+- Cranelift backend
 - VM for environments where you can't JIT (iOS)
