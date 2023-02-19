@@ -4,8 +4,8 @@ use crate::defs::*;
 use crate::ir::*;
 use crate::ExprArena;
 use cranelift::prelude::isa::CallConv;
-use cranelift::prelude::*;
 use cranelift::prelude::types::*;
+use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::HashMap;
@@ -94,7 +94,7 @@ impl crate::Type {
             crate::Type::Name(_, _) => I64,
             crate::Type::Array(_, _) => I64X2,
             crate::Type::Tuple(_) => I64,
-            _ => todo!()
+            _ => todo!(),
         }
     }
 }
@@ -130,9 +130,10 @@ impl<'a> FunctionTranslator<'a> {
                 if let crate::Type::Func(from, to) = *(types[expr]) {
                     let mut sig = Signature::new(CallConv::Fast);
                     if let crate::Type::Tuple(args) = &*from {
-                        sig.params = args.iter().map(
-                            |t| AbiParam::new(t.cranelift_type())
-                        ).collect();
+                        sig.params = args
+                            .iter()
+                            .map(|t| AbiParam::new(t.cranelift_type()))
+                            .collect();
                     } else {
                         panic!();
                     }
@@ -142,7 +143,7 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.inst_results(call)[0]
                 } else {
                     panic!()
-                }   
+                }
             }
             _ => todo!(),
         }
