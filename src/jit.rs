@@ -5,6 +5,7 @@ use crate::ir::*;
 use crate::ExprArena;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::*;
+use cranelift::prelude::types::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::HashMap;
@@ -80,6 +81,21 @@ impl JIT {
         let code = self.module.get_finalized_function(id);
 
         Ok(code)
+    }
+}
+
+impl crate::Type {
+    fn cranelift_type(&self) -> Type {
+        match self {
+            crate::Type::Void => INVALID,
+            crate::Type::Float32 => F32,
+            crate::Type::Bool => I32,
+            crate::Type::Func(_, _) => I64,
+            crate::Type::Name(_, _) => I64,
+            crate::Type::Array(_, _) => I64X2,
+            crate::Type::Tuple(_) => I64,
+            _ => todo!()
+        }
     }
 }
 
