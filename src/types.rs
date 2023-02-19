@@ -19,6 +19,8 @@ pub enum Type {
     Anon(usize),
     Func(TypeID, TypeID),
     Array(TypeID, i64),
+
+    /// A named type which may include type parameters.
     Name(Name, Vec<TypeID>),
 }
 
