@@ -126,10 +126,23 @@ impl<'a> FunctionTranslator<'a> {
                 for arg_id in arg_ids {
                     args.push(self.translate_expr(*arg_id, arena, types))
                 }
-                let sig = Signature::new(CallConv::Fast);
-                let sref = self.builder.import_signature(sig);
-                let call = self.builder.ins().call_indirect(sref, f, &args);
-                self.builder.inst_results(call)[0]
+
+                if let crate::Type::Func(from, to) = *(types[expr]) {
+                    let mut sig = Signature::new(CallConv::Fast);
+                    if let crate::Type::Tuple(args) = &*from {
+                        sig.params = args.iter().map(
+                            |t| AbiParam::new(t.cranelift_type())
+                        ).collect();
+                    } else {
+                        panic!();
+                    }
+                    sig.returns = vec![AbiParam::new(to.cranelift_type())];
+                    let sref = self.builder.import_signature(sig);
+                    let call = self.builder.ins().call_indirect(sref, f, &args);
+                    self.builder.inst_results(call)[0]
+                } else {
+                    panic!()
+                }   
             }
             _ => todo!(),
         }
