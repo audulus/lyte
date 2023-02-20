@@ -145,6 +145,26 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
+            Expr::Var(name, init, ty) => {
+                // Allocate a new stack slot with a size of 4 bytes (32 bits).
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: 4,
+                });
+
+                // Create an instruction that loads the address of the stack slot.
+                let addr = self.builder.ins().stack_addr(I32, slot, 0);
+
+                if let Some(init_id) = init {
+                    let init_value = self.translate_expr(*init_id, arena, types);
+
+                    self.builder
+                        .ins()
+                        .store(MemFlags::new(), addr, init_value, 0);
+                }
+
+                addr
+            }
             _ => todo!(),
         }
     }
