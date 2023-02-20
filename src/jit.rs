@@ -198,6 +198,14 @@ impl<'a> FunctionTranslator<'a> {
                     todo!()
                 }
             }
+            Binop::Assign => {
+                if *t == crate::types::Type::Int32 {
+                    let _ = self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
+                    lhs
+                } else {
+                    todo!()
+                }
+            }
             _ => todo!(),
         }
     }
