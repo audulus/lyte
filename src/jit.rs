@@ -1,7 +1,6 @@
 // Pulled from https://github.com/bytecodealliance/cranelift-jit-demo
 
 use crate::defs::*;
-use crate::ir::*;
 use crate::ExprArena;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
@@ -46,7 +45,7 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile our IR into native code.
-    pub fn compile(&mut self, input: &BlockArena) -> Result<*const u8, String> {
+    pub fn compile(&mut self, input: &ExprArena) -> Result<*const u8, String> {
         let name = "main";
 
         // Next, declare the function to jit. Functions must be declared
