@@ -103,7 +103,7 @@ impl crate::Type {
 struct FunctionTranslator<'a> {
     int: types::Type,
     builder: FunctionBuilder<'a>,
-    //variables: HashMap<String, Variable>,
+    variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
 }
 
