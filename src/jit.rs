@@ -45,7 +45,7 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile our IR into native code.
-    pub fn compile(&mut self, input: &ExprArena) -> Result<*const u8, String> {
+    pub fn compile(&mut self, decl: &FuncDecl, arena: &ExprArena) -> Result<*const u8, String> {
         let name = "main";
 
         // Next, declare the function to jit. Functions must be declared
