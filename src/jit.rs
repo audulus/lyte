@@ -105,6 +105,9 @@ struct FunctionTranslator<'a> {
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
+
+    /// Next variable index.
+    next_index: usize,
 }
 
 impl<'a> FunctionTranslator<'a> {
