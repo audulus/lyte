@@ -30,3 +30,4 @@ pub use decl_table::*;
 mod ir;
 mod irgen;
 mod jit;
+pub use jit::*;
