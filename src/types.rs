@@ -129,6 +129,33 @@ impl TypeID {
             _ => (),
         }
     }
+
+    /// Returns the size of a type in bytes.
+    pub fn size(self, decls: &DeclTable) -> usize {
+        match &*self {
+            Type::Int8 => 4,
+            Type::Int32 => 4,
+            Type::Float32 => 4,
+            Type::Float64 => 8,
+            Type::Tuple(v) => {
+                v.iter().map(|t| t.size(decls)).sum()
+            }
+            Type::Name(name, vars) => {
+                let decl = decls.find(*name);
+                // Must be a unique struct decl.
+                assert!(decl.len() == 1);
+                if let Decl::Struct(sdecl) = &decl[0] {
+                    sdecl.fields.iter().map(|field| field.ty.size(decls)).sum()
+                } else {
+                    panic!()
+                }
+            }
+            Type::Array(ty, sz) => {
+                ty.size(decls) * (*sz as usize)
+            }
+            _ => todo!()
+        }
+    }
 }
 
 impl Deref for TypeID {
