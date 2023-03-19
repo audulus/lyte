@@ -88,10 +88,20 @@ impl crate::Type {
         match self {
             crate::Type::Void => INVALID,
             crate::Type::Float32 => F32,
+
+            // Should this be smaller?
             crate::Type::Bool => I32,
+
+            // Functions probably need a closure pointer?
             crate::Type::Func(_, _) => I64,
+
+            // Structs are represented as pointers.
             crate::Type::Name(_, _) => I64,
+
+            // Pair of pointer and length.
             crate::Type::Array(_, _) => I64X2,
+
+            // Tuple is a pointer.
             crate::Type::Tuple(_) => I64,
             _ => todo!(),
         }
