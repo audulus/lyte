@@ -88,6 +88,7 @@ impl crate::Type {
         match self {
             crate::Type::Void => INVALID,
             crate::Type::Float32 => F32,
+            crate::Type::Float64 => F64,
 
             // Should this be smaller?
             crate::Type::Bool => I32,

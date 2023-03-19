@@ -14,6 +14,7 @@ pub enum Type {
     UInt8,
     Int32,
     Float32,
+    Float64,
     Tuple(Vec<TypeID>),
     Var(Name),
     Anon(usize),
