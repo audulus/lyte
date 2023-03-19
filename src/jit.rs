@@ -178,6 +178,9 @@ impl<'a> FunctionTranslator<'a> {
 
                 addr
             }
+            Expr::Field(lhs, name) => {
+                todo!()
+            }
             _ => todo!(),
         }
     }
