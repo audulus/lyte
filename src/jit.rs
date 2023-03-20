@@ -181,8 +181,13 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Field(lhs, name) => {
                 let lhs_ty = types[*lhs];
-                if let crate::Type::Name(name, _) = &*lhs_ty {
-                    let decl = decls.find(*name);
+                if let crate::Type::Name(struct_name, _) = &*lhs_ty {
+                    let decl = decls.find(*struct_name);
+                    if let crate::Decl::Struct(s) = &decl[0] {
+                        let off = s.field_offset(name, decls);
+                    } else {
+                        panic!();
+                    }
                 } else {
                     panic!();
                 }
