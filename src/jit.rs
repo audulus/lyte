@@ -181,17 +181,19 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Field(lhs, name) => {
                 let lhs_ty = types[*lhs];
+                let lhs_val = self.translate_expr(*lhs, arena, types, decls);
                 if let crate::Type::Name(struct_name, _) = &*lhs_ty {
                     let decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &decl[0] {
                         let off = s.field_offset(name, decls);
+                        let load_ty = types[expr].cranelift_type();
+                        self.builder.ins().load(load_ty, MemFlags::new(), lhs_val, off as i32)
                     } else {
                         panic!();
                     }
                 } else {
                     panic!();
                 }
-                todo!()
             }
             _ => todo!(),
         }
