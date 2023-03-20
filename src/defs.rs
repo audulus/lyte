@@ -189,6 +189,18 @@ impl StructDecl {
         }
         None
     }
+
+    pub fn field_offset(&self, name: Name, decls: &DeclTable) -> usize {
+        let mut off = 0;
+        for field in &self.fields {
+            if field.name == name {
+                return off;
+            }
+            off += field.ty.size(decls);
+        }
+        panic!();
+        0   
+    }
 }
 
 /// Provides a set of functions that some type variables
