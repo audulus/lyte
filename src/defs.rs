@@ -199,7 +199,7 @@ impl StructDecl {
             off += field.ty.size(decls);
         }
         panic!();
-        0   
+        0
     }
 }
 

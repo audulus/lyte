@@ -187,7 +187,9 @@ impl<'a> FunctionTranslator<'a> {
                     if let crate::Decl::Struct(s) = &decl[0] {
                         let off = s.field_offset(name, decls);
                         let load_ty = types[expr].cranelift_type();
-                        self.builder.ins().load(load_ty, MemFlags::new(), lhs_val, off as i32)
+                        self.builder
+                            .ins()
+                            .load(load_ty, MemFlags::new(), lhs_val, off as i32)
                     } else {
                         panic!();
                     }

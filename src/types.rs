@@ -137,9 +137,7 @@ impl TypeID {
             Type::Int32 => 4,
             Type::Float32 => 4,
             Type::Float64 => 8,
-            Type::Tuple(v) => {
-                v.iter().map(|t| t.size(decls)).sum()
-            }
+            Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
             Type::Name(name, vars) => {
                 let decl = decls.find(*name);
                 // Must be a unique struct decl.
@@ -150,10 +148,8 @@ impl TypeID {
                     panic!()
                 }
             }
-            Type::Array(ty, sz) => {
-                ty.size(decls) * (*sz as usize)
-            }
-            _ => todo!()
+            Type::Array(ty, sz) => ty.size(decls) * (*sz as usize),
+            _ => todo!(),
         }
     }
 }
