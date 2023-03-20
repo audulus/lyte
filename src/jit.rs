@@ -127,17 +127,18 @@ impl<'a> FunctionTranslator<'a> {
         expr: ExprID,
         arena: &ExprArena,
         types: &[crate::types::TypeID],
+        decls: &crate::DeclTable,
     ) -> Value {
         match &arena[expr] {
             Expr::Binop(op, lhs_id, rhs_id) => {
-                self.translate_binop(*op, *lhs_id, *rhs_id, arena, types)
+                self.translate_binop(*op, *lhs_id, *rhs_id, arena, types, decls)
             }
             Expr::Call(fn_id, arg_ids) => {
-                let f = self.translate_expr(*fn_id, arena, types);
+                let f = self.translate_expr(*fn_id, arena, types, decls);
 
                 let mut args = vec![];
                 for arg_id in arg_ids {
-                    args.push(self.translate_expr(*arg_id, arena, types))
+                    args.push(self.translate_expr(*arg_id, arena, types, decls))
                 }
 
                 if let crate::Type::Func(from, to) = *(types[expr]) {
@@ -169,7 +170,7 @@ impl<'a> FunctionTranslator<'a> {
                 let addr = self.builder.ins().stack_addr(I32, slot, 0);
 
                 if let Some(init_id) = init {
-                    let init_value = self.translate_expr(*init_id, arena, types);
+                    let init_value = self.translate_expr(*init_id, arena, types, decls);
 
                     self.builder
                         .ins()
@@ -179,6 +180,12 @@ impl<'a> FunctionTranslator<'a> {
                 addr
             }
             Expr::Field(lhs, name) => {
+                let lhs_ty = types[*lhs];
+                if let crate::Type::Name(name, _) = &*lhs_ty {
+                    let decl = decls.find(*name);
+                } else {
+                    panic!();
+                }
                 todo!()
             }
             _ => todo!(),
@@ -192,9 +199,10 @@ impl<'a> FunctionTranslator<'a> {
         rhs_id: ExprID,
         arena: &ExprArena,
         types: &[crate::types::TypeID],
+        decls: &crate::DeclTable,
     ) -> Value {
-        let lhs = self.translate_expr(lhs_id, arena, types);
-        let rhs = self.translate_expr(rhs_id, arena, types);
+        let lhs = self.translate_expr(lhs_id, arena, types, decls);
+        let rhs = self.translate_expr(rhs_id, arena, types, decls);
         let t = types[lhs_id];
 
         match binop {
