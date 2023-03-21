@@ -19,7 +19,7 @@ pub enum Type {
     Var(Name),
     Anon(usize),
     Func(TypeID, TypeID),
-    Array(TypeID, i64),
+    Array(TypeID, i32),
 
     /// A named type which may include type parameters.
     Name(Name, Vec<TypeID>),
@@ -131,7 +131,7 @@ impl TypeID {
     }
 
     /// Returns the size of a type in bytes.
-    pub fn size(self, decls: &DeclTable) -> usize {
+    pub fn size(self, decls: &DeclTable) -> i32 {
         match &*self {
             Type::Int8 => 4,
             Type::Int32 => 4,
@@ -148,7 +148,7 @@ impl TypeID {
                     panic!()
                 }
             }
-            Type::Array(ty, sz) => ty.size(decls) * (*sz as usize),
+            Type::Array(ty, sz) => ty.size(decls) * (*sz),
             _ => todo!(),
         }
     }

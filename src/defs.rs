@@ -190,7 +190,7 @@ impl StructDecl {
         None
     }
 
-    pub fn field_offset(&self, name: &Name, decls: &DeclTable) -> usize {
+    pub fn field_offset(&self, name: &Name, decls: &DeclTable) -> i32 {
         let mut off = 0;
         for field in &self.fields {
             if field.name == *name {

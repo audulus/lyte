@@ -197,7 +197,7 @@ impl Checker {
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
                 let int8 = mk_type(Type::Int8);
-                mk_type(Type::Array(int8, s.bytes().len() as i64))
+                mk_type(Type::Array(int8, s.bytes().len() as i32))
             }
             Expr::Id(name) => {
                 // Local variables will override all declarations.

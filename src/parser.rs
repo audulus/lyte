@@ -129,7 +129,7 @@ fn parse_basic_type(lexer: &mut Lexer, typevars: &[Name], errors: &mut Vec<Parse
                 if let Token::Integer(n) = lexer.tok.clone() {
                     lexer.next();
                     expect(lexer, Token::Rbracket, errors);
-                    Type::Array(r, n)
+                    Type::Array(r, n as i32)
                 } else {
                     errors.push(ParseError {
                         location: lexer.loc,
