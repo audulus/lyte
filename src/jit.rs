@@ -265,4 +265,14 @@ impl<'a> FunctionTranslator<'a> {
             _ => todo!(),
         }
     }
+
+    fn delcare_variable(&mut self, name: &String, ty: Type) -> Variable {
+        let var = Variable::new(self.next_index);
+        if !self.variables.contains_key(name) {
+            self.variables.insert(name.into(), var);
+            self.builder.declare_var(var, ty);
+            self.next_index += 1;
+        }
+        var
+    }
 }
