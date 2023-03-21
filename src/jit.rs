@@ -130,6 +130,10 @@ impl<'a> FunctionTranslator<'a> {
         decls: &crate::DeclTable,
     ) -> Value {
         match &arena[expr] {
+            Expr::Id(name) => {
+                let variable = self.variables.get(&**name).unwrap();
+                self.builder.use_var(*variable)
+            }
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, arena, types, decls)
             }
