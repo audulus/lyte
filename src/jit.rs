@@ -159,14 +159,14 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
-            Expr::Let(name, init) => {
-                self.translate_expr(*init, arena, types, decls)
-            }
-            Expr::Var(name, init, ty) => {
+            Expr::Let(name, init) => self.translate_expr(*init, arena, types, decls),
+            Expr::Var(name, init, _) => {
+                let ty = &types[expr];
+
                 // Allocate a new stack slot with a size of 4 bytes (32 bits).
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
-                    size: 4,
+                    size: ty.size(decls) as u32,
                 });
 
                 // Create an instruction that loads the address of the stack slot.
