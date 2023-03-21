@@ -163,7 +163,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Var(name, init, _) => {
                 let ty = &types[expr];
 
-                // Allocate a new stack slot with a size of 4 bytes (32 bits).
+                // Allocate a new stack slot with a size of the variable.
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
                     size: ty.size(decls) as u32,
