@@ -159,6 +159,9 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
+            Expr::Let(name, init) => {
+                self.translate_expr(*init, arena, types, decls)
+            }
             Expr::Var(name, init, ty) => {
                 // Allocate a new stack slot with a size of 4 bytes (32 bits).
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
