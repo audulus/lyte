@@ -2,6 +2,7 @@
 
 use crate::defs::*;
 use crate::ExprArena;
+use crate::Instance;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
 use cranelift::prelude::*;
@@ -119,6 +120,9 @@ struct FunctionTranslator<'a> {
 
     /// Next variable index.
     next_index: usize,
+
+    /// For generating code for generics.
+    current_instance: Instance
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -192,7 +196,7 @@ impl<'a> FunctionTranslator<'a> {
                 if let crate::Type::Name(struct_name, _) = &*lhs_ty {
                     let decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &decl[0] {
-                        let off = s.field_offset(name, decls);
+                        let off = s.field_offset(name, decls, &self.current_instance);
                         let load_ty = types[expr].cranelift_type();
                         self.builder
                             .ins()

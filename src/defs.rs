@@ -190,13 +190,13 @@ impl StructDecl {
         None
     }
 
-    pub fn field_offset(&self, name: &Name, decls: &DeclTable) -> i32 {
+    pub fn field_offset(&self, name: &Name, decls: &DeclTable, inst: &Instance) -> i32 {
         let mut off = 0;
         for field in &self.fields {
             if field.name == *name {
                 return off;
             }
-            off += field.ty.size(decls);
+            off += field.ty.subst(inst).size(decls);
         }
         panic!()
     }
