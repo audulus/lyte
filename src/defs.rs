@@ -181,9 +181,9 @@ pub struct StructDecl {
 }
 
 impl StructDecl {
-    pub fn find_field(&self, name: Name) -> Option<Field> {
+    pub fn find_field(&self, name: &Name) -> Option<Field> {
         for field in &self.fields {
-            if field.name == name {
+            if field.name == *name {
                 return Some(field.clone());
             }
         }
@@ -224,7 +224,7 @@ pub enum Decl {
 }
 
 impl Decl {
-    pub fn find_field(&self, name: Name) -> Option<Field> {
+    pub fn find_field(&self, name: &Name) -> Option<Field> {
         if let Decl::Struct(st) = self {
             st.find_field(name)
         } else {
