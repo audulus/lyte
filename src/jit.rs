@@ -3,6 +3,7 @@
 use crate::defs::*;
 use crate::ExprArena;
 use crate::Instance;
+use crate::DeclTable;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
 use cranelift::prelude::*;
@@ -46,7 +47,7 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile our IR into native code.
-    pub fn compile(&mut self, decl: &FuncDecl, arena: &ExprArena) -> Result<*const u8, String> {
+    pub fn compile(&mut self, decls: &DeclTable, arena: &ExprArena) -> Result<*const u8, String> {
         let name = "main";
 
         // Next, declare the function to jit. Functions must be declared
@@ -131,7 +132,7 @@ impl<'a> FunctionTranslator<'a> {
         expr: ExprID,
         arena: &ExprArena,
         types: &[crate::types::TypeID],
-        decls: &crate::DeclTable,
+        decls: &DeclTable,
     ) -> Value {
         match &arena[expr] {
             Expr::Id(name) => {
