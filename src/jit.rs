@@ -50,6 +50,11 @@ impl JIT {
     pub fn compile(&mut self, decls: &DeclTable, arena: &ExprArena) -> Result<*const u8, String> {
         let name = "main";
 
+        // Translate into cranelift IR.
+        // Create the builder to build a function.
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let mut trans = FunctionTranslator::new(builder, &mut self.module);
+
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
         //
@@ -114,7 +119,6 @@ impl crate::Type {
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
-    int: types::Type,
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
     module: &'a mut JITModule,
@@ -127,6 +131,17 @@ struct FunctionTranslator<'a> {
 }
 
 impl<'a> FunctionTranslator<'a> {
+
+    fn new(builder: FunctionBuilder<'a>, module: &'a mut JITModule) -> Self {
+        Self {
+            builder,
+            variables: HashMap::new(),
+            module,
+            next_index: 0,
+            current_instance: Instance::new()
+        }
+    }
+
     fn translate_expr(
         &mut self,
         expr: ExprID,
