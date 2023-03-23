@@ -154,7 +154,7 @@ impl<'a> FunctionTranslator<'a> {
         types: &[crate::types::TypeID],
         decls: &DeclTable,
     ) {
-
+        self.translate_expr(decl.body.unwrap(), arena, types, decls);
     }
 
     fn translate_expr(
