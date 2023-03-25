@@ -150,7 +150,6 @@ pub struct ParseError {
 pub struct ExprArena {
     pub exprs: Vec<Expr>,
     pub locs: Vec<Loc>,
-    pub errors: Vec<ParseError>,
 }
 
 impl ExprArena {
@@ -158,7 +157,6 @@ impl ExprArena {
         Self {
             exprs: vec![],
             locs: vec![],
-            errors: vec![],
         }
     }
 
@@ -202,6 +200,7 @@ pub struct FuncDecl {
     pub ret: TypeID,
     pub constraints: Vec<InterfaceConstraint>,
     pub loc: Loc,
+    pub arena: ExprArena,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

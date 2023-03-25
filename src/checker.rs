@@ -502,7 +502,12 @@ impl Checker {
         None
     }
 
-    fn check_fn_decl(&mut self, func_decl: &FuncDecl, arena: &ExprArena, decls: &DeclTable) {
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
+
+        let n = func_decl.arena.exprs.len();
+        self.types.resize(n, mk_type(Type::Void));
+        self.lvalue.resize(n, false);
+
         if let Some(body) = func_decl.body {
             // println!("🟧 checking function {:?} 🟧", *func_decl.name);
 
@@ -550,13 +555,13 @@ impl Checker {
             }
 
             // Check the body of the function.
-            let ty = self.check_expr(body, arena, decls);
+            let ty = self.check_expr(body, &func_decl.arena, decls);
 
             if func_decl.ret != mk_type(Type::Void) {
                 self.eq(
                     ty,
                     func_decl.ret,
-                    arena.locs[body],
+                    func_decl.arena.locs[body],
                     "return type must match function return type",
                 );
             }
@@ -610,27 +615,23 @@ impl Checker {
         }
     }
 
-    fn _check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &DeclTable) {
+    fn _check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
         match decl {
-            Decl::Func(func_decl) => self.check_fn_decl(func_decl, arena, decls),
-            Decl::Macro(func_decl) => self.check_fn_decl(func_decl, arena, decls),
+            Decl::Func(func_decl) => self.check_fn_decl(func_decl, decls),
+            Decl::Macro(func_decl) => self.check_fn_decl(func_decl, decls),
             Decl::Interface(Interface { name, funcs, .. }) => self.check_interface(*name, funcs),
             Decl::Struct(struct_decl) => self.check_struct_decl(struct_decl),
             _ => (),
         }
     }
 
-    pub fn check(&mut self, arena: &ExprArena, decls: &DeclTable) {
-        self.types.resize(arena.exprs.len(), mk_type(Type::Void));
-        self.lvalue.resize(arena.exprs.len(), false);
+    pub fn check(&mut self, decls: &DeclTable) {
         for decl in &decls.decls {
-            self._check_decl(decl, arena, decls);
+            self._check_decl(decl, decls);
         }
     }
 
-    pub fn check_decl(&mut self, decl: &Decl, arena: &ExprArena, decls: &DeclTable) {
-        self.types.resize(arena.exprs.len(), mk_type(Type::Void));
-        self.lvalue.resize(arena.exprs.len(), false);
-        self._check_decl(decl, arena, decls);
+    pub fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
+        self._check_decl(decl, decls);
     }
 }

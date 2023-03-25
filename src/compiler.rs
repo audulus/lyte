@@ -9,14 +9,14 @@ use std::sync::Arc;
 #[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub struct Tree {
     pub decls: Vec<Decl>,
-    pub exprs: ExprArena,
+    pub errors: Vec<ParseError>,
 }
 
 impl Tree {
     pub fn new() -> Self {
         Self {
             decls: vec![],
-            exprs: ExprArena::new(),
+            errors: vec![],
         }
     }
 }
@@ -53,9 +53,9 @@ fn ast(db: &dyn ParserQueries, path: String) -> Arc<Tree> {
     let mut tree = Tree::new();
 
     lexer.next();
-    tree.decls = parse_program(&mut lexer, &mut tree.exprs);
+    tree.decls = parse_program(&mut lexer, &mut tree.errors);
 
-    for err in &tree.exprs.errors {
+    for err in &tree.errors {
         println!(
             "{}:{}: {}",
             err.location.file, err.location.line, err.message
@@ -94,7 +94,7 @@ fn parsed(db: &dyn ParserQueries) -> bool {
     let trees = db.program_ast();
 
     for tree in trees {
-        if !tree.exprs.errors.is_empty() {
+        if !tree.errors.is_empty() {
             return false;
         }
     }
@@ -113,7 +113,7 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
 
     let mut checker = Checker::new();
 
-    checker.check_decl(&decl, &tree.exprs, &decls);
+    checker.check_decl(&decl, &decls);
 
     for err in &checker.errors {
         println!(
@@ -163,7 +163,7 @@ fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
     let decls = db.decls();
 
     if let Decl::Func(f) = decl {
-        irgen.gen_fn_decl(&mut ir, &f, &tree.exprs, &decls)
+        irgen.gen_fn_decl(&mut ir, &f, &decls)
     }
 
     ir
@@ -189,7 +189,7 @@ fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
 
     let mut jit = JIT::default();
 
-    jit.compile(&decls, &trees[0].exprs, &[])
+    jit.compile(&decls, &[])
 
 }
 

@@ -138,13 +138,12 @@ impl Irgen {
         &mut self,
         block_arena: &mut ir::BlockArena,
         func_decl: &FuncDecl,
-        arena: &ExprArena,
         decls: &DeclTable,
     ) {
         if let Some(body) = func_decl.body {
             let block_id = block_arena.add_block();
 
-            self.gen_expr(block_id, block_arena, body, arena, decls);
+            self.gen_expr(block_id, block_arena, body, &func_decl.arena, decls);
         }
     }
 }

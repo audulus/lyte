@@ -225,31 +225,31 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
     Expr::Binop(op, lhs, rhs)
 }
 
-fn parse_lambda(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
+fn parse_lambda(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
     if lexer.tok == Token::Pipe {
         lexer.next();
-        let params = parse_paramlist(lexer, typevars, &mut arena.errors);
-        expect(lexer, Token::Pipe, &mut arena.errors);
+        let params = parse_paramlist(lexer, typevars, errors);
+        expect(lexer, Token::Pipe, errors);
 
-        let body = parse_lambda(lexer, arena, typevars);
+        let body = parse_lambda(lexer, arena, typevars, errors);
 
         arena.add(Expr::Lambda { params, body }, lexer.loc)
     } else {
-        parse_expr(lexer, arena, typevars)
+        parse_expr(lexer, arena, typevars, errors)
     }
 }
 
-fn parse_if(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let cond = parse_expr(lexer, arena, typevars);
-    let then = parse_block(lexer, arena, typevars);
+fn parse_if(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let cond = parse_expr(lexer, arena, typevars, errors);
+    let then = parse_block(lexer, arena, typevars, errors);
 
     let els = if lexer.tok == Token::Else {
         lexer.next();
         if lexer.tok == Token::If {
             lexer.next();
-            Some(parse_if(lexer, arena, typevars))
+            Some(parse_if(lexer, arena, typevars, errors))
         } else {
-            Some(parse_block(lexer, arena, typevars))
+            Some(parse_block(lexer, arena, typevars, errors))
         }
     } else {
         None
@@ -258,22 +258,22 @@ fn parse_if(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Expr
     arena.add(Expr::If(cond, then, els), lexer.loc)
 }
 
-fn parse_expr(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
+fn parse_expr(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
     if lexer.tok == Token::If {
         lexer.next();
-        parse_if(lexer, arena, typevars)
+        parse_if(lexer, arena, typevars, errors)
     } else {
-        parse_assign(lexer, arena, typevars)
+        parse_assign(lexer, arena, typevars, errors)
     }
 }
 
-fn parse_assign(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut lhs = parse_eq(lexer, arena, typevars);
+fn parse_assign(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut lhs = parse_eq(lexer, arena, typevars, errors);
 
     while lexer.tok == Token::Assign {
         let t = lexer.tok.clone();
         lexer.next();
-        let rhs = parse_eq(lexer, arena, typevars);
+        let rhs = parse_eq(lexer, arena, typevars, errors);
 
         lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
@@ -281,13 +281,13 @@ fn parse_assign(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> 
     lhs
 }
 
-fn parse_eq(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut lhs = parse_rel(lexer, arena, typevars);
+fn parse_eq(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut lhs = parse_rel(lexer, arena, typevars, errors);
 
     while lexer.tok == Token::Equal || lexer.tok == Token::NotEqual {
         let t = lexer.tok.clone();
         lexer.next();
-        let rhs = parse_rel(lexer, arena, typevars);
+        let rhs = parse_rel(lexer, arena, typevars, errors);
 
         lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
@@ -295,8 +295,8 @@ fn parse_eq(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Expr
     lhs
 }
 
-fn parse_rel(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut lhs = parse_sum(lexer, arena, typevars);
+fn parse_rel(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut lhs = parse_sum(lexer, arena, typevars, errors);
 
     while lexer.tok == Token::Leq
         || lexer.tok == Token::Geq
@@ -305,7 +305,7 @@ fn parse_rel(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Exp
     {
         let t = lexer.tok.clone();
         lexer.next();
-        let rhs = parse_sum(lexer, arena, typevars);
+        let rhs = parse_sum(lexer, arena, typevars, errors);
 
         lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
@@ -313,13 +313,13 @@ fn parse_rel(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Exp
     lhs
 }
 
-fn parse_sum(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut lhs = parse_term(lexer, arena, typevars);
+fn parse_sum(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut lhs = parse_term(lexer, arena, typevars, errors);
 
     while lexer.tok == Token::Plus || lexer.tok == Token::Minus {
         let t = lexer.tok.clone();
         lexer.next();
-        let rhs = parse_term(lexer, arena, typevars);
+        let rhs = parse_term(lexer, arena, typevars, errors);
 
         lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
@@ -327,13 +327,13 @@ fn parse_sum(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Exp
     lhs
 }
 
-fn parse_term(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut lhs = parse_exp(lexer, arena, typevars);
+fn parse_term(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut lhs = parse_exp(lexer, arena, typevars, errors);
 
     while lexer.tok == Token::Mult || lexer.tok == Token::Div {
         let t = lexer.tok.clone();
         lexer.next();
-        let rhs = parse_exp(lexer, arena, typevars);
+        let rhs = parse_exp(lexer, arena, typevars, errors);
 
         lhs = arena.add(binop(&t, lhs, rhs), lexer.loc)
     }
@@ -341,13 +341,13 @@ fn parse_term(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Ex
     lhs
 }
 
-fn parse_exp(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut lhs = parse_factor(lexer, arena, typevars);
+fn parse_exp(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut lhs = parse_factor(lexer, arena, typevars, errors);
 
     while lexer.tok == Token::Power {
         lexer.next();
 
-        let rhs = parse_factor(lexer, arena, typevars);
+        let rhs = parse_factor(lexer, arena, typevars, errors);
 
         lhs = arena.add(binop(&Token::Power, lhs, rhs), lexer.loc)
     }
@@ -355,36 +355,36 @@ fn parse_exp(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Exp
     lhs
 }
 
-fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
+fn parse_factor(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
     match &lexer.tok {
         Token::Minus => {
             lexer.next();
-            let e = parse_factor(lexer, arena, typevars);
+            let e = parse_factor(lexer, arena, typevars, errors);
             arena.add(Expr::Unop(e), lexer.loc)
         }
         Token::Plus => {
             lexer.next();
-            parse_factor(lexer, arena, typevars)
+            parse_factor(lexer, arena, typevars, errors)
         }
         Token::Not => {
             lexer.next();
-            let e = parse_factor(lexer, arena, typevars);
+            let e = parse_factor(lexer, arena, typevars, errors);
             arena.add(Expr::Unop(e), lexer.loc)
         }
-        _ => parse_postfix(lexer, arena, typevars),
+        _ => parse_postfix(lexer, arena, typevars, errors),
     }
 }
 
-fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    let mut e = parse_atom(lexer, arena, typevars);
+fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    let mut e = parse_atom(lexer, arena, typevars, errors);
 
     loop {
         match lexer.tok {
             Token::Lparen => {
                 lexer.next();
                 let args = if lexer.tok != Token::Rparen {
-                    let args = parse_exprlist(lexer, arena, typevars);
-                    expect(lexer, Token::Rparen, &mut arena.errors);
+                    let args = parse_exprlist(lexer, arena, typevars, errors);
+                    expect(lexer, Token::Rparen, errors);
                     args
                 } else {
                     lexer.next();
@@ -394,23 +394,23 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) ->
             }
             Token::Colon => {
                 lexer.next();
-                let t = parse_type(lexer, typevars, &mut arena.errors);
+                let t = parse_type(lexer, typevars, errors);
                 e = arena.add(Expr::AsTy(e, t), lexer.loc);
             }
             Token::Lbracket => {
                 lexer.next();
-                let idx = parse_expr(lexer, arena, typevars);
-                expect(lexer, Token::Rbracket, &mut arena.errors);
+                let idx = parse_expr(lexer, arena, typevars, errors);
+                expect(lexer, Token::Rbracket, errors);
                 e = arena.add(Expr::ArrayIndex(e, idx), lexer.loc);
             }
             Token::Dot => {
                 lexer.next();
-                let field = expect_id(lexer, &mut arena.errors);
+                let field = expect_id(lexer, errors);
                 e = arena.add(Expr::Field(e, field), lexer.loc);
             }
             Token::As => {
                 lexer.next();
-                let ty = parse_type(lexer, typevars, &mut arena.errors);
+                let ty = parse_type(lexer, typevars, errors);
                 e = arena.add(Expr::AsTy(e, ty), lexer.loc);
             }
             _ => {
@@ -420,7 +420,7 @@ fn parse_postfix(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) ->
     }
 }
 
-fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
+fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
     match &lexer.tok {
         Token::Id(id) => {
             let e = Expr::Id(Name::new(id.clone()));
@@ -437,7 +437,7 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Ex
         }
         Token::Dot => {
             lexer.next();
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
             arena.add(Expr::Enum(name), lexer.loc)
         }
         Token::Integer(x) => {
@@ -465,12 +465,12 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Ex
 
             let mut tup = vec![];
             loop {
-                let rr = parse_lambda(lexer, arena, typevars);
+                let rr = parse_lambda(lexer, arena, typevars, errors);
                 tup.push(rr);
                 if lexer.tok == Token::Rparen {
                     break;
                 }
-                expect(lexer, Token::Comma, &mut arena.errors);
+                expect(lexer, Token::Comma, errors);
             }
 
             lexer.next();
@@ -482,24 +482,24 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Ex
                 tup[0]
             }
         }
-        Token::Lbrace => parse_block(lexer, arena, typevars),
-        Token::Lbracket => parse_array_literal(lexer, arena, typevars),
+        Token::Lbrace => parse_block(lexer, arena, typevars, errors),
+        Token::Lbracket => parse_array_literal(lexer, arena, typevars, errors),
         Token::At => {
             // macro invocations
             lexer.next();
 
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
 
-            expect(lexer, Token::Lparen, &mut arena.errors);
-            let params = parse_exprlist(lexer, arena, typevars);
-            expect(lexer, Token::Rparen, &mut arena.errors);
+            expect(lexer, Token::Lparen, errors);
+            let params = parse_exprlist(lexer, arena, typevars, errors);
+            expect(lexer, Token::Rparen, errors);
 
             let e = Expr::Macro(name, params);
             arena.add(e, lexer.loc)
         }
         _ => {
             lexer.next();
-            arena.errors.push(ParseError {
+            errors.push(ParseError {
                 location: lexer.loc,
                 message: String::from("Expected expression"),
             });
@@ -508,11 +508,11 @@ fn parse_atom(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Ex
     }
 }
 
-fn parse_exprlist(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Vec<ExprID> {
+fn parse_exprlist(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> Vec<ExprID> {
     let mut r = vec![];
 
     loop {
-        r.push(parse_lambda(lexer, arena, typevars));
+        r.push(parse_lambda(lexer, arena, typevars, errors));
 
         if lexer.tok != Token::Comma {
             break;
@@ -524,25 +524,25 @@ fn parse_exprlist(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -
     r
 }
 
-fn parse_array_literal(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
-    expect(lexer, Token::Lbracket, &mut arena.errors);
+fn parse_array_literal(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
+    expect(lexer, Token::Lbracket, errors);
     let mut r = vec![];
 
     while lexer.tok != Token::Rbracket {
-        r.push(parse_lambda(lexer, arena, typevars));
+        r.push(parse_lambda(lexer, arena, typevars, errors));
 
         if lexer.tok == Token::Comma {
             lexer.next();
         } else if lexer.tok == Token::Semi {
             lexer.next();
-            let count = parse_expr(lexer, arena, typevars);
+            let count = parse_expr(lexer, arena, typevars, errors);
             let e = Expr::Array(r[0], count);
-            expect(lexer, Token::Rbracket, &mut arena.errors);
+            expect(lexer, Token::Rbracket, errors);
             return arena.add(e, lexer.loc);
         } else if lexer.tok == Token::Rbracket {
             break;
         } else {
-            arena.errors.push(ParseError {
+            errors.push(ParseError {
                 location: lexer.loc,
                 message: String::from("Expected comma or semicolon in array literal"),
             });
@@ -555,22 +555,22 @@ fn parse_array_literal(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Nam
     arena.add(Expr::ArrayLiteral(r), lexer.loc)
 }
 
-fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
+fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
     match lexer.tok.clone() {
         Token::Var | Token::Let => {
             lexer.next();
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
 
             if lexer.tok == Token::Assign {
                 lexer.next();
-                let e = parse_lambda(lexer, arena, typevars);
+                let e = parse_lambda(lexer, arena, typevars, errors);
                 arena.add(Expr::Var(name, Some(e), None), lexer.loc)
             } else if lexer.tok == Token::Colon {
                 lexer.next();
-                let t = parse_type(lexer, typevars, &mut arena.errors);
+                let t = parse_type(lexer, typevars, errors);
                 arena.add(Expr::Var(name, None, Some(t)), lexer.loc)
             } else {
-                arena.errors.push(ParseError {
+                errors.push(ParseError {
                     location: lexer.loc,
                     message: String::from("expected assignment or type"),
                 });
@@ -579,27 +579,27 @@ fn parse_stmt(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> Ex
         }
         Token::Arena => {
             lexer.next();
-            let e = parse_block(lexer, arena, typevars);
+            let e = parse_block(lexer, arena, typevars, errors);
             arena.add(Expr::Arena(e), lexer.loc)
         }
         Token::While => {
             lexer.next();
-            let cond = parse_expr(lexer, arena, typevars);
-            let body = parse_block(lexer, arena, typevars);
+            let cond = parse_expr(lexer, arena, typevars, errors);
+            let body = parse_block(lexer, arena, typevars, errors);
             arena.add(Expr::While(cond, body), lexer.loc)
         }
         Token::Return => {
             lexer.next();
-            let e = parse_expr(lexer, arena, typevars);
+            let e = parse_expr(lexer, arena, typevars, errors);
             arena.add(Expr::Return(e), lexer.loc)
         }
-        _ => parse_expr(lexer, arena, typevars),
+        _ => parse_expr(lexer, arena, typevars, errors),
     }
 }
 
-fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> ExprID {
+fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> ExprID {
     let mut r = vec![];
-    expect(lexer, Token::Lbrace, &mut arena.errors);
+    expect(lexer, Token::Lbrace, errors);
 
     loop {
         skip_newlines(lexer);
@@ -608,7 +608,7 @@ fn parse_block(lexer: &mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> E
             break;
         }
 
-        r.push(parse_stmt(lexer, arena, typevars));
+        r.push(parse_stmt(lexer, arena, typevars, errors));
 
         if lexer.tok != Token::Endl {
             break;
@@ -703,20 +703,21 @@ fn token_in(tok: &Token, set: &[Token]) -> bool {
     set.iter().position(|x| x == tok) != None
 }
 
-fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> FuncDecl {
+fn parse_func_decl(name: Name, lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> FuncDecl {
     let mut params = vec![];
     let mut typevars = vec![];
     let mut constraints = vec![];
     let loc = lexer.loc;
+    let mut arena = ExprArena::new();
 
     if lexer.tok == Token::Less {
-        typevars = parse_typevar_list(lexer, &mut arena.errors);
+        typevars = parse_typevar_list(lexer, errors);
     }
 
     if lexer.tok == Token::Lparen {
-        expect(lexer, Token::Lparen, &mut arena.errors);
-        params = parse_paramlist(lexer, &typevars, &mut arena.errors);
-        expect(lexer, Token::Rparen, &mut arena.errors);
+        expect(lexer, Token::Lparen, errors);
+        params = parse_paramlist(lexer, &typevars, errors);
+        expect(lexer, Token::Rparen, errors);
     }
 
     skip_newlines(lexer);
@@ -724,7 +725,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
     let mut ret = mk_type(Type::Void);
     if lexer.tok == Token::Arrow {
         lexer.next();
-        ret = parse_type(lexer, &typevars, &mut arena.errors);
+        ret = parse_type(lexer, &typevars, errors);
     }
 
     skip_newlines(lexer);
@@ -733,8 +734,8 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
         lexer.next();
 
         while !token_in(&lexer.tok, &[Token::Lbrace, Token::Rbrace, Token::Endl]) {
-            let interface_name = expect_id(lexer, &mut arena.errors);
-            let typevars = parse_typevar_list(lexer, &mut arena.errors);
+            let interface_name = expect_id(lexer, errors);
+            let typevars = parse_typevar_list(lexer, errors);
             constraints.push(InterfaceConstraint {
                 interface_name,
                 typevars,
@@ -744,7 +745,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
 
     let mut body = None;
     if lexer.tok == Token::Lbrace {
-        body = Some(parse_block(lexer, arena, &typevars));
+        body = Some(parse_block(lexer, &mut arena, &typevars, errors));
     }
 
     skip_newlines(lexer);
@@ -757,32 +758,33 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, arena: &mut ExprArena) -> Func
         ret,
         constraints,
         loc,
+        arena,
     }
 }
 
-fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
+fn parse_interface(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Decl {
     let loc = lexer.loc;
     lexer.next();
 
-    let name = expect_id(lexer, &mut arena.errors);
+    let name = expect_id(lexer, errors);
 
     skip_newlines(lexer);
 
     let mut typevars = vec![];
 
     if lexer.tok == Token::Less {
-        typevars = parse_typevar_list(lexer, &mut arena.errors);
+        typevars = parse_typevar_list(lexer, errors);
     }
 
-    expect(lexer, Token::Lbrace, &mut arena.errors);
+    expect(lexer, Token::Lbrace, errors);
 
     skip_newlines(lexer);
 
     let mut funcs = vec![];
 
     while lexer.tok != Token::Rbrace {
-        let name = expect_id(lexer, &mut arena.errors);
-        funcs.push(parse_func_decl(name, lexer, arena));
+        let name = expect_id(lexer, errors);
+        funcs.push(parse_func_decl(name, lexer, errors));
         skip_newlines(lexer);
     }
 
@@ -800,35 +802,35 @@ fn parse_interface(lexer: &mut Lexer, arena: &mut ExprArena) -> Decl {
     Decl::Interface(iface)
 }
 
-fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
+fn parse_decl(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Option<Decl> {
     Some(match lexer.tok.clone() {
         Token::Id(name) => {
             // Function declaration.
             lexer.next();
-            Decl::Func(parse_func_decl(Name::new(name), lexer, arena))
+            Decl::Func(parse_func_decl(Name::new(name), lexer, errors))
         }
         Token::Macro => {
             // Macro declaration.
             lexer.next();
 
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
 
-            Decl::Macro(parse_func_decl(name, lexer, arena))
+            Decl::Macro(parse_func_decl(name, lexer, errors))
         }
         Token::Struct => {
             // Struct delcaration.
             lexer.next();
 
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
 
             let mut typevars = vec![];
             if lexer.tok == Token::Less {
-                typevars = parse_typevar_list(lexer, &mut arena.errors);
+                typevars = parse_typevar_list(lexer, errors);
             }
 
-            expect(lexer, Token::Lbrace, &mut arena.errors);
-            let fields = parse_fieldlist(lexer, &typevars, &mut arena.errors);
-            expect(lexer, Token::Rbrace, &mut arena.errors);
+            expect(lexer, Token::Lbrace, errors);
+            let fields = parse_fieldlist(lexer, &typevars, errors);
+            expect(lexer, Token::Rbrace, errors);
 
             Decl::Struct(StructDecl {
                 name,
@@ -839,28 +841,28 @@ fn parse_decl(lexer: &mut Lexer, arena: &mut ExprArena) -> Option<Decl> {
         Token::Enum => {
             lexer.next();
 
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
 
-            expect(lexer, Token::Lbrace, &mut arena.errors);
+            expect(lexer, Token::Lbrace, errors);
             let cases = parse_caselist(lexer);
-            expect(lexer, Token::Rbrace, &mut arena.errors);
+            expect(lexer, Token::Rbrace, errors);
 
             Decl::Enum { name, cases }
         }
         Token::Var => {
             lexer.next();
 
-            let name = expect_id(lexer, &mut arena.errors);
+            let name = expect_id(lexer, errors);
 
-            expect(lexer, Token::Colon, &mut arena.errors);
+            expect(lexer, Token::Colon, errors);
 
-            let ty = parse_type(lexer, &[], &mut arena.errors);
+            let ty = parse_type(lexer, &[], errors);
 
             Decl::Global { name, ty }
         }
-        Token::Interface => parse_interface(lexer, arena),
+        Token::Interface => parse_interface(lexer, errors),
         _ => {
-            arena.errors.push(ParseError {
+            errors.push(ParseError {
                 location: lexer.loc,
                 message: format!("Expected declaration, got {:?}", lexer.tok),
             });
@@ -882,13 +884,13 @@ fn skip_newlines(lexer: &mut Lexer) {
 /// Note that parsing is only incremental on file-granularity, but salsa is
 /// smart enough to avoid invoking type-checking for everything in the file
 /// in most cases.
-pub fn parse_program(lexer: &mut Lexer, arena: &mut ExprArena) -> Vec<Decl> {
+pub fn parse_program(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Decl> {
     let mut decls = vec![];
 
     skip_newlines(lexer);
 
     while lexer.tok != Token::End {
-        if let Some(decl) = parse_decl(lexer, arena) {
+        if let Some(decl) = parse_decl(lexer, errors) {
             decls.push(decl);
         }
         skip_newlines(lexer);
@@ -937,31 +939,34 @@ mod tests {
     fn parse_fn<T: std::fmt::Debug>(
         string: &str,
         arena: &mut ExprArena,
-        f: fn(&mut Lexer, arena: &mut ExprArena, typevars: &[Name]) -> T,
+        errors: &mut Vec<ParseError>,
+        f: fn(&mut Lexer, arena: &mut ExprArena, typevars: &[Name], errors: &mut Vec<ParseError>) -> T,
     ) -> Result<T, ParseError> {
         println!("parsing: {}", string);
         let mut lexer = Lexer::new(&String::from(string), "parser tests");
         lexer.next();
 
-        let r = f(&mut lexer, arena, &[]);
+        let r = f(&mut lexer, arena, &[], errors);
         println!("{} ==> {:?}, arena: {:?}", string, r, arena);
-        expect(&mut lexer, Token::End, &mut arena.errors);
-        assert!(arena.errors.is_empty());
+        expect(&mut lexer, Token::End, errors);
+        assert!(errors.is_empty());
         Ok(r)
     }
 
-    fn test<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer, &mut ExprArena, &[Name]) -> T) {
+    fn test<T: std::fmt::Debug>(string: &str, f: fn(&mut Lexer, &mut ExprArena, &[Name], &mut Vec<ParseError>) -> T) {
         let mut arena = ExprArena::new();
-        assert!(parse_fn(string, &mut arena, f).is_ok());
+        let mut errors = vec![];
+        assert!(parse_fn(string, &mut arena, &mut errors, f).is_ok());
     }
 
     fn test_strings<T: std::fmt::Debug>(
-        f: fn(&mut Lexer, &mut ExprArena, &[Name]) -> T,
+        f: fn(&mut Lexer, &mut ExprArena, &[Name], errors: &mut Vec<ParseError>) -> T,
         strings: &[&str],
     ) {
         for string in strings {
             let mut arena = ExprArena::new();
-            assert!(parse_fn(string, &mut arena, f).is_ok());
+            let mut errors = vec![];
+            assert!(parse_fn(string, &mut arena, &mut errors, f).is_ok());
         }
     }
 
@@ -1061,7 +1066,7 @@ mod tests {
     #[test]
     fn test_parse_decl() {
         test_strings(
-            |lexer, arena, _| parse_decl(lexer, arena),
+            |lexer, arena, _, errors| parse_decl(lexer, errors),
             &[
                 "f(){}",
                 "f(x: i8) { g(x) }",
@@ -1105,7 +1110,7 @@ mod tests {
     #[test]
     fn test_parse_program() {
         test_strings(
-            |lexer, arena, _| parse_program(lexer, arena),
+            |lexer, _, _, errors| parse_program(lexer, errors),
             &["", "\n", "\nf()", "f(){} g(){}", "f(){}\n g(){}", "f()\n{}"],
         );
     }

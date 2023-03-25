@@ -47,7 +47,7 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile our IR into native code.
-    pub fn compile(&mut self, decls: &DeclTable, arena: &ExprArena, types: &[crate::types::TypeID]) -> Result<*const u8, String> {
+    pub fn compile(&mut self, decls: &DeclTable, types: &[crate::types::TypeID]) -> Result<*const u8, String> {
         let name = "main";
 
         // Translate into cranelift IR.
@@ -58,7 +58,7 @@ impl JIT {
         // Find the main function.
         let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] { d } else { panic!() };
 
-        trans.translate_fn(&main_decl, arena, types, decls);
+        trans.translate_fn(&main_decl, types, decls);
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
@@ -150,11 +150,10 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_fn(
         &mut self,
         decl: &FuncDecl,
-        arena: &ExprArena,
         types: &[crate::types::TypeID],
         decls: &DeclTable,
     ) {
-        self.translate_expr(decl.body.unwrap(), arena, types, decls);
+        self.translate_expr(decl.body.unwrap(), &decl.arena, types, decls);
     }
 
     fn translate_expr(
