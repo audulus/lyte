@@ -146,7 +146,7 @@ fn check(db: &dyn CheckerQueries) -> bool {
 
 #[salsa::query_group(CompilerStorage)]
 trait CompilerQueries: CheckerQueries {
-    fn ir(&self, decl: Decl, tree: Arc<Tree>) -> BlockArena;
+    fn ir(&self, decl: Decl) -> BlockArena;
 
     /// ASTs for all files.
     fn program_ir(&self) -> Vec<BlockArena>;
@@ -155,7 +155,7 @@ trait CompilerQueries: CheckerQueries {
     fn program_jit(&self) -> Result<*const u8, String>;
 }
 
-fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
+fn ir(db: &dyn CompilerQueries, decl: Decl) -> BlockArena {
     let mut ir = BlockArena::new();
     let mut irgen = Irgen::new();
     let decls = db.decls();
@@ -173,7 +173,7 @@ fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
 
     for tree in &trees {
         for decl in &tree.decls {
-            result.push(db.ir(decl.clone(), tree.clone()))
+            result.push(db.ir(decl.clone()))
         }
     }
 
