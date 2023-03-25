@@ -150,6 +150,7 @@ pub struct ParseError {
 pub struct ExprArena {
     pub exprs: Vec<Expr>,
     pub locs: Vec<Loc>,
+    pub types: Vec<TypeID>,
 }
 
 impl ExprArena {
@@ -157,6 +158,7 @@ impl ExprArena {
         Self {
             exprs: vec![],
             locs: vec![],
+            types: vec![],
         }
     }
 
