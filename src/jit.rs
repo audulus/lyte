@@ -52,7 +52,7 @@ impl JIT {
 
         // Translate into cranelift IR.
         // Create the builder to build a function.
-        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
 
         // Find the main function.
