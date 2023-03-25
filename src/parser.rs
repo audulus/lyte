@@ -25,6 +25,7 @@ impl ExprArena {
         }
     }
 
+    /// Appends an expression and returns an ID for that expression.
     pub fn add(&mut self, expr: Expr, loc: Loc) -> ExprID {
         let id = self.exprs.len();
         self.exprs.push(expr);
