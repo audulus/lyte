@@ -152,6 +152,9 @@ trait CompilerQueries: CheckerQueries {
 
     /// ASTs for all files.
     fn program_ir(&self) -> Vec<BlockArena>;
+
+    /// JIT using cranelift.
+    fn program_jit(&self) -> Result<*const u8, String>;
 }
 
 fn ir(db: &dyn CompilerQueries, decl: Decl, tree: Arc<Tree>) -> BlockArena {
@@ -177,6 +180,17 @@ fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
     }
 
     result
+}
+
+fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
+
+    let decls = db.decls();
+    let trees = db.program_ast();
+
+    let mut jit = JIT::default();
+
+    jit.compile(&decls, &trees[0].exprs, &[])
+
 }
 
 #[salsa::database(InputsStorage, ParserStorage, CheckerStorage, CompilerStorage)]
