@@ -234,6 +234,10 @@ impl Compiler {
     pub fn print_ir(&mut self) {
         println!("{:?}", self.db.program_ir());
     }
+
+    pub fn jit(&mut self) {
+        println!("{:?}", self.db.program_jit());
+    }
 }
 
 impl Default for Compiler {
