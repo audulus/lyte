@@ -140,6 +140,37 @@ pub enum Expr {
     Arena(ExprID),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct ParseError {
+    pub location: Loc,
+    pub message: String,
+}
+
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+pub struct ExprArena {
+    pub exprs: Vec<Expr>,
+    pub locs: Vec<Loc>,
+    pub errors: Vec<ParseError>,
+}
+
+impl ExprArena {
+    pub fn new() -> Self {
+        Self {
+            exprs: vec![],
+            locs: vec![],
+            errors: vec![],
+        }
+    }
+
+    /// Appends an expression and returns an ID for that expression.
+    pub fn add(&mut self, expr: Expr, loc: Loc) -> ExprID {
+        let id = self.exprs.len();
+        self.exprs.push(expr);
+        self.locs.push(loc);
+        id
+    }
+}
+
 /// Formal parameter.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Param {
