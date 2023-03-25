@@ -132,14 +132,12 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl) -> bool {
 }
 
 fn check(db: &dyn CheckerQueries) -> bool {
-    let trees = db.program_ast();
+    let decls = db.decls();
     let mut result = true;
 
-    for tree in trees {
-        for decl in &tree.decls {
-            if !db.check_decl(decl.clone()) {
-                result = false;
-            }
+    for decl in &decls.decls {
+        if !db.check_decl(decl.clone()) {
+            result = false;
         }
     }
 
