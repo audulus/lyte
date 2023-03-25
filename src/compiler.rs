@@ -103,12 +103,12 @@ fn parsed(db: &dyn ParserQueries) -> bool {
 
 #[salsa::query_group(CheckerStorage)]
 trait CheckerQueries: ParserQueries {
-    fn check_decl(&self, decl: Decl, tree: Arc<Tree>) -> bool;
+    fn check_decl(&self, decl: Decl) -> bool;
     fn check(&self) -> bool;
 }
 
 /// Check a single declaration.
-fn check_decl(db: &dyn CheckerQueries, decl: Decl, tree: Arc<Tree>) -> bool {
+fn check_decl(db: &dyn CheckerQueries, decl: Decl) -> bool {
     let decls = db.decls();
 
     let mut checker = Checker::new();
@@ -137,7 +137,7 @@ fn check(db: &dyn CheckerQueries) -> bool {
 
     for tree in trees {
         for decl in &tree.decls {
-            if !db.check_decl(decl.clone(), tree.clone()) {
+            if !db.check_decl(decl.clone()) {
                 result = false;
             }
         }
@@ -185,7 +185,6 @@ fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
 fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
 
     let decls = db.decls();
-    let trees = db.program_ast();
 
     let mut jit = JIT::default();
 
