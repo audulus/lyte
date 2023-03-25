@@ -47,7 +47,7 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile our IR into native code.
-    pub fn compile(&mut self, decls: &DeclTable, types: &[crate::types::TypeID]) -> Result<*const u8, String> {
+    pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
         let name = "main";
 
         // Translate into cranelift IR.
@@ -58,7 +58,7 @@ impl JIT {
         // Find the main function.
         let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] { d } else { panic!() };
 
-        trans.translate_fn(&main_decl, types, decls);
+        trans.translate_fn(&main_decl, decls);
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
@@ -150,17 +150,15 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_fn(
         &mut self,
         decl: &FuncDecl,
-        types: &[crate::types::TypeID],
         decls: &DeclTable,
     ) {
-        self.translate_expr(decl.body.unwrap(), &decl.arena, types, decls);
+        self.translate_expr(decl.body.unwrap(), &decl.arena, decls);
     }
 
     fn translate_expr(
         &mut self,
         expr: ExprID,
         arena: &ExprArena,
-        types: &[crate::types::TypeID],
         decls: &DeclTable,
     ) -> Value {
         match &arena[expr] {
@@ -169,17 +167,17 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.use_var(*variable)
             }
             Expr::Binop(op, lhs_id, rhs_id) => {
-                self.translate_binop(*op, *lhs_id, *rhs_id, arena, types, decls)
+                self.translate_binop(*op, *lhs_id, *rhs_id, arena, decls)
             }
             Expr::Call(fn_id, arg_ids) => {
-                let f = self.translate_expr(*fn_id, arena, types, decls);
+                let f = self.translate_expr(*fn_id, arena, decls);
 
                 let mut args = vec![];
                 for arg_id in arg_ids {
-                    args.push(self.translate_expr(*arg_id, arena, types, decls))
+                    args.push(self.translate_expr(*arg_id, arena, decls))
                 }
 
-                if let crate::Type::Func(from, to) = *(types[expr]) {
+                if let crate::Type::Func(from, to) = *(arena.types[expr]) {
                     let mut sig = Signature::new(CallConv::Fast);
                     if let crate::Type::Tuple(args) = &*from {
                         sig.params = args
@@ -197,9 +195,9 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
-            Expr::Let(name, init) => self.translate_expr(*init, arena, types, decls),
+            Expr::Let(name, init) => self.translate_expr(*init, arena, decls),
             Expr::Var(name, init, _) => {
-                let ty = &types[expr];
+                let ty = &arena.types[expr];
 
                 // Allocate a new stack slot with a size of the variable.
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
@@ -211,7 +209,7 @@ impl<'a> FunctionTranslator<'a> {
                 let addr = self.builder.ins().stack_addr(I32, slot, 0);
 
                 if let Some(init_id) = init {
-                    let init_value = self.translate_expr(*init_id, arena, types, decls);
+                    let init_value = self.translate_expr(*init_id, arena, decls);
 
                     self.builder
                         .ins()
@@ -221,13 +219,13 @@ impl<'a> FunctionTranslator<'a> {
                 addr
             }
             Expr::Field(lhs, name) => {
-                let lhs_ty = types[*lhs];
-                let lhs_val = self.translate_expr(*lhs, arena, types, decls);
+                let lhs_ty = arena.types[*lhs];
+                let lhs_val = self.translate_expr(*lhs, arena, decls);
                 if let crate::Type::Name(struct_name, _) = &*lhs_ty {
                     let decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &decl[0] {
                         let off = s.field_offset(name, decls, &self.current_instance);
-                        let load_ty = types[expr].cranelift_type();
+                        let load_ty = arena.types[expr].cranelift_type();
                         self.builder
                             .ins()
                             .load(load_ty, MemFlags::new(), lhs_val, off as i32)
@@ -248,12 +246,11 @@ impl<'a> FunctionTranslator<'a> {
         lhs_id: ExprID,
         rhs_id: ExprID,
         arena: &ExprArena,
-        types: &[crate::types::TypeID],
         decls: &crate::DeclTable,
     ) -> Value {
-        let lhs = self.translate_expr(lhs_id, arena, types, decls);
-        let rhs = self.translate_expr(rhs_id, arena, types, decls);
-        let t = types[lhs_id];
+        let lhs = self.translate_expr(lhs_id, arena, decls);
+        let rhs = self.translate_expr(rhs_id, arena, decls);
+        let t = arena.types[lhs_id];
 
         match binop {
             Binop::Plus => {
