@@ -140,6 +140,7 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
     Ok(decl)
 }
 
+/// Check all decls in the program.
 fn check(db: &dyn CheckerQueries) -> bool {
     let decls = db.decls();
     let mut result = true;
