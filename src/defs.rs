@@ -203,6 +203,7 @@ pub struct FuncDecl {
     pub constraints: Vec<InterfaceConstraint>,
     pub loc: Loc,
     pub arena: ExprArena,
+    pub types: Vec<TypeID>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

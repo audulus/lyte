@@ -108,7 +108,7 @@ trait CheckerQueries: ParserQueries {
 }
 
 /// Check a single declaration.
-fn check_decl(db: &dyn CheckerQueries, decl: Decl) -> bool {
+fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> bool {
     let decls = db.decls();
 
     let mut checker = Checker::new();
@@ -127,6 +127,11 @@ fn check_decl(db: &dyn CheckerQueries, decl: Decl) -> bool {
     //     println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
     //     i += 1;
     // }
+
+    // Update function ecl with computed types.
+    if let Decl::Func(ref mut fdecl) = &mut decl {
+        fdecl.types = checker.types.clone();
+    }
 
     checker.errors.is_empty()
 }
