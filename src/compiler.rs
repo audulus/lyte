@@ -105,6 +105,7 @@ fn parsed(db: &dyn ParserQueries) -> bool {
 trait CheckerQueries: ParserQueries {
     fn check_decl(&self, decl: Decl) -> Result<Decl, ()>;
     fn check(&self) -> bool;
+    fn checked_decls(&self) -> Result<DeclTable, ()>;
 }
 
 /// Check a single declaration.
@@ -152,6 +153,20 @@ fn check(db: &dyn CheckerQueries) -> bool {
     }
 
     result
+}
+
+fn checked_decls(db: &dyn CheckerQueries) -> Result<DeclTable, ()> {
+    let mut decls = db.decls();
+
+    for decl in &mut decls.decls {
+        if let Ok(d) = db.check_decl(decl.clone()) {
+            *decl = d;
+        } else {
+            return Err(());
+        }
+    }
+
+    Ok(decls)
 }
 
 #[salsa::query_group(CompilerStorage)]
