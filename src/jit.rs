@@ -1,9 +1,9 @@
 // Pulled from https://github.com/bytecodealliance/cranelift-jit-demo
 
 use crate::defs::*;
+use crate::DeclTable;
 use crate::ExprArena;
 use crate::Instance;
-use crate::DeclTable;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
 use cranelift::prelude::*;
@@ -56,7 +56,11 @@ impl JIT {
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
 
         // Find the main function.
-        let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] { d } else { panic!() };
+        let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] {
+            d
+        } else {
+            panic!()
+        };
 
         trans.translate_fn(&main_decl, decls);
 
@@ -132,35 +136,25 @@ struct FunctionTranslator<'a> {
     next_index: usize,
 
     /// For generating code for generics.
-    current_instance: Instance
+    current_instance: Instance,
 }
 
 impl<'a> FunctionTranslator<'a> {
-
     fn new(builder: FunctionBuilder<'a>, module: &'a mut JITModule) -> Self {
         Self {
             builder,
             variables: HashMap::new(),
             module,
             next_index: 0,
-            current_instance: Instance::new()
+            current_instance: Instance::new(),
         }
     }
 
-    fn translate_fn(
-        &mut self,
-        decl: &FuncDecl,
-        decls: &DeclTable,
-    ) {
+    fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) {
         self.translate_expr(decl.body.unwrap(), &decl.arena, decls);
     }
 
-    fn translate_expr(
-        &mut self,
-        expr: ExprID,
-        arena: &ExprArena,
-        decls: &DeclTable,
-    ) -> Value {
+    fn translate_expr(&mut self, expr: ExprID, arena: &ExprArena, decls: &DeclTable) -> Value {
         match &arena[expr] {
             Expr::Id(name) => {
                 let variable = self.variables.get(&**name).unwrap();

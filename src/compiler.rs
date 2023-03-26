@@ -206,7 +206,6 @@ fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
 }
 
 fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
-
     let decls = if let Ok(decls) = db.checked_decls() {
         decls
     } else {
@@ -216,7 +215,6 @@ fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
     let mut jit = JIT::default();
 
     jit.compile(&decls)
-
 }
 
 #[salsa::database(InputsStorage, ParserStorage, CheckerStorage, CompilerStorage)]

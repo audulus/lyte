@@ -503,7 +503,6 @@ impl Checker {
     }
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
-
         let n = func_decl.arena.exprs.len();
         self.types.resize(n, mk_type(Type::Void));
         self.lvalue.resize(n, false);
