@@ -228,7 +228,7 @@ impl<'a> FunctionTranslator<'a> {
                         let load_ty = arena.types[expr].cranelift_type();
                         self.builder
                             .ins()
-                            .load(load_ty, MemFlags::new(), lhs_val, off as i32)
+                            .load(load_ty, MemFlags::new(), lhs_val, off)
                     } else {
                         panic!();
                     }
