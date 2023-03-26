@@ -103,12 +103,12 @@ fn parsed(db: &dyn ParserQueries) -> bool {
 
 #[salsa::query_group(CheckerStorage)]
 trait CheckerQueries: ParserQueries {
-    fn check_decl(&self, decl: Decl) -> bool;
+    fn check_decl(&self, decl: Decl) -> Result<Decl, ()>;
     fn check(&self) -> bool;
 }
 
 /// Check a single declaration.
-fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> bool {
+fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
     let decls = db.decls();
 
     let mut checker = Checker::new();
@@ -122,6 +122,10 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> bool {
         );
     }
 
+    if !checker.errors.is_empty() {
+        return Err(());
+    }
+
     // let mut i = 0;
     // for expr in &tree.exprs.exprs {
     //     println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
@@ -133,7 +137,7 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> bool {
         fdecl.types = checker.types.clone();
     }
 
-    checker.errors.is_empty()
+    Ok(decl)
 }
 
 fn check(db: &dyn CheckerQueries) -> bool {
@@ -141,7 +145,7 @@ fn check(db: &dyn CheckerQueries) -> bool {
     let mut result = true;
 
     for decl in &decls.decls {
-        if !db.check_decl(decl.clone()) {
+        if let Err(_) = db.check_decl(decl.clone()) {
             result = false;
         }
     }
