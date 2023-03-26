@@ -759,6 +759,7 @@ fn parse_func_decl(name: Name, lexer: &mut Lexer, errors: &mut Vec<ParseError>) 
         constraints,
         loc,
         arena,
+        types: vec![],
     }
 }
 
