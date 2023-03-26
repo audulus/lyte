@@ -207,7 +207,11 @@ fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
 
 fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
 
-    let decls = db.decls();
+    let decls = if let Ok(decls) = db.checked_decls() {
+        decls
+    } else {
+        return Err(String::from("Error"));
+    };
 
     let mut jit = JIT::default();
 
