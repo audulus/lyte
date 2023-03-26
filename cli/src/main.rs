@@ -11,6 +11,9 @@ struct Args {
 
     #[clap(long)]
     ir: bool,
+
+    #[clap(long)]
+    c: bool
 }
 
 fn main() {
@@ -55,6 +58,10 @@ fn main() {
 
     if args.ir {
         compiler.print_ir();
+    }
+
+    if args.c {
+        compiler.jit();
     }
 
     std::process::exit(result)
