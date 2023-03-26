@@ -146,7 +146,7 @@ fn check(db: &dyn CheckerQueries) -> bool {
     let mut result = true;
 
     for decl in &decls.decls {
-        if let Err(_) = db.check_decl(decl.clone()) {
+        if db.check_decl(decl.clone()).is_err() {
             result = false;
         }
     }
