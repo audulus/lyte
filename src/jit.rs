@@ -236,7 +236,17 @@ impl<'a> FunctionTranslator<'a> {
                     panic!();
                 }
             }
-            _ => todo!(),
+            Expr::Block(exprs) => {
+                for expr in exprs {
+                    self.translate_expr(*expr, arena, decls);
+                }
+                let int = self.module.target_config().pointer_type();
+                self.builder.ins().iconst(int, 0)
+            }
+            _ => {
+                println!("unimplemented expression: {:?}", &arena[expr]);
+                todo!();
+            }
         }
     }
 
