@@ -128,7 +128,7 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> bool {
     //     i += 1;
     // }
 
-    // Update function ecl with computed types.
+    // Update function decl with computed types.
     if let Decl::Func(ref mut fdecl) = &mut decl {
         fdecl.types = checker.types.clone();
     }
