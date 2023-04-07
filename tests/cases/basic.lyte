@@ -1,7 +1,7 @@
 
 // args: --c
 // expected stdout:
-// Err("Compilation error: Verifier errors")
+// compilation successful
 main {
     let x = 1
 }

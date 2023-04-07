@@ -71,6 +71,14 @@ impl JIT {
 
         trans.translate_fn(&main_decl, decls);
 
+        // println!("{}", self.ctx.func);
+
+        // Need a return instruction at the end of the function's block.
+        trans.builder.ins().return_(&[]);
+
+        // Indicate we're finished with the function.
+        trans.builder.finalize();
+
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
         //
@@ -171,9 +179,7 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
-            Expr::Int(imm) => {
-                self.builder.ins().iconst(I64, *imm)
-            }
+            Expr::Int(imm) => self.builder.ins().iconst(I64, *imm),
             Expr::Id(name) => {
                 let variable = self.variables.get(&**name).unwrap();
                 self.builder.use_var(*variable)

@@ -137,7 +137,6 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
 
     // Update function decl with computed types.
     if let Decl::Func(ref mut fdecl) = &mut decl {
-
         // Apply substitution to all types.
         fdecl.types = checker.solved_types();
 
@@ -269,7 +268,12 @@ impl Compiler {
     }
 
     pub fn jit(&mut self) {
-        println!("{:?}", self.db.program_jit());
+        let r = self.db.program_jit();
+        if let Ok(ptr) = r {
+            println!("compilation successful");
+        } else {
+            println!("{:?}", r);
+        }
     }
 }
 
