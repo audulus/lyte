@@ -52,7 +52,14 @@ impl JIT {
 
         // Translate into cranelift IR.
         // Create the builder to build a function.
-        let builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+
+        // Create the entry block, to start emitting code in.
+        let entry_block = builder.create_block();
+
+        builder.switch_to_block(entry_block);
+        builder.seal_block(entry_block);
+
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
 
         // Find the main function.
@@ -120,7 +127,12 @@ impl crate::Type {
 
             // Tuple is a pointer.
             crate::Type::Tuple(_) => I64,
-            _ => todo!(),
+
+            crate::Type::Anon(_) => panic!("anonymous type should have been solved for!"),
+            _ => {
+                println!("cranelift_type for {:?} is not yet implemented", self);
+                todo!()
+            }
         }
     }
 }
@@ -157,6 +169,9 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
+            Expr::Int(imm) => {
+                self.builder.ins().iconst(I64, *imm)
+            }
             Expr::Id(name) => {
                 let variable = self.variables.get(&**name).unwrap();
                 self.builder.use_var(*variable)
