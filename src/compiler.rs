@@ -278,3 +278,25 @@ impl Default for Compiler {
         Self::new()
     }
 }
+
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn basic() {
+        let code = r#"
+           main {
+              let x = 1
+           }
+        "#;
+
+        let mut compiler = Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.update_path(&paths[0], code.into());
+        compiler.set_paths(paths);
+
+        compiler.jit();
+    }
+}
