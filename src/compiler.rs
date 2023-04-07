@@ -143,7 +143,11 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
 
     // Update function decl with computed types.
     if let Decl::Func(ref mut fdecl) = &mut decl {
-        fdecl.types = checker.types.clone();
+
+        // Apply substitution to all types.
+        fdecl.types = checker.solved_types();
+
+        print_fn_decl(fdecl, &checker);
     }
 
     Ok(decl)
