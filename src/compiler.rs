@@ -108,6 +108,14 @@ trait CheckerQueries: ParserQueries {
     fn checked_decls(&self) -> Result<DeclTable, ()>;
 }
 
+fn print_fn_decl(fdecl: &FuncDecl, checker: &Checker) {
+    let mut i = 0;
+    for expr in &fdecl.arena.exprs {
+        println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
+        i += 1;
+    }
+}
+
 /// Check a single declaration.
 fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
     let decls = db.decls();
