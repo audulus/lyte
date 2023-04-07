@@ -141,7 +141,7 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
         // Apply substitution to all types.
         fdecl.types = checker.solved_types();
 
-        print_fn_decl(fdecl, &checker);
+        // print_fn_decl(fdecl, &checker);
     }
 
     Ok(decl)

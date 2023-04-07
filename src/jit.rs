@@ -163,7 +163,6 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) {
-        println!("translate_fn decl: {:?}", decl);
         self.translate_expr(decl.body.unwrap(), decl, decls);
     }
 
