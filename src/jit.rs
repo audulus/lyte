@@ -89,7 +89,10 @@ impl JIT {
         // function below.
         self.module
             .define_function(id, &mut self.ctx)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                println!("error: {:?}", e);
+                e.to_string()
+            })?;
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
