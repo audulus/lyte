@@ -135,12 +135,6 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
         return Err(());
     }
 
-    // let mut i = 0;
-    // for expr in &tree.exprs.exprs {
-    //     println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
-    //     i += 1;
-    // }
-
     // Update function decl with computed types.
     if let Decl::Func(ref mut fdecl) = &mut decl {
 
