@@ -633,4 +633,9 @@ impl Checker {
     pub fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
         self._check_decl(decl, decls);
     }
+
+    /// Returns types we've solved for.
+    pub fn solved_types(&self) -> Vec<TypeID> {
+        self.types.iter().map(|t| t.subst(&self.inst)).collect()
+    }
 }
