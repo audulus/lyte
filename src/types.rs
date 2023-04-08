@@ -211,7 +211,7 @@ pub fn tuple(types: Vec<TypeID>) -> TypeID {
 }
 
 /// Convenience to create a tuple type from parameters.
-fn params_ty(params: &Vec<Param>) -> TypeID {
+fn params_ty(params: &[Param]) -> TypeID {
     tuple(params.iter().map(|p| p.ty.unwrap()).collect())
 }
 
