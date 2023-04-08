@@ -4,6 +4,8 @@ mod defs;
 use defs::*;
 mod types;
 use types::*;
+mod expr;
+use expr::*;
 
 pub mod lexer;
 use lexer::*;
