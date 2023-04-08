@@ -109,10 +109,8 @@ trait CheckerQueries: ParserQueries {
 }
 
 fn print_fn_decl(fdecl: &FuncDecl, checker: &Checker) {
-    let mut i = 0;
-    for expr in &fdecl.arena.exprs {
+    for (i, expr) in fdecl.arena.exprs.iter().enumerate() {
         println!("{}: {:?}, {:?}", i, expr, checker.types[i]);
-        i += 1;
     }
 }
 
