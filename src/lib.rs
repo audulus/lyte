@@ -20,9 +20,6 @@ pub use compiler::*;
 mod solver;
 pub use solver::*;
 
-mod util;
-pub use util::*;
-
 mod decl_table;
 pub use decl_table::*;
 
