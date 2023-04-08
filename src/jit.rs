@@ -215,8 +215,8 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
-            Expr::Let(name, init) => self.translate_expr(*init, decl, decls),
-            Expr::Var(name, init, _) => {
+            Expr::Let(_name, init) => self.translate_expr(*init, decl, decls),
+            Expr::Var(_name, init, _) => {
                 let ty = &decl.types[expr];
 
                 // Allocate a new stack slot with a size of the variable.

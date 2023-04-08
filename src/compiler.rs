@@ -224,7 +224,7 @@ impl Compiler {
 
     pub fn jit(&mut self) {
         let r = self.db.program_jit();
-        if let Ok(ptr) = r {
+        if let Ok(_ptr) = r {
             println!("compilation successful");
         } else {
             println!("{:?}", r);

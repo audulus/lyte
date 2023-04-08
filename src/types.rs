@@ -138,7 +138,7 @@ impl TypeID {
             Type::Float32 => 4,
             Type::Float64 => 8,
             Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
-            Type::Name(name, vars) => {
+            Type::Name(name, _vars) => {
                 let decl = decls.find(*name);
                 // Must be a unique struct decl.
                 assert!(decl.len() == 1);
@@ -159,7 +159,7 @@ impl Deref for TypeID {
     type Target = Type;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 
@@ -309,7 +309,7 @@ impl Interface {
     ) -> bool {
         let mut inst = Instance::new();
         for (v, t) in self.typevars.iter().zip(types) {
-            inst.insert(typevar(&*v), *t);
+            inst.insert(typevar(v), *t);
         }
 
         let mut satisfied = true;

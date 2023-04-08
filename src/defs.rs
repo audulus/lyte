@@ -19,7 +19,7 @@ impl Deref for Name {
     type Target = String;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 

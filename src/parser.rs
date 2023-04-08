@@ -1152,7 +1152,7 @@ mod tests {
     #[test]
     fn test_parse_decl() {
         test_strings(
-            |lexer, arena, _, errors| parse_decl(lexer, errors),
+            |lexer, _arena, _, errors| parse_decl(lexer, errors),
             &[
                 "f(){}",
                 "f(x: i8) { g(x) }",
