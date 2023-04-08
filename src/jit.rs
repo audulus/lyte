@@ -68,7 +68,7 @@ impl JIT {
             panic!()
         };
 
-        trans.translate_fn(&main_decl, decls);
+        trans.translate_fn(main_decl, decls);
 
         // println!("{}", self.ctx.func);
 
