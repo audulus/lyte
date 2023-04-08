@@ -6,19 +6,10 @@ use std::sync::Arc;
 // I've read that some IDE-oriented compilers prefer to
 // have a full syntax tree (which can represent the exact formatting of everything)
 // but that seems like a real pain.
-#[derive(Eq, PartialEq, Clone, Debug, Hash)]
+#[derive(Eq, PartialEq, Clone, Debug, Hash, Default)]
 pub struct Tree {
     pub decls: Vec<Decl>,
     pub errors: Vec<ParseError>,
-}
-
-impl Tree {
-    pub fn new() -> Self {
-        Self {
-            decls: vec![],
-            errors: vec![],
-        }
-    }
 }
 
 #[salsa::query_group(InputsStorage)]
@@ -50,7 +41,7 @@ fn ast(db: &dyn ParserQueries, path: String) -> Arc<Tree> {
     let input_string = db.source_text(path.clone());
     let mut lexer = Lexer::new(&input_string, &path);
 
-    let mut tree = Tree::new();
+    let mut tree = Tree::default();
 
     lexer.next();
     tree.decls = parse_program(&mut lexer, &mut tree.errors);
