@@ -251,8 +251,6 @@ impl Default for Compiler {
 
 mod tests {
 
-    use super::*;
-
     #[test]
     fn basic() {
         let code = r#"
@@ -261,7 +259,7 @@ mod tests {
            }
         "#;
 
-        let mut compiler = Compiler::new();
+        let mut compiler = crate::Compiler::new();
         let paths = vec![String::from(".")];
 
         compiler.update_path(&paths[0], code.into());
