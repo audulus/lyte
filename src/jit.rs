@@ -2,6 +2,7 @@
 
 use crate::defs::*;
 use crate::expr::*;
+use crate::decl::*;
 use crate::DeclTable;
 use crate::Instance;
 use cranelift::prelude::isa::CallConv;

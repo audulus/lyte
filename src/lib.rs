@@ -6,6 +6,8 @@ mod types;
 use types::*;
 mod expr;
 use expr::*;
+mod decl;
+use decl::*;
 
 pub mod lexer;
 use lexer::*;
