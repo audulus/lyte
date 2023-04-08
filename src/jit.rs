@@ -86,7 +86,7 @@ impl JIT {
         // the function?
         let id = self
             .module
-            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+            .declare_function(name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
         // Define the function to jit. This finishes compilation, although
