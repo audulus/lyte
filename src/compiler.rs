@@ -1,4 +1,4 @@
-use crate::{ir::BlockArena, irgen::Irgen, *};
+use crate::*;
 use std::sync::Arc;
 
 // An AST.
@@ -176,38 +176,8 @@ fn checked_decls(db: &dyn CheckerQueries) -> Result<DeclTable, ()> {
 
 #[salsa::query_group(CompilerStorage)]
 trait CompilerQueries: CheckerQueries {
-    fn ir(&self, decl: Decl) -> BlockArena;
-
-    /// ASTs for all files.
-    fn program_ir(&self) -> Vec<BlockArena>;
-
     /// JIT using cranelift.
     fn program_jit(&self) -> Result<*const u8, String>;
-}
-
-fn ir(db: &dyn CompilerQueries, decl: Decl) -> BlockArena {
-    let mut ir = BlockArena::new();
-    let mut irgen = Irgen::new();
-    let decls = db.decls();
-
-    if let Decl::Func(f) = decl {
-        irgen.gen_fn_decl(&mut ir, &f, &decls)
-    }
-
-    ir
-}
-
-fn program_ir(db: &dyn CompilerQueries) -> Vec<BlockArena> {
-    let trees = db.program_ast();
-    let mut result = vec![];
-
-    for tree in &trees {
-        for decl in &tree.decls {
-            result.push(db.ir(decl.clone()))
-        }
-    }
-
-    result
 }
 
 fn program_jit(db: &dyn CompilerQueries) -> Result<*const u8, String> {
@@ -261,10 +231,6 @@ impl Compiler {
 
     pub fn print_ast(&mut self) {
         println!("{:?}", self.db.program_ast());
-    }
-
-    pub fn print_ir(&mut self) {
-        println!("{:?}", self.db.program_ir());
     }
 
     pub fn jit(&mut self) {

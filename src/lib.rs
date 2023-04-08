@@ -21,13 +21,10 @@ mod solver;
 pub use solver::*;
 
 mod util;
-mod vm;
 pub use util::*;
 
 mod decl_table;
 pub use decl_table::*;
 
-mod ir;
-mod irgen;
 mod jit;
 pub use jit::*;

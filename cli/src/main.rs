@@ -56,10 +56,6 @@ fn main() {
         result = 1;
     }
 
-    if args.ir {
-        compiler.print_ir();
-    }
-
     if args.c {
         compiler.jit();
     }
