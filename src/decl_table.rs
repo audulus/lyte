@@ -89,7 +89,7 @@ impl DeclTable {
                     for c in constraints {
                         interfaces.push(AltInterface {
                             interface: c.interface_name,
-                            typevars: c.typevars.iter().map(|name| typevar(&*name)).collect(),
+                            typevars: c.typevars.iter().map(|name| typevar(name)).collect(),
                         })
                     }
 
