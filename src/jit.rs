@@ -1,8 +1,8 @@
 // Pulled from https://github.com/bytecodealliance/cranelift-jit-demo
 
 use crate::defs::*;
+use crate::expr::*;
 use crate::DeclTable;
-use crate::ExprArena;
 use crate::Instance;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;

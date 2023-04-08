@@ -1,7 +1,4 @@
-use crate::defs::*;
-use crate::lexer::*;
-use crate::types::*;
-use std::hash::Hash;
+use crate::*;
 
 impl std::ops::Index<ExprID> for ExprArena {
     type Output = Expr;
