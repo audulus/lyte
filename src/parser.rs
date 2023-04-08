@@ -777,7 +777,7 @@ pub fn parse_typevar_list(lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> Ve
 }
 
 fn token_in(tok: &Token, set: &[Token]) -> bool {
-    set.iter().position(|x| x == tok).is_some()
+    set.iter().any(|x| x == tok)
 }
 
 fn parse_func_decl(name: Name, lexer: &mut Lexer, errors: &mut Vec<ParseError>) -> FuncDecl {
