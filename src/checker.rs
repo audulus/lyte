@@ -72,10 +72,7 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
-        let cast_overloads = vec![
-            func(int8, int32),
-            func(int32, int8)
-        ];
+        let cast_overloads = vec![func(int8, int32), func(int32, int8)];
 
         Self {
             types: vec![],
