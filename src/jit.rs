@@ -108,7 +108,9 @@ impl JIT {
         // Finalize the functions which we just defined, which resolves any
         // outstanding relocations (patching in addresses, now that they're
         // available).
-        self.module.finalize_definitions();
+        self.module
+            .finalize_definitions()
+            .map_err(|err| err.to_string())?;
 
         // We can now retrieve a pointer to the machine code.
         let code = self.module.get_finalized_function(id);
