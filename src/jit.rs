@@ -10,7 +10,6 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::HashMap;
-use std::slice;
 use std::vec;
 
 /// The basic JIT class.
