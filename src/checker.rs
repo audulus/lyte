@@ -135,7 +135,7 @@ impl Checker {
             if !self.lvalue[lhs] {
                 self.errors.push(TypeError {
                     location: arena.locs[id],
-                    message: format!("left-hand side of assignment isn't assignable"),
+                    message: "left-hand side of assignment isn't assignable".to_string(),
                 });
             }
 
