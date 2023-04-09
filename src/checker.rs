@@ -54,6 +54,12 @@ pub struct Checker {
     pub errors: Vec<TypeError>,
 }
 
+impl Default for Checker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Checker {
     pub fn new() -> Self {
         let int8 = mk_type(Type::Int8);
