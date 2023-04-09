@@ -16,9 +16,17 @@ pub enum Type {
     Float32,
     Float64,
     Tuple(Vec<TypeID>),
+
+    /// Named type variable.
     Var(Name),
+
+    /// Anonymous type variable.
     Anon(usize),
+
+    /// Function (dom, rng)
     Func(TypeID, TypeID),
+
+    /// Array of fixed size. 0 indicates variable size.
     Array(TypeID, i32),
 
     /// A named type which may include type parameters.
