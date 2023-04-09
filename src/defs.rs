@@ -128,3 +128,9 @@ impl ExprArena {
         id
     }
 }
+
+impl Default for ExprArena {
+    fn default() -> Self {
+        Self::new()
+    }
+}
