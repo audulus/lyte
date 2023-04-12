@@ -1,0 +1,7 @@
+
+// args: --c
+// expected stdout:
+// compilation successful
+main {
+    let x = 2+2
+}
