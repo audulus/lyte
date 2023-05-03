@@ -48,3 +48,5 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 [Compilers and IRs](https://www.lei.chat/posts/compilers-and-irs-llvm-ir-spirv-and-mlir/)
 
 [Cranelift JIT Demo](https://github.com/bytecodealliance/cranelift-jit-demo)
+
+[MLIR Tutorial](https://llvm.org/devmtg/2020-09/slides/MLIR_Tutorial.pdf)
