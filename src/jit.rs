@@ -5,11 +5,13 @@ use crate::defs::*;
 use crate::expr::*;
 use crate::DeclTable;
 use crate::Instance;
+extern crate cranelift_codegen;
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
+use cranelift_codegen::verifier::verify_function;
 use std::collections::HashMap;
 use std::vec;
 
@@ -121,6 +123,13 @@ impl JIT {
 
         // Indicate we're finished with the function.
         trans.builder.finalize();
+
+        let flags = settings::Flags::new(settings::builder());
+        let res = verify_function(&self.ctx.func, &flags);
+        // println!("{}", self.ctx.func.display());
+        if let Err(errors) = res {
+            panic!("{}", errors);
+        }
 
     }
 
