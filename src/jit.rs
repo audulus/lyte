@@ -197,7 +197,9 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
-            Expr::Int(imm) => self.builder.ins().iconst(I64, *imm),
+            Expr::Int(imm) => {
+                self.builder.ins().iconst(I32, *imm)
+            }
             Expr::Id(name) => {
                 let variable = self.variables.get(&**name).unwrap();
                 self.builder.use_var(*variable)
@@ -234,11 +236,12 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Let(_name, init) => self.translate_expr(*init, decl, decls),
             Expr::Var(_name, init, _) => {
                 let ty = &decl.types[expr];
+                let sz = ty.size(decls) as u32;
 
                 // Allocate a new stack slot with a size of the variable.
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
-                    size: ty.size(decls) as u32,
+                    size: sz,
                 });
 
                 // Create an instruction that loads the address of the stack slot.
@@ -276,8 +279,7 @@ impl<'a> FunctionTranslator<'a> {
                 for expr in exprs {
                     self.translate_expr(*expr, decl, decls);
                 }
-                let int = self.module.target_config().pointer_type();
-                self.builder.ins().iconst(int, 0)
+                self.builder.ins().iconst(I32, 0)
             }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
