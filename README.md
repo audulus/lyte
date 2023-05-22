@@ -3,7 +3,7 @@
 ![build status](https://github.com/audulus/lyte/actions/workflows/rust.yml/badge.svg)
 [![dependency status](https://deps.rs/repo/github/audulus/lyte/status.svg)](https://deps.rs/repo/github/audulus/lyte)
 
-A simple programming langauge for writing Audulus nodes, and maybe other things too :)
+A simple programming language for writing Audulus nodes, and maybe other things too :)
 
 Goals:
 
