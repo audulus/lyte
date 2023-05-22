@@ -1,5 +1,6 @@
 use crate::*;
 use std::sync::Arc;
+use core::mem;
 
 // An AST.
 //
@@ -224,8 +225,16 @@ impl Compiler {
 
     pub fn jit(&mut self) {
         let r = self.db.program_jit();
-        if let Ok(_ptr) = r {
+        if let Ok(code_ptr) = r {
             println!("compilation successful");
+
+            type Entry = fn() -> ();
+
+            unsafe {
+                let code_fn = mem::transmute::<_, Entry>(code_ptr);
+                code_fn();
+            }
+
         } else {
             println!("{:?}", r);
         }
