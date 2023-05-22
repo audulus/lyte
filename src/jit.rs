@@ -50,6 +50,13 @@ impl JIT {
     pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
         let name = "main";
 
+        // Find the main function.
+        let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] {
+            d
+        } else {
+            panic!()
+        };
+
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -61,13 +68,6 @@ impl JIT {
         builder.seal_block(entry_block);
 
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
-
-        // Find the main function.
-        let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] {
-            d
-        } else {
-            panic!()
-        };
 
         trans.translate_fn(main_decl, decls);
 
