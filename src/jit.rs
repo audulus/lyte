@@ -116,8 +116,6 @@ impl JIT {
 
         trans.translate_fn(decl, decls);
 
-        // println!("{}", self.ctx.func);
-
         // Need a return instruction at the end of the function's block.
         trans.builder.ins().return_(&[]);
 
