@@ -243,14 +243,14 @@ impl<'a> FunctionTranslator<'a> {
                 });
 
                 // Create an instruction that loads the address of the stack slot.
-                let addr = self.builder.ins().stack_addr(I32, slot, 0);
+                let addr = self.builder.ins().stack_addr(I64, slot, 0);
 
                 if let Some(init_id) = init {
                     let init_value = self.translate_expr(*init_id, decl, decls);
 
                     self.builder
                         .ins()
-                        .store(MemFlags::new(), addr, init_value, 0);
+                        .stack_store(init_value, slot, 0);
                 }
 
                 addr
