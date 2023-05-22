@@ -57,27 +57,7 @@ impl JIT {
             panic!()
         };
 
-        // Translate into cranelift IR.
-        // Create the builder to build a function.
-        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
-
-        // Create the entry block, to start emitting code in.
-        let entry_block = builder.create_block();
-
-        builder.switch_to_block(entry_block);
-        builder.seal_block(entry_block);
-
-        let mut trans = FunctionTranslator::new(builder, &mut self.module);
-
-        trans.translate_fn(main_decl, decls);
-
-        // println!("{}", self.ctx.func);
-
-        // Need a return instruction at the end of the function's block.
-        trans.builder.ins().return_(&[]);
-
-        // Indicate we're finished with the function.
-        trans.builder.finalize();
+        self.function_body(decls, main_decl);
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
