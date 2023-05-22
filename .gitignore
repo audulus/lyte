@@ -13,3 +13,7 @@ Cargo.lock
 # Added by cargo
 
 /target
+
+# macOS turds
+
+.DS_Store
