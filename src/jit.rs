@@ -10,7 +10,7 @@ use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{DataContext, Linkage, Module};
+use cranelift_module::{Linkage, Module};
 use cranelift_codegen::verifier::verify_function;
 use std::collections::HashMap;
 use std::vec;
@@ -26,9 +26,6 @@ pub struct JIT {
     /// context per thread, though this isn't in the simple demo here.
     ctx: codegen::Context,
 
-    /// The data context, which is to data objects what `ctx` is to functions.
-    data_ctx: DataContext,
-
     /// The module, with the jit backend, which manages the JIT'd
     /// functions.
     module: JITModule,
@@ -41,7 +38,6 @@ impl Default for JIT {
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
-            data_ctx: DataContext::new(),
             module,
         }
     }
