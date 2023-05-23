@@ -47,7 +47,7 @@ impl Default for JIT {
 impl JIT {
 
     fn setup_library(&mut self) {
-        let signature = self.module
+        let func_id = self.module
         .declare_function("assert", Linkage::Import, &ir::Signature {
             params: vec![AbiParam::new(I32)],
             returns: vec![],
@@ -56,7 +56,7 @@ impl JIT {
         .unwrap();
 
         self.module.define_function(
-            signature,
+            func_id,
             &mut self.ctx,
         ).unwrap();
     }
