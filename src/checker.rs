@@ -391,6 +391,26 @@ impl Checker {
 
                 ty
             }
+            Expr::Let(name, init, ty) => {
+                let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
+
+                    let init_ty = self.check_expr(*init, arena, decls);
+
+                    self.eq(
+                        ty,
+                        init_ty,
+                        arena.locs[id],
+                        "variable initializer type must match",
+                    );
+
+                self.vars.push(Var {
+                    name: *name,
+                    ty,
+                    mutable: true,
+                });
+
+                ty
+            }
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
             Expr::Return(expr) => self.check_expr(*expr, arena, decls),
             Expr::ArrayLiteral(exprs) => {

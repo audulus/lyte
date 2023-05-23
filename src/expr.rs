@@ -29,7 +29,7 @@ pub enum Expr {
     False,
     AsTy(ExprID, TypeID),
     Assign(Name, ExprID),
-    Let(Name, ExprID),
+    Let(Name, ExprID, Option<TypeID>),
     Var(Name, Option<ExprID>, Option<TypeID>),
     If(ExprID, ExprID, Option<ExprID>),
     While(ExprID, ExprID),
@@ -38,4 +38,5 @@ pub enum Expr {
     Enum(Name),
     Tuple(Vec<ExprID>),
     Arena(ExprID),
+    Error
 }

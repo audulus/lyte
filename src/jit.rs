@@ -231,7 +231,7 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
-            Expr::Let(_name, init) => self.translate_expr(*init, decl, decls),
+            Expr::Let(_name, init, _) => self.translate_expr(*init, decl, decls),
             Expr::Var(_name, init, _) => {
                 let ty = &decl.types[expr];
                 let sz = ty.size(decls) as u32;

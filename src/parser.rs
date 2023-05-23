@@ -629,7 +629,7 @@ fn parse_stmt(
     errors: &mut Vec<ParseError>,
 ) -> ExprID {
     match lexer.tok.clone() {
-        Token::Var | Token::Let => {
+        Token::Var => {
             lexer.next();
             let name = expect_id(lexer, errors);
 
@@ -647,6 +647,22 @@ fn parse_stmt(
                     message: String::from("expected assignment or type"),
                 });
                 arena.add(Expr::Var(name, None, None), lexer.loc)
+            }
+        }
+        Token::Let => {
+            lexer.next();
+            let name = expect_id(lexer, errors);
+
+            if lexer.tok == Token::Assign {
+                lexer.next();
+                let e = parse_lambda(lexer, arena, typevars, errors);
+                arena.add(Expr::Let(name, e, None), lexer.loc)
+            } else {
+                errors.push(ParseError {
+                    location: lexer.loc,
+                    message: String::from("expected assignment or type"),
+                });
+                arena.add(Expr::Error, lexer.loc)
             }
         }
         Token::Arena => {
