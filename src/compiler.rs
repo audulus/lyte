@@ -265,4 +265,22 @@ mod tests {
 
         compiler.jit();
     }
+
+    #[test]
+    fn basic2() {
+        let code = r#"
+           main {
+              let x = 1
+              let y = x
+           }
+        "#;
+
+        let mut compiler = crate::Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.update_path(&paths[0], code.into());
+        compiler.set_paths(paths);
+
+        compiler.jit();
+    }
 }

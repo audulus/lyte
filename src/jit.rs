@@ -137,6 +137,7 @@ impl crate::Type {
     fn cranelift_type(&self) -> Type {
         match self {
             crate::Type::Void => INVALID,
+            &crate::Type::Int32 => I32,
             crate::Type::Float32 => F32,
             crate::Type::Float64 => F64,
 
@@ -231,8 +232,14 @@ impl<'a> FunctionTranslator<'a> {
                     panic!()
                 }
             }
-            Expr::Let(_name, init, _) => self.translate_expr(*init, decl, decls),
-            Expr::Var(_name, init, _) => {
+            Expr::Let(name, init, _) => {
+                let ty = &decl.types[expr];
+                let init_val = self.translate_expr(*init, decl, decls);
+                let var = self.delcare_variable(name, ty.cranelift_type());
+                self.builder.def_var(var, init_val);
+                init_val
+            }
+            Expr::Var(name, init, _) => {
                 let ty = &decl.types[expr];
                 let sz = ty.size(decls) as u32;
 
