@@ -161,8 +161,6 @@ impl crate::Type {
     }
 }
 
-/// A collection of state used for translating from toy-language AST nodes
-/// into Cranelift IR.
 struct FunctionTranslator<'a> {
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
