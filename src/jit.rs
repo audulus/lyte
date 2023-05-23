@@ -12,6 +12,7 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
 use cranelift_codegen::verifier::verify_function;
+use cranelift::codegen::{self, ir, settings};
 use std::collections::HashMap;
 use std::vec;
 
@@ -44,6 +45,22 @@ impl Default for JIT {
 }
 
 impl JIT {
+
+    fn setup_library(&mut self) {
+        let signature = self.module
+        .declare_function("assert", Linkage::Import, &ir::Signature {
+            params: vec![AbiParam::new(I32)],
+            returns: vec![],
+            call_conv: CallConv::SystemV,
+        })
+        .unwrap();
+
+        self.module.define_function(
+            signature,
+            &mut self.ctx,
+        ).unwrap();
+    }
+
     /// Compile our IR into native code.
     pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
         let name = "main";
@@ -364,4 +381,8 @@ impl<'a> FunctionTranslator<'a> {
         }
         var
     }
+}
+
+extern "C" fn lyte_assert(val: i32) {
+    assert!(val != 0);
 }
