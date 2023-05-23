@@ -194,6 +194,18 @@ impl<'a> FunctionTranslator<'a> {
         self.translate_expr(decl.body.unwrap(), decl, decls);
     }
 
+    fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl) -> Variable {
+        match &decl.arena[expr] {
+            Expr::Id(name) => {
+                *self.variables.get(&**name).unwrap()
+            }
+            _ => {
+                println!("unimplemented expression: {:?}", &decl.arena[expr]);
+                todo!();
+            }
+        }
+    }
+
     fn translate_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
             Expr::Int(imm) => {
@@ -241,26 +253,14 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Var(name, init, _) => {
                 let ty = &decl.types[expr];
-                let sz = ty.size(decls) as u32;
-
-                // Allocate a new stack slot with a size of the variable.
-                let slot = self.builder.create_sized_stack_slot(StackSlotData {
-                    kind: StackSlotKind::ExplicitSlot,
-                    size: sz,
-                });
-
-                // Create an instruction that loads the address of the stack slot.
-                let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                let var = self.delcare_variable(name, ty.cranelift_type());
 
                 if let Some(init_id) = init {
                     let init_value = self.translate_expr(*init_id, decl, decls);
-
-                    self.builder
-                        .ins()
-                        .stack_store(init_value, slot, 0);
+                    self.builder.def_var(var, init_value);
                 }
 
-                addr
+                self.builder.ins().iconst(I32, 0)
             }
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.types[*lhs];
@@ -301,12 +301,12 @@ impl<'a> FunctionTranslator<'a> {
         decl: &FuncDecl,
         decls: &crate::DeclTable,
     ) -> Value {
-        let lhs = self.translate_expr(lhs_id, decl, decls);
-        let rhs = self.translate_expr(rhs_id, decl, decls);
-        let t = decl.types[lhs_id];
-
+        
         match binop {
             Binop::Plus => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
                 if *t == crate::types::Type::Int32 {
                     self.builder.ins().iadd(lhs, rhs)
                 } else if *t == crate::types::Type::Float32 {
@@ -316,6 +316,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Minus => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
                 if *t == crate::types::Type::Int32 {
                     self.builder.ins().isub(lhs, rhs)
                 } else if *t == crate::types::Type::Float32 {
@@ -325,6 +328,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Mult => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
                 if *t == crate::types::Type::Int32 {
                     self.builder.ins().imul(lhs, rhs)
                 } else if *t == crate::types::Type::Float32 {
@@ -334,6 +340,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Div => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
                 if *t == crate::types::Type::Int32 {
                     self.builder.ins().udiv(lhs, rhs)
                 } else if *t == crate::types::Type::Float32 {
@@ -343,12 +352,10 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Assign => {
-                if *t == crate::types::Type::Int32 {
-                    let _ = self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
-                    lhs
-                } else {
-                    todo!()
-                }
+                let lhs = self.translate_lvalue(lhs_id, decl);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                self.builder.def_var(lhs, rhs);
+                rhs
             }
             _ => todo!(),
         }

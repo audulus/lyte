@@ -283,4 +283,22 @@ mod tests {
 
         compiler.jit();
     }
+
+    #[test]
+    fn var() {
+        let code = r#"
+           main {
+              var x = 1
+              x = 2
+           }
+        "#;
+
+        let mut compiler = crate::Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.update_path(&paths[0], code.into());
+        compiler.set_paths(paths);
+
+        compiler.jit();
+    }
 }

@@ -1,0 +1,8 @@
+
+// args: --c
+// expected stdout:
+// compilation successful
+main {
+    var x = 1
+    x = 2
+}
