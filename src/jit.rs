@@ -240,7 +240,7 @@ impl<'a> FunctionTranslator<'a> {
                     args.push(self.translate_expr(*arg_id, decl, decls))
                 }
 
-                if let crate::Type::Func(from, to) = *(decl.types[expr]) {
+                if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
                     let mut sig = Signature::new(CallConv::Fast);
                     if let crate::Type::Tuple(args) = &*from {
                         sig.params = args
