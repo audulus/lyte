@@ -17,6 +17,10 @@ Interfaces are used to provide functions that must exist when another function i
 
 Static analysis (probably via abstract interpretation) should be used to ensure that array indexing is in bounds. If the compiler fails to prove the index is in bounds, the programmer can put a conditional around the array access.
 
+## Safe transmutation of memory
+
+In rust, `transmute` is unsafe. Perhaps we can restrict our type system such that transmute is always safe (no pointers, etc.). With safe transmutation, we could implement a memory allocator safely. This may conflict with dynamic ownership which would involve storing pointers in memory.
+
 ## References
 
 [Exponential time complexity in the Swift type checker](https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html)
