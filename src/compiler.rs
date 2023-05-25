@@ -307,8 +307,8 @@ mod tests {
         let code = r#"
             assert(value: i32) → void
             main {
-               let x = 1
-               // assert(x)
+               let x = 42
+               assert(x)
             }
         "#;
 
