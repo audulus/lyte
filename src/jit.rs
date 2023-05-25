@@ -377,6 +377,10 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_func(&mut self, name: &Name, ty: &crate::Type) -> Value {
 
+        if *name == Name::str("assert") {
+            return self.builder.ins().iconst(I64, lyte_assert as i64);
+        }
+
         if let crate::Type::Func(dom, rng) = ty {
             let mut sig = self.module.make_signature();
 
