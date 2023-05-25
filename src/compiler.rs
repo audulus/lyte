@@ -301,4 +301,23 @@ mod tests {
 
         compiler.jit();
     }
+
+    #[test]
+    fn test_assert() {
+        let code = r#"
+            assert(value: i32) → void
+            main {
+               let x = 1
+               // assert(x)
+            }
+        "#;
+
+        let mut compiler = crate::Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.update_path(&paths[0], code.into());
+        compiler.set_paths(paths);
+
+        compiler.jit();
+    }
 }
