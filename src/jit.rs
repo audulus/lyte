@@ -150,7 +150,7 @@ impl crate::Type {
     fn cranelift_type(&self) -> Type {
         match self {
             crate::Type::Void => INVALID,
-            &crate::Type::Int32 => I32,
+            crate::Type::Int32 => I32,
             crate::Type::Float32 => F32,
             crate::Type::Float64 => F64,
 
