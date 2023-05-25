@@ -223,8 +223,11 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().iconst(I32, *imm)
             }
             Expr::Id(name) => {
-                let variable = self.variables.get(&**name).unwrap();
-                self.builder.use_var(*variable)
+                if let Some(variable) = self.variables.get(&**name) {
+                    self.builder.use_var(*variable)
+                } else {
+                    self.translate_func(name, &*decl.types[expr])
+                }
             }
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
@@ -370,6 +373,35 @@ impl<'a> FunctionTranslator<'a> {
             }
             _ => todo!(),
         }
+    }
+
+    fn translate_func(&mut self, name: &Name, ty: &crate::Type) -> Value {
+
+        if let crate::Type::Func(dom, rng) = ty {
+            let mut sig = self.module.make_signature();
+
+            // Add a parameter for each argument.
+            if let crate::Type::Tuple(types) = &**dom {
+                for ty in types {
+                    sig.params.push(AbiParam::new(ty.cranelift_type()));
+                }
+            } else {
+                sig.params.push(AbiParam::new(dom.cranelift_type()));
+            }
+            
+            sig.returns.push(AbiParam::new(rng.cranelift_type()));
+    
+            let callee = self
+                        .module
+                        .declare_function(&name, Linkage::Import, &sig)
+                        .expect("problem declaring function");
+            let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+            self.builder.ins().func_addr(I64, local_callee)
+        } else {
+            panic!();
+        }
+
     }
 
     fn delcare_variable(&mut self, name: &String, ty: Type) -> Variable {
