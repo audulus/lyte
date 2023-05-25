@@ -13,6 +13,10 @@ impl Name {
     pub fn new(s: String) -> Self {
         Self(Intern::new(s))
     }
+
+    pub fn str(s: &str) -> Self {
+        Self(Intern::new(s.into()))
+    }
 }
 
 impl Deref for Name {
