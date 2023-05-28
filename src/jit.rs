@@ -168,9 +168,7 @@ impl crate::Type {
             crate::Type::Int32 => I32,
             crate::Type::Float32 => F32,
             crate::Type::Float64 => F64,
-
-            // Should this be smaller?
-            crate::Type::Bool => I32,
+            crate::Type::Bool => I8,
 
             // Functions probably need a closure pointer?
             crate::Type::Func(_, _) => I64,
@@ -458,7 +456,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 }
 
-extern "C" fn lyte_assert(val: i32) {
+extern "C" fn lyte_assert(val: i8) {
     println!("well hot damn! got {}", val);
     assert!(val != 0);
 }

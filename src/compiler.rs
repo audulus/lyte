@@ -305,10 +305,10 @@ mod tests {
     #[test]
     fn test_assert() {
         let code = r#"
-            assert(value: i32) → void
+            assert(value: bool) → void
             main {
                let x = 42
-               assert(x)
+               assert(x == 42)
             }
         "#;
 
