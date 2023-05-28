@@ -22,6 +22,10 @@ Static analysis (probably via abstract interpretation) should be used to ensure 
 In rust, `transmute` is unsafe. Perhaps we can restrict our type system such that transmute is always safe (no pointers, etc.). With safe transmutation, we could implement a memory allocator safely. This may conflict with dynamic ownership which would involve storing pointers in memory. Also, function pointers would have to
 be stored as indices into function tables (each table would be all functions of a particular signature).
 
+## Unboxed Function closures
+
+To avoid having to use generics for closures, we can compute a max closure size for each function signature by analyzing the whole program.
+
 ## References
 
 [Exponential time complexity in the Swift type checker](https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html)
