@@ -457,6 +457,5 @@ impl<'a> FunctionTranslator<'a> {
 }
 
 extern "C" fn lyte_assert(val: i8) {
-    println!("well hot damn! got {}", val);
     assert!(val != 0);
 }
