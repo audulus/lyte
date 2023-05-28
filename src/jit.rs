@@ -386,6 +386,30 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.def_var(lhs, rhs);
                 rhs
             }
+            Binop::Equal => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
+                if *t == crate::types::Type::Int32 {
+                    self.builder.ins().icmp(IntCC::Equal, lhs, rhs)
+                } else if *t == crate::types::Type::Float32 {
+                    self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)
+                } else {
+                    todo!()
+                }
+            }
+            Binop::NotEqual => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
+                if *t == crate::types::Type::Int32 {
+                    self.builder.ins().icmp(IntCC::NotEqual, lhs, rhs)
+                } else if *t == crate::types::Type::Float32 {
+                    self.builder.ins().fcmp(FloatCC::NotEqual, lhs, rhs)
+                } else {
+                    todo!()
+                }
+            }
             _ => todo!(),
         }
     }
