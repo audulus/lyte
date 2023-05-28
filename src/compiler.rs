@@ -320,4 +320,23 @@ mod tests {
 
         compiler.jit();
     }
+
+    #[test]
+    fn test_assert_ne() {
+        let code = r#"
+            assert(value: bool) → void
+            main {
+               let x = 42
+               assert(x != 5)
+            }
+        "#;
+
+        let mut compiler = crate::Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.update_path(&paths[0], code.into());
+        compiler.set_paths(paths);
+
+        compiler.jit();
+    }
 }
