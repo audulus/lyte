@@ -339,4 +339,28 @@ mod tests {
 
         compiler.jit();
     }
+
+    #[test]
+    fn test_field_assign() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            struct S {
+                x: i32
+            }
+
+            main {
+                var s: S
+                s.x = 2
+            }
+        "#;
+
+        let mut compiler = crate::Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.update_path(&paths[0], code.into());
+        compiler.set_paths(paths);
+
+        compiler.jit();
+    }
 }

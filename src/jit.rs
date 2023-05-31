@@ -218,10 +218,28 @@ impl<'a> FunctionTranslator<'a> {
         self.translate_expr(decl.body.unwrap(), decl, decls);
     }
 
-    fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl) -> Variable {
+    fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
             Expr::Id(name) => {
-                *self.variables.get(&**name).unwrap()
+                let var = *self.variables.get(&**name).unwrap();
+                self.builder.use_var(var)
+            }
+            Expr::Field(lhs, name) => {
+                let lhs_ty = decl.types[*lhs];
+                let lhs_value = self.translate_lvalue(*lhs, decl, decls);
+                if let crate::Type::Name(struct_name, _) = &*lhs_ty {
+                    let struct_decl = decls.find(*struct_name);
+                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                        let off = s.field_offset(name, decls, &self.current_instance);
+                        let off_value = self.builder.ins().iconst(I64, off as i64);
+                        self.builder.ins().iadd(lhs_value, off_value)
+                    } else {
+                        panic!();
+                    }
+                } else {
+                    panic!();
+                }
+                
             }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
@@ -393,10 +411,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Assign => {
-                let lhs = self.translate_lvalue(lhs_id, decl);
+                let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let p = self.builder.use_var(lhs);
-                self.builder.ins().store(MemFlags::new(), rhs, p, 0);
+                self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
                 // self.builder.def_var(lhs, rhs);
                 rhs
             }
