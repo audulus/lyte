@@ -345,10 +345,10 @@ impl<'a> FunctionTranslator<'a> {
                             .ins()
                             .load(load_ty, MemFlags::new(), lhs_val, off)
                     } else {
-                        panic!();
+                        panic!("unknown struct. should be caught by checker");
                     }
                 } else {
-                    panic!();
+                    panic!("lhs of field expression is not a struct. should be caught by checker");
                 }
             }
             Expr::Subscript(lhs, rhs) => {
