@@ -253,7 +253,7 @@ mod tests {
     fn basic() {
         let code = r#"
            main {
-              let x = 1
+              var x = 1
            }
         "#;
 
@@ -270,8 +270,8 @@ mod tests {
     fn basic2() {
         let code = r#"
            main {
-              let x = 1
-              let y = x
+              var x = 1
+              var y = x
            }
         "#;
 
@@ -307,7 +307,7 @@ mod tests {
         let code = r#"
             assert(value: bool) → void
             main {
-               let x = 42
+               var x = 42
                assert(x == 42)
             }
         "#;
@@ -326,7 +326,7 @@ mod tests {
         let code = r#"
             assert(value: bool) → void
             main {
-               let x = 42
+               var x = 42
                assert(x != 5)
             }
         "#;

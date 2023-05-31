@@ -236,10 +236,12 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().iconst(I32, *imm)
             }
             Expr::Id(name) => {
+                let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
-                    self.builder.use_var(*variable)
+                    let p = self.builder.use_var(*variable);
+                    self.builder.ins().load(ty.cranelift_type(), MemFlags::new(), p, 0)
                 } else {
-                    self.translate_func(name, &*decl.types[expr])
+                    self.translate_func(name, &*ty)
                 }
             }
             Expr::Binop(op, lhs_id, rhs_id) => {
@@ -280,11 +282,23 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Var(name, init, _) => {
                 let ty = &decl.types[expr];
-                let var = self.delcare_variable(name, ty.cranelift_type());
+                let var = self.delcare_variable(name, I64);
+
+                // Allocate a new stack slot with a size of the variable.
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: ty.size(decls) as u32,
+                });
+
+                // Create an instruction that loads the address of the stack slot.
+                let addr = self.builder.ins().stack_addr(I64, slot, 0);
+
+                // Define the variable as the address of the slot so we can assign to it.
+                self.builder.def_var(var, addr);
 
                 if let Some(init_id) = init {
                     let init_value = self.translate_expr(*init_id, decl, decls);
-                    self.builder.def_var(var, init_value);
+                    self.builder.ins().stack_store(init_value, slot, 0);
                 }
 
                 self.builder.ins().iconst(I32, 0)
@@ -381,7 +395,9 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Assign => {
                 let lhs = self.translate_lvalue(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                self.builder.def_var(lhs, rhs);
+                let p = self.builder.use_var(lhs);
+                self.builder.ins().store(MemFlags::new(), rhs, p, 0);
+                // self.builder.def_var(lhs, rhs);
                 rhs
             }
             Binop::Equal => {
