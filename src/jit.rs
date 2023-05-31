@@ -437,8 +437,22 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Assign => {
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
-                // self.builder.def_var(lhs, rhs);
+                let t = decl.types[lhs_id];
+                if t.is_ptr() {
+                    // memcpy the type
+                    let size = t.size(decls) as u64;
+                    self.builder.emit_small_memory_copy(
+                        self.module.isa().frontend_config(), 
+                        lhs, 
+                        rhs, size, 
+                        4, 
+                        4, 
+                        true, 
+                        MemFlags::trusted());
+                } else {
+                    self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
+                }
+                
                 rhs
             }
             Binop::Equal => {
