@@ -394,14 +394,14 @@ impl Checker {
             Expr::Let(name, init, ty) => {
                 let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
 
-                    let init_ty = self.check_expr(*init, arena, decls);
+                let init_ty = self.check_expr(*init, arena, decls);
 
-                    self.eq(
-                        ty,
-                        init_ty,
-                        arena.locs[id],
-                        "variable initializer type must match",
-                    );
+                self.eq(
+                    ty,
+                    init_ty,
+                    arena.locs[id],
+                    "variable initializer type must match",
+                );
 
                 self.vars.push(Var {
                     name: *name,

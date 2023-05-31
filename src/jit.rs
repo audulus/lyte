@@ -6,13 +6,13 @@ use crate::expr::*;
 use crate::DeclTable;
 use crate::Instance;
 extern crate cranelift_codegen;
+use cranelift::codegen::{self, ir, settings};
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
 use cranelift::prelude::*;
+use cranelift_codegen::verifier::verify_function;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
-use cranelift_codegen::verifier::verify_function;
-use cranelift::codegen::{self, ir, settings};
 use std::collections::HashMap;
 use std::vec;
 
@@ -47,7 +47,9 @@ impl Default for JIT {
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
         });
-        let isa = isa_builder.finish(settings::Flags::new(flag_builder)).unwrap();
+        let isa = isa_builder
+            .finish(settings::Flags::new(flag_builder))
+            .unwrap();
         let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
         let module = JITModule::new(builder);
@@ -60,20 +62,21 @@ impl Default for JIT {
 }
 
 impl JIT {
-
     fn setup_library(&mut self) {
-        let func_id = self.module
-        .declare_function("assert", Linkage::Import, &ir::Signature {
-            params: vec![AbiParam::new(I32)],
-            returns: vec![],
-            call_conv: CallConv::SystemV,
-        })
-        .unwrap();
+        let func_id = self
+            .module
+            .declare_function(
+                "assert",
+                Linkage::Import,
+                &ir::Signature {
+                    params: vec![AbiParam::new(I32)],
+                    returns: vec![],
+                    call_conv: CallConv::SystemV,
+                },
+            )
+            .unwrap();
 
-        self.module.define_function(
-            func_id,
-            &mut self.ctx,
-        ).unwrap();
+        self.module.define_function(func_id, &mut self.ctx).unwrap();
     }
 
     /// Compile our IR into native code.
@@ -129,7 +132,6 @@ impl JIT {
     }
 
     fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl) {
-
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -156,9 +158,7 @@ impl JIT {
         if let Err(errors) = res {
             panic!("{}", errors);
         }
-
     }
-
 }
 
 impl crate::Type {
@@ -248,7 +248,6 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     panic!();
                 }
-                
             }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
@@ -259,9 +258,7 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
-            Expr::Int(imm) => {
-                self.builder.ins().iconst(I32, *imm)
-            }
+            Expr::Int(imm) => self.builder.ins().iconst(I32, *imm),
             Expr::Id(name) => {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
@@ -269,7 +266,9 @@ impl<'a> FunctionTranslator<'a> {
                     if ty.is_ptr() {
                         p
                     } else {
-                        self.builder.ins().load(ty.cranelift_type(), MemFlags::new(), p, 0)
+                        self.builder
+                            .ins()
+                            .load(ty.cranelift_type(), MemFlags::new(), p, 0)
                     }
                 } else {
                     self.translate_func(name, &*ty)
@@ -384,7 +383,6 @@ impl<'a> FunctionTranslator<'a> {
         decl: &FuncDecl,
         decls: &crate::DeclTable,
     ) -> Value {
-        
         match binop {
             Binop::Plus => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
@@ -442,17 +440,19 @@ impl<'a> FunctionTranslator<'a> {
                     // memcpy the type
                     let size = t.size(decls) as u64;
                     self.builder.emit_small_memory_copy(
-                        self.module.isa().frontend_config(), 
-                        lhs, 
-                        rhs, size, 
-                        4, 
-                        4, 
-                        true, 
-                        MemFlags::trusted());
+                        self.module.isa().frontend_config(),
+                        lhs,
+                        rhs,
+                        size,
+                        4,
+                        4,
+                        true,
+                        MemFlags::trusted(),
+                    );
                 } else {
                     self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
                 }
-                
+
                 rhs
             }
             Binop::Equal => {
@@ -484,7 +484,6 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn translate_func(&mut self, name: &Name, ty: &crate::Type) -> Value {
-
         if *name == Name::str("assert") {
             return self.builder.ins().iconst(I64, lyte_assert as i64);
         }
@@ -500,20 +499,19 @@ impl<'a> FunctionTranslator<'a> {
             } else {
                 sig.params.push(AbiParam::new(dom.cranelift_type()));
             }
-            
+
             sig.returns.push(AbiParam::new(rng.cranelift_type()));
-    
+
             let callee = self
-                        .module
-                        .declare_function(&name, Linkage::Import, &sig)
-                        .expect("problem declaring function");
+                .module
+                .declare_function(&name, Linkage::Import, &sig)
+                .expect("problem declaring function");
             let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
             self.builder.ins().func_addr(I64, local_callee)
         } else {
             panic!();
         }
-
     }
 
     fn delcare_variable(&mut self, name: &String, ty: Type) -> Variable {

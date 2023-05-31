@@ -38,5 +38,5 @@ pub enum Expr {
     Enum(Name),
     Tuple(Vec<ExprID>),
     Arena(ExprID),
-    Error
+    Error,
 }

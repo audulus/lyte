@@ -1,6 +1,6 @@
 use crate::*;
-use std::sync::Arc;
 use core::mem;
+use std::sync::Arc;
 
 // An AST.
 //
@@ -234,7 +234,6 @@ impl Compiler {
                 let code_fn = mem::transmute::<_, Entry>(code_ptr);
                 code_fn();
             }
-
         } else {
             println!("{:?}", r);
         }
