@@ -157,7 +157,7 @@ impl TypeID {
                 }
             }
             Type::Array(ty, sz) => ty.size(decls) * (*sz),
-            Type::Anon(i) => panic!("asked for size of anonymouse type variable {}", i),
+            Type::Anon(i) => panic!("asked for size of anonymous type variable {}", i),
             _ => todo!(),
         }
     }
