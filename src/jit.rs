@@ -352,6 +352,17 @@ impl<'a> FunctionTranslator<'a> {
                     panic!();
                 }
             }
+            Expr::Subscript(lhs, rhs) => {
+                let lhs_ty = decl.types[*lhs];
+                let lhs_val = self.translate_expr(*lhs, decl, decls);
+                let rhs_val = self.translate_expr(*rhs, decl, decls);
+                if let crate::Type::Array(ty, _) = &*lhs_ty {
+                    let off = self.builder.ins().imul_imm(rhs_val, ty.size(decls) as i64);
+                    self.builder.ins().iadd(lhs_val, off)
+                } else {
+                    panic!("subscript expression not on array. should be caught by type checker");
+                }
+            }
             Expr::Block(exprs) => {
                 for expr in exprs {
                     self.translate_expr(*expr, decl, decls);
