@@ -189,6 +189,15 @@ impl crate::Type {
             }
         }
     }
+
+    // Are we representing values of this type
+    // using a pointer or is the value in the register?
+    fn is_ptr(&self) -> bool {
+        match self {
+            crate::Type::Name(_, _) | crate::Type::Tuple(_) => true,
+            _ => false,
+        }
+    }
 }
 
 struct FunctionTranslator<'a> {
@@ -257,7 +266,11 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
                     let p = self.builder.use_var(*variable);
-                    self.builder.ins().load(ty.cranelift_type(), MemFlags::new(), p, 0)
+                    if ty.is_ptr() {
+                        p
+                    } else {
+                        self.builder.ins().load(ty.cranelift_type(), MemFlags::new(), p, 0)
+                    }
                 } else {
                     self.translate_func(name, &*ty)
                 }
