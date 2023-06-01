@@ -505,6 +505,10 @@ impl<'a> FunctionTranslator<'a> {
             return self.builder.ins().iconst(I64, lyte_assert as i64);
         }
 
+        if *name == Name::str("print") {
+            return self.builder.ins().iconst(I64, lyte_print_i32 as i64);
+        }
+
         if let crate::Type::Func(dom, rng) = ty {
             let mut sig = self.module.make_signature();
 
@@ -544,4 +548,8 @@ impl<'a> FunctionTranslator<'a> {
 
 extern "C" fn lyte_assert(val: i8) {
     assert!(val != 0);
+}
+
+extern "C" fn lyte_print_i32(val: i32) {
+    println!("{}", val);
 }
