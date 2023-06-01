@@ -339,6 +339,27 @@ mod tests {
     }
 
     #[test]
+    fn test_field_assign_2() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            struct S {
+                x: i32,
+                y: i32,
+                z: i32
+            }
+
+            main {
+                var s: S
+                s.z = 42
+                assert(s.z == 42)
+            }
+        "#;
+
+        jit(code);
+    }
+
+    #[test]
     fn test_struct_assign() {
         let code = r#"
             assert(cond: bool) → void
