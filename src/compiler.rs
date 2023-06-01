@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_field_assign_2() {
-        let code = r#"
+        jit(r#"
             assert(cond: bool) → void
 
             struct S {
@@ -354,9 +354,7 @@ mod tests {
                 s.z = 42
                 assert(s.z == 42)
             }
-        "#;
-
-        jit(code);
+        "#);
     }
 
     #[test]
