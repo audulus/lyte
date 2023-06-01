@@ -358,4 +358,19 @@ mod tests {
 
         jit(code);
     }
+
+    #[test]
+    fn test_array() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            main {
+                var a: [i32; 2]
+                a[1] = 42
+                // assert(a[1] == 42)
+            }
+        "#;
+
+        jit(code);
+    }
 }

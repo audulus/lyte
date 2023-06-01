@@ -19,7 +19,6 @@ pub enum Expr {
     Lambda { params: Vec<Param>, body: ExprID },
     String(String),
     Char(char),
-    Subscript(ExprID, ExprID),
     Cast,
     Field(ExprID, Name),
     Array(ExprID, ExprID),

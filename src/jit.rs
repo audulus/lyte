@@ -176,8 +176,8 @@ impl crate::Type {
             // Structs are represented as pointers.
             crate::Type::Name(_, _) => I64,
 
-            // Pair of pointer and length.
-            crate::Type::Array(_, _) => I64X2,
+            // Pointer to start of array. (how should we do slices?)
+            crate::Type::Array(_, _) => I64,
 
             // Tuple is a pointer.
             crate::Type::Tuple(_) => I64,
@@ -247,6 +247,18 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 } else {
                     panic!();
+                }
+            }
+            Expr::ArrayIndex(lhs, rhs) => {
+                let lhs_ty = decl.types[*lhs];
+                let lhs_val = self.translate_lvalue(*lhs, decl, decls);
+                let rhs_val = self.translate_expr(*rhs, decl, decls);
+                if let crate::Type::Array(ty, _) = &*lhs_ty {
+                    let off = self.builder.ins().imul_imm(rhs_val, ty.size(decls) as i64);
+                    let off = self.builder.ins().uextend(I64, off);
+                    self.builder.ins().iadd(lhs_val, off)
+                } else {
+                    panic!("subscript expression not on array. should be caught by type checker");
                 }
             }
             _ => {
@@ -351,12 +363,13 @@ impl<'a> FunctionTranslator<'a> {
                     panic!("lhs of field expression is not a struct. should be caught by checker");
                 }
             }
-            Expr::Subscript(lhs, rhs) => {
+            Expr::ArrayIndex(lhs, rhs) => {
                 let lhs_ty = decl.types[*lhs];
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
                 let rhs_val = self.translate_expr(*rhs, decl, decls);
                 if let crate::Type::Array(ty, _) = &*lhs_ty {
                     let off = self.builder.ins().imul_imm(rhs_val, ty.size(decls) as i64);
+                    let off = self.builder.ins().uextend(I64, off);
                     self.builder.ins().iadd(lhs_val, off)
                 } else {
                     panic!("subscript expression not on array. should be caught by type checker");
