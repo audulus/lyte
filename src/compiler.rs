@@ -386,7 +386,7 @@ mod tests {
             main {
                 var a: [i32; 2]
                 a[1] = 42
-                // assert(a[1] == 42)
+                assert(a[1] == 42)
             }
         "#;
 

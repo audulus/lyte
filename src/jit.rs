@@ -194,7 +194,7 @@ impl crate::Type {
     // using a pointer or is the value in the register?
     fn is_ptr(&self) -> bool {
         match self {
-            crate::Type::Name(_, _) | crate::Type::Tuple(_) => true,
+            crate::Type::Name(_, _) | crate::Type::Tuple(_) | crate::Type::Array(_, _) => true,
             _ => false,
         }
     }
