@@ -370,7 +370,11 @@ impl<'a> FunctionTranslator<'a> {
                 if let crate::Type::Array(ty, _) = &*lhs_ty {
                     let off = self.builder.ins().imul_imm(rhs_val, ty.size(decls) as i64);
                     let off = self.builder.ins().uextend(I64, off);
-                    self.builder.ins().iadd(lhs_val, off)
+                    let p = self.builder.ins().iadd(lhs_val, off);
+                    let load_ty = decl.types[expr].cranelift_type();
+                        self.builder
+                            .ins()
+                            .load(load_ty, MemFlags::new(), p, 0)
                 } else {
                     panic!("subscript expression not on array. should be caught by type checker");
                 }
