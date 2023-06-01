@@ -500,11 +500,11 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn debug_print(&mut self, value: Value) {
-        let f_ptr = self.builder.ins().iconst(I64, lyte_print_i32 as i64);
+    fn debug_print_i64(&mut self, value: Value) {
+        let f_ptr = self.builder.ins().iconst(I64, lyte_print_i64 as i64);
 
         let mut sig = Signature::new(CallConv::Fast);
-        sig.params = vec![AbiParam::new(I32)];
+        sig.params = vec![AbiParam::new(I64)];
         sig.returns = vec![AbiParam::new(I32)];
         let sref = self.builder.import_signature(sig);
         self.builder.ins().call_indirect(sref, f_ptr, &vec![value]);
@@ -563,3 +563,8 @@ extern "C" fn lyte_assert(val: i8) {
 extern "C" fn lyte_print_i32(val: i32) {
     println!("{}", val);
 }
+
+extern "C" fn lyte_print_i64(val: i64) {
+    println!("{}", val);
+}
+
