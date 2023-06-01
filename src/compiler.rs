@@ -331,6 +331,7 @@ mod tests {
             main {
                 var s: S
                 s.x = 2
+                assert(s.x == 2)
             }
         "#;
 
@@ -351,6 +352,7 @@ mod tests {
                 s.x = 2
                 var t: S
                 t = s
+                assert(t.x == 2)
             }
         "#;
 
