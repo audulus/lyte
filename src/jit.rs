@@ -312,7 +312,7 @@ impl<'a> FunctionTranslator<'a> {
                     let call = self.builder.ins().call_indirect(sref, f, &args);
                     self.builder.inst_results(call)[0]
                 } else {
-                    panic!()
+                    panic!("tried to call non-function. should be caught by checker");
                 }
             }
             Expr::Let(name, init, _) => {
