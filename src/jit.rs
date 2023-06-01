@@ -500,6 +500,16 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    fn debug_print(&mut self, value: Value) {
+        let f_ptr = self.builder.ins().iconst(I64, lyte_print_i32 as i64);
+
+        let mut sig = Signature::new(CallConv::Fast);
+        sig.params = vec![AbiParam::new(I32)];
+        sig.returns = vec![AbiParam::new(I32)];
+        let sref = self.builder.import_signature(sig);
+        self.builder.ins().call_indirect(sref, f_ptr, &vec![value]);
+    }
+
     fn translate_func(&mut self, name: &Name, ty: &crate::Type) -> Value {
         if *name == Name::str("assert") {
             return self.builder.ins().iconst(I64, lyte_assert as i64);
