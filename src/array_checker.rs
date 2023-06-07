@@ -59,6 +59,24 @@ impl ArrayChecker {
                     }
                 }
 
+                // match expressions of the form i < id, where id is another variable
+                // with a constraint
+                if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[*cond] {
+                    if let Expr::Id(name) = &decl.arena[*lhs] {
+                        if let Expr::Id(max_name) = &decl.arena[*rhs] {
+                            if let Some(c) = self.constraints.iter().find(|c| c.name == *max_name) {
+                                if let Some(max) = c.max {
+                                    self.constraints.push(IndexConstraint {
+                                        name: *name,
+                                        max: Some(max),
+                                        min: None,
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+
                 self.check_expr(*then_expr, decl, decls);
 
                 if let Some(else_expr) = else_expr {
