@@ -1,5 +1,4 @@
 use crate::*;
-use std::ops::Range;
 
 pub struct ArrayError {
     pub location: Loc,
