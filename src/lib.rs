@@ -18,6 +18,9 @@ use parser::*;
 mod checker;
 pub use checker::*;
 
+mod array_checker;
+pub use array_checker::*;
+
 mod compiler;
 pub use compiler::*;
 
