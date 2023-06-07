@@ -480,6 +480,35 @@ impl Checker {
                 }
                 t
             }
+            Expr::For { var, start, end, body } => {
+                let ty = mk_type(Type::Int32);
+                let start_t = self.check_expr(*start, arena, decls);
+                let end_t = self.check_expr(*end, arena, decls);
+                self.eq(
+                    start_t,
+                    ty,
+                    arena.locs[*start],
+                    "start of for loop must be an integer",
+                );
+                self.eq(
+                    end_t,
+                    ty,
+                    arena.locs[*start],
+                    "end of for loop must be an integer",
+                );
+
+                self.vars.push(Var {
+                    name: *var,
+                    ty,
+                    mutable: false,
+                });
+
+                self.check_expr(*body, arena, decls);
+
+                self.vars.pop();
+                
+                mk_type(Type::Void)
+            }
             Expr::Tuple(exprs) => {
                 let mut types = vec![];
                 for e in exprs {
