@@ -72,6 +72,8 @@ pub enum Token {
     Where,
     Underscore,
     Endl,
+    For,
+    In,
     End,
     Error,
 }
@@ -176,6 +178,8 @@ impl Lexer {
                 "where" => Token::Where,
                 "as" => Token::As,
                 "_" => Token::Underscore,
+                "for" => Token::For,
+                "in" => Token::In,
                 _ => Token::Id(id),
             };
         }

@@ -681,6 +681,17 @@ fn parse_stmt(
             let e = parse_expr(lexer, arena, typevars, errors);
             arena.add(Expr::Return(e), lexer.loc)
         }
+        Token::For => {
+            lexer.next();
+            let var = expect_id(lexer, errors);
+            lexer.next();
+            expect(lexer, Token::In, errors);
+            let start = parse_expr(lexer, arena, typevars, errors);
+            expect(lexer, Token::Range, errors);
+            let end = parse_expr(lexer, arena, typevars, errors);
+            let body = parse_block(lexer, arena, typevars, errors);
+            arena.add(Expr::For { var, start, end, body }, lexer.loc)
+        }
         _ => parse_expr(lexer, arena, typevars, errors),
     }
 }

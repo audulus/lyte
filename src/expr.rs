@@ -32,6 +32,7 @@ pub enum Expr {
     Var(Name, Option<ExprID>, Option<TypeID>),
     If(ExprID, ExprID, Option<ExprID>),
     While(ExprID, ExprID),
+    For {var: Name, start: ExprID, end: ExprID, body: ExprID },
     Block(Vec<ExprID>),
     Return(ExprID),
     Enum(Name),
