@@ -658,7 +658,6 @@ fn parse_stmt(
         Token::For => {
             cx.next();
             let var = expect_id(cx);
-            cx.next();
             expect(Token::In, cx);
             let start = parse_expr(arena, typevars, cx);
             expect(Token::Range, cx);
@@ -1123,6 +1122,7 @@ mod tests {
                 "a = -b",
                 "-a.y",
                 "x as i8",
+                "for x in 0 .. 5 { }",
             ],
         );
     }
