@@ -37,6 +37,8 @@ pub struct ArrayChecker {
 
     /// Constraints we know about each var.
     constraints: Vec<IndexConstraint>,
+
+    errors: Vec<ArrayError>,
 }
 
 impl ArrayChecker {
@@ -44,6 +46,7 @@ impl ArrayChecker {
         Self {
             vars: vec![],
             constraints: vec![],
+            errors: vec![],
         }
     }
 
@@ -119,6 +122,30 @@ impl ArrayChecker {
                 }
 
                 r
+            }
+            Expr::ArrayIndex(array_expr, index_expr) => {
+                let lhs_ty = decl.types[*array_expr];
+                let rhs_r = self.check_expr(*index_expr, decl, decls);
+
+                if rhs_r.min < 0 {
+                    self.errors.push(ArrayError {
+                        location: decl.arena.locs[expr],
+                        message: format!("couldn't prove index is > 0"),
+                    });
+                }
+
+                if let Type::Array(_, n) = *lhs_ty {
+                    if rhs_r.max >= n.into() {
+                        self.errors.push(ArrayError {
+                            location: decl.arena.locs[expr],
+                            message: format!("couldn't prove index is less than array length"),
+                        });
+                    }
+                } else {
+                    panic!("lhs of index expression isn't an array. Should be caught by the type checker.")
+                }
+
+                IndexInterval::default()
             }
             _ => {
                 todo!()
