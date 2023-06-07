@@ -611,7 +611,7 @@ fn parse_stmt(
     typevars: &[Name],
     cx: &mut ParseContext,
 ) -> ExprID {
-    match cx.lex.tok.clone() {
+    match &cx.lex.tok {
         Token::Var => {
             cx.next();
             let name = expect_id(cx);
