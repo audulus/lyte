@@ -36,10 +36,9 @@ fn expect(tok: Token, cx: &mut ParseContext) {
 }
 
 fn expect_id(cx: &mut ParseContext) -> Name {
-    if let Token::Id(string) = &cx.lex.tok {
-        let result = Name::new(string.clone());
+    if let Token::Id(name) = cx.lex.tok {
         cx.next();
-        result
+        name
     } else {
         let message = format!("expected identifier, got {:?}", cx.lex.tok);
         println!("{:?}", message);
@@ -71,7 +70,7 @@ fn parse_typelist(
 }
 
 fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
-    mk_type(match &cx.lex.tok {
+    mk_type(match cx.lex.tok {
         Token::Void => {
             cx.next();
             Type::Void
@@ -104,7 +103,7 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             let r = parse_type(typevars, cx);
             if cx.lex.tok == Token::Semi {
                 cx.next();
-                if let Token::Integer(n) = cx.lex.tok.clone() {
+                if let Token::Integer(n) = cx.lex.tok {
                     cx.next();
                     expect(Token::Rbracket, cx);
                     Type::Array(r, n as i32)
@@ -118,7 +117,6 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             }
         }
         Token::Id(name) => {
-            let name = Name::new(name.clone());
             cx.next();
 
             // Do typevar substitutions here for
@@ -173,8 +171,7 @@ fn parse_paramlist(
     let mut r = vec![];
 
     loop {
-        if let Token::Id(name) = &cx.lex.tok {
-            let name = name.clone();
+        if let Token::Id(name) = cx.lex.tok {
             cx.next();
 
             // In the case of lambdas, we can omit the types.
@@ -186,7 +183,7 @@ fn parse_paramlist(
             };
 
             r.push(Param {
-                name: Name::new(name),
+                name: name,
                 ty,
             })
         }
@@ -470,9 +467,9 @@ fn parse_atom(
     typevars: &[Name],
     cx: &mut ParseContext,
 ) -> ExprID {
-    match &cx.lex.tok {
+    match cx.lex.tok {
         Token::Id(id) => {
-            let e = Expr::Id(Name::new(id.clone()));
+            let e = Expr::Id(id);
             cx.next();
             arena.add(e, cx.lex.loc)
         }
@@ -490,22 +487,22 @@ fn parse_atom(
             arena.add(Expr::Enum(name), cx.lex.loc)
         }
         Token::Integer(x) => {
-            let e = Expr::Int(*x);
+            let e = Expr::Int(x);
             cx.next();
             arena.add(e, cx.lex.loc)
         }
         Token::Real(x) => {
-            let e = Expr::Real(x.clone());
+            let e = Expr::Real(x.to_string());
             cx.next();
             arena.add(e, cx.lex.loc)
         }
         Token::String(s) => {
-            let e = Expr::String(s.clone());
+            let e = Expr::String(s.to_string());
             cx.next();
             arena.add(e, cx.lex.loc)
         }
         Token::Char(c) => {
-            let e = Expr::Char(*c);
+            let e = Expr::Char(c);
             cx.next();
             arena.add(e, cx.lex.loc)
         }
@@ -740,8 +737,7 @@ fn parse_caselist(cx: &mut ParseContext) -> Vec<Name> {
     let mut r = vec![];
 
     loop {
-        if let Token::Id(name) = &cx.lex.tok {
-            let name = Name::new(name.clone());
+        if let Token::Id(name) = cx.lex.tok {
             cx.next();
             r.push(name);
         }
@@ -887,7 +883,7 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
         Token::Id(name) => {
             // Function declaration.
             cx.next();
-            Decl::Func(parse_func_decl(Name::new(name), cx))
+            Decl::Func(parse_func_decl(name, cx))
         }
         Token::Macro => {
             // Macro declaration.

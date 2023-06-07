@@ -1,10 +1,10 @@
 use crate::defs::*;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Token {
-    Id(String),
+    Id(Name),
     Integer(i64),
-    Real(String),
+    Real(Name),
     Lparen,
     Rparen,
     Lbrace,
@@ -64,7 +64,7 @@ pub enum Token {
     Not,
     As,
     Char(char),
-    String(String),
+    String(Name),
     Pipe,
     At,
     Typevar,
@@ -180,7 +180,7 @@ impl Lexer {
                 "_" => Token::Underscore,
                 "for" => Token::For,
                 "in" => Token::In,
-                _ => Token::Id(id),
+                _ => Token::Id(Name::str(&id)),
             };
         }
 
@@ -205,7 +205,7 @@ impl Lexer {
             }
 
             return if fraction {
-                Token::Real(self.code[start..self.i].into())
+                Token::Real(Name::new(self.code[start..self.i].into()))
             } else if let Ok(int_value) = self.code[start..self.i].parse() {
                 Token::Integer(int_value)
             } else {
@@ -228,7 +228,7 @@ impl Lexer {
 
             self.i += 1;
 
-            return Token::String(s);
+            return Token::String(Name::new(s));
         }
 
         if bytes[self.i] == b'\'' {
@@ -396,7 +396,7 @@ mod tests {
     }
 
     fn id(s: &str) -> Token {
-        Token::Id(String::from(s))
+        Token::Id(Name::new(s.into()))
     }
 
     #[test]
@@ -410,8 +410,8 @@ mod tests {
         assert_eq!(tokens(" x "), vec![id("x")]);
         assert_eq!(tokens("_x"), vec![id("_x")]);
         assert_eq!(tokens("42"), vec![Integer(42)]);
-        assert_eq!(tokens("42.0"), vec![Real("42.0".to_string())]);
-        assert_eq!(tokens(".5"), vec![Real(".5".to_string())]);
+        assert_eq!(tokens("42.0"), vec![Real(Name::str("42.0"))]);
+        assert_eq!(tokens(".5"), vec![Real(Name::str(".5"))]);
         assert_eq!(tokens("2 + 2"), vec![Integer(2), Plus, Integer(2)]);
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
@@ -435,10 +435,10 @@ mod tests {
         assert_eq!(tokens("return"), vec![Return]);
         assert_eq!(tokens("struct"), vec![Struct]);
         assert_eq!(tokens("macro"), vec![Macro]);
-        assert_eq!(tokens("\"test\""), vec![Token::String("test".into())]);
+        assert_eq!(tokens("\"test\""), vec![Token::String(Name::str("test"))]);
         assert_eq!(
             tokens("\"test\" \n"),
-            vec![Token::String("test".into()), Endl]
+            vec![Token::String(Name::str("test")), Endl]
         );
         assert_eq!(tokens(".name"), vec![Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
