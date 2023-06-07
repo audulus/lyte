@@ -11,7 +11,7 @@ struct IndexConstraint {
     pub min: Option<i64>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 struct IndexInterval {
     pub min: i64,
     pub max: i64,
@@ -53,7 +53,22 @@ impl ArrayChecker {
                 self.check_expr(*init, decl, decls);
                 let ty = decl.types[expr];
                 self.vars.push(Var { name: *name, ty });
-                IndexInterval { min: 0, max: 0 }
+                IndexInterval::default()
+            }
+            Expr::Id(name) => {
+                let mut min = i64::min_value();
+                let mut max = i64::max_value();
+                for c in &self.constraints {
+                    if c.name == *name {
+                        if let Some(m) = c.min {
+                            min = min.max(m)
+                        }
+                        if let Some(m) = c.max {
+                            max = max.min(m)
+                        }
+                    }
+                }
+                IndexInterval { min, max }
             }
             Expr::If(cond, then_expr, else_expr) => {
                 let initial_constraint_count = self.constraints.len();
