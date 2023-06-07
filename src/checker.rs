@@ -480,7 +480,12 @@ impl Checker {
                 }
                 t
             }
-            Expr::For { var, start, end, body } => {
+            Expr::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 let ty = mk_type(Type::Int32);
                 let start_t = self.check_expr(*start, arena, decls);
                 let end_t = self.check_expr(*end, arena, decls);
@@ -506,7 +511,7 @@ impl Checker {
                 self.check_expr(*body, arena, decls);
 
                 self.vars.pop();
-                
+
                 mk_type(Type::Void)
             }
             Expr::Tuple(exprs) => {

@@ -372,9 +372,7 @@ impl<'a> FunctionTranslator<'a> {
                     let off = self.builder.ins().uextend(I64, off);
                     let p = self.builder.ins().iadd(lhs_val, off);
                     let load_ty = decl.types[expr].cranelift_type();
-                    self.builder
-                        .ins()
-                        .load(load_ty, MemFlags::new(), p, 0)
+                    self.builder.ins().load(load_ty, MemFlags::new(), p, 0)
                 } else {
                     panic!("subscript expression not on array. should be caught by type checker");
                 }
@@ -567,4 +565,3 @@ extern "C" fn lyte_print_i32(val: i32) {
 extern "C" fn lyte_print_i64(val: i64) {
     println!("{}", val);
 }
-

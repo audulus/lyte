@@ -10,7 +10,7 @@ impl std::ops::Index<ExprID> for ExprArena {
 
 struct ParseContext<'a> {
     pub lex: &'a mut Lexer,
-    pub errors: &'a mut Vec<ParseError>
+    pub errors: &'a mut Vec<ParseError>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -47,10 +47,7 @@ fn expect_id(cx: &mut ParseContext) -> Name {
     }
 }
 
-fn parse_typelist(
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> Vec<TypeID> {
+fn parse_typelist(typevars: &[Name], cx: &mut ParseContext) -> Vec<TypeID> {
     let mut r = vec![];
     expect(Token::Less, cx);
 
@@ -164,10 +161,7 @@ fn parse_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
     lhs
 }
 
-fn parse_paramlist(
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> Vec<Param> {
+fn parse_paramlist(typevars: &[Name], cx: &mut ParseContext) -> Vec<Param> {
     let mut r = vec![];
 
     loop {
@@ -182,10 +176,7 @@ fn parse_paramlist(
                 None
             };
 
-            r.push(Param {
-                name: name,
-                ty,
-            })
+            r.push(Param { name: name, ty })
         }
 
         if cx.lex.tok != Token::Comma {
@@ -223,11 +214,7 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
     Expr::Binop(op, lhs, rhs)
 }
 
-fn parse_lambda(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_lambda(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     if cx.lex.tok == Token::Pipe {
         cx.next();
         let params = parse_paramlist(typevars, cx);
@@ -241,11 +228,7 @@ fn parse_lambda(
     }
 }
 
-fn parse_if(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_if(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let cond = parse_expr(arena, typevars, cx);
     let then = parse_block(arena, typevars, cx);
 
@@ -264,11 +247,7 @@ fn parse_if(
     arena.add(Expr::If(cond, then, els), cx.lex.loc)
 }
 
-fn parse_expr(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_expr(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     if cx.lex.tok == Token::If {
         cx.next();
         parse_if(arena, typevars, cx)
@@ -277,11 +256,7 @@ fn parse_expr(
     }
 }
 
-fn parse_assign(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_assign(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_eq(arena, typevars, cx);
 
     while cx.lex.tok == Token::Assign {
@@ -295,11 +270,7 @@ fn parse_assign(
     lhs
 }
 
-fn parse_eq(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_rel(arena, typevars, cx);
 
     while cx.lex.tok == Token::Equal || cx.lex.tok == Token::NotEqual {
@@ -313,11 +284,7 @@ fn parse_eq(
     lhs
 }
 
-fn parse_rel(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_rel(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_sum(arena, typevars, cx);
 
     while cx.lex.tok == Token::Leq
@@ -335,11 +302,7 @@ fn parse_rel(
     lhs
 }
 
-fn parse_sum(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_sum(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_term(arena, typevars, cx);
 
     while cx.lex.tok == Token::Plus || cx.lex.tok == Token::Minus {
@@ -353,11 +316,7 @@ fn parse_sum(
     lhs
 }
 
-fn parse_term(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_term(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_exp(arena, typevars, cx);
 
     while cx.lex.tok == Token::Mult || cx.lex.tok == Token::Div {
@@ -371,11 +330,7 @@ fn parse_term(
     lhs
 }
 
-fn parse_exp(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_exp(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_factor(arena, typevars, cx);
 
     while cx.lex.tok == Token::Power {
@@ -389,11 +344,7 @@ fn parse_exp(
     lhs
 }
 
-fn parse_factor(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_factor(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     match &cx.lex.tok {
         Token::Minus => {
             cx.next();
@@ -413,11 +364,7 @@ fn parse_factor(
     }
 }
 
-fn parse_postfix(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut e = parse_atom(arena, typevars, cx);
 
     loop {
@@ -462,11 +409,7 @@ fn parse_postfix(
     }
 }
 
-fn parse_atom(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     match cx.lex.tok {
         Token::Id(id) => {
             let e = Expr::Id(id);
@@ -551,11 +494,7 @@ fn parse_atom(
     }
 }
 
-fn parse_exprlist(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> Vec<ExprID> {
+fn parse_exprlist(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> Vec<ExprID> {
     let mut r = vec![];
 
     loop {
@@ -571,11 +510,7 @@ fn parse_exprlist(
     r
 }
 
-fn parse_array_literal(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_array_literal(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     expect(Token::Lbracket, cx);
     let mut r = vec![];
 
@@ -603,11 +538,7 @@ fn parse_array_literal(
     arena.add(Expr::ArrayLiteral(r), cx.lex.loc)
 }
 
-fn parse_stmt(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     match &cx.lex.tok {
         Token::Var => {
             cx.next();
@@ -663,17 +594,21 @@ fn parse_stmt(
             expect(Token::Range, cx);
             let end = parse_expr(arena, typevars, cx);
             let body = parse_block(arena, typevars, cx);
-            arena.add(Expr::For { var, start, end, body }, cx.lex.loc)
+            arena.add(
+                Expr::For {
+                    var,
+                    start,
+                    end,
+                    body,
+                },
+                cx.lex.loc,
+            )
         }
         _ => parse_expr(arena, typevars, cx),
     }
 }
 
-fn parse_block(
-    arena: &mut ExprArena,
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> ExprID {
+fn parse_block(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut r = vec![];
     expect(Token::Lbrace, cx);
 
@@ -698,10 +633,7 @@ fn parse_block(
     arena.add(Expr::Block(r), cx.lex.loc)
 }
 
-fn parse_fieldlist(
-    typevars: &[Name],
-    cx: &mut ParseContext,
-) -> Vec<Field> {
+fn parse_fieldlist(typevars: &[Name], cx: &mut ParseContext) -> Vec<Field> {
     let mut r = vec![];
 
     skip_newlines(cx.lex);
@@ -980,7 +912,10 @@ mod tests {
     fn type_parser(string: &str) -> TypeID {
         let mut lexer = Lexer::new(string, "parser tests");
         let mut errors = vec![];
-        let mut cx = ParseContext { lex: &mut lexer, errors: &mut errors };
+        let mut cx = ParseContext {
+            lex: &mut lexer,
+            errors: &mut errors,
+        };
         cx.next();
 
         let t = parse_type(&[], &mut cx);
@@ -1015,16 +950,15 @@ mod tests {
         string: &str,
         arena: &mut ExprArena,
         errors: &mut Vec<ParseError>,
-        f: fn(
-            arena: &mut ExprArena,
-            typevars: &[Name],
-            cx: &mut ParseContext,
-        ) -> T,
+        f: fn(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> T,
     ) -> Result<T, ParseError> {
         println!("parsing: {}", string);
         let mut lexer = Lexer::new(&String::from(string), "parser tests");
 
-        let mut cx = ParseContext { lex: &mut lexer, errors: errors };
+        let mut cx = ParseContext {
+            lex: &mut lexer,
+            errors: errors,
+        };
         cx.next();
 
         let r = f(arena, &[], &mut cx);
