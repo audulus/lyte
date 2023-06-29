@@ -74,7 +74,23 @@ impl JIT {
             panic!()
         };
 
-        self.function_body(decls, main_decl);
+        let id = self.compile_function(decls, main_decl)?;
+
+        // Finalize the functions which we just defined, which resolves any
+        // outstanding relocations (patching in addresses, now that they're
+        // available).
+        self.module
+            .finalize_definitions()
+            .map_err(|err| err.to_string())?;
+
+        // We can now retrieve a pointer to the machine code.
+        let code = self.module.get_finalized_function(id);
+
+        Ok(code)
+    }
+
+    fn compile_function(&mut self, decls: &DeclTable, decl: &FuncDecl) -> Result<cranelift_module::FuncId, String> {
+        self.function_body(decls, decl);
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
@@ -84,7 +100,7 @@ impl JIT {
         // the function?
         let id = self
             .module
-            .declare_function(name, Linkage::Export, &self.ctx.func.signature)
+            .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
         // Define the function to jit. This finishes compilation, although
@@ -102,17 +118,7 @@ impl JIT {
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
 
-        // Finalize the functions which we just defined, which resolves any
-        // outstanding relocations (patching in addresses, now that they're
-        // available).
-        self.module
-            .finalize_definitions()
-            .map_err(|err| err.to_string())?;
-
-        // We can now retrieve a pointer to the machine code.
-        let code = self.module.get_finalized_function(id);
-
-        Ok(code)
+        Ok(id)
     }
 
     fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl) {
