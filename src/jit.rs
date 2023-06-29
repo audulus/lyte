@@ -30,6 +30,8 @@ pub struct JIT {
     /// The module, with the jit backend, which manages the JIT'd
     /// functions.
     module: JITModule,
+
+    defined_functions: HashSet<Name>,
 }
 
 impl Default for JIT {
@@ -57,6 +59,7 @@ impl Default for JIT {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
             module,
+            defined_functions: HashSet::new(),
         }
     }
 }
@@ -118,7 +121,13 @@ impl JIT {
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
 
+        self.defined_functions.insert(decl.name);
+
         for name in called_functions {
+
+            if self.defined_functions.contains(&name) {
+                continue
+            }
 
             let decl = if let Decl::Func(d) = &decls.find(name)[0] {
                 d

@@ -409,4 +409,26 @@ mod tests {
 
         jit(code);
     }
+
+    #[test]
+    fn test_call2() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            f {
+                assert(1 == 1)
+            }
+
+            g {
+                f()
+            }
+
+            main {
+                f()
+                g()
+            }
+        "#;
+
+        jit(code);
+    }
 }
