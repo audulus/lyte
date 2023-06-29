@@ -62,24 +62,8 @@ impl Default for JIT {
 }
 
 impl JIT {
-    fn setup_library(&mut self) {
-        let func_id = self
-            .module
-            .declare_function(
-                "assert",
-                Linkage::Import,
-                &ir::Signature {
-                    params: vec![AbiParam::new(I32)],
-                    returns: vec![],
-                    call_conv: CallConv::SystemV,
-                },
-            )
-            .unwrap();
 
-        self.module.define_function(func_id, &mut self.ctx).unwrap();
-    }
-
-    /// Compile our IR into native code.
+    /// Compile our AST into native code.
     pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
         let name = "main";
 
