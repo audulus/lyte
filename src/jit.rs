@@ -13,7 +13,7 @@ use cranelift::prelude::*;
 use cranelift_codegen::verifier::verify_function;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::vec;
 
 /// The basic JIT class.
@@ -194,6 +194,8 @@ struct FunctionTranslator<'a> {
 
     /// For generating code for generics.
     current_instance: Instance,
+
+    called_functions: HashSet<Name>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -204,6 +206,7 @@ impl<'a> FunctionTranslator<'a> {
             module,
             next_index: 0,
             current_instance: Instance::new(),
+            called_functions: HashSet::new(),
         }
     }
 
@@ -520,6 +523,8 @@ impl<'a> FunctionTranslator<'a> {
                 .declare_function(&name, Linkage::Import, &sig)
                 .expect("problem declaring function");
             let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+            self.called_functions.insert(*name);
 
             self.builder.ins().func_addr(I64, local_callee)
         } else {
