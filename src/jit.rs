@@ -90,7 +90,7 @@ impl JIT {
     }
 
     fn compile_function(&mut self, decls: &DeclTable, decl: &FuncDecl) -> Result<cranelift_module::FuncId, String> {
-        self.function_body(decls, decl);
+        let called_functions = self.function_body(decls, decl);
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
@@ -118,10 +118,21 @@ impl JIT {
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
 
+        for name in called_functions {
+
+            let decl = if let Decl::Func(d) = &decls.find(name)[0] {
+                d
+            } else {
+                panic!()
+            };
+
+            self.compile_function(decls, decl)?;
+        }
+
         Ok(id)
     }
 
-    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl) {
+    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl) -> HashSet<Name> {
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -142,12 +153,16 @@ impl JIT {
         // Indicate we're finished with the function.
         trans.builder.finalize();
 
+        let called = trans.called_functions;
+
         let flags = settings::Flags::new(settings::builder());
         let res = verify_function(&self.ctx.func, &flags);
         // println!("{}", self.ctx.func.display());
         if let Err(errors) = res {
             panic!("{}", errors);
         }
+
+        called
     }
 }
 
@@ -522,7 +537,9 @@ impl<'a> FunctionTranslator<'a> {
                 sig.params.push(AbiParam::new(dom.cranelift_type()));
             }
 
-            sig.returns.push(AbiParam::new(rng.cranelift_type()));
+            if **rng != crate::Type::Void {
+                sig.returns.push(AbiParam::new(rng.cranelift_type()));
+            }
 
             let callee = self
                 .module
