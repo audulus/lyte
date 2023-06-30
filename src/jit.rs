@@ -97,10 +97,6 @@ impl JIT {
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
-        //
-        // TODO: This may be an area where the API should be streamlined; should
-        // we have a version of `declare_function` that automatically declares
-        // the function?
         let id = self
             .module
             .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
