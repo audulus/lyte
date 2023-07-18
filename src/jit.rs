@@ -556,7 +556,7 @@ impl<'a> FunctionTranslator<'a> {
 
             self.builder.ins().func_addr(I64, local_callee)
         } else {
-            panic!();
+            panic!("expected function type. got {:?}", ty);
         }
     }
 
