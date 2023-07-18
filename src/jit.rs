@@ -214,8 +214,8 @@ impl crate::Type {
     }
 }
 
-fn fn_sig(from: crate::TypeID, to: crate::TypeID) -> Signature {
-    let mut sig = Signature::new(CallConv::Fast);
+fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signature {
+    let mut sig = module.make_signature();
     if let crate::Type::Tuple(args) = &*from {
         sig.params = args
             .iter()
@@ -329,7 +329,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
 
                 if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
-                    let sig = fn_sig(from, to);
+                    let sig = fn_sig(&self.module, from, to);
                     let sref = self.builder.import_signature(sig);
                     let call = self.builder.ins().call_indirect(sref, f, &args);
                     self.builder.inst_results(call)[0]
