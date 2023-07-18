@@ -210,6 +210,20 @@ impl crate::Type {
     }
 }
 
+fn fn_sig(from: crate::TypeID, to: crate::TypeID) -> Signature {
+    let mut sig = Signature::new(CallConv::Fast);
+    if let crate::Type::Tuple(args) = &*from {
+        sig.params = args
+            .iter()
+            .map(|t| AbiParam::new(t.cranelift_type()))
+            .collect();
+    } else {
+        panic!();
+    }
+    sig.returns = vec![AbiParam::new(to.cranelift_type())];
+    sig
+}
+
 struct FunctionTranslator<'a> {
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
@@ -311,16 +325,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
 
                 if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
-                    let mut sig = Signature::new(CallConv::Fast);
-                    if let crate::Type::Tuple(args) = &*from {
-                        sig.params = args
-                            .iter()
-                            .map(|t| AbiParam::new(t.cranelift_type()))
-                            .collect();
-                    } else {
-                        panic!();
-                    }
-                    sig.returns = vec![AbiParam::new(to.cranelift_type())];
+                    let sig = fn_sig(from, to);
                     let sref = self.builder.import_signature(sig);
                     let call = self.builder.ins().call_indirect(sref, f, &args);
                     self.builder.inst_results(call)[0]
