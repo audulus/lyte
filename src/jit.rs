@@ -540,21 +540,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         if let crate::Type::Func(dom, rng) = ty {
-            let mut sig = self.module.make_signature();
-
-            // Add a parameter for each argument.
-            if let crate::Type::Tuple(types) = &**dom {
-                for ty in types {
-                    sig.params.push(AbiParam::new(ty.cranelift_type()));
-                }
-            } else {
-                sig.params.push(AbiParam::new(dom.cranelift_type()));
-            }
-
-            if **rng != crate::Type::Void {
-                sig.returns.push(AbiParam::new(rng.cranelift_type()));
-            }
-
+            let sig = fn_sig(&self.module, *dom, *rng);
             let callee = self
                 .module
                 .declare_function(&name, Linkage::Import, &sig)
