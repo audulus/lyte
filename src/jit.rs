@@ -331,13 +331,13 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Let(name, init, _) => {
                 let ty = &decl.types[expr];
                 let init_val = self.translate_expr(*init, decl, decls);
-                let var = self.delcare_variable(name, ty.cranelift_type());
+                let var = self.declare_variable(name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
                 init_val
             }
             Expr::Var(name, init, _) => {
                 let ty = &decl.types[expr];
-                let var = self.delcare_variable(name, I64);
+                let var = self.declare_variable(name, I64);
 
                 // Allocate a new stack slot with a size of the variable.
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
@@ -560,7 +560,7 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn delcare_variable(&mut self, name: &String, ty: Type) -> Variable {
+    fn declare_variable(&mut self, name: &String, ty: Type) -> Variable {
         let var = Variable::new(self.next_index);
         if !self.variables.contains_key(name) {
             self.variables.insert(name.into(), var);
