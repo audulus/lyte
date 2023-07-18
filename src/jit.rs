@@ -65,7 +65,6 @@ impl Default for JIT {
 }
 
 impl JIT {
-
     /// Compile our AST into native code.
     pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
         let name = "main";
@@ -92,7 +91,13 @@ impl JIT {
         Ok(code)
     }
 
-    fn compile_function(&mut self, decls: &DeclTable, decl: &FuncDecl) -> Result<cranelift_module::FuncId, String> {
+    fn compile_function(
+        &mut self,
+        decls: &DeclTable,
+        decl: &FuncDecl,
+    ) -> Result<cranelift_module::FuncId, String> {
+        // self.ctx.func.signature =
+
         let called_functions = self.function_body(decls, decl);
 
         // Next, declare the function to jit. Functions must be declared
@@ -120,9 +125,8 @@ impl JIT {
         self.defined_functions.insert(decl.name);
 
         for name in called_functions {
-
             if self.defined_functions.contains(&name) {
-                continue
+                continue;
             }
 
             let decl = if let Decl::Func(d) = &decls.find(name)[0] {
