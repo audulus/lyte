@@ -141,6 +141,7 @@ impl TypeID {
     /// Returns the size of a type in bytes.
     pub fn size(self, decls: &DeclTable) -> i32 {
         match &*self {
+            Type::Bool => 1,
             Type::Int8 => 4,
             Type::Int32 => 4,
             Type::Float32 => 4,

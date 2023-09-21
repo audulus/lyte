@@ -304,6 +304,8 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
+            Expr::False => self.builder.ins().iconst(I8, 0),
+            Expr::True => self.builder.ins().iconst(I8, 1),
             Expr::Int(imm) => self.builder.ins().iconst(I32, *imm),
             Expr::Id(name) => {
                 let ty = &decl.types[expr];
@@ -322,6 +324,10 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
+            }
+            Expr::Unop(expr_id) => {
+                let v = self.translate_expr(*expr_id, decl, decls);
+                self.builder.ins().bnot(v)
             }
             Expr::Call(fn_id, arg_ids) => {
                 let f = self.translate_expr(*fn_id, decl, decls);
@@ -503,7 +509,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-                if *t == crate::types::Type::Int32 {
+                if *t == crate::types::Type::Int32 || *t == crate::types::Type::Bool {
                     self.builder.ins().icmp(IntCC::Equal, lhs, rhs)
                 } else if *t == crate::types::Type::Float32 {
                     self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)
@@ -515,7 +521,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-                if *t == crate::types::Type::Int32 {
+                if *t == crate::types::Type::Int32 || *t == crate::types::Type::Bool {
                     self.builder.ins().icmp(IntCC::NotEqual, lhs, rhs)
                 } else if *t == crate::types::Type::Float32 {
                     self.builder.ins().fcmp(FloatCC::NotEqual, lhs, rhs)
