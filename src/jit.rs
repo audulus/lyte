@@ -5,7 +5,6 @@ use crate::defs::*;
 use crate::expr::*;
 use crate::DeclTable;
 use crate::Instance;
-use crate::types::mk_type;
 extern crate cranelift_codegen;
 use cranelift::codegen::{self, ir, settings};
 use cranelift::prelude::isa::CallConv;
