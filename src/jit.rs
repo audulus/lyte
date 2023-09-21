@@ -5,6 +5,7 @@ use crate::defs::*;
 use crate::expr::*;
 use crate::DeclTable;
 use crate::Instance;
+use crate::types::mk_type;
 extern crate cranelift_codegen;
 use cranelift::codegen::{self, ir, settings};
 use cranelift::prelude::isa::CallConv;
@@ -224,7 +225,10 @@ fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signatu
     } else {
         panic!();
     }
-    sig.returns = vec![AbiParam::new(to.cranelift_type())];
+
+    if *to != crate::Type::Void {
+        sig.returns = vec![AbiParam::new(to.cranelift_type())];
+    }
     sig
 }
 
@@ -332,7 +336,11 @@ impl<'a> FunctionTranslator<'a> {
                     let sig = fn_sig(&self.module, from, to);
                     let sref = self.builder.import_signature(sig);
                     let call = self.builder.ins().call_indirect(sref, f, &args);
-                    self.builder.inst_results(call)[0]
+                    if let Some(result) = self.builder.inst_results(call).first() {
+                        *result
+                    } else {
+                        self.builder.ins().iconst(I32, 0)
+                    }
                 } else {
                     panic!("tried to call non-function. should be caught by checker");
                 }
