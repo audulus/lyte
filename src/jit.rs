@@ -529,6 +529,16 @@ impl<'a> FunctionTranslator<'a> {
                     todo!()
                 }
             }
+            Binop::And => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                self.builder.ins().band(lhs, rhs)
+            }
+            Binop::Or => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                self.builder.ins().bor(lhs, rhs)
+            }
             _ => todo!(),
         }
     }
