@@ -71,6 +71,7 @@ pub enum Token {
     Interface,
     Where,
     Underscore,
+    Ampersand,
     Endl,
     For,
     In,
@@ -299,6 +300,14 @@ impl Lexer {
                     Token::Or
                 } else {
                     Token::Pipe
+                }
+            }
+            '&' => {
+                if self.i < n && bytes[self.i] == b'&' {
+                    self.i += 1;
+                    Token::And
+                } else {
+                    Token::Ampersand
                 }
             }
             '@' => Token::At,
