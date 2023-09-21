@@ -12,7 +12,7 @@ main {
     assert(!f)
     assert(t || f)
     assert(t && t)
-    // assert(not (f or f))
+    assert(!(f || f))
     // assert(not (t == f))
     // assert(not f == t)
     // assert(t == not f)
