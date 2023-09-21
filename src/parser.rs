@@ -205,6 +205,8 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
         Token::Equal => Binop::Equal,
         Token::NotEqual => Binop::NotEqual,
         Token::Power => Binop::Pow,
+        Token::Or => Binop::Or,
+        Token::And => Binop::And,
         _ => {
             println!("got {:?}", tok);
             unreachable!()
@@ -271,9 +273,23 @@ fn parse_assign(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext)
 }
 
 fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
-    let mut lhs = parse_rel(arena, typevars, cx);
+    let mut lhs = parse_logic(arena, typevars, cx);
 
     while cx.lex.tok == Token::Equal || cx.lex.tok == Token::NotEqual {
+        let t = cx.lex.tok.clone();
+        cx.next();
+        let rhs = parse_logic(arena, typevars, cx);
+
+        lhs = arena.add(binop(&t, lhs, rhs), cx.lex.loc)
+    }
+
+    lhs
+}
+
+fn parse_logic(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    let mut lhs = parse_rel(arena, typevars, cx);
+
+    while cx.lex.tok == Token::Or || cx.lex.tok == Token::And {
         let t = cx.lex.tok.clone();
         cx.next();
         let rhs = parse_rel(arena, typevars, cx);
@@ -997,6 +1013,7 @@ mod tests {
         test("f(x)", parse_expr);
         test("f(x, y)", parse_expr);
         test("f(x) + g(x)", parse_expr);
+        test("x || y", parse_expr);
         test("| | x", parse_lambda);
         test("|x: i8| x", parse_lambda);
         test("|x| x", parse_lambda);

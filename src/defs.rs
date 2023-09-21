@@ -75,6 +75,8 @@ pub enum Binop {
     Greater,
     Leq,
     Geq,
+    And,
+    Or
 }
 
 impl Binop {
