@@ -327,7 +327,8 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Unop(expr_id) => {
                 let v = self.translate_expr(*expr_id, decl, decls);
-                self.builder.ins().bnot(v)
+                let bnot = self.builder.ins().bnot(v);
+                self.builder.ins().band_imm(bnot, 1)
             }
             Expr::Call(fn_id, arg_ids) => {
                 let f = self.translate_expr(*fn_id, decl, decls);
