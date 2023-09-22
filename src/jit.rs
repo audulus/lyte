@@ -124,6 +124,7 @@ impl JIT {
 
         self.defined_functions.insert(decl.name);
 
+        // Compile any called functions that haven't already been defined.
         for name in called_functions {
             if self.defined_functions.contains(&name) {
                 continue;
