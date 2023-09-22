@@ -325,10 +325,8 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
             }
-            Expr::Unop(_op, expr_id) => {
-                let v = self.translate_expr(*expr_id, decl, decls);
-                let bnot = self.builder.ins().bnot(v);
-                self.builder.ins().band_imm(bnot, 1)
+            Expr::Unop(op, arg_id) => {
+                self.translate_unop(*op, *arg_id, decl, decls)
             }
             Expr::Call(fn_id, arg_ids) => {
                 let f = self.translate_expr(*fn_id, decl, decls);
@@ -422,6 +420,25 @@ impl<'a> FunctionTranslator<'a> {
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
                 todo!();
+            }
+        }
+    }
+
+    fn translate_unop(
+        &mut self,
+        unop: Unop,
+        arg_id: ExprID,
+        decl: &FuncDecl,
+        decls: &crate::DeclTable,
+    ) -> Value {
+        let v = self.translate_expr(arg_id, decl, decls);
+        match unop {
+            Unop::Neg => {
+                self.builder.ins().imul_imm(v, -1)
+            }
+            Unop::Not => {
+                let bnot = self.builder.ins().bnot(v);
+                self.builder.ins().band_imm(bnot, 1)
             }
         }
     }

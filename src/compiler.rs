@@ -431,4 +431,17 @@ mod tests {
 
         jit(code);
     }
+
+    #[test]
+    fn test_neg() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            main {
+                assert(1-2 == -1)
+            }
+        "#;
+
+        jit(code);
+    }
 }
