@@ -58,6 +58,7 @@ pub fn test_loc() -> Loc {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Unop {
     Neg,
+    Not,
     // others?
 }
 

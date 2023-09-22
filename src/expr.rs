@@ -15,7 +15,7 @@ pub enum Expr {
     Call(ExprID, Vec<ExprID>),
     Macro(Name, Vec<ExprID>),
     Binop(Binop, ExprID, ExprID),
-    Unop(ExprID),
+    Unop(Unop, ExprID),
     Lambda {
         params: Vec<Param>,
         body: ExprID,

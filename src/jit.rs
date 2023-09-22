@@ -325,7 +325,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
             }
-            Expr::Unop(expr_id) => {
+            Expr::Unop(_op, expr_id) => {
                 let v = self.translate_expr(*expr_id, decl, decls);
                 let bnot = self.builder.ins().bnot(v);
                 self.builder.ins().band_imm(bnot, 1)

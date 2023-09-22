@@ -110,6 +110,49 @@ impl Checker {
         self.constraints.push(c);
     }
 
+    fn check_unop(
+        &mut self,
+        id: ExprID,
+        op: Unop,
+        arg: ExprID,
+        arena: &ExprArena,
+        decls: &DeclTable,
+    ) -> TypeID {
+        let argt = self.check_expr(arg, arena, decls);
+
+        match op {
+            Unop::Neg => {
+                let ft = self.fresh();
+                let types = vec![mk_type(Type::Int32), mk_type(Type::Float32)];
+                let alts: Vec<_> = types.iter().map(|t| Alt {
+                    ty: func(*t, *t),
+                    interfaces: vec![],
+                }).collect();
+
+                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+
+                let r = self.fresh();
+
+                self.eq(
+                    func(argt, r),
+                    ft,
+                    arena.locs[id],
+                    &format!("no match for unary negation on {:?}", argt),
+                );
+
+                r
+            }
+            Unop::Not => {
+                self.eq(argt,
+                    mk_type(Type::Bool),
+                    arena.locs[id], 
+                    &"logical negation requires a boolean");
+
+                mk_type(Type::Bool)
+            }
+        }
+    }
+
     fn check_binop(
         &mut self,
         id: ExprID,
@@ -231,7 +274,7 @@ impl Checker {
                     t
                 }
             }
-            Expr::Unop(a) => self.check_expr(*a, arena, decls),
+            Expr::Unop(op, a) => self.check_unop(id, *op, *a, arena, decls),
             Expr::Binop(op, a, b) => self.check_binop(id, *op, *a, *b, arena, decls),
             Expr::AsTy(e, ty) => {
                 let et = self.check_expr(*e, arena, decls);

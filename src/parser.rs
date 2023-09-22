@@ -365,7 +365,7 @@ fn parse_factor(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext)
         Token::Minus => {
             cx.next();
             let e = parse_factor(arena, typevars, cx);
-            arena.add(Expr::Unop(e), cx.lex.loc)
+            arena.add(Expr::Unop(Unop::Neg, e), cx.lex.loc)
         }
         Token::Plus => {
             cx.next();
@@ -374,7 +374,7 @@ fn parse_factor(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext)
         Token::Not => {
             cx.next();
             let e = parse_factor(arena, typevars, cx);
-            arena.add(Expr::Unop(e), cx.lex.loc)
+            arena.add(Expr::Unop(Unop::Not, e), cx.lex.loc)
         }
         _ => parse_postfix(arena, typevars, cx),
     }
