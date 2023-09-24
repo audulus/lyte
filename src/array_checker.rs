@@ -161,7 +161,7 @@ impl ArrayChecker {
                 IndexInterval::default()
             }
             _ => {
-                todo!()
+                IndexInterval::default()
             }
         }
     }
