@@ -52,6 +52,19 @@ impl ArrayChecker {
 
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
+            Expr::Int(x) => {
+                IndexInterval { min: *x, max: *x }
+            }
+            Expr::Block(exprs) => {
+                let n = self.vars.len();
+                for e in exprs {
+                    self.check_expr(*e, decl, decls);
+                }
+                while self.vars.len() > n {
+                    self.vars.pop();
+                }
+                IndexInterval::default()
+            }
             Expr::Let(name, init, _) => {
                 self.check_expr(*init, decl, decls);
                 let ty = decl.types[expr];
