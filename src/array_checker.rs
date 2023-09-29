@@ -50,6 +50,42 @@ impl ArrayChecker {
         }
     }
 
+    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<IndexConstraint> {
+
+        // Simplest form: match expressions of the form i < n, where n is an integer literal
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*lhs] {
+                if let Expr::Int(n) = &decl.arena[*rhs] {
+                    self.constraints.push(IndexConstraint {
+                        name: *name,
+                        max: Some(*n),
+                        min: None,
+                    })
+                }
+            }
+        }
+
+        // match expressions of the form i < id, where id is another variable
+        // with a constraint
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*lhs] {
+                if let Expr::Id(max_name) = &decl.arena[*rhs] {
+                    if let Some(c) = self.constraints.iter().find(|c| c.name == *max_name) {
+                        if let Some(max) = c.max {
+                            self.constraints.push(IndexConstraint {
+                                name: *name,
+                                max: Some(max),
+                                min: None,
+                            })
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
             Expr::Int(x) => {
@@ -91,35 +127,8 @@ impl ArrayChecker {
 
                 self.check_expr(*cond, decl, decls);
 
-                // Simplest form: match expressions of the form i < n, where n is an integer literal
-                if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[*cond] {
-                    if let Expr::Id(name) = &decl.arena[*lhs] {
-                        if let Expr::Int(n) = &decl.arena[*rhs] {
-                            self.constraints.push(IndexConstraint {
-                                name: *name,
-                                max: Some(*n),
-                                min: None,
-                            })
-                        }
-                    }
-                }
-
-                // match expressions of the form i < id, where id is another variable
-                // with a constraint
-                if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[*cond] {
-                    if let Expr::Id(name) = &decl.arena[*lhs] {
-                        if let Expr::Id(max_name) = &decl.arena[*rhs] {
-                            if let Some(c) = self.constraints.iter().find(|c| c.name == *max_name) {
-                                if let Some(max) = c.max {
-                                    self.constraints.push(IndexConstraint {
-                                        name: *name,
-                                        max: Some(max),
-                                        min: None,
-                                    })
-                                }
-                            }
-                        }
-                    }
+                if let Some(constraint) = self.match_expr(*cond, decl, decls) {
+                    self.constraints.push(constraint)
                 }
 
                 let mut r = self.check_expr(*then_expr, decl, decls);
@@ -157,6 +166,16 @@ impl ArrayChecker {
                 } else {
                     panic!("lhs of index expression isn't an array. Should be caught by the type checker.")
                 }
+
+                IndexInterval::default()
+            }
+            Expr::While(cond, body) => {
+                
+                if let Some(constraint) = self.match_expr(*cond, decl, decls) {
+                    self.constraints.push(constraint)
+                }
+
+                self.check_expr(*body, decl, decls);
 
                 IndexInterval::default()
             }
