@@ -30,7 +30,7 @@ fn expect(tok: Token, cx: &mut ParseContext) {
     if cx.lex.tok == tok {
         cx.next();
     } else {
-        let message = format!("expected {:?}, got {:?}", tok, cx.lex.tok);
+        let message = format!("expected {tok:?}, got {:?}", cx.lex.tok);
         cx.err(message)
     }
 }
