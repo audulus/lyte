@@ -185,3 +185,28 @@ impl ArrayChecker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_array_if() {
+        let mut checker = ArrayChecker::new();
+
+        let mut lex = Lexer::new("
+        main {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                a[i]
+            }
+        }
+        ", "test_array_if");
+
+        let mut errors: Vec<ParseError> = vec![];
+
+        lex.next();
+        let program = parse_program(&mut lex, &mut errors);
+        assert!(errors.is_empty());
+    }
+}
