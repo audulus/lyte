@@ -221,5 +221,9 @@ mod tests {
         let mut errors: Vec<ParseError> = vec![];
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
+        assert_eq!(decls.len(), 1);
+        let decl = decls[0].clone();
+        let table = DeclTable::new(decls);
+        // checker.check_decl(&decl, &table);
     }
 }
