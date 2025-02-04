@@ -920,6 +920,12 @@ pub fn parse_program(lex: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Decl>
     decls
 }
 
+pub fn parse_program_str(str: &str, errors: &mut Vec<ParseError>) -> Vec<Decl> {
+    let mut lexer = Lexer::new(str, "parse_program_str");
+    lexer.next();
+    parse_program(&mut lexer, errors)
+}
+
 #[cfg(test)]
 mod tests {
 
