@@ -236,6 +236,7 @@ mod tests {
         assert_eq!(decls.len(), 1);
         let table = DeclTable::new(decls);
         type_checker.check(&table);
+        assert!(type_checker.errors.is_empty());
         // array_checker.check(&table);
     }
 }
