@@ -1,6 +1,4 @@
 #!/bin/env bash
 
-cargo test
+cargo test --workspace
 
-cd cli
-cargo test
