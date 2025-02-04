@@ -146,6 +146,11 @@ impl ArrayChecker {
                 r
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
+
+                if *array_expr >= decl.types.len() {
+                    panic!("no type found for array index expression");
+                }
+
                 let lhs_ty = decl.types[*array_expr];
                 let rhs_r = self.check_expr(*index_expr, decl, decls);
 
@@ -199,6 +204,12 @@ impl ArrayChecker {
             _ => (),
         }
     }
+
+    pub fn check(&mut self, decls: &DeclTable) {
+        for decl in &decls.decls {
+            self.check_decl(decl, decls);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -207,10 +218,11 @@ mod tests {
 
     #[test]
     pub fn test_array_if() {
-        let mut checker = ArrayChecker::new();
+        let mut array_checker = ArrayChecker::new();
+        let mut type_checker = Checker::new();
 
         let s = "
-        main {
+        f(i: i32) {
             var a: [i32; 100]
             if i >= 0 && i < 100 {
                 a[i]
@@ -222,8 +234,8 @@ mod tests {
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
         assert_eq!(decls.len(), 1);
-        let decl = decls[0].clone();
         let table = DeclTable::new(decls);
-        // checker.check_decl(&decl, &table);
+        type_checker.check(&table);
+        // array_checker.check(&table);
     }
 }
