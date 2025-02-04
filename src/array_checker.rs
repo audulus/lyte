@@ -204,7 +204,7 @@ mod tests {
         ";
 
         let mut errors: Vec<ParseError> = vec![];
-        parse_program_str(&s, &mut errors);
+        let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
     }
 }
