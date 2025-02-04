@@ -668,12 +668,14 @@ impl Checker {
 
             self.vars.clear();
 
-            solve_constraints(
-                &mut self.constraints,
-                &mut self.inst,
-                decls,
-                &mut self.errors,
-            );
+            if self.errors.is_empty() {
+                solve_constraints(
+                    &mut self.constraints,
+                    &mut self.inst,
+                    decls,
+                    &mut self.errors,
+                );
+            }
 
             //println!("instance:");
             //print_instance(&self.inst);
