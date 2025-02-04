@@ -1,0 +1,10 @@
+// expected stdout:
+// ❌ ../tests/cases/undeclared.lyte:7: undeclared identifier: "i"
+// ❌ ../tests/cases/undeclared.lyte:7: undeclared identifier: "i"
+// ❌ ../tests/cases/undeclared.lyte:8: undeclared identifier: "i"
+f() {
+    var a: [i32; 100]
+    if i >= 0 && i < 100 {
+        a[i]
+    }
+}
