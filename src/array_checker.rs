@@ -138,7 +138,7 @@ impl ArrayChecker {
                     r = enclose(r, else_r);
                 }
 
-                // Pop off any constraints not alreayd invalidated by changing data.
+                // Pop off any constraints not already invalidated by changing data.
                 while self.constraints.len() > initial_constraint_count {
                     self.constraints.pop();
                 }
