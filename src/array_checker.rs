@@ -50,7 +50,7 @@ impl ArrayChecker {
         }
     }
 
-    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<IndexConstraint> {
+    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, _decls: &DeclTable) -> Option<IndexConstraint> {
 
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
