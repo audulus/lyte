@@ -365,6 +365,7 @@ impl<'a> FunctionTranslator<'a> {
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
                     size: ty.size(decls) as u32,
+                    align_shift: 0,
                 });
 
                 // Create an instruction that loads the address of the stack slot.
