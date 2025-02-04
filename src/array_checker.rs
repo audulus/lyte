@@ -219,8 +219,7 @@ mod tests {
     #[test]
     pub fn test_array_if() {
         let mut array_checker = ArrayChecker::new();
-        let mut type_checker = Checker::new();
-
+        
         let s = "
         f(i: i32) {
             var a: [i32; 100]
@@ -234,9 +233,29 @@ mod tests {
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
         assert_eq!(decls.len(), 1);
-        let table = DeclTable::new(decls);
-        type_checker.check(&table);
-        assert!(type_checker.errors.is_empty());
-        // array_checker.check(&table);
+        let mut table = DeclTable::new(decls);
+        let mut types: Vec<Vec<TypeID>> = vec![];
+        for decl in &table.decls {
+            let mut type_checker = Checker::new();
+            type_checker.check_decl(decl, &table);
+            assert!(type_checker.errors.is_empty());
+            types.push(type_checker.solved_types());
+        }
+
+        for i in 0..table.decls.len() {
+            if let Decl::Func(ref mut fdecl) = &mut table.decls[i] {
+                 fdecl.types = types[i].clone();
+            }
+        }
+        
+        array_checker.check(&table);
+
+        for err in &array_checker.errors {
+            println!(
+                "❌ {}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+        }
+        // assert!(array_checker.errors.is_empty());
     }
 }
