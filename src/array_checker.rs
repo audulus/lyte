@@ -184,6 +184,21 @@ impl ArrayChecker {
             }
         }
     }
+
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
+
+        if let Some(body) = func_decl.body {
+            self.check_expr(body, &func_decl, decls);
+        }
+    }
+
+    fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
+        match decl {
+            Decl::Func(func_decl) => self.check_fn_decl(func_decl, decls),
+            Decl::Macro(func_decl) => self.check_fn_decl(func_decl, decls),
+            _ => (),
+        }
+    }
 }
 
 #[cfg(test)]
