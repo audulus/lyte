@@ -114,12 +114,7 @@ fn check_decl(db: &dyn CheckerQueries, mut decl: Decl) -> Result<Decl, ()> {
 
     checker.check_decl(&decl, &decls);
 
-    for err in &checker.errors {
-        println!(
-            "❌ {}:{}: {}",
-            err.location.file, err.location.line, err.message
-        );
-    }
+    checker.print_errors();
 
     if !checker.errors.is_empty() {
         return Err(());
