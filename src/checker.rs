@@ -741,4 +741,13 @@ impl Checker {
     pub fn solved_types(&self) -> Vec<TypeID> {
         self.types.iter().map(|t| t.subst(&self.inst)).collect()
     }
+
+    pub fn print_errors(&self) {
+        for err in &self.errors {
+            println!(
+                "❌ {}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+        }
+    }
 }
