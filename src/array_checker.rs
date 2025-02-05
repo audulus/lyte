@@ -265,12 +265,12 @@ mod tests {
         }
         ";
 
-        let mut errors: Vec<ParseError> = vec![];
+        let mut errors = vec![];
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
         assert_eq!(decls.len(), 1);
         let mut table = DeclTable::new(decls);
-        let mut types: Vec<Vec<TypeID>> = vec![];
+        let mut types = vec![];
         for decl in &table.decls {
             let mut type_checker = Checker::new();
             type_checker.check_decl(decl, &table);
@@ -309,12 +309,12 @@ mod tests {
         }
         ";
 
-        let mut errors: Vec<ParseError> = vec![];
+        let mut errors = vec![];
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
         assert_eq!(decls.len(), 1);
         let mut table = DeclTable::new(decls);
-        let mut types: Vec<Vec<TypeID>> = vec![];
+        let mut types = vec![];
         for decl in &table.decls {
             let mut type_checker = Checker::new();
             type_checker.check_decl(decl, &table);
