@@ -145,6 +145,7 @@ impl TypeID {
             Type::Bool => 1,
             Type::Int8 => 4,
             Type::Int32 => 4,
+            Type::UInt32 => 4,
             Type::Float32 => 4,
             Type::Float64 => 8,
             Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
