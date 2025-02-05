@@ -50,7 +50,7 @@ impl ArrayChecker {
         }
     }
 
-    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, _decls: &DeclTable) -> Option<IndexConstraint> {
+    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
 
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
@@ -58,7 +58,7 @@ impl ArrayChecker {
                 if let Expr::Int(n) = &decl.arena[*rhs] {
                     self.constraints.push(IndexConstraint {
                         name: *name,
-                        max: Some(*n),
+                        max: Some(*n-1),
                         min: None,
                     })
                 }
@@ -83,7 +83,11 @@ impl ArrayChecker {
             }
         }
 
-        None
+        if let Expr::Binop(Binop::And, lhs, rhs) = &decl.arena[expr] {
+            self.match_expr(*lhs, decl, decls);
+            self.match_expr(*rhs, decl, decls);
+        }
+
     }
 
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
@@ -126,10 +130,7 @@ impl ArrayChecker {
                 let initial_constraint_count = self.constraints.len();
 
                 self.check_expr(*cond, decl, decls);
-
-                if let Some(constraint) = self.match_expr(*cond, decl, decls) {
-                    self.constraints.push(constraint)
-                }
+                self.match_expr(*cond, decl, decls);
 
                 let mut r = self.check_expr(*then_expr, decl, decls);
 
@@ -176,11 +177,13 @@ impl ArrayChecker {
             }
             Expr::While(cond, body) => {
                 
-                if let Some(constraint) = self.match_expr(*cond, decl, decls) {
-                    self.constraints.push(constraint)
-                }
+                let initial_constraint_count = self.constraints.len();
+                self.match_expr(*cond, decl, decls);
 
                 self.check_expr(*body, decl, decls);
+                while self.constraints.len() > initial_constraint_count {
+                    self.constraints.pop();
+                }
 
                 IndexInterval::default()
             }
