@@ -64,7 +64,7 @@ impl Checker {
     pub fn new() -> Self {
         let int8 = mk_type(Type::Int8);
         let int32: TypeID = mk_type(Type::Int32);
-        let types = [Type::Int32, Type::Float32];
+        let types = [Type::Int32, Type::UInt32, Type::Float32];
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
         let mut neg_overloads = vec![];

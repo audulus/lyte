@@ -13,6 +13,7 @@ pub enum Type {
     Int8,
     UInt8,
     Int32,
+    UInt32,
     Float32,
     Float64,
     Tuple(Vec<TypeID>),
