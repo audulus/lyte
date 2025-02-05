@@ -65,6 +65,18 @@ impl ArrayChecker {
             }
         }
 
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*lhs] {
+                if let Expr::Int(n) = &decl.arena[*rhs] {
+                    self.constraints.push(IndexConstraint {
+                        name: *name,
+                        max: None,
+                        min: Some(*n),
+                    })
+                }
+            }
+        }
+
         // match expressions of the form i < id, where id is another variable
         // with a constraint
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
@@ -158,7 +170,7 @@ impl ArrayChecker {
                 if rhs_r.min < 0 {
                     self.errors.push(ArrayError {
                         location: decl.arena.locs[expr],
-                        message: format!("couldn't prove index is > 0"),
+                        message: format!("couldn't prove index is >= 0"),
                     });
                 }
 
