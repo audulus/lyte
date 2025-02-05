@@ -1,0 +1,6 @@
+
+test {
+    var a: [i32; 4]
+    var i: u32
+    a[i]
+}

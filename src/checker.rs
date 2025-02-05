@@ -470,12 +470,22 @@ impl Checker {
                 let array_t = self.check_expr(*array_expr, arena, decls);
                 let idx_t = self.check_expr(*index_expr, arena, decls);
                 self.lvalue[id] = self.lvalue[*array_expr];
-                self.eq(
-                    idx_t,
-                    mk_type(Type::Int32),
-                    arena.locs[*index_expr],
-                    "array index must be an i32",
-                );
+
+                // Probably should allow both signed and unsigned indexing?
+                // self.eq(
+                //     idx_t,
+                //     mk_type(Type::Int32),
+                //     arena.locs[*index_expr],
+                //     "array index must be an i32",
+                // );
+
+                let alts: Vec<Alt> = vec![
+                    Alt{ty: mk_type(Type::Int32), interfaces: vec![]},
+                    Alt{ty: mk_type(Type::UInt32), interfaces: vec![]},
+                ];
+
+                self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr]));
+
                 self.eq(
                     array_t,
                     mk_type(Type::Array(t, 0)),
