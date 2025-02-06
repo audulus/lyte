@@ -64,6 +64,7 @@ impl Checker {
     pub fn new() -> Self {
         let int8 = mk_type(Type::Int8);
         let int32: TypeID = mk_type(Type::Int32);
+        let uint32: TypeID = mk_type(Type::UInt32);
         let types = [Type::Int32, Type::UInt32, Type::Float32];
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
@@ -78,7 +79,7 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
-        let cast_overloads = vec![func(int8, int32), func(int32, int8)];
+        let cast_overloads = vec![func(int8, int32), func(int32, int8), func(int32, uint32), func(uint32, int32)];
 
         Self {
             types: vec![],
