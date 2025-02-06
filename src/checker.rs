@@ -232,6 +232,30 @@ impl Checker {
             );
 
             r
+        } else if op.relational() {
+            let ft = self.fresh();
+
+            let mut alts = vec![];
+
+            for ty in &self.rel_overloads {
+                alts.push(Alt {
+                    ty: *ty,
+                    interfaces: vec![],
+                });
+            }
+
+            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+            
+            let b = mk_type(Type::Bool);
+
+            self.eq(
+                func(tuple(vec![at, bt]), b),
+                ft,
+                arena.locs[id],
+                &format!("no match for relational between {:?} and {:?}", at, bt),
+            );
+
+            b
         } else {
             self.fresh()
         }

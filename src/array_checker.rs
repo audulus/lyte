@@ -55,10 +55,11 @@ impl ArrayChecker {
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
-                if let Expr::Int(n) = &decl.arena[*rhs] {
+                let ival = self.check_expr(*rhs, decl, decls);
+                if ival.max == ival.min {
                     self.constraints.push(IndexConstraint {
                         name: *name,
-                        max: Some(*n-1),
+                        max: Some(ival.max-1),
                         min: None,
                     })
                 }
@@ -303,7 +304,7 @@ mod tests {
         f {
             var i: u32
             var a: [i32; 100]
-            if i < 50 {
+            if i < (50 as u32) {
                 a[i]
             }
         }
@@ -348,7 +349,7 @@ mod tests {
         f {
             var i: u32
             var a: [i32; 100]
-            while i < 50 {
+            while i < (50 as u32) {
                 a[i]
                 // i = i + 1
             }
