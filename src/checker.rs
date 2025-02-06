@@ -239,7 +239,15 @@ impl Checker {
     fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &DeclTable) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
-            Expr::Int(_) => mk_type(Type::Int32),
+            Expr::Int(_) => {
+                let ty = self.fresh();
+                let alts = vec![
+                    Alt {ty: mk_type(Type::Int32), interfaces: vec![]},
+                    // Alt {ty: mk_type(Type::UInt32), interfaces: vec![]},
+                ];
+                self.add_constraint(Constraint::Or(ty, alts, arena.locs[id]));
+                ty
+            }
             Expr::Real(_) => mk_type(Type::Float32),
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
@@ -777,6 +785,7 @@ mod tests {
         for decl in &table.decls {
             let mut type_checker = Checker::new();
             type_checker.check_decl(decl, &table);
+            type_checker.print_errors();
             result.append(&mut type_checker.errors);
         }
 
@@ -792,6 +801,19 @@ mod tests {
             if i >= 0 && i < 100 {
                 a[i]
             }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_inc_i32() {        
+        let s = "
+        f {
+            var i: i32
+            i = i + 1
         }
         ";
 
