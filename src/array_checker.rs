@@ -340,4 +340,50 @@ mod tests {
         assert!(array_checker.errors.is_empty());
     }
 
+    #[test]
+    pub fn test_while() {
+        let mut array_checker = ArrayChecker::new();
+        
+        let s = "
+        f {
+            var i: u32
+            var a: [i32; 100]
+            while i < 50 {
+                a[i]
+                // i = i + 1
+            }
+        }
+        ";
+
+        let mut errors = vec![];
+        let decls = parse_program_str(&s, &mut errors);
+        assert!(errors.is_empty());
+        assert_eq!(decls.len(), 1);
+        let mut table = DeclTable::new(decls);
+        let mut types = vec![];
+        for decl in &table.decls {
+            let mut type_checker = Checker::new();
+            type_checker.check_decl(decl, &table);
+            type_checker.print_errors();
+            assert!(type_checker.errors.is_empty());
+            types.push(type_checker.solved_types());
+        }
+
+        for i in 0..table.decls.len() {
+            if let Decl::Func(ref mut fdecl) = &mut table.decls[i] {
+                 fdecl.types = types[i].clone();
+            }
+        }
+        
+        array_checker.check(&table);
+
+        for err in &array_checker.errors {
+            println!(
+                "❌ {}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+        }
+        assert!(array_checker.errors.is_empty());
+    }
+
 }
