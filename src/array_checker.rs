@@ -344,7 +344,7 @@ mod tests {
             var a: [i32; 100]
             while i < (50 as u32) {
                 a[i]
-                // i = i + 1
+                i = i + (1 as u32)
             }
         }
         ";
