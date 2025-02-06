@@ -761,3 +761,41 @@ impl Checker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    pub fn check(s: &str) -> Vec<TypeError> {
+        let mut errors = vec![];
+        let decls = parse_program_str(&s, &mut errors);
+        assert!(errors.is_empty());
+
+        let mut result = vec![];
+
+        let table = DeclTable::new(decls);
+        for decl in &table.decls {
+            let mut type_checker = Checker::new();
+            type_checker.check_decl(decl, &table);
+            result.append(&mut type_checker.errors);
+        }
+
+        result
+
+    }
+
+    #[test]
+    pub fn test_array_if() {        
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                a[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+}
