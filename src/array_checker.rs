@@ -1,3 +1,5 @@
+use std::ops::Index;
+
 use crate::*;
 
 pub struct ArrayError {
@@ -8,8 +10,8 @@ pub struct ArrayError {
 #[derive(Clone, Debug)]
 struct IndexConstraint {
     pub name: Name,
-    pub max: Option<i64>,
     pub min: Option<i64>,
+    pub max: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -51,17 +53,17 @@ impl ArrayChecker {
         }
     }
 
+    fn add(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
+        self.constraints.push(IndexConstraint { name, min, max })
+    }
+
     fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
                 let ival = self.check_expr(*rhs, decl, decls);
                 if ival.max == ival.min {
-                    self.constraints.push(IndexConstraint {
-                        name: *name,
-                        max: Some(ival.max - 1),
-                        min: None,
-                    })
+                    self.add(*name, None, Some(ival.max - 1));
                 }
             }
         }
@@ -69,11 +71,7 @@ impl ArrayChecker {
         if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
                 if let Expr::Int(n) = &decl.arena[*rhs] {
-                    self.constraints.push(IndexConstraint {
-                        name: *name,
-                        max: None,
-                        min: Some(*n),
-                    })
+                    self.add(*name, Some(*n), None);
                 }
             }
         }
@@ -85,11 +83,7 @@ impl ArrayChecker {
                 if let Expr::Id(max_name) = &decl.arena[*rhs] {
                     if let Some(c) = self.constraints.iter().find(|c| c.name == *max_name) {
                         if let Some(max) = c.max {
-                            self.constraints.push(IndexConstraint {
-                                name: *name,
-                                max: Some(max),
-                                min: None,
-                            })
+                            self.add(*name, None, Some(max));
                         }
                     }
                 }
@@ -122,11 +116,7 @@ impl ArrayChecker {
                 self.vars.push(Var { name: *name, ty });
 
                 if ty == mk_type(Type::UInt32) {
-                    self.constraints.push(IndexConstraint {
-                        name: *name,
-                        max: None,
-                        min: Some(0),
-                    })
+                    self.add(*name, Some(0), None);
                 }
 
                 IndexInterval::default()
@@ -135,11 +125,7 @@ impl ArrayChecker {
                 let ty = decl.types[expr];
 
                 if ty == mk_type(Type::UInt32) {
-                    self.constraints.push(IndexConstraint {
-                        name: *name,
-                        max: None,
-                        min: Some(0),
-                    })
+                    self.add(*name, Some(0), None);
                 }
                 IndexInterval::default()
             }
