@@ -326,9 +326,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
             }
-            Expr::Unop(op, arg_id) => {
-                self.translate_unop(*op, *arg_id, decl, decls)
-            }
+            Expr::Unop(op, arg_id) => self.translate_unop(*op, *arg_id, decl, decls),
             Expr::Call(fn_id, arg_ids) => {
                 let f = self.translate_expr(*fn_id, decl, decls);
 
@@ -435,9 +433,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Value {
         let v = self.translate_expr(arg_id, decl, decls);
         match unop {
-            Unop::Neg => {
-                self.builder.ins().imul_imm(v, -1)
-            }
+            Unop::Neg => self.builder.ins().imul_imm(v, -1),
             Unop::Not => {
                 let bnot = self.builder.ins().bnot(v);
                 self.builder.ins().band_imm(bnot, 1)
@@ -541,7 +537,10 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-                if *t == crate::types::Type::Int32 || *t == crate::types::Type::Bool || *t == crate::types::Type::Int8 {
+                if *t == crate::types::Type::Int32
+                    || *t == crate::types::Type::Bool
+                    || *t == crate::types::Type::Int8
+                {
                     self.builder.ins().icmp(IntCC::NotEqual, lhs, rhs)
                 } else if *t == crate::types::Type::Float32 || *t == crate::types::Type::Float64 {
                     self.builder.ins().fcmp(FloatCC::NotEqual, lhs, rhs)

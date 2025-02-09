@@ -77,7 +77,7 @@ pub enum Binop {
     Leq,
     Geq,
     And,
-    Or
+    Or,
 }
 
 impl Binop {

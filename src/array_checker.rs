@@ -51,7 +51,6 @@ impl ArrayChecker {
     }
 
     fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
-
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
@@ -59,7 +58,7 @@ impl ArrayChecker {
                 if ival.max == ival.min {
                     self.constraints.push(IndexConstraint {
                         name: *name,
-                        max: Some(ival.max-1),
+                        max: Some(ival.max - 1),
                         min: None,
                     })
                 }
@@ -100,14 +99,11 @@ impl ArrayChecker {
             self.match_expr(*lhs, decl, decls);
             self.match_expr(*rhs, decl, decls);
         }
-
     }
 
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
-            Expr::Int(x) => {
-                IndexInterval { min: *x, max: *x }
-            }
+            Expr::Int(x) => IndexInterval { min: *x, max: *x },
             Expr::Block(exprs) => {
                 let n = self.vars.len();
                 for e in exprs {
@@ -181,7 +177,6 @@ impl ArrayChecker {
                 r
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
-
                 if *array_expr >= decl.types.len() {
                     panic!("no type found for array index expression");
                 }
@@ -210,7 +205,6 @@ impl ArrayChecker {
                 IndexInterval::default()
             }
             Expr::While(cond, body) => {
-                
                 let initial_constraint_count = self.constraints.len();
                 self.match_expr(*cond, decl, decls);
 
@@ -221,14 +215,11 @@ impl ArrayChecker {
 
                 IndexInterval::default()
             }
-            _ => {
-                IndexInterval::default()
-            }
+            _ => IndexInterval::default(),
         }
     }
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
-
         if let Some(body) = func_decl.body {
             self.check_expr(body, &func_decl, decls);
         }
@@ -269,10 +260,10 @@ mod tests {
 
         for i in 0..table.decls.len() {
             if let Decl::Func(ref mut fdecl) = &mut table.decls[i] {
-                 fdecl.types = types[i].clone();
+                fdecl.types = types[i].clone();
             }
         }
-        
+
         let mut array_checker = ArrayChecker::new();
         array_checker.check(&table);
 
@@ -288,7 +279,6 @@ mod tests {
 
     #[test]
     pub fn test_array_if() {
-        
         let s = "
         f(i: i32) {
             var a: [i32; 100]
@@ -304,7 +294,6 @@ mod tests {
 
     #[test]
     pub fn test_array_if_bad() {
-        
         let s = "
         f(i: i32) {
             var a: [i32; 100]
@@ -320,7 +309,6 @@ mod tests {
 
     #[test]
     pub fn test_array_if_u32() {
-        
         let s = "
         f {
             var i: u32
@@ -337,7 +325,6 @@ mod tests {
 
     #[test]
     pub fn test_while() {
-        
         let s = "
         f {
             var i: u32
@@ -352,5 +339,4 @@ mod tests {
         let errors = check(s);
         assert!(errors.is_empty());
     }
-
 }

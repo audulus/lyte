@@ -209,12 +209,11 @@ impl Lexer {
             }
 
             if self.i < n && bytes[self.i] == b'u' {
-
                 self.i += 1;
 
                 if fraction {
                     return Token::Error;
-                } else if let Ok(uint_value) = self.code[start..self.i-1].parse() {
+                } else if let Ok(uint_value) = self.code[start..self.i - 1].parse() {
                     return Token::UInteger(uint_value);
                 } else {
                     return Token::Error;

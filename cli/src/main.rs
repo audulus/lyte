@@ -13,7 +13,7 @@ struct Args {
     ir: bool,
 
     #[clap(long)]
-    c: bool
+    c: bool,
 }
 
 fn main() {

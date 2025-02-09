@@ -79,7 +79,12 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
-        let cast_overloads = vec![func(int8, int32), func(int32, int8), func(int32, uint32), func(uint32, int32)];
+        let cast_overloads = vec![
+            func(int8, int32),
+            func(int32, int8),
+            func(int32, uint32),
+            func(uint32, int32),
+        ];
 
         Self {
             types: vec![],
@@ -125,10 +130,13 @@ impl Checker {
             Unop::Neg => {
                 let ft = self.fresh();
                 let types = vec![mk_type(Type::Int32), mk_type(Type::Float32)];
-                let alts: Vec<_> = types.iter().map(|t| Alt {
-                    ty: func(*t, *t),
-                    interfaces: vec![],
-                }).collect();
+                let alts: Vec<_> = types
+                    .iter()
+                    .map(|t| Alt {
+                        ty: func(*t, *t),
+                        interfaces: vec![],
+                    })
+                    .collect();
 
                 self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
 
@@ -144,10 +152,12 @@ impl Checker {
                 r
             }
             Unop::Not => {
-                self.eq(argt,
+                self.eq(
+                    argt,
                     mk_type(Type::Bool),
-                    arena.locs[id], 
-                    &"logical negation requires a boolean");
+                    arena.locs[id],
+                    &"logical negation requires a boolean",
+                );
 
                 mk_type(Type::Bool)
             }
@@ -245,7 +255,7 @@ impl Checker {
             }
 
             self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
-            
+
             let b = mk_type(Type::Bool);
 
             self.eq(
@@ -267,7 +277,10 @@ impl Checker {
             Expr::Int(_) => {
                 let ty = self.fresh();
                 let alts = vec![
-                    Alt {ty: mk_type(Type::Int32), interfaces: vec![]},
+                    Alt {
+                        ty: mk_type(Type::Int32),
+                        interfaces: vec![],
+                    },
                     // Alt {ty: mk_type(Type::UInt32), interfaces: vec![]},
                 ];
                 self.add_constraint(Constraint::Or(ty, alts, arena.locs[id]));
@@ -513,8 +526,14 @@ impl Checker {
                 // );
 
                 let alts: Vec<Alt> = vec![
-                    Alt{ty: mk_type(Type::Int32), interfaces: vec![]},
-                    Alt{ty: mk_type(Type::UInt32), interfaces: vec![]},
+                    Alt {
+                        ty: mk_type(Type::Int32),
+                        interfaces: vec![],
+                    },
+                    Alt {
+                        ty: mk_type(Type::UInt32),
+                        interfaces: vec![],
+                    },
                 ];
 
                 self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr]));
@@ -815,11 +834,10 @@ mod tests {
         }
 
         result
-
     }
 
     #[test]
-    pub fn test_array_if() {        
+    pub fn test_array_if() {
         let s = "
         f(i: i32) {
             var a: [i32; 100]
@@ -834,7 +852,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_inc_i32() {        
+    pub fn test_inc_i32() {
         let s = "
         f {
             var i: i32
