@@ -5,6 +5,7 @@ pub struct ArrayError {
     pub message: String,
 }
 
+#[derive(Clone, Debug)]
 struct IndexConstraint {
     pub name: Name,
     pub max: Option<i64>,
