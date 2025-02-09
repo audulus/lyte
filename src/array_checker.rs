@@ -1,5 +1,3 @@
-use std::ops::Index;
-
 use crate::*;
 
 pub struct ArrayError {
