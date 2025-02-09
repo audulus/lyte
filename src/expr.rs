@@ -11,6 +11,7 @@ use crate::*;
 pub enum Expr {
     Id(Name),
     Int(i64),
+    UInt(u64),
     Real(String), // f64 is not hashable so we just use the string representation
     Call(ExprID, Vec<ExprID>),
     Macro(Name, Vec<ExprID>),

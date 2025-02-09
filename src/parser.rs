@@ -454,6 +454,11 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             cx.next();
             arena.add(e, cx.lex.loc)
         }
+        Token::UInteger(x) => {
+            let e = Expr::UInt(x);
+            cx.next();
+            arena.add(e, cx.lex.loc)
+        }
         Token::Real(x) => {
             let e = Expr::Real(x.to_string());
             cx.next();
@@ -1037,6 +1042,7 @@ mod tests {
                 "x",
                 "(x)",
                 "42",
+                "42u",
                 "3.14159",
                 ".something",
                 "(1,2,3)",

@@ -104,6 +104,7 @@ impl ArrayChecker {
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
             Expr::Int(x) => IndexInterval { min: *x, max: *x },
+            Expr::UInt(x) => IndexInterval { min: *x as i64, max: *x as i64 },
             Expr::Block(exprs) => {
                 let n = self.vars.len();
                 for e in exprs {
@@ -313,7 +314,7 @@ mod tests {
         f {
             var i: u32
             var a: [i32; 100]
-            if i < (50 as u32) {
+            if i < 50u {
                 a[i]
             }
         }
@@ -329,7 +330,7 @@ mod tests {
         f {
             var i: u32
             var a: [i32; 100]
-            while i < (50 as u32) {
+            while i < 50u {
                 a[i]
                 i = i + (1 as u32)
             }

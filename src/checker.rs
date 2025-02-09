@@ -286,6 +286,7 @@ impl Checker {
                 self.add_constraint(Constraint::Or(ty, alts, arena.locs[id]));
                 ty
             }
+            Expr::UInt(_) => mk_type(Type::UInt32),
             Expr::Real(_) => mk_type(Type::Float32),
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
