@@ -4,6 +4,7 @@ use crate::defs::*;
 pub enum Token {
     Id(Name),
     Integer(i64),
+    UInteger(u64),
     Real(Name),
     Lparen,
     Rparen,
@@ -205,6 +206,19 @@ impl Lexer {
                 }
 
                 self.i += 1;
+            }
+
+            if self.i < n && bytes[self.i] == b'u' {
+
+                self.i += 1;
+
+                if fraction {
+                    return Token::Error;
+                } else if let Ok(uint_value) = self.code[start..self.i-1].parse() {
+                    return Token::UInteger(uint_value);
+                } else {
+                    return Token::Error;
+                }
             }
 
             return if fraction {
@@ -423,7 +437,9 @@ mod tests {
         assert_eq!(tokens("42"), vec![Integer(42)]);
         assert_eq!(tokens("42.0"), vec![Real(Name::str("42.0"))]);
         assert_eq!(tokens(".5"), vec![Real(Name::str(".5"))]);
+        assert_eq!(tokens("42u"), vec![UInteger(42)]);
         assert_eq!(tokens("2 + 2"), vec![Integer(2), Plus, Integer(2)]);
+        assert_eq!(tokens("2u + 2u"), vec![UInteger(2), Plus, UInteger(2)]);
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
         assert_eq!(tokens("x >= y"), vec![id("x"), Geq, id("y")]);
