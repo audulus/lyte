@@ -1,3 +1,5 @@
+use std::ops::Index;
+
 use crate::*;
 
 pub struct ArrayError {
@@ -55,6 +57,10 @@ impl ArrayChecker {
         self.constraints.push(IndexConstraint { name, min, max })
     }
 
+    fn find(&self, name: Name) -> Option<IndexConstraint> {
+        self.constraints.iter().find(|c| c.name == name).cloned()
+    }
+
     fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
@@ -79,7 +85,7 @@ impl ArrayChecker {
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
                 if let Expr::Id(max_name) = &decl.arena[*rhs] {
-                    if let Some(c) = self.constraints.iter().find(|c| c.name == *max_name) {
+                    if let Some(c) = self.find(*max_name) {
                         if let Some(max) = c.max {
                             self.add(*name, None, Some(max));
                         }
