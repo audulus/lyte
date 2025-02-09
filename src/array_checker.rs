@@ -332,7 +332,7 @@ mod tests {
             var a: [i32; 100]
             while i < 50u {
                 a[i]
-                i = i + (1 as u32)
+                i = i + 1u
             }
         }
         ";
