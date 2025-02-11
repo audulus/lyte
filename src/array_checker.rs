@@ -72,6 +72,7 @@ impl ArrayChecker {
         self.constraints.iter().find(|c| c.name == name).cloned()
     }
 
+    /// Given expr evaluates to true, add constraints accordingly.
     fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
