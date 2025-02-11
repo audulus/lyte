@@ -90,6 +90,15 @@ impl ArrayChecker {
             }
         }
 
+        if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*lhs] {
+                let ival = self.check_expr(*rhs, decl, decls);
+                if ival.max != i64::max_value() {
+                    self.add(*name, None, Some(ival.max));
+                }
+            }
+        }
+
         if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
                 if let Expr::Int(n) = &decl.arena[*rhs] {
@@ -326,6 +335,22 @@ mod tests {
         f(i: i32) {
             var a: [i32; 100]
             if i < 100 {
+                a[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_array_if_leq_bad() {
+        let s = "
+        f {
+            var i: u32
+            var a: [i32; 100]
+            if i <= 100u {
                 a[i]
             }
         }
