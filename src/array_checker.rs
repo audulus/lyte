@@ -12,10 +12,18 @@ struct IndexConstraint {
     pub max: Option<i64>,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 struct IndexInterval {
     pub min: i64,
     pub max: i64,
+}
+
+impl std::ops::Add<IndexInterval> for IndexInterval {
+    type Output = IndexInterval;
+
+    fn add(self, rhs: IndexInterval) -> IndexInterval {
+        IndexInterval { min: self.min + rhs.min, max: self.max + rhs.max }
+    }
 }
 
 fn enclose(a: IndexInterval, b: IndexInterval) -> IndexInterval {
@@ -53,6 +61,11 @@ impl ArrayChecker {
 
     fn add(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
         self.constraints.push(IndexConstraint { name, min, max })
+    }
+
+    fn replace(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
+        self.constraints.retain(|c| c.name != name);
+        self.add(name, min, max);
     }
 
     fn find(&self, name: Name) -> Option<IndexConstraint> {
@@ -195,12 +208,30 @@ impl ArrayChecker {
                 IndexInterval::default()
             }
             Expr::While(cond, body) => {
-                let initial_constraint_count = self.constraints.len();
+                let saved_constraints = self.constraints.clone();
                 self.match_expr(*cond, decl, decls);
 
                 self.check_expr(*body, decl, decls);
-                while self.constraints.len() > initial_constraint_count {
-                    self.constraints.pop();
+                self.constraints = saved_constraints;
+
+                IndexInterval::default()
+            }
+            Expr::Binop(op, lhs, rhs) => {
+
+                if *op == Binop::Plus {
+                    let lhs_range = self.check_expr(*lhs, decl, decls);
+                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    return lhs_range + rhs_range
+                }
+
+                if *op == Binop::Assign {
+                    let rhs_range = self.check_expr(*rhs, decl, decls);
+
+                    if rhs_range != IndexInterval::default() {
+                        if let Expr::Id(name) = &decl.arena[*lhs] {
+                            self.replace(*name, Some(rhs_range.min), Some(rhs_range.max));
+                        }
+                    }
                 }
 
                 IndexInterval::default()
@@ -328,5 +359,23 @@ mod tests {
 
         let errors = check(s);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_while_mutate() {
+        let s = "
+        f {
+            var i: u32
+            var a: [i32; 50]
+            while i < 50u {
+                a[i]
+                i = i + 1u
+                a[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
     }
 }
