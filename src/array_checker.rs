@@ -12,7 +12,7 @@ struct IndexConstraint {
     pub max: Option<i64>,
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct IndexInterval {
     pub min: i64,
     pub max: i64,
@@ -23,6 +23,12 @@ impl std::ops::Add<IndexInterval> for IndexInterval {
 
     fn add(self, rhs: IndexInterval) -> IndexInterval {
         IndexInterval { min: self.min + rhs.min, max: self.max + rhs.max }
+    }
+}
+
+impl Default for IndexInterval {
+    fn default() -> IndexInterval {
+        IndexInterval { min: i64::min_value(), max: i64::max_value() }
     }
 }
 
@@ -78,7 +84,7 @@ impl ArrayChecker {
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
                 let ival = self.check_expr(*rhs, decl, decls);
-                if ival.max == ival.min {
+                if ival.max != i64::max_value() {
                     self.add(*name, None, Some(ival.max - 1));
                 }
             }
