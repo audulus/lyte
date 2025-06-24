@@ -61,3 +61,5 @@ To avoid having to use generics for closures, we can compute a max closure size 
 [MLIR Tutorial](https://llvm.org/devmtg/2020-09/slides/MLIR_Tutorial.pdf)
 
 [Designing type inference for high quality type errors](https://blog.polybdenum.com/2025/02/14/designing-type-inference-for-high-quality-type-errors.html)
+
+[Type Inference Zoo](https://zoo.cuichen.cc/)
