@@ -3,7 +3,7 @@
 assert(cond: bool) → void
 
 struct ArrayInStruct {
-    array:[i8]
+    array:[i8; 1]
 }
 
 test {
