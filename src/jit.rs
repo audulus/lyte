@@ -567,6 +567,24 @@ impl<'a> FunctionTranslator<'a> {
                     _ => todo!(),
                 }
             }
+            Binop::Greater => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
+
+                match *t {
+                    crate::types::Type::Int32 | crate::types::Type::Int8 => {
+                        self.builder.ins().icmp(IntCC::SignedGreaterThan, lhs, rhs)
+                    }
+                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => {
+                        self.builder.ins().icmp(IntCC::UnsignedGreaterThan, lhs, rhs)
+                    }
+                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                        self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs)
+                    }
+                    _ => todo!(),
+                }
+            }
             Binop::And => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
