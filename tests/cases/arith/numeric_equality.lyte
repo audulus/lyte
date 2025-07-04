@@ -1,0 +1,16 @@
+
+// args: --c
+// expected stdout:
+// compilation successful
+
+assert(cond: bool) → void
+
+main {
+    assert(1 == 1)
+    assert(2 != 1)
+    assert(1 != 2)
+    //assert(1 <= 1)
+    //assert(1 <= 2)
+    //assert(1 >= 1)
+    //assert(2 >= 1)
+}
