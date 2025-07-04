@@ -208,7 +208,7 @@ impl Compiler2 {
 
     }
 
-    fn parse(&mut self, contents: &str, path: &str) {
+    pub fn parse(&mut self, contents: &str, path: &str) -> bool {
         let mut lexer = Lexer::new(&contents, &path);
 
         let mut tree = Tree::default();
@@ -223,7 +223,9 @@ impl Compiler2 {
             );
         }
 
+        let success = tree.errors.is_empty();
         self.ast.push(tree);
+        success
     }
 
     pub fn check(&mut self) -> bool {
@@ -235,8 +237,6 @@ impl Compiler2 {
 
         self.decls = DeclTable::new(decls);
         let orig_decls = self.decls.clone();
-
-        println!("Checking program...");
 
         for decl in &mut self.decls.decls {
             let mut checker = Checker::new();
@@ -346,7 +346,7 @@ mod tests {
         let paths = vec![String::from(".")];
 
         compiler.parse(code.into(), &paths[0]);
-        compiler.check();
+        assert!(compiler.check());
         compiler.run();
     }
 
