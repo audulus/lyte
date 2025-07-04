@@ -32,6 +32,7 @@ impl Default for IndexInterval {
     }
 }
 
+/// Encloses two index intervals, returning the smallest interval that contains both.
 fn enclose(a: IndexInterval, b: IndexInterval) -> IndexInterval {
     IndexInterval {
         min: a.min.min(b.min),
