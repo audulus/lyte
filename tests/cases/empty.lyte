@@ -1,1 +1,5 @@
+// args: --c
+// expected stdout:
+// Err("No declarations to compile")
+
 // no code in file
