@@ -455,24 +455,30 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-                if *t == crate::types::Type::Int32 {
-                    self.builder.ins().iadd(lhs, rhs)
-                } else if *t == crate::types::Type::Float32 {
-                    self.builder.ins().fadd(lhs, rhs)
-                } else {
-                    todo!()
+
+                match *t {
+                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
+                        self.builder.ins().iadd(lhs, rhs)
+                    }
+                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                        self.builder.ins().fadd(lhs, rhs)
+                    }
+                    _ => todo!(),
                 }
             }
             Binop::Minus => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-                if *t == crate::types::Type::Int32 {
-                    self.builder.ins().isub(lhs, rhs)
-                } else if *t == crate::types::Type::Float32 {
-                    self.builder.ins().fsub(lhs, rhs)
-                } else {
-                    todo!()
+
+                match *t {
+                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
+                        self.builder.ins().isub(lhs, rhs)
+                    }
+                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                        self.builder.ins().fsub(lhs, rhs)
+                    }
+                    _ => todo!(),
                 }
             }
             Binop::Mult => {
