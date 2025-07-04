@@ -14,7 +14,6 @@ Goals:
 - arena allocation for realtime
 - memory safety
 - type inference
-- incremental query-based compiler
 - Cranelift backend
 - VM for environments where you can't JIT (iOS)
 - Safe cancellation of programs which are taking too long to finish
