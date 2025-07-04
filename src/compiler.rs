@@ -227,10 +227,21 @@ impl Compiler2 {
     }
 
     pub fn check(&mut self) -> bool {
+
+        let mut decls = vec![];
+        for tree in &self.ast {
+            decls.append(&mut tree.decls.clone());
+        }
+
+        self.decls = DeclTable::new(decls);
+
         let mut checker = Checker::new();
+
+        println!("Checking program...");
 
         for tree in &self.ast {
             for decl in &tree.decls {
+                println!("Checking decl: {:?}...", decl);
                 checker.check_decl(decl, &self.decls);
             }
         }
@@ -322,13 +333,22 @@ impl Default for Compiler {
 mod tests {
 
     fn jit(code: &str) {
+        
+        let mut compiler = crate::Compiler2::new();
+        let paths = vec![String::from(".")];
+
+        compiler.parse(code.into(), &paths[0]);
+        compiler.check();
+        // compiler.jit(); 
+
+        /*
         let mut compiler = crate::Compiler::new();
         let paths = vec![String::from(".")];
 
         compiler.update_path(&paths[0], code.into());
         compiler.set_paths(paths);
 
-        compiler.jit();
+        compiler.jit();*/
     }
 
     #[test]
