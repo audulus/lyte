@@ -1,6 +1,7 @@
 use crate::*;
 use core::mem;
 use std::sync::Arc;
+use std::fs;
 
 // An AST.
 //
@@ -184,6 +185,71 @@ struct Database {
 }
 
 impl salsa::Database for Database {}
+
+pub struct Compiler2 {
+    ast: Vec<Tree>,
+    decls: DeclTable,
+}
+
+impl Compiler2 {
+    pub fn new() -> Self {
+        Self { ast: Vec::new(), decls: DeclTable::new(vec![]) }
+    }
+
+    pub fn parse(&mut self, path: &str) {
+        let contents = fs::read_to_string(path);
+
+        if let Ok(contents) = contents {
+            let mut lexer = Lexer::new(&contents, &path);
+
+            let mut tree = Tree::default();
+
+            lexer.next();
+            tree.decls = parse_program(&mut lexer, &mut tree.errors);
+
+            for err in &tree.errors {
+                println!(
+                    "{}:{}: {}",
+                    err.location.file, err.location.line, err.message
+                );
+            }
+
+            self.ast.push(tree);
+        } else {
+            eprintln!("could not read file {:?}", path);
+            std::process::exit(1)
+        }
+
+    }
+
+    pub fn check(&mut self) -> bool {
+        let mut checker = Checker::new();
+
+        for tree in &self.ast {
+            for decl in &tree.decls {
+                checker.check_decl(decl, &self.decls);
+            }
+        }
+
+        checker.print_errors();
+
+        if !checker.errors.is_empty() {
+            return false;
+        }
+
+        // Update function decls with computed types.
+        for tree in &mut self.ast {
+            for decl in &mut tree.decls {
+                if let Decl::Func(ref mut fdecl) = decl {
+                    fdecl.types = checker.solved_types();
+                }
+            }
+        }
+
+        true
+    }
+
+}
 
 pub struct Compiler {
     db: Database,
