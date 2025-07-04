@@ -283,7 +283,22 @@ impl ArrayChecker {
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
         if let Some(body) = func_decl.body {
+
+            for param in &func_decl.params {
+                if let Some(ty) = param.ty {
+                    self.vars.push(Var { name: param.name, ty });
+                    if ty == mk_type(Type::UInt32) {
+                        self.add(param.name, Some(0), None);
+                    } else {
+                        self.add(param.name, None, None);
+                    }
+                }
+            }
+
             self.check_expr(body, &func_decl, decls);
+
+            self.vars.clear();
+            self.constraints.clear();
         }
     }
 
@@ -376,8 +391,7 @@ mod tests {
     #[test]
     pub fn test_array_if_leq_bad() {
         let s = "
-        f {
-            var i: u32
+        f(i : u32) {
             var a: [i32; 100]
             if i <= 100u {
                 a[i]
