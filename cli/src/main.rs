@@ -30,35 +30,25 @@ fn main() {
         paths.push(args.file.clone());
     }
 
-    let mut compiler = lyte::Compiler::new();
+    let mut compiler = lyte::Compiler2::new();
     for path in &paths {
         if let Ok(contents) = fs::read_to_string(path) {
-            compiler.update_path(&path, contents);
+            if !compiler.parse(&contents, &path) {
+                std::process::exit(1);
+            }
         } else {
             eprintln!("could not read file {:?}", path);
             std::process::exit(1)
         }
     }
 
-    compiler.set_paths(paths);
-
-    if args.ast {
-        compiler.print_ast();
-    }
-
-    let mut result = 0;
-
-    if !compiler.parsed() {
-        result = 1;
-    }
-
     if !compiler.check() {
-        result = 1;
+        std::process::exit(1);
     }
 
     if args.c {
-        compiler.jit();
+        compiler.run();
     }
 
-    std::process::exit(result)
+    std::process::exit(0)
 }
