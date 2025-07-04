@@ -234,30 +234,22 @@ impl Compiler2 {
         }
 
         self.decls = DeclTable::new(decls);
-
-        let mut checker = Checker::new();
+        let orig_decls = self.decls.clone();
 
         println!("Checking program...");
 
-        for tree in &self.ast {
-            for decl in &tree.decls {
-                println!("Checking decl: {:?}...", decl);
-                checker.check_decl(decl, &self.decls);
+        for decl in &mut self.decls.decls {
+            let mut checker = Checker::new();
+            checker.check_decl(decl, &orig_decls);
+
+            checker.print_errors();
+            if !checker.errors.is_empty() {
+                return false;
             }
-        }
 
-        checker.print_errors();
-
-        if !checker.errors.is_empty() {
-            return false;
-        }
-
-        // Update function decls with computed types.
-        for tree in &mut self.ast {
-            for decl in &mut tree.decls {
-                if let Decl::Func(ref mut fdecl) = decl {
-                    fdecl.types = checker.solved_types();
-                }
+            // Update function decls with computed types.
+            if let Decl::Func(ref mut fdecl) = decl {
+                fdecl.types = checker.solved_types();
             }
         }
 
@@ -270,6 +262,22 @@ impl Compiler2 {
             return Err(String::from("No declarations to compile"));
         }
         jit.compile(&self.decls)
+    }
+
+    pub fn run(&mut self) {
+        let r = self.jit();
+        if let Ok(code_ptr) = r {
+            println!("compilation successful");
+
+            type Entry = fn() -> ();
+
+            unsafe {
+                let code_fn = mem::transmute::<_, Entry>(code_ptr);
+                code_fn();
+            }
+        } else {
+            println!("{:?}", r);
+        }
     }
 
 }
@@ -339,16 +347,7 @@ mod tests {
 
         compiler.parse(code.into(), &paths[0]);
         compiler.check();
-        // compiler.jit(); 
-
-        /*
-        let mut compiler = crate::Compiler::new();
-        let paths = vec![String::from(".")];
-
-        compiler.update_path(&paths[0], code.into());
-        compiler.set_paths(paths);
-
-        compiler.jit();*/
+        compiler.run();
     }
 
     #[test]
