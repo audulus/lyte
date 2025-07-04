@@ -196,30 +196,34 @@ impl Compiler2 {
         Self { ast: Vec::new(), decls: DeclTable::new(vec![]) }
     }
 
-    pub fn parse(&mut self, path: &str) {
+    pub fn parse_file(&mut self, path: &str) {
         let contents = fs::read_to_string(path);
 
         if let Ok(contents) = contents {
-            let mut lexer = Lexer::new(&contents, &path);
-
-            let mut tree = Tree::default();
-
-            lexer.next();
-            tree.decls = parse_program(&mut lexer, &mut tree.errors);
-
-            for err in &tree.errors {
-                println!(
-                    "{}:{}: {}",
-                    err.location.file, err.location.line, err.message
-                );
-            }
-
-            self.ast.push(tree);
+            self.parse(&contents, &path);
         } else {
             eprintln!("could not read file {:?}", path);
             std::process::exit(1)
         }
 
+    }
+
+    fn parse(&mut self, contents: &str, path: &str) {
+        let mut lexer = Lexer::new(&contents, &path);
+
+        let mut tree = Tree::default();
+
+        lexer.next();
+        tree.decls = parse_program(&mut lexer, &mut tree.errors);
+
+        for err in &tree.errors {
+            println!(
+                "{}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+        }
+
+        self.ast.push(tree);
     }
 
     pub fn check(&mut self) -> bool {
@@ -251,16 +255,10 @@ impl Compiler2 {
 
     pub fn jit(&self) -> Result<*const u8, String> {
         let mut jit = JIT::default();
-
-        // Collect all decls from the ASTs.
-        let mut decls = vec![];
-        for tree in &self.ast {
-            decls.extend(tree.decls.clone());
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
         }
-
-        let decl_table = DeclTable::new(decls);
-
-        jit.compile(&decl_table)
+        jit.compile(&self.decls)
     }
 
 }
