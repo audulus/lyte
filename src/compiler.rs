@@ -74,9 +74,14 @@ impl Compiler2 {
                 return false;
             }
 
-            // Update function decls with computed types.
-            if let Decl::Func(ref mut fdecl) = decl {
-                fdecl.types = checker.solved_types();
+            match decl {
+                Decl::Func(ref mut fdecl) => {
+                    fdecl.types = checker.solved_types();
+                }
+                Decl::Macro(ref mut mdecl) => {
+                    mdecl.types = checker.solved_types();
+                }
+                _ => {}
             }
         }
 
