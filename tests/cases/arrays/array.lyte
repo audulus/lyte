@@ -2,7 +2,7 @@
 
 assert(cond: bool) → void
 
-ret_array_literal() → [i32] {
+ret_array_literal() → [i32; 3] {
     return [1,2,3]
 }
 
@@ -13,17 +13,9 @@ test {
     assert(a[2] == 3)
     assert(a.len == 3)
 
-    a = [42]
+    a = [42, 0, 0]
     assert(a.len == 1)
     assert(a[0] == 42)
 
     assert([42][0] == 42)
-
-    var b:[i32]
-    assert(b.len == 0)
-    b[0] = 1
-    assert(b.len == 1)
-    b[1] = 2
-    b[2] = 3
-    assert(b.len == 3)
 }
