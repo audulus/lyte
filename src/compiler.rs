@@ -249,6 +249,20 @@ impl Compiler2 {
         true
     }
 
+    pub fn jit(&self) -> Result<*const u8, String> {
+        let mut jit = JIT::default();
+
+        // Collect all decls from the ASTs.
+        let mut decls = vec![];
+        for tree in &self.ast {
+            decls.extend(tree.decls.clone());
+        }
+
+        let decl_table = DeclTable::new(decls);
+
+        jit.compile(&decl_table)
+    }
+
 }
 
 pub struct Compiler {
