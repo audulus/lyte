@@ -22,7 +22,31 @@ impl std::ops::Add<IndexInterval> for IndexInterval {
     type Output = IndexInterval;
 
     fn add(self, rhs: IndexInterval) -> IndexInterval {
-        IndexInterval { min: self.min + rhs.min, max: self.max + rhs.max }
+        // Check for overflow in min calculation
+        let min = if let Some(result) = self.min.checked_add(rhs.min) {
+            result
+        } else {
+            // Overflow occurred, return saturated value
+            if self.min > 0 && rhs.min > 0 {
+                i64::MAX
+            } else {
+                i64::MIN
+            }
+        };
+
+        // Check for overflow in max calculation
+        let max = if let Some(result) = self.max.checked_add(rhs.max) {
+            result
+        } else {
+            // Overflow occurred, return saturated value
+            if self.max > 0 && rhs.max > 0 {
+                i64::MAX
+            } else {
+                i64::MIN
+            }
+        };
+
+        IndexInterval { min, max }
     }
 }
 
@@ -414,5 +438,29 @@ mod tests {
 
         let errors = check(s);
         assert_eq!(errors.len(), 1);
+    }
+ 
+    #[test]
+    pub fn test_add_unconstrained() {
+        let s = "
+        f(x: i32) → i32 { x + 1 }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_index_interval() {
+        let a = IndexInterval { min: 0, max: 10 };
+        let b = IndexInterval { min: 5, max: 15 };
+        let c = a + b;
+        assert_eq!(c.min, 5);
+        assert_eq!(c.max, 25);
+
+        let d = IndexInterval::default();
+        let e = a + d;
+        assert_eq!(e.min, i64::MIN);
+        assert_eq!(e.max, i64::MAX);
     }
 }
