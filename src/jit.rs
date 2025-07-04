@@ -13,6 +13,7 @@ use cranelift::prelude::*;
 use cranelift_codegen::verifier::verify_function;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
+use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
@@ -558,7 +559,9 @@ impl<'a> FunctionTranslator<'a> {
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 self.builder.ins().bor(lhs, rhs)
             }
-            _ => todo!(),
+            _ => {
+                panic!("unimplemented binary operation: {:?}", binop);
+            },
         }
     }
 
