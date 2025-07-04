@@ -53,7 +53,7 @@ pub struct ArrayChecker {
     /// Constraints we know about each var.
     constraints: Vec<IndexConstraint>,
 
-    errors: Vec<ArrayError>,
+    pub errors: Vec<ArrayError>,
 }
 
 impl ArrayChecker {
@@ -275,6 +275,15 @@ impl ArrayChecker {
             self.check_decl(decl, decls);
         }
     }
+
+    pub fn print_errors(&self) {
+        for err in &self.errors {
+            println!(
+                "❌ {}:{}: {}",
+                err.location.file, err.location.line, err.message
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -304,12 +313,7 @@ mod tests {
         let mut array_checker = ArrayChecker::new();
         array_checker.check(&table);
 
-        for err in &array_checker.errors {
-            println!(
-                "❌ {}:{}: {}",
-                err.location.file, err.location.line, err.message
-            );
-        }
+        array_checker.print_errors();
 
         array_checker.errors
     }
