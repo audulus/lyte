@@ -30,7 +30,7 @@ fn main() {
         paths.push(args.file.clone());
     }
 
-    let mut compiler = lyte::Compiler2::new();
+    let mut compiler = lyte::Compiler::new();
     for path in &paths {
         if let Ok(contents) = fs::read_to_string(path) {
             if !compiler.parse(&contents, &path) {

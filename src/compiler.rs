@@ -13,12 +13,12 @@ pub struct Tree {
     pub errors: Vec<ParseError>,
 }
 
-pub struct Compiler2 {
+pub struct Compiler {
     ast: Vec<Tree>,
     decls: DeclTable,
 }
 
-impl Compiler2 {
+impl Compiler {
     pub fn new() -> Self {
         Self { ast: Vec::new(), decls: DeclTable::new(vec![]) }
     }
@@ -118,7 +118,7 @@ mod tests {
 
     fn jit(code: &str) {
         
-        let mut compiler = crate::Compiler2::new();
+        let mut compiler = crate::Compiler::new();
         let paths = vec![String::from(".")];
 
         compiler.parse(code.into(), &paths[0]);
