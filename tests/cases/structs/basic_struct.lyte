@@ -1,0 +1,13 @@
+// args: --c
+// expected stdout:
+// compilation successful
+
+struct MyStruct {
+    i: i32,
+    f: f32
+}
+
+main {
+    var x: MyStruct
+    x.i = 1
+}

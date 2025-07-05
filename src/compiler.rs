@@ -312,4 +312,24 @@ mod tests {
 
         jit(code);
     }
+
+    #[test]
+    fn test_struct() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            struct S {
+                i: i32,
+                f: f32
+            }
+
+            main {
+                var s: S
+                s.i = 2
+                assert(s.i == 2)
+            }
+        "#;
+
+        jit(code);
+    }
 }

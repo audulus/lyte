@@ -164,6 +164,8 @@ impl Lexer {
                 "i8" => Token::Int8,
                 "i32" => Token::Int32,
                 "u32" => Token::UInt32,
+                "f32" => Token::Float32,
+                "f64" => Token::Float64,
                 "var" => Token::Var,
                 "let" => Token::Let,
                 "return" => Token::Return,

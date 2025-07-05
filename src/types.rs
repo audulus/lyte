@@ -152,7 +152,9 @@ impl TypeID {
             Type::Name(name, _vars) => {
                 let decl = decls.find(*name);
                 // Must be a unique struct decl.
-                assert!(decl.len() == 1);
+                if decl.len() != 1 {
+                    panic!("expected exactly one struct decl for type {}", name);
+                }
                 if let Decl::Struct(sdecl) = &decl[0] {
                     sdecl.fields.iter().map(|field| field.ty.size(decls)).sum()
                 } else {

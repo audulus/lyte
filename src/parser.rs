@@ -88,6 +88,14 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             cx.next();
             Type::UInt32
         }
+        Token::Float32 => {
+            cx.next();
+            Type::Float32
+        }
+        Token::Float64 => {
+            cx.next();
+            Type::Float64
+        }
         Token::Lmath => {
             cx.next();
             let name = expect_id(cx);
