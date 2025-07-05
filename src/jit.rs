@@ -70,11 +70,17 @@ impl JIT {
     pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
         let name = "main";
 
+        let main_decls = &decls.find(Name::new(name.into()));
+
+        if main_decls.is_empty() {
+            panic!("no main function found");
+        }
+
         // Find the main function.
-        let main_decl = if let Decl::Func(d) = &decls.find(Name::new(name.into()))[0] {
+        let main_decl = if let Decl::Func(d) = &main_decls[0] {
             d
         } else {
-            panic!()
+            panic!("no main function found");
         };
 
         let id = self.compile_function(decls, main_decl)?;
@@ -410,6 +416,41 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.ins().load(load_ty, MemFlags::new(), p, 0)
                 } else {
                     panic!("subscript expression not on array. should be caught by type checker");
+                }
+            }
+            Expr::ArrayLiteral(elements) => {
+                let element_values: Vec<Value> = elements
+                    .iter()
+                    .map(|e| self.translate_expr(*e, decl, decls))
+                    .collect();
+                
+                let ty = decl.types[expr];
+
+                if let crate::Type::Array(ty, count) = &*ty { 
+
+                    let sz = ty.size(decls) as u32;
+                    let element_size = sz / elements.len() as u32;
+
+                    // Allocate a new stack slot with a size of the variable.
+                    let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size: sz,
+                        align_shift: 0,
+                    });
+
+                    // Create an instruction that loads the address of the stack slot.
+                    let addr = self.builder.ins().stack_addr(I64, slot, 0);
+
+                    // Store each element in the stack slot.
+                    for (i, value) in element_values.iter().enumerate() {
+                        let offset = i as i32 * element_size as i32;
+                        self.builder.ins().stack_store(*value, slot, offset);
+                    }
+
+                    addr
+
+                } else {
+                    panic!("array literal not on array type.");
                 }
             }
             Expr::Block(exprs) => {

@@ -1,0 +1,9 @@
+// args: --c
+// expected stdout:
+// compilation successful
+assert(cond: bool) → void
+
+main {
+    var a = [42]
+    // assert(a[0] == 42)
+}
