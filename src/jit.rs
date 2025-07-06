@@ -107,6 +107,9 @@ impl JIT {
 
         let called_functions = self.function_body(decls, decl);
 
+        // Print the generated IR
+        // println!("Generated IR:\n{}", self.ctx.func.display());
+
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
         let id = self
