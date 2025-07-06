@@ -1,0 +1,11 @@
+// args: --c
+// expected stdout:
+// compilation successful
+assert(cond: bool) → void
+// print(x: i32) → void
+
+main {
+    var a : [i32; 1]
+    a[0] = 42
+    assert(a[0] == 42)
+}
