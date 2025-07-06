@@ -335,14 +335,14 @@ mod tests {
         jit(code);
     }
 
-     #[test]
+    #[test]
     fn test_array_literal() {
         let code = r#"
             assert(cond: bool) → void
 
             main {
                 var a = [42]
-                // assert(a[0] == 42)
+                assert(a[0] == 42)
             }
         "#;
 

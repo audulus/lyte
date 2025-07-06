@@ -392,7 +392,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 if let Some(init_id) = init {
                     let init_value = self.translate_expr(*init_id, decl, decls);
-                    self.builder.ins().stack_store(init_value, slot, 0);
+                    self.gen_copy(*ty, addr, init_value, decls);
                 }
 
                 self.builder.ins().iconst(I32, 0)
