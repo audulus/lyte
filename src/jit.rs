@@ -507,6 +507,39 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    fn gen_eq(
+        &mut self,
+        t: crate::TypeID,
+        dst: Value,
+        src: Value,
+        decls: &crate::DeclTable,
+    ) -> Value {
+        if t.is_ptr() {
+            let size = t.size(decls) as u64;
+            let align = std::num::NonZeroU8::new(4).unwrap();
+            self.builder.emit_small_memory_compare(
+                self.module.isa().frontend_config(),
+                IntCC::Equal,
+                dst,
+                src,
+                size,
+                align,
+                align,
+                MemFlags::trusted(),
+            )
+        } else {
+            match *t {
+                crate::types::Type::Bool | crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
+                    self.builder.ins().icmp(IntCC::Equal, dst, src)
+                }
+                crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                    self.builder.ins().fcmp(FloatCC::Equal, dst, src)
+                }
+                _ => todo!(),
+            }
+        }
+    }
+
     fn translate_binop(
         &mut self,
         binop: Binop,
@@ -585,16 +618,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-
-                match *t {
-                    crate::types::Type::Bool | crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                        self.builder.ins().icmp(IntCC::Equal, lhs, rhs)
-                    }
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
-                        self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)
-                    }
-                    _ => todo!(),
-                }
+                self.gen_eq(t, lhs, rhs, decls)
             }
             Binop::NotEqual => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
