@@ -483,6 +483,30 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    fn gen_copy(
+        &mut self,
+        t: crate::TypeID,
+        dst: Value,
+        src: Value,
+        decls: &crate::DeclTable,
+    ) {
+        if t.is_ptr() {
+            let size = t.size(decls) as u64;
+            self.builder.emit_small_memory_copy(
+                self.module.isa().frontend_config(),
+                dst,
+                src,
+                size,
+                4,
+                4,
+                true,
+                MemFlags::trusted(),
+            );
+        } else {
+            self.builder.ins().store(MemFlags::new(), src, dst, 0);
+        }
+    }
+
     fn translate_binop(
         &mut self,
         binop: Binop,
@@ -554,23 +578,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
-                if t.is_ptr() {
-                    // memcpy the type
-                    let size = t.size(decls) as u64;
-                    self.builder.emit_small_memory_copy(
-                        self.module.isa().frontend_config(),
-                        lhs,
-                        rhs,
-                        size,
-                        4,
-                        4,
-                        true,
-                        MemFlags::trusted(),
-                    );
-                } else {
-                    self.builder.ins().store(MemFlags::new(), rhs, lhs, 0);
-                }
-
+                self.gen_copy(t, lhs, rhs, decls);
                 rhs
             }
             Binop::Equal => {
