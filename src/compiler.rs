@@ -16,11 +16,12 @@ pub struct Tree {
 pub struct Compiler {
     ast: Vec<Tree>,
     decls: DeclTable,
+    pub print_ir: bool,
 }
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { ast: Vec::new(), decls: DeclTable::new(vec![]) }
+        Self { ast: Vec::new(), decls: DeclTable::new(vec![]), print_ir: false }
     }
 
     pub fn parse_file(&mut self, path: &str) {
@@ -90,6 +91,7 @@ impl Compiler {
 
     pub fn jit(&self) -> Result<*const u8, String> {
         let mut jit = JIT::default();
+        jit.print_ir = self.print_ir;
         if self.decls.decls.is_empty() {
             return Err(String::from("No declarations to compile"));
         }

@@ -46,6 +46,8 @@ fn main() {
         std::process::exit(1);
     }
 
+    compiler.print_ir = args.ir;
+
     if args.c {
         compiler.run();
     }

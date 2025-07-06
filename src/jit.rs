@@ -33,6 +33,8 @@ pub struct JIT {
     module: JITModule,
 
     defined_functions: HashSet<Name>,
+
+    pub print_ir: bool,
 }
 
 impl Default for JIT {
@@ -61,6 +63,7 @@ impl Default for JIT {
             ctx: module.make_context(),
             module,
             defined_functions: HashSet::new(),
+            print_ir: false,
         }
     }
 }
@@ -108,7 +111,9 @@ impl JIT {
         let called_functions = self.function_body(decls, decl);
 
         // Print the generated IR
-        // println!("Generated IR:\n{}", self.ctx.func.display());
+        if self.print_ir {
+            println!("Generated IR:\n{}", self.ctx.func.display());
+        }
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
