@@ -510,7 +510,7 @@ impl Checker {
                     self.constraints
                         .push(Constraint::Equal(t, elem_t, arena.locs[*e]));
                 }
-                mk_type(Type::Array(t, 0))
+                mk_type(Type::Array(t, exprs.len() as i32))
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 let t = self.fresh();

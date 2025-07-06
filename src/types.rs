@@ -27,7 +27,7 @@ pub enum Type {
     /// Function (dom, rng)
     Func(TypeID, TypeID),
 
-    /// Array of fixed size. 0 indicates variable size.
+    /// Array of fixed size.
     Array(TypeID, i32),
 
     /// A named type which may include type parameters.

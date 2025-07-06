@@ -374,10 +374,13 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = &decl.types[expr];
                 let var = self.declare_variable(name, I64);
 
+                let sz = ty.size(decls) as u32;
+                assert!(sz > 0, "variable size must be greater than 0");
+
                 // Allocate a new stack slot with a size of the variable.
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
-                    size: ty.size(decls) as u32,
+                    size: sz,
                     align_shift: 0,
                 });
 
