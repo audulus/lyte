@@ -434,7 +434,7 @@ impl<'a> FunctionTranslator<'a> {
                 
                 let ty = decl.types[expr];
 
-                if let crate::Type::Array(ty, count) = &*ty { 
+                if let crate::Type::Array(ty, _) = &*ty { 
 
                     let sz = ty.size(decls) as u32;
                     let element_size = sz / elements.len() as u32;
