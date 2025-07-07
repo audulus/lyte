@@ -1,5 +1,8 @@
+// args: --c
+// expected stdout:
+// compilation successful
 
-test {
+main {
     var a: [i32; 4]
     var i: u32
     a[i]

@@ -196,6 +196,7 @@ impl crate::Type {
         match self {
             crate::Type::Void => I32,
             crate::Type::Int32 => I32,
+            crate::Type::UInt32 => I32,
             crate::Type::Float32 => F32,
             crate::Type::Float64 => F64,
             crate::Type::Bool => I8,
