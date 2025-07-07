@@ -394,6 +394,8 @@ impl<'a> FunctionTranslator<'a> {
                 if let Some(init_id) = init {
                     let init_value = self.translate_expr(*init_id, decl, decls);
                     self.gen_copy(*ty, addr, init_value, decls);
+                } else {
+                    self.gen_zero(*ty, addr, decls);
                 }
 
                 self.builder.ins().iconst(I32, 0)
@@ -516,6 +518,20 @@ impl<'a> FunctionTranslator<'a> {
             );
         } else {
             self.builder.ins().store(MemFlags::new(), src, dst, 0);
+        }
+    }
+
+    fn gen_zero(
+        &mut self,
+        t: crate::TypeID,
+        dst: Value,
+        decls: &crate::DeclTable,
+    ) {
+        let size = t.size(decls) as u32;
+        let zero = self.builder.ins().iconst(I8, 0);
+        // Store zero byte-by-byte for the size of the type
+        for offset in 0..size {
+            self.builder.ins().store(MemFlags::new(), zero, dst, offset as i32);
         }
     }
 
