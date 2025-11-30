@@ -135,7 +135,7 @@ impl Decl {
             Decl::Macro(func) => format_func_decl(func, decls, true),
             Decl::Struct(st) => format_struct_decl(st, decls),
             Decl::Enum { name, cases } => format_enum_decl(*name, cases),
-            Decl::Global { name, ty } => format!("var {}: {}", name, format_type(*ty, decls)),
+            Decl::Global { name, ty } => format!("var {}: {}", name, ty.pretty_print(decls)),
             Decl::Interface(iface) => format_interface(iface, decls),
         }
     }
@@ -154,40 +154,13 @@ fn format_params(params: &[Param], decls: &DeclTable) -> String {
         .iter()
         .map(|p| {
             if let Some(ty) = p.ty {
-                format!("{}: {}", p.name, format_type(ty, decls))
+                format!("{}: {}", p.name, ty.pretty_print(decls))
             } else {
                 p.name.to_string()
             }
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn format_type(ty: TypeID, decls: &DeclTable) -> String {
-    match &*ty {
-        Type::Void => "void".to_string(),
-        Type::Bool => "bool".to_string(),
-        Type::Int8 => "i8".to_string(),
-        Type::UInt8 => "u8".to_string(),
-        Type::Int32 => "i32".to_string(),
-        Type::UInt32 => "u32".to_string(),
-        Type::Float32 => "f32".to_string(),
-        Type::Float64 => "f64".to_string(),
-        Type::Tuple(types) => {
-            format!("({})", types.iter().map(|t| format_type(*t, decls)).collect::<Vec<_>>().join(", "))
-        }
-        Type::Var(name) => name.to_string(),
-        Type::Anon(id) => format!("?{}", id),
-        Type::Func(dom, rng) => format!("{} → {}", format_type(*dom, decls), format_type(*rng, decls)),
-        Type::Array(elem, size) => format!("[{}; {}]", format_type(*elem, decls), size),
-        Type::Name(name, params) => {
-            if params.is_empty() {
-                name.to_string()
-            } else {
-                format!("{}<{}>", name, params.iter().map(|t| format_type(*t, decls)).collect::<Vec<_>>().join(", "))
-            }
-        }
-    }
 }
 
 fn format_constraints(constraints: &[InterfaceConstraint]) -> String {
@@ -216,7 +189,7 @@ fn format_func_decl(func: &FuncDecl, decls: &DeclTable, is_macro: bool) -> Strin
     let ret_type = if matches!(&*func.ret, Type::Void) {
         String::new()
     } else {
-        format!(" → {}", format_type(func.ret, decls))
+        format!(" → {}", func.ret.pretty_print(decls))
     };
     let constraints = format_constraints(&func.constraints);
 
@@ -240,7 +213,7 @@ fn format_struct_decl(st: &StructDecl, decls: &DeclTable) -> String {
     let fields = st
         .fields
         .iter()
-        .map(|f| format!("    {}: {}", f.name, format_type(f.ty, decls)))
+        .map(|f| format!("    {}: {}", f.name, f.ty.pretty_print(decls)))
         .collect::<Vec<_>>()
         .join("\n");
 
