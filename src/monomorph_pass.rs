@@ -87,23 +87,35 @@ impl MonomorphPass {
     fn process_expr(
         &mut self,
         expr_id: ExprID,
-        fdecl: &FuncDecl,
+        fdecl: &mut FuncDecl,
         decls: &DeclTable,
     ) -> Result<(), String> {
-        match &fdecl.arena[expr_id] {
+        // Clone the expression to avoid borrow checker issues
+        let expr = fdecl.arena[expr_id].clone();
+
+        match &expr {
             Expr::Call(fn_id, arg_ids) => {
+                // Extract fn_name and fn_type before any mutable borrows
+                let fn_name = if let Expr::Id(name) = &fdecl.arena[*fn_id] {
+                    Some(*name)
+                } else {
+                    None
+                };
+                let fn_type = fdecl.types[*fn_id];
+                let fn_id = *fn_id;
+                let arg_ids = arg_ids.clone();
+
                 // Process the function expression
-                self.process_expr(*fn_id, fdecl, decls)?;
+                self.process_expr(fn_id, fdecl, decls)?;
 
                 // Process arguments
-                for arg_id in arg_ids {
+                for arg_id in &arg_ids {
                     self.process_expr(*arg_id, fdecl, decls)?;
                 }
 
                 // Check if this is a call to a generic function
-                if let Expr::Id(fn_name) = &fdecl.arena[*fn_id] {
-                    let fn_type = fdecl.types[*fn_id];
-                    self.process_call(fn_name, fn_type, fdecl, decls)?;
+                if let Some(name) = fn_name {
+                    self.process_call(&name, fn_type, fdecl, decls)?;
                 }
             }
             Expr::Binop(_, lhs, rhs) => {
@@ -168,7 +180,7 @@ impl MonomorphPass {
         &mut self,
         fn_name: &Name,
         fn_type: TypeID,
-        caller_fdecl: &FuncDecl,
+        caller_fdecl: &mut FuncDecl,
         decls: &DeclTable,
     ) -> Result<(), String> {
         // Look up the function declaration
@@ -530,7 +542,7 @@ mod tests {
         let expr2 = arena.add(Expr::Int(2), test_loc());
         let block = arena.add(Expr::Block(vec![expr1, expr2]), test_loc());
 
-        let fdecl = FuncDecl {
+        let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
             params: Vec::new(),
@@ -542,7 +554,7 @@ mod tests {
             loc: test_loc(),
         };
 
-        let result = pass.process_expr(block, &fdecl, &decls);
+        let result = pass.process_expr(block, &mut fdecl, &decls);
         assert!(result.is_ok());
     }
 
@@ -556,7 +568,7 @@ mod tests {
         let rhs = arena.add(Expr::Int(2), test_loc());
         let binop = arena.add(Expr::Binop(Binop::Plus, lhs, rhs), test_loc());
 
-        let fdecl = FuncDecl {
+        let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
             params: Vec::new(),
@@ -568,7 +580,7 @@ mod tests {
             loc: test_loc(),
         };
 
-        let result = pass.process_expr(binop, &fdecl, &decls);
+        let result = pass.process_expr(binop, &mut fdecl, &decls);
         assert!(result.is_ok());
     }
 
@@ -582,7 +594,7 @@ mod tests {
         let elem2 = arena.add(Expr::Int(2), test_loc());
         let array = arena.add(Expr::ArrayLiteral(vec![elem1, elem2]), test_loc());
 
-        let fdecl = FuncDecl {
+        let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
             params: Vec::new(),
@@ -594,7 +606,7 @@ mod tests {
             loc: test_loc(),
         };
 
-        let result = pass.process_expr(array, &fdecl, &decls);
+        let result = pass.process_expr(array, &mut fdecl, &decls);
         assert!(result.is_ok());
     }
 
@@ -777,10 +789,11 @@ mod tests {
         ));
 
         // Call handle_generic_call - should not create any specializations
+        let mut non_generic_mut = non_generic.clone();
         let result = pass.process_call(
             &Name::str("non_generic"),
             fn_type,
-            &non_generic,
+            &mut non_generic_mut,
             &decls,
         );
 
@@ -877,7 +890,7 @@ mod tests {
         let else_expr = arena.add(Expr::Int(2), test_loc());
         let if_expr = arena.add(Expr::If(cond, then_expr, Some(else_expr)), test_loc());
 
-        let fdecl = FuncDecl {
+        let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
             params: Vec::new(),
@@ -889,7 +902,7 @@ mod tests {
             loc: test_loc(),
         };
 
-        let result = pass.process_expr(if_expr, &fdecl, &decls);
+        let result = pass.process_expr(if_expr, &mut fdecl, &decls);
         assert!(result.is_ok());
     }
 
