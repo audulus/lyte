@@ -33,6 +33,8 @@ pub use decl_table::*;
 mod jit;
 pub use jit::*;
 
+pub mod mangle;
+
 mod monomorph;
 pub use monomorph::*;
 
