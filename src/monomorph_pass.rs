@@ -908,4 +908,125 @@ mod tests {
         let result = pass.process_expr(if_expr, &fdecl, &decls);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_monomorphize_single_entry_point() {
+        let mut pass = MonomorphPass::new();
+
+        // Create a simple non-generic entry point function
+        // main() { 42 }
+        let mut arena = ExprArena::new();
+        let body_expr = arena.add(Expr::Int(42), test_loc());
+
+        let entry_func = FuncDecl {
+            name: Name::str("main"),
+            typevars: Vec::new(),
+            params: Vec::new(),
+            constraints: Vec::new(),
+            ret: mk_type(Type::Int32),
+            body: Some(body_expr),
+            arena,
+            types: vec![mk_type(Type::Int32)],
+            loc: test_loc(),
+        };
+
+        let decls = DeclTable::new(vec![Decl::Func(entry_func)]);
+
+        // Monomorphize starting from "main"
+        let result = pass.monomorphize(&decls, Name::str("main"));
+
+        assert!(result.is_ok());
+        let specialized = result.unwrap();
+
+        // No generic functions called, so no specializations should be generated
+        assert_eq!(specialized.len(), 0);
+
+        // The entry point should have been processed
+        assert!(pass.processed.contains(&Name::str("main")));
+    }
+
+    #[test]
+    fn test_monomorphize_entry_point_calling_generic() {
+        let mut pass = MonomorphPass::new();
+
+        // Create a generic function id<T>(x: T) -> T { x }
+        let t_var = typevar("T");
+        let mut id_arena = ExprArena::new();
+        let id_param_expr = id_arena.add(Expr::Id(Name::str("x")), test_loc());
+
+        let id_func = FuncDecl {
+            name: Name::str("id"),
+            typevars: vec![Name::str("T")],
+            params: vec![Param {
+                name: Name::str("x"),
+                ty: Some(t_var),
+            }],
+            constraints: Vec::new(),
+            ret: t_var,
+            body: Some(id_param_expr),
+            arena: id_arena,
+            types: vec![t_var],
+            loc: test_loc(),
+        };
+
+        // Create entry point function that calls id(42)
+        // main() { id(42) }
+        let mut main_arena = ExprArena::new();
+        let arg_expr = main_arena.add(Expr::Int(42), test_loc());
+        let fn_expr = main_arena.add(Expr::Id(Name::str("id")), test_loc());
+        let call_expr = main_arena.add(Expr::Call(fn_expr, vec![arg_expr]), test_loc());
+
+        let i32_type = mk_type(Type::Int32);
+        let func_type = mk_type(Type::Func(i32_type, i32_type));
+
+        let main_func = FuncDecl {
+            name: Name::str("main"),
+            typevars: Vec::new(),
+            params: Vec::new(),
+            constraints: Vec::new(),
+            ret: i32_type,
+            body: Some(call_expr),
+            arena: main_arena,
+            types: vec![i32_type, func_type, i32_type],
+            loc: test_loc(),
+        };
+
+        let decls = DeclTable::new(vec![
+            Decl::Func(id_func),
+            Decl::Func(main_func),
+        ]);
+
+        // Monomorphize starting from "main"
+        let result = pass.monomorphize(&decls, Name::str("main"));
+
+        assert!(result.is_ok());
+        let specialized = result.unwrap();
+
+        // Should have specialized id<i32>
+        assert_eq!(specialized.len(), 1);
+
+        // Check that a specialized version was created
+        // Note: the actual mangled name depends on how type args are inferred
+        if let Decl::Func(fdecl) = &specialized[0] {
+            // Should be specialized (no type variables)
+            assert_eq!(fdecl.typevars.len(), 0);
+            // Return type should be i32
+            assert_eq!(*fdecl.ret, Type::Int32);
+            // Name should start with "id$"
+            assert!(fdecl.name.to_string().starts_with("id$"));
+        } else {
+            panic!("Expected function declaration");
+        }
+
+        // Both main and the specialized id function should be processed
+        assert!(pass.processed.contains(&Name::str("main")));
+
+        // The specialized id function should also be in the processed set
+        let specialized_name = if let Decl::Func(fdecl) = &specialized[0] {
+            fdecl.name
+        } else {
+            panic!("Expected function declaration");
+        };
+        assert!(pass.processed.contains(&specialized_name));
+    }
 }
