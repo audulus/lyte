@@ -93,7 +93,9 @@ impl Compiler {
         let mut pass = MonomorphPass::new();
         let name = Name::new("main".into());
         if let Ok(new_decls) = pass.monomorphize(&self.decls, name ) {
-            self.decls = DeclTable::new(new_decls);
+            let mut all_decls = self.decls.decls.clone();
+            all_decls.extend(new_decls);
+            self.decls = DeclTable::new(all_decls);
             return true;
         }
         false
@@ -135,6 +137,8 @@ mod tests {
 
         compiler.parse(code.into(), &paths[0]);
         assert!(compiler.check());
+        compiler.specialize();
+        assert!(compiler.decls.decls.len() > 0);
         compiler.run();
     }
 
