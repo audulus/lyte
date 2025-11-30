@@ -89,12 +89,11 @@ impl Compiler {
         true
     }
 
-    pub fn specialize(&mut self) -> bool { 
+    pub fn specialize(&mut self) -> bool {
         let mut pass = MonomorphPass::new();
         let name = Name::new("main".into());
-        if let Ok(new_decls) = pass.monomorphize(&self.decls, name ) {
-            let mut all_decls = self.decls.decls.clone();
-            all_decls.extend(new_decls);
+        if let Ok(all_decls) = pass.monomorphize(&self.decls, name ) {
+            // monomorphize now returns all decls (original + specialized)
             self.decls = DeclTable::new(all_decls);
             return true;
         }

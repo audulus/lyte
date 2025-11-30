@@ -35,6 +35,8 @@ impl MonomorphPass {
     ///
     /// This performs a demand-driven monomorphization, only specializing
     /// generic functions that are actually called with concrete types.
+    ///
+    /// Returns all declarations (original + specialized).
     pub fn monomorphize(
         &mut self,
         decls: &DeclTable,
@@ -65,7 +67,10 @@ impl MonomorphPass {
             }
         }
 
-        Ok(self.specialized_decls.clone())
+        // Collect all declarations: original + specialized
+        let mut all_decls = decls.decls.clone();
+        all_decls.extend(self.specialized_decls.clone());
+        Ok(all_decls)
     }
 
     /// Process a single function, finding all generic calls within it
@@ -936,10 +941,10 @@ mod tests {
         let result = pass.monomorphize(&decls, Name::str("main"));
 
         assert!(result.is_ok());
-        let specialized = result.unwrap();
+        let all_decls = result.unwrap();
 
-        // No generic functions called, so no specializations should be generated
-        assert_eq!(specialized.len(), 0);
+        // Should have 1 decl (just main, no specializations)
+        assert_eq!(all_decls.len(), 1);
 
         // The entry point should have been processed
         assert!(pass.processed.contains(&Name::str("main")));
@@ -1000,33 +1005,36 @@ mod tests {
         let result = pass.monomorphize(&decls, Name::str("main"));
 
         assert!(result.is_ok());
-        let specialized = result.unwrap();
+        let all_decls = result.unwrap();
 
-        // Should have specialized id<i32>
-        assert_eq!(specialized.len(), 1);
+        // Should have 3 decls: id (generic), main, id$i32 (specialized)
+        assert_eq!(all_decls.len(), 3);
 
-        // Check that a specialized version was created
-        // Note: the actual mangled name depends on how type args are inferred
-        if let Decl::Func(fdecl) = &specialized[0] {
+        // Find the specialized version
+        let specialized_id = all_decls.iter().find(|d| {
+            if let Decl::Func(f) = d {
+                f.name.to_string().starts_with("id$")
+            } else {
+                false
+            }
+        });
+
+        assert!(specialized_id.is_some());
+        if let Some(Decl::Func(fdecl)) = specialized_id {
             // Should be specialized (no type variables)
             assert_eq!(fdecl.typevars.len(), 0);
             // Return type should be i32
             assert_eq!(*fdecl.ret, Type::Int32);
             // Name should start with "id$"
             assert!(fdecl.name.to_string().starts_with("id$"));
+
+            // The specialized id function should be in the processed set
+            assert!(pass.processed.contains(&fdecl.name));
         } else {
             panic!("Expected function declaration");
         }
 
         // Both main and the specialized id function should be processed
         assert!(pass.processed.contains(&Name::str("main")));
-
-        // The specialized id function should also be in the processed set
-        let specialized_name = if let Decl::Func(fdecl) = &specialized[0] {
-            fdecl.name
-        } else {
-            panic!("Expected function declaration");
-        };
-        assert!(pass.processed.contains(&specialized_name));
     }
 }
