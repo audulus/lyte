@@ -48,8 +48,9 @@ impl MonomorphPass {
         }
 
         if let Decl::Func(fdecl) = &func_decls[0] {
+            let fdecl = fdecl.clone();
             self.process_function(&fdecl, decls)?;
-            self.out_decls.push(Decl::Func(fdecl.clone()));
+            self.out_decls.push(Decl::Func(fdecl));
         } else {
             return Err(format!(
                 "Entry point '{}' is not a function",
