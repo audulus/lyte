@@ -48,8 +48,8 @@ impl MonomorphPass {
         }
 
         if let Decl::Func(fdecl) = &func_decls[0] {
-            let fdecl = fdecl.clone();
-            self.process_function(&fdecl, decls)?;
+            let mut fdecl = fdecl.clone();
+            self.process_function(&mut fdecl, decls)?;
             self.out_decls.push(Decl::Func(fdecl));
         } else {
             return Err(format!(
@@ -74,7 +74,7 @@ impl MonomorphPass {
     /// Process a single function, finding all generic calls within it
     fn process_function(
         &mut self,
-        fdecl: &FuncDecl,
+        fdecl: &mut FuncDecl,
         decls: &DeclTable,
     ) -> Result<(), String> {
         if let Some(body) = fdecl.body {
@@ -306,11 +306,11 @@ impl MonomorphPass {
         // Record the instantiation
         self.instantiations.insert(key, mangled_name);
 
+        // Recursively process the specialized function's body immediately
+        self.process_function(&mut specialized, decls)?;
+
         // Add to specialized decls
         self.out_decls.push(Decl::Func(specialized.clone()));
-
-        // Recursively process the specialized function's body immediately
-        self.process_function(&specialized, decls)?;
 
         self.recursion_detector.end_instantiation();
 
