@@ -193,7 +193,7 @@ impl MonomorphPass {
 
                     if !type_args.is_empty() {
                         // Create a specialized version
-                        self.instantiate_function(*fn_name, type_args, target_fdecl, decls)?;
+                        self.instantiate_function(*fn_name, type_args, target_fdecl)?;
                     }
                 }
             }
@@ -258,8 +258,7 @@ impl MonomorphPass {
         &mut self,
         name: Name,
         type_args: Vec<TypeID>,
-        generic_fdecl: &FuncDecl,
-        _decls: &DeclTable,
+        generic_fdecl: &FuncDecl
     ) -> Result<Name, String> {
         let key = MonomorphKey::new(name, type_args.clone());
 
@@ -361,14 +360,12 @@ mod tests {
     fn test_instantiate_simple_function() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
         let result = pass.instantiate_function(
             Name::str("id"),
             type_args,
             &generic_func,
-            &decls,
         );
 
         assert!(result.is_ok());
@@ -381,7 +378,6 @@ mod tests {
     fn test_instantiate_same_function_twice() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
 
@@ -390,7 +386,6 @@ mod tests {
             Name::str("id"),
             type_args.clone(),
             &generic_func,
-            &decls,
         );
         assert!(result1.is_ok());
 
@@ -399,7 +394,6 @@ mod tests {
             Name::str("id"),
             type_args,
             &generic_func,
-            &decls,
         );
         assert!(result2.is_ok());
         assert_eq!(result1.unwrap(), result2.unwrap());
@@ -412,14 +406,12 @@ mod tests {
     fn test_instantiate_different_type_args() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
 
         // id<i32>
         let result1 = pass.instantiate_function(
             Name::str("id"),
             vec![mk_type(Type::Int32)],
             &generic_func,
-            &decls,
         );
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap(), Name::str("id$i32"));
@@ -429,7 +421,6 @@ mod tests {
             Name::str("id"),
             vec![mk_type(Type::Bool)],
             &generic_func,
-            &decls,
         );
         assert!(result2.is_ok());
         assert_eq!(result2.unwrap(), Name::str("id$bool"));
@@ -442,14 +433,12 @@ mod tests {
     fn test_instantiate_multiple_type_params() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("map", vec!["T0", "T1"]);
-        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32), mk_type(Type::Bool)];
         let result = pass.instantiate_function(
             Name::str("map"),
             type_args,
             &generic_func,
-            &decls,
         );
 
         assert!(result.is_ok());
@@ -598,7 +587,6 @@ mod tests {
     fn test_get_instantiation() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
         let key = MonomorphKey::new(Name::str("id"), type_args.clone());
@@ -607,7 +595,7 @@ mod tests {
         assert!(pass.get_instantiation(&key).is_none());
 
         // After instantiation
-        pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls)
+        pass.instantiate_function(Name::str("id"), type_args, &generic_func)
             .unwrap();
         assert_eq!(pass.get_instantiation(&key), Some(Name::str("id$i32")));
     }
@@ -616,7 +604,6 @@ mod tests {
     fn test_specialized_declarations() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
 
         assert_eq!(pass.specialized_declarations().len(), 0);
 
@@ -624,7 +611,6 @@ mod tests {
             Name::str("id"),
             vec![mk_type(Type::Int32)],
             &generic_func,
-            &decls,
         ).unwrap();
 
         assert_eq!(pass.specialized_declarations().len(), 1);
@@ -633,7 +619,6 @@ mod tests {
     #[test]
     fn test_type_substitution_in_specialized_func() {
         let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
 
         // Create a generic function id<T>(x: T) -> T
         let t_var = typevar("T");
@@ -649,7 +634,6 @@ mod tests {
             Name::str("id"),
             vec![mk_type(Type::Int32)],
             &generic_func,
-            &decls,
         ).unwrap();
 
         // Check the specialized declaration
@@ -709,7 +693,6 @@ mod tests {
     #[test]
     fn test_instantiate_with_nested_generic() {
         let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
 
         // Create a generic function that works with nested types
         let mut generic_func = mk_simple_func("process", vec!["T"]);
@@ -726,7 +709,6 @@ mod tests {
             Name::str("process"),
             vec![mk_type(Type::Int32)],
             &generic_func,
-            &decls,
         );
 
         assert!(result.is_ok());
@@ -748,7 +730,6 @@ mod tests {
     #[test]
     fn test_multiple_instantiations_same_function() {
         let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
 
         let generic_func = mk_simple_func("id", vec!["T"]);
 
@@ -764,7 +745,6 @@ mod tests {
                 Name::str("id"),
                 vec![ty],
                 &generic_func,
-                &decls,
             ).unwrap();
         }
 
@@ -812,7 +792,6 @@ mod tests {
     #[test]
     fn test_instantiate_function_with_constraints() {
         let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
 
         // Create a generic function with interface constraints
         let mut generic_func = mk_simple_func("add", vec!["T"]);
@@ -825,7 +804,6 @@ mod tests {
             Name::str("add"),
             vec![mk_type(Type::Int32)],
             &generic_func,
-            &decls,
         );
 
         assert!(result.is_ok());
@@ -858,7 +836,6 @@ mod tests {
     #[test]
     fn test_instantiation_deduplication() {
         let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
 
         let generic_func = mk_simple_func("id", vec!["T"]);
         let type_args = vec![mk_type(Type::Int32)];
@@ -869,7 +846,6 @@ mod tests {
             Name::str("id"),
             type_args.clone(),
             &generic_func,
-            &decls,
         ).unwrap();
 
         assert_eq!(pass.specialized_decls.len(), 1);
@@ -879,7 +855,6 @@ mod tests {
             Name::str("id"),
             type_args.clone(),
             &generic_func,
-            &decls,
         ).unwrap();
 
         assert_eq!(pass.specialized_decls.len(), 1);
