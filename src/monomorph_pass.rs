@@ -1,5 +1,5 @@
 use crate::*;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 
 /// Manages the monomorphization process, generating specialized versions
 /// of generic functions and structs.
@@ -12,12 +12,6 @@ pub struct MonomorphPass {
 
     /// Newly generated specialized declarations
     specialized_decls: Vec<Decl>,
-
-    /// Work queue of functions that need to be processed
-    worklist: VecDeque<Name>,
-
-    /// Functions we've already processed (to avoid duplication)
-    processed: HashSet<Name>,
 }
 
 impl MonomorphPass {
@@ -26,8 +20,6 @@ impl MonomorphPass {
             instantiations: HashMap::new(),
             recursion_detector: RecursionDetector::new(),
             specialized_decls: Vec::new(),
-            worklist: VecDeque::new(),
-            processed: HashSet::new(),
         }
     }
 
@@ -42,28 +34,16 @@ impl MonomorphPass {
         decls: &DeclTable,
         entry_point: Name,
     ) -> Result<Vec<Decl>, String> {
-        // Start with the entry point
-        self.worklist.push_back(entry_point);
+        // Find the entry point function declaration
+        let func_decls = decls.find(entry_point);
+        if func_decls.is_empty() {
+            return Err(format!("Entry point function '{}' not found", entry_point));
+        }
 
-        // Process the worklist until empty
-        while let Some(func_name) = self.worklist.pop_front() {
-            if self.processed.contains(&func_name) {
-                continue;
-            }
-            self.processed.insert(func_name);
-
-            // Find the function declaration
-            let func_decls = decls.find(func_name);
-            if func_decls.is_empty() {
-                // Built-in function or external function
-                continue;
-            }
-
-            // Process each overload
-            for decl in func_decls {
-                if let Decl::Func(fdecl) = decl {
-                    self.process_function(fdecl, decls)?;
-                }
+        // Process each overload of the entry point
+        for decl in func_decls {
+            if let Decl::Func(fdecl) = decl {
+                self.process_function(fdecl, decls)?;
             }
         }
 
@@ -192,8 +172,8 @@ impl MonomorphPass {
                     )?;
 
                     if !type_args.is_empty() {
-                        // Create a specialized version
-                        self.instantiate_function(*fn_name, type_args, target_fdecl)?;
+                        // Create a specialized version and recursively process it
+                        self.instantiate_function(*fn_name, type_args, target_fdecl, decls)?;
                     }
                 }
             }
@@ -258,7 +238,8 @@ impl MonomorphPass {
         &mut self,
         name: Name,
         type_args: Vec<TypeID>,
-        generic_fdecl: &FuncDecl
+        generic_fdecl: &FuncDecl,
+        decls: &DeclTable,
     ) -> Result<Name, String> {
         let key = MonomorphKey::new(name, type_args.clone());
 
@@ -307,8 +288,8 @@ impl MonomorphPass {
         // Add to specialized decls
         self.specialized_decls.push(Decl::Func(specialized.clone()));
 
-        // Add to worklist to process its body
-        self.worklist.push_back(mangled_name);
+        // Recursively process the specialized function's body immediately
+        self.process_function(&specialized, decls)?;
 
         self.recursion_detector.end_instantiation();
 
@@ -336,15 +317,18 @@ mod tests {
     use super::*;
 
     fn mk_simple_func(name: &str, typevars: Vec<&str>) -> FuncDecl {
+        let mut arena = ExprArena::new();
+        let body_expr = arena.add(Expr::Int(0), test_loc());
+
         FuncDecl {
             name: Name::str(name),
             typevars: typevars.iter().map(|s| Name::str(s)).collect(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Void),
-            body: Some(0),
-            arena: ExprArena::new(),
-            types: Vec::new(),
+            body: Some(body_expr),
+            arena,
+            types: vec![mk_type(Type::Int32)],
             loc: test_loc(),
         }
     }
@@ -360,12 +344,14 @@ mod tests {
     fn test_instantiate_simple_function() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
+        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
         let result = pass.instantiate_function(
             Name::str("id"),
             type_args,
             &generic_func,
+            &decls,
         );
 
         assert!(result.is_ok());
@@ -378,6 +364,7 @@ mod tests {
     fn test_instantiate_same_function_twice() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
+        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
 
@@ -386,6 +373,7 @@ mod tests {
             Name::str("id"),
             type_args.clone(),
             &generic_func,
+            &decls,
         );
         assert!(result1.is_ok());
 
@@ -394,6 +382,7 @@ mod tests {
             Name::str("id"),
             type_args,
             &generic_func,
+            &decls,
         );
         assert!(result2.is_ok());
         assert_eq!(result1.unwrap(), result2.unwrap());
@@ -406,12 +395,14 @@ mod tests {
     fn test_instantiate_different_type_args() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
+        let decls = DeclTable::new(vec![]);
 
         // id<i32>
         let result1 = pass.instantiate_function(
             Name::str("id"),
             vec![mk_type(Type::Int32)],
             &generic_func,
+            &decls,
         );
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap(), Name::str("id$i32"));
@@ -421,6 +412,7 @@ mod tests {
             Name::str("id"),
             vec![mk_type(Type::Bool)],
             &generic_func,
+            &decls,
         );
         assert!(result2.is_ok());
         assert_eq!(result2.unwrap(), Name::str("id$bool"));
@@ -433,12 +425,14 @@ mod tests {
     fn test_instantiate_multiple_type_params() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("map", vec!["T0", "T1"]);
+        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32), mk_type(Type::Bool)];
         let result = pass.instantiate_function(
             Name::str("map"),
             type_args,
             &generic_func,
+            &decls,
         );
 
         assert!(result.is_ok());
@@ -587,6 +581,7 @@ mod tests {
     fn test_get_instantiation() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
+        let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
         let key = MonomorphKey::new(Name::str("id"), type_args.clone());
@@ -595,7 +590,7 @@ mod tests {
         assert!(pass.get_instantiation(&key).is_none());
 
         // After instantiation
-        pass.instantiate_function(Name::str("id"), type_args, &generic_func)
+        pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls)
             .unwrap();
         assert_eq!(pass.get_instantiation(&key), Some(Name::str("id$i32")));
     }
@@ -604,6 +599,7 @@ mod tests {
     fn test_specialized_declarations() {
         let mut pass = MonomorphPass::new();
         let generic_func = mk_simple_func("id", vec!["T"]);
+        let decls = DeclTable::new(vec![]);
 
         assert_eq!(pass.specialized_declarations().len(), 0);
 
@@ -611,6 +607,7 @@ mod tests {
             Name::str("id"),
             vec![mk_type(Type::Int32)],
             &generic_func,
+            &decls,
         ).unwrap();
 
         assert_eq!(pass.specialized_declarations().len(), 1);
@@ -619,6 +616,7 @@ mod tests {
     #[test]
     fn test_type_substitution_in_specialized_func() {
         let mut pass = MonomorphPass::new();
+        let decls = DeclTable::new(vec![]);
 
         // Create a generic function id<T>(x: T) -> T
         let t_var = typevar("T");
@@ -634,6 +632,7 @@ mod tests {
             Name::str("id"),
             vec![mk_type(Type::Int32)],
             &generic_func,
+            &decls,
         ).unwrap();
 
         // Check the specialized declaration
@@ -659,40 +658,16 @@ mod tests {
         let decls = DeclTable::new(vec![]);
 
         let result = pass.monomorphize(&decls, Name::str("main"));
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        // Should fail because the entry point doesn't exist
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
     }
 
-    #[test]
-    fn test_worklist_processing() {
-        let mut pass = MonomorphPass::new();
-
-        // Add some items to worklist
-        pass.worklist.push_back(Name::str("func1"));
-        pass.worklist.push_back(Name::str("func2"));
-
-        assert_eq!(pass.worklist.len(), 2);
-
-        // Simulate processing
-        let func1 = pass.worklist.pop_front().unwrap();
-        assert_eq!(func1, Name::str("func1"));
-        assert_eq!(pass.worklist.len(), 1);
-    }
-
-    #[test]
-    fn test_processed_tracking() {
-        let mut pass = MonomorphPass::new();
-
-        let name = Name::str("test");
-        assert!(!pass.processed.contains(&name));
-
-        pass.processed.insert(name);
-        assert!(pass.processed.contains(&name));
-    }
 
     #[test]
     fn test_instantiate_with_nested_generic() {
         let mut pass = MonomorphPass::new();
+        let decls = DeclTable::new(vec![]);
 
         // Create a generic function that works with nested types
         let mut generic_func = mk_simple_func("process", vec!["T"]);
@@ -709,6 +684,7 @@ mod tests {
             Name::str("process"),
             vec![mk_type(Type::Int32)],
             &generic_func,
+            &decls,
         );
 
         assert!(result.is_ok());
@@ -730,6 +706,7 @@ mod tests {
     #[test]
     fn test_multiple_instantiations_same_function() {
         let mut pass = MonomorphPass::new();
+        let decls = DeclTable::new(vec![]);
 
         let generic_func = mk_simple_func("id", vec!["T"]);
 
@@ -745,6 +722,7 @@ mod tests {
                 Name::str("id"),
                 vec![ty],
                 &generic_func,
+                &decls,
             ).unwrap();
         }
 
@@ -792,6 +770,7 @@ mod tests {
     #[test]
     fn test_instantiate_function_with_constraints() {
         let mut pass = MonomorphPass::new();
+        let decls = DeclTable::new(vec![]);
 
         // Create a generic function with interface constraints
         let mut generic_func = mk_simple_func("add", vec!["T"]);
@@ -804,6 +783,7 @@ mod tests {
             Name::str("add"),
             vec![mk_type(Type::Int32)],
             &generic_func,
+            &decls,
         );
 
         assert!(result.is_ok());
@@ -836,6 +816,7 @@ mod tests {
     #[test]
     fn test_instantiation_deduplication() {
         let mut pass = MonomorphPass::new();
+        let decls = DeclTable::new(vec![]);
 
         let generic_func = mk_simple_func("id", vec!["T"]);
         let type_args = vec![mk_type(Type::Int32)];
@@ -846,6 +827,7 @@ mod tests {
             Name::str("id"),
             type_args.clone(),
             &generic_func,
+            &decls,
         ).unwrap();
 
         assert_eq!(pass.specialized_decls.len(), 1);
@@ -855,6 +837,7 @@ mod tests {
             Name::str("id"),
             type_args.clone(),
             &generic_func,
+            &decls,
         ).unwrap();
 
         assert_eq!(pass.specialized_decls.len(), 1);
@@ -920,9 +903,6 @@ mod tests {
 
         // Should have 1 decl (just main, no specializations)
         assert_eq!(all_decls.len(), 1);
-
-        // The entry point should have been processed
-        assert!(pass.processed.contains(&Name::str("main")));
     }
 
     #[test]
@@ -1002,14 +982,8 @@ mod tests {
             assert_eq!(*fdecl.ret, Type::Int32);
             // Name should start with "id$"
             assert!(fdecl.name.to_string().starts_with("id$"));
-
-            // The specialized id function should be in the processed set
-            assert!(pass.processed.contains(&fdecl.name));
         } else {
             panic!("Expected function declaration");
         }
-
-        // Both main and the specialized id function should be processed
-        assert!(pass.processed.contains(&Name::str("main")));
     }
 }
