@@ -85,7 +85,7 @@ impl MonomorphPass {
                 // Check if this is a call to a generic function
                 if let Expr::Id(fn_name) = &fdecl.arena[*fn_id] {
                     let fn_type = fdecl.types[*fn_id];
-                    self.handle_generic_call(fn_name, fn_type, fdecl, decls)?;
+                    self.process_call(fn_name, fn_type, fdecl, decls)?;
                 }
             }
             Expr::Binop(_, lhs, rhs) => {
@@ -146,7 +146,7 @@ impl MonomorphPass {
     }
 
     /// Handle a call to a potentially generic function
-    fn handle_generic_call(
+    fn process_call(
         &mut self,
         fn_name: &Name,
         fn_type: TypeID,
@@ -756,7 +756,7 @@ mod tests {
         ));
 
         // Call handle_generic_call - should not create any specializations
-        let result = pass.handle_generic_call(
+        let result = pass.process_call(
             &Name::str("non_generic"),
             fn_type,
             &non_generic,
