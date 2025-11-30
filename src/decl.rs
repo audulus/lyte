@@ -24,14 +24,32 @@ pub struct InterfaceConstraint {
 /// Function declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FuncDecl {
+
+    /// Function name.
     pub name: Name,
+
+    /// Generic type variables.
     pub typevars: Vec<Name>,
+
+    /// Function parameters.
     pub params: Vec<Param>,
+
+    /// Function body expression ID in the arena.
     pub body: Option<ExprID>,
+
+    /// Return type.
     pub ret: TypeID,
+
+    /// The interfaces that must be available for this function.
     pub constraints: Vec<InterfaceConstraint>,
+
+    /// Location of the declaration in source code.
     pub loc: Loc,
+
+    /// Expression arena for the function body.
     pub arena: ExprArena,
+
+    /// Solved types from the type checker.
     pub types: Vec<TypeID>,
 }
 
