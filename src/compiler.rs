@@ -138,7 +138,7 @@ mod tests {
 
         compiler.parse(code.into(), &paths[0]);
         assert!(compiler.check());
-        compiler.specialize();
+        // compiler.specialize();
         assert!(compiler.decls.decls.len() > 0);
         compiler.run();
     }

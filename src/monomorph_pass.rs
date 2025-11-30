@@ -11,7 +11,7 @@ pub struct MonomorphPass {
     recursion_detector: RecursionDetector,
 
     /// Newly generated specialized declarations
-    specialized_decls: Vec<Decl>,
+    out_decls: Vec<Decl>,
 }
 
 impl MonomorphPass {
@@ -19,7 +19,7 @@ impl MonomorphPass {
         Self {
             instantiations: HashMap::new(),
             recursion_detector: RecursionDetector::new(),
-            specialized_decls: Vec::new(),
+            out_decls: Vec::new(),
         }
     }
 
@@ -40,17 +40,32 @@ impl MonomorphPass {
             return Err(format!("Entry point function '{}' not found", entry_point));
         }
 
+        if func_decls.len() > 1 {
+            return Err(format!(
+                "Multiple overloads found for entry point function '{}'",
+                entry_point
+            ));
+        }
+
         // Process each overload of the entry point
         for decl in func_decls {
             if let Decl::Func(fdecl) = decl {
-                self.process_function(fdecl, decls)?;
+                self.process_function(&fdecl, decls)?;
+                self.out_decls.push(decl.clone());
+            }
+        }
+
+        for decl in decls.decls.iter() {
+            if let Decl::Func(_) = decl {
+                // Do nothing - functions are processed on demand
+            } else {
+                // Non-function declarations - include as is
+                self.out_decls.push(decl.clone());
             }
         }
 
         // Collect all declarations: original + specialized
-        let mut all_decls = decls.decls.clone();
-        all_decls.extend(self.specialized_decls.clone());
-        Ok(all_decls)
+        Ok(self.out_decls.clone())
     }
 
     /// Process a single function, finding all generic calls within it
@@ -286,7 +301,7 @@ impl MonomorphPass {
         self.instantiations.insert(key, mangled_name);
 
         // Add to specialized decls
-        self.specialized_decls.push(Decl::Func(specialized.clone()));
+        self.out_decls.push(Decl::Func(specialized.clone()));
 
         // Recursively process the specialized function's body immediately
         self.process_function(&specialized, decls)?;
@@ -298,7 +313,7 @@ impl MonomorphPass {
 
     /// Get all generated specialized declarations
     pub fn specialized_declarations(&self) -> &[Decl] {
-        &self.specialized_decls
+        &self.out_decls
     }
 
     /// Get the mangled name for a specific instantiation, if it exists
@@ -337,7 +352,7 @@ mod tests {
     fn test_monomorph_pass_creation() {
         let pass = MonomorphPass::new();
         assert_eq!(pass.instantiations.len(), 0);
-        assert_eq!(pass.specialized_decls.len(), 0);
+        assert_eq!(pass.out_decls.len(), 0);
     }
 
     #[test]
@@ -357,7 +372,7 @@ mod tests {
         assert!(result.is_ok());
         let mangled = result.unwrap();
         assert_eq!(mangled, Name::str("id$i32"));
-        assert_eq!(pass.specialized_decls.len(), 1);
+        assert_eq!(pass.out_decls.len(), 1);
     }
 
     #[test]
@@ -388,7 +403,7 @@ mod tests {
         assert_eq!(result1.unwrap(), result2.unwrap());
 
         // Should only have one specialized version
-        assert_eq!(pass.specialized_decls.len(), 1);
+        assert_eq!(pass.out_decls.len(), 1);
     }
 
     #[test]
@@ -418,7 +433,7 @@ mod tests {
         assert_eq!(result2.unwrap(), Name::str("id$bool"));
 
         // Should have two specialized versions
-        assert_eq!(pass.specialized_decls.len(), 2);
+        assert_eq!(pass.out_decls.len(), 2);
     }
 
     #[test]
@@ -636,7 +651,7 @@ mod tests {
         ).unwrap();
 
         // Check the specialized declaration
-        let specialized = &pass.specialized_decls[0];
+        let specialized = &pass.out_decls[0];
         if let Decl::Func(fdecl) = specialized {
             assert_eq!(fdecl.name, Name::str("id$i32"));
             assert_eq!(fdecl.typevars.len(), 0); // No longer generic
@@ -691,7 +706,7 @@ mod tests {
         assert_eq!(result.unwrap(), Name::str("process$i32"));
 
         // Check that the specialized version has the correct array type
-        let specialized = &pass.specialized_decls[0];
+        let specialized = &pass.out_decls[0];
         if let Decl::Func(fdecl) = specialized {
             assert_eq!(fdecl.params.len(), 1);
             if let Type::Array(elem_ty, size) = &*fdecl.params[0].ty.unwrap() {
@@ -727,7 +742,7 @@ mod tests {
         }
 
         // Should have 3 specialized versions
-        assert_eq!(pass.specialized_decls.len(), 3);
+        assert_eq!(pass.out_decls.len(), 3);
         assert_eq!(pass.instantiations.len(), 3);
     }
 
@@ -764,7 +779,7 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert_eq!(pass.specialized_decls.len(), 0);
+        assert_eq!(pass.out_decls.len(), 0);
     }
 
     #[test]
@@ -789,7 +804,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that constraints are preserved (they're on the original, not the specialized)
-        let specialized = &pass.specialized_decls[0];
+        let specialized = &pass.out_decls[0];
         if let Decl::Func(fdecl) = specialized {
             // Specialized version should have constraints copied
             assert_eq!(fdecl.constraints.len(), 1);
@@ -830,7 +845,7 @@ mod tests {
             &decls,
         ).unwrap();
 
-        assert_eq!(pass.specialized_decls.len(), 1);
+        assert_eq!(pass.out_decls.len(), 1);
 
         // Same instantiation again - should not create duplicate
         pass.instantiate_function(
@@ -840,7 +855,7 @@ mod tests {
             &decls,
         ).unwrap();
 
-        assert_eq!(pass.specialized_decls.len(), 1);
+        assert_eq!(pass.out_decls.len(), 1);
         assert!(pass.instantiations.contains_key(&key1));
     }
 
@@ -962,8 +977,13 @@ mod tests {
         assert!(result.is_ok());
         let all_decls = result.unwrap();
 
-        // Should have 3 decls: id (generic), main, id$i32 (specialized)
-        assert_eq!(all_decls.len(), 3);
+        println!("All Decls:");
+        for decl in &all_decls {
+            println!("{:?}", decl.name().to_string());
+        }
+
+        // Should have 2 decls: main, id$i32 (specialized)
+        assert_eq!(all_decls.len(), 2);
 
         // Find the specialized version
         let specialized_id = all_decls.iter().find(|d| {
