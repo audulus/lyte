@@ -9,44 +9,106 @@ use crate::*;
 /// should be represented this way.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Expr {
+
+    /// Identifier expression.
     Id(Name),
+
+    /// Signed integer literal.
     Int(i64),
+
+    /// Unsigned integer literal.
     UInt(u64),
+
+    /// Floating-point literal as string.
     Real(String), // f64 is not hashable so we just use the string representation
+
+    /// Function call expression with function and arguments.
     Call(ExprID, Vec<ExprID>),
+
+    /// Macro invocation expression.
     Macro(Name, Vec<ExprID>),
+
+    /// Binary operation expression.
     Binop(Binop, ExprID, ExprID),
+
+    /// Unary operation expression.
     Unop(Unop, ExprID),
+
+    /// Lambda expression with parameters and body.
     Lambda {
         params: Vec<Param>,
         body: ExprID,
     },
+
+    /// String literal.
     String(String),
+
+    /// Character literal.
     Char(char),
+
+    /// Type cast expression.
     Cast,
+
+    /// Struct field access.
     Field(ExprID, Name),
+
+    /// Array expression with element type and size.
     Array(ExprID, ExprID),
+
+    /// Array literal expression.
     ArrayLiteral(Vec<ExprID>),
+
+    /// Array indexing expression.
     ArrayIndex(ExprID, ExprID),
+
+    /// Boolean true literal.
     True,
+
+    /// Boolean false literal.
     False,
+
+    /// Type ascription.
     AsTy(ExprID, TypeID),
+
+    /// Variable assignment.
     Assign(Name, ExprID),
+
+    /// Immutable variable declaration with initializer and optional type.
     Let(Name, ExprID, Option<TypeID>),
+
+    /// Mutable variable declaration with optional initializer and type.
     Var(Name, Option<ExprID>, Option<TypeID>),
+
+    /// If expression with optional else branch.
     If(ExprID, ExprID, Option<ExprID>),
+
+    /// While loop expression.
     While(ExprID, ExprID),
+
+    /// For loop expression.
     For {
         var: Name,
         start: ExprID,
         end: ExprID,
         body: ExprID,
     },
+
+    /// Block expression containing a list of expressions.
     Block(Vec<ExprID>),
+
+    /// Return expression.
     Return(ExprID),
+
+    /// Enum variant access.
     Enum(Name),
+
+    /// Tuple expression.
     Tuple(Vec<ExprID>),
+
+    /// Arena allocation expression.
     Arena(ExprID),
+
+    /// Error expression used for recovery.
     Error,
 }
 
