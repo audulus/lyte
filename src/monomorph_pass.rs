@@ -28,7 +28,7 @@ impl MonomorphPass {
     /// This performs a demand-driven monomorphization, only specializing
     /// generic functions that are actually called with concrete types.
     ///
-    /// Returns all declarations (original + specialized).
+    /// Returns all reached function declarations and other declarations.
     pub fn monomorphize(
         &mut self,
         decls: &DeclTable,
