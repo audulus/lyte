@@ -47,12 +47,14 @@ impl MonomorphPass {
             ));
         }
 
-        // Process each overload of the entry point
-        for decl in func_decls {
-            if let Decl::Func(fdecl) = decl {
-                self.process_function(&fdecl, decls)?;
-                self.out_decls.push(decl.clone());
-            }
+        if let Decl::Func(fdecl) = &func_decls[0] {
+            self.process_function(&fdecl, decls)?;
+            self.out_decls.push(Decl::Func(fdecl.clone()));
+        } else {
+            return Err(format!(
+                "Entry point '{}' is not a function",
+                entry_point
+            ));
         }
 
         for decl in decls.decls.iter() {
