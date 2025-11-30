@@ -10,8 +10,8 @@ name = "lyte"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.5.27", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
 lyte = { path = "../" }
 
 [dev-dependencies]
-goldentests = "1.1.0"
+goldentests = "1.4.1"

@@ -751,13 +751,14 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn declare_variable(&mut self, name: &String, ty: Type) -> Variable {
-        let var = Variable::new(self.next_index);
         if !self.variables.contains_key(name) {
+            let var = self.builder.declare_var(ty);
             self.variables.insert(name.into(), var);
-            self.builder.declare_var(var, ty);
             self.next_index += 1;
+            var
+        } else {
+            *self.variables.get(name).unwrap()
         }
-        var
     }
 }
 
