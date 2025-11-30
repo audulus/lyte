@@ -190,6 +190,9 @@ impl MonomorphPass {
                         // Create a specialized version and recursively process it
                         self.instantiate_function(*fn_name, type_args, target_fdecl, decls)?;
                     }
+                } else {
+                    // Non-generic function, output as is.
+                    self.out_decls.push(decl.clone());
                 }
             }
         }
@@ -779,7 +782,7 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert_eq!(pass.out_decls.len(), 0);
+        assert_eq!(pass.out_decls.len(), 1);
     }
 
     #[test]
