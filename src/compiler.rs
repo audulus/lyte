@@ -128,11 +128,13 @@ impl Compiler {
 
 }
 
+#[cfg(test)]
 mod tests {
+    use super::*;
 
     fn jit(code: &str) {
         
-        let mut compiler = crate::Compiler::new();
+        let mut compiler = Compiler::new();
         let paths = vec![String::from(".")];
 
         compiler.parse(code.into(), &paths[0]);
