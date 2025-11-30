@@ -94,29 +94,57 @@ impl MonomorphPass {
         let expr = fdecl.arena[expr_id].clone();
 
         match &expr {
+            Expr::Id(name) => {
+                // Check if this identifier refers to a function
+                // Get the solved type for this expression
+                let solved_type = fdecl.types[expr_id];
+
+                // Look up the declaration
+                let fn_decls = decls.find(*name);
+                for decl in fn_decls {
+                    if let Decl::Func(target_fdecl) = decl {
+                        if !target_fdecl.typevars.is_empty() {
+                            // This is a generic function - compute type arguments from solved type
+                            let type_args = self.infer_type_arguments(
+                                target_fdecl,
+                                solved_type,
+                                fdecl,
+                            )?;
+
+                            if !type_args.is_empty() {
+                                // Create a specialized version
+                                let mangled_name = self.instantiate_function(*name, type_args, target_fdecl, decls)?;
+
+                                // Rewrite the identifier to use the mangled name
+                                fdecl.arena.exprs[expr_id] = Expr::Id(mangled_name);
+                            }
+                        } else {
+                            // Non-generic function - include it in outputs if not already there
+                            let already_included = self.out_decls.iter().any(|d| {
+                                if let Decl::Func(f) = d {
+                                    f.name == target_fdecl.name
+                                } else {
+                                    false
+                                }
+                            });
+
+                            if !already_included {
+                                self.out_decls.push(decl.clone());
+                            }
+                        }
+                    }
+                }
+            }
             Expr::Call(fn_id, arg_ids) => {
-                // Extract fn_name and fn_type before any mutable borrows
-                let fn_name = if let Expr::Id(name) = &fdecl.arena[*fn_id] {
-                    Some(*name)
-                } else {
-                    None
-                };
-                let fn_type = fdecl.types[*fn_id];
-                let fn_id = *fn_id;
+                // Process arguments first
                 let arg_ids = arg_ids.clone();
-
-                // Process the function expression
-                self.process_expr(fn_id, fdecl, decls)?;
-
-                // Process arguments
                 for arg_id in &arg_ids {
                     self.process_expr(*arg_id, fdecl, decls)?;
                 }
 
-                // Check if this is a call to a generic function
-                if let Some(name) = fn_name {
-                    self.process_call(&name, fn_type, fdecl, decls)?;
-                }
+                // Process the function expression (which handles Id rewriting)
+                let fn_id = *fn_id;
+                self.process_expr(fn_id, fdecl, decls)?;
             }
             Expr::Binop(_, lhs, rhs) => {
                 self.process_expr(*lhs, fdecl, decls)?;
@@ -164,54 +192,14 @@ impl MonomorphPass {
             Expr::Lambda { body, .. } => {
                 self.process_expr(*body, fdecl, decls)?;
             }
-            // Leaf expressions
-            Expr::Id(_) | Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) |
+            // Leaf expressions (note: Id is handled separately above)
+            Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) |
             Expr::String(_) | Expr::Char(_) | Expr::True | Expr::False |
             Expr::Return(_) | Expr::Enum(_) | Expr::Error | Expr::Cast |
             Expr::Tuple(_) | Expr::Arena(_) | Expr::Array(_, _) |
             Expr::AsTy(_, _) | Expr::Assign(_, _) | Expr::Macro(_, _) |
             Expr::For { .. } => {}
         }
-        Ok(())
-    }
-
-    /// Handle a call to a potentially generic function
-    fn process_call(
-        &mut self,
-        fn_name: &Name,
-        fn_type: TypeID,
-        caller_fdecl: &mut FuncDecl,
-        decls: &DeclTable,
-    ) -> Result<(), String> {
-        // Look up the function declaration
-        let fn_decls = decls.find(*fn_name);
-        if fn_decls.is_empty() {
-            // Built-in or external function
-            return Ok(());
-        }
-
-        // Check if any overload is generic
-        for decl in fn_decls {
-            if let Decl::Func(target_fdecl) = decl {
-                if !target_fdecl.typevars.is_empty() {
-                    // This is a generic function - compute type arguments
-                    let type_args = self.infer_type_arguments(
-                        target_fdecl,
-                        fn_type,
-                        caller_fdecl,
-                    )?;
-
-                    if !type_args.is_empty() {
-                        // Create a specialized version and recursively process it
-                        self.instantiate_function(*fn_name, type_args, target_fdecl, decls)?;
-                    }
-                } else {
-                    // Non-generic function, output as is.
-                    self.out_decls.push(decl.clone());
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -762,43 +750,6 @@ mod tests {
         // Should have 3 specialized versions
         assert_eq!(pass.out_decls.len(), 3);
         assert_eq!(pass.instantiations.len(), 3);
-    }
-
-    #[test]
-    fn test_handle_generic_call_with_non_generic() {
-        let mut pass = MonomorphPass::new();
-
-        // Create a non-generic function
-        let non_generic = FuncDecl {
-            name: Name::str("non_generic"),
-            typevars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            ret: mk_type(Type::Void),
-            body: Some(0),
-            arena: ExprArena::new(),
-            types: Vec::new(),
-            loc: test_loc(),
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(non_generic.clone())]);
-
-        let fn_type = mk_type(Type::Func(
-            mk_type(Type::Tuple(Vec::new())),
-            mk_type(Type::Void),
-        ));
-
-        // Call handle_generic_call - should not create any specializations
-        let mut non_generic_mut = non_generic.clone();
-        let result = pass.process_call(
-            &Name::str("non_generic"),
-            fn_type,
-            &mut non_generic_mut,
-            &decls,
-        );
-
-        assert!(result.is_ok());
-        assert_eq!(pass.out_decls.len(), 1);
     }
 
     #[test]
