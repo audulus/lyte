@@ -320,6 +320,11 @@ impl MonomorphPass {
     pub fn get_instantiation(&self, key: &MonomorphKey) -> Option<Name> {
         self.instantiations.get(key).copied()
     }
+
+    /// Get the full rewrite map for all instantiations
+    pub fn get_rewrite_map(&self) -> &HashMap<MonomorphKey, Name> {
+        &self.instantiations
+    }
 }
 
 #[cfg(test)]
