@@ -32,3 +32,6 @@ pub use decl_table::*;
 
 mod jit;
 pub use jit::*;
+
+mod monomorph;
+pub use monomorph::*;
