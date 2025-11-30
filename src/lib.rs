@@ -35,3 +35,6 @@ pub use jit::*;
 
 mod monomorph;
 pub use monomorph::*;
+
+mod monomorph_pass;
+pub use monomorph_pass::*;
