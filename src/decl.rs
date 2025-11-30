@@ -201,8 +201,9 @@ fn format_func_decl(func: &FuncDecl, decls: &DeclTable, is_macro: bool) -> Strin
         format!("{} {}{}", keyword, func.name, typevars)
     };
 
-    if func.body.is_some() {
-        format!("{}({}){}{} {{ ... }}", signature, params, ret_type, constraints)
+    if let Some(body_id) = func.body {
+        let body_str = func.arena.exprs[body_id].pretty_print(&func.arena, decls, 0);
+        format!("{}({}){}{} {}", signature, params, ret_type, constraints, body_str)
     } else {
         format!("{}({}){}{}", signature, params, ret_type, constraints)
     }
@@ -292,6 +293,9 @@ mod tests {
     fn test_pretty_print_generic_func() {
         let decls = DeclTable::new(vec![]);
 
+        let mut arena = ExprArena::new();
+        let body_id = arena.add(Expr::Id(Name::str("x")), test_loc());
+
         let func = FuncDecl {
             name: Name::str("id"),
             typevars: vec![Name::str("T")],
@@ -299,17 +303,17 @@ mod tests {
                 name: Name::str("x"),
                 ty: Some(mk_type(Type::Var(Name::str("T")))),
             }],
-            body: Some(0),
+            body: Some(body_id),
             ret: mk_type(Type::Var(Name::str("T"))),
             constraints: vec![],
             loc: test_loc(),
-            arena: ExprArena::new(),
+            arena,
             types: vec![],
         };
 
         let decl = Decl::Func(func);
         let output = decl.pretty_print(&decls);
-        assert_eq!(output, "id<T>(x: T) → T { ... }");
+        assert_eq!(output, "id<T>(x: T) → T x");
     }
 
     #[test]
@@ -397,5 +401,36 @@ mod tests {
 
         let output = decl.pretty_print(&decls);
         assert_eq!(output, "enum Status {\n    Active\n    Inactive\n}");
+    }
+
+    #[test]
+    fn test_pretty_print_func_with_block_body() {
+        let decls = DeclTable::new(vec![]);
+
+        let mut arena = ExprArena::new();
+        // Create body: { x + 1 }
+        let x_id = arena.add(Expr::Id(Name::str("x")), test_loc());
+        let one_id = arena.add(Expr::Int(1), test_loc());
+        let add_id = arena.add(Expr::Binop(Binop::Plus, x_id, one_id), test_loc());
+        let body_id = arena.add(Expr::Block(vec![add_id]), test_loc());
+
+        let func = FuncDecl {
+            name: Name::str("increment"),
+            typevars: vec![],
+            params: vec![Param {
+                name: Name::str("x"),
+                ty: Some(mk_type(Type::Int32)),
+            }],
+            body: Some(body_id),
+            ret: mk_type(Type::Int32),
+            constraints: vec![],
+            loc: test_loc(),
+            arena,
+            types: vec![],
+        };
+
+        let decl = Decl::Func(func);
+        let output = decl.pretty_print(&decls);
+        assert_eq!(output, "increment(x: i32) → i32 {\n    x + 1\n}");
     }
 }
