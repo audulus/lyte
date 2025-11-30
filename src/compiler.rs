@@ -362,4 +362,23 @@ mod tests {
 
         jit(code);
     }
+
+    #[test]
+    fn test_monomorph() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            id<T>(x: T) → T { x }
+
+            main {
+                //let x = id(42)
+                //assert(x == 42)
+
+                //let y = id(true)
+                //assert(y == true)
+            }
+        "#;
+
+        jit(code);
+    }
 }
