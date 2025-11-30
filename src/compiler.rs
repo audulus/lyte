@@ -89,6 +89,16 @@ impl Compiler {
         true
     }
 
+    pub fn specialize(&mut self) -> bool { 
+        let mut pass = MonomorphPass::new();
+        let name = Name::new("main".into());
+        if let Ok(new_decls) = pass.monomorphize(&self.decls, name ) {
+            self.decls = DeclTable::new(new_decls);
+            return true;
+        }
+        false
+    }
+
     pub fn jit(&self) -> Result<*const u8, String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
