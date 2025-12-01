@@ -149,12 +149,12 @@ impl Decl {
     /// ```
     pub fn pretty_print(&self, decls: &DeclTable) -> String {
         match self {
-            Decl::Func(func) => format_func_decl(func, decls, false),
-            Decl::Macro(func) => format_func_decl(func, decls, true),
+            Decl::Func(func) => format_func_decl(func, false),
+            Decl::Macro(func) => format_func_decl(func, true),
             Decl::Struct(st) => format_struct_decl(st, decls),
             Decl::Enum { name, cases } => format_enum_decl(*name, cases),
             Decl::Global { name, ty } => format!("var {}: {}", name, ty.pretty_print()),
-            Decl::Interface(iface) => format_interface(iface, decls),
+            Decl::Interface(iface) => format_interface(iface),
         }
     }
 }
@@ -167,7 +167,7 @@ fn format_typevars(typevars: &[Name]) -> String {
     }
 }
 
-fn format_params(params: &[Param], decls: &DeclTable) -> String {
+fn format_params(params: &[Param]) -> String {
     params
         .iter()
         .map(|p| {
@@ -200,10 +200,10 @@ fn format_constraints(constraints: &[InterfaceConstraint]) -> String {
     }
 }
 
-fn format_func_decl(func: &FuncDecl, decls: &DeclTable, is_macro: bool) -> String {
+fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
     let keyword = if is_macro { "macro" } else { "" };
     let typevars = format_typevars(&func.typevars);
-    let params = format_params(&func.params, decls);
+    let params = format_params(&func.params);
     let ret_type = if matches!(&*func.ret, Type::Void) {
         String::new()
     } else {
@@ -227,7 +227,7 @@ fn format_func_decl(func: &FuncDecl, decls: &DeclTable, is_macro: bool) -> Strin
     }
 }
 
-fn format_struct_decl(st: &StructDecl, decls: &DeclTable) -> String {
+fn format_struct_decl(st: &StructDecl, _decls: &DeclTable) -> String {
     let typevars = format_typevars(&st.typevars);
     let fields = st
         .fields
@@ -257,12 +257,12 @@ fn format_enum_decl(name: Name, cases: &[Name]) -> String {
     }
 }
 
-fn format_interface(iface: &Interface, decls: &DeclTable) -> String {
+fn format_interface(iface: &Interface) -> String {
     let typevars = format_typevars(&iface.typevars);
     let funcs = iface
         .funcs
         .iter()
-        .map(|f| format!("    {}", format_func_decl(f, decls, false)))
+        .map(|f| format!("    {}", format_func_decl(f, false)))
         .collect::<Vec<_>>()
         .join("\n");
 
