@@ -220,7 +220,7 @@ fn format_func_decl(func: &FuncDecl, decls: &DeclTable, is_macro: bool) -> Strin
     };
 
     if let Some(body_id) = func.body {
-        let body_str = func.arena.exprs[body_id].pretty_print(&func.arena, decls, 0);
+        let body_str = func.arena.exprs[body_id].pretty_print(&func.arena, 0);
         format!("{}({}){}{} {}", signature, params, ret_type, constraints, body_str)
     } else {
         format!("{}({}){}{}", signature, params, ret_type, constraints)
