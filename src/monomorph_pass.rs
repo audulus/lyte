@@ -310,7 +310,7 @@ impl MonomorphPass {
         self.process_function(&mut specialized, decls)?;
 
         // Add to specialized decls
-        self.out_decls.push(Decl::Func(specialized.clone()));
+        self.out_decls.push(Decl::Func(specialized));
 
         self.recursion_detector.end_instantiation();
 
