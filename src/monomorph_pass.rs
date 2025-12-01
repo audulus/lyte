@@ -947,11 +947,6 @@ mod tests {
         assert!(result.is_ok());
         let all_decls = result.unwrap();
 
-        println!("All Decls:");
-        for decl in &all_decls {
-            println!("{:?}", decl.name().to_string());
-        }
-
         // Should have 2 decls: main, id$i32 (specialized)
         assert_eq!(all_decls.len(), 2);
 
@@ -975,5 +970,8 @@ mod tests {
         } else {
             panic!("Expected function declaration");
         }
+
+        assert_eq!(all_decls[0].pretty_print(), "id$i32$i32(x: i32) → i32 x");
+        assert_eq!(all_decls[1].pretty_print(), "main() → i32 id$i32$i32(42)");
     }
 }
