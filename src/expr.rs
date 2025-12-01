@@ -361,7 +361,6 @@ mod tests {
     #[test]
     fn test_pretty_print_literals() {
         let arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         assert_eq!(Expr::Int(42).pretty_print(&arena, 0), "42");
         assert_eq!(Expr::UInt(100).pretty_print(&arena, 0), "100");
@@ -375,7 +374,6 @@ mod tests {
     #[test]
     fn test_pretty_print_id() {
         let arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         assert_eq!(Expr::Id(Name::str("foo")).pretty_print(&arena, 0), "foo");
         assert_eq!(Expr::Enum(Name::str("Active")).pretty_print(&arena, 0), ".Active");
@@ -384,7 +382,6 @@ mod tests {
     #[test]
     fn test_pretty_print_binop() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let lhs_id = arena.add(Expr::Int(1), test_loc());
         let rhs_id = arena.add(Expr::Int(2), test_loc());
@@ -402,7 +399,6 @@ mod tests {
     #[test]
     fn test_pretty_print_unop() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let expr_id = arena.add(Expr::Int(42), test_loc());
 
@@ -417,7 +413,6 @@ mod tests {
     #[test]
     fn test_pretty_print_call() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let func_id = arena.add(Expr::Id(Name::str("foo")), test_loc());
         let arg1_id = arena.add(Expr::Int(1), test_loc());
@@ -433,7 +428,6 @@ mod tests {
     #[test]
     fn test_pretty_print_array_literal() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let elem1 = arena.add(Expr::Int(1), test_loc());
         let elem2 = arena.add(Expr::Int(2), test_loc());
@@ -446,7 +440,6 @@ mod tests {
     #[test]
     fn test_pretty_print_array_index() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let arr_id = arena.add(Expr::Id(Name::str("arr")), test_loc());
         let idx_id = arena.add(Expr::Int(0), test_loc());
@@ -458,7 +451,6 @@ mod tests {
     #[test]
     fn test_pretty_print_field() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let obj_id = arena.add(Expr::Id(Name::str("point")), test_loc());
         let field_expr = Expr::Field(obj_id, Name::str("x"));
@@ -469,7 +461,6 @@ mod tests {
     #[test]
     fn test_pretty_print_var() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         // var x
         let var1 = Expr::Var(Name::str("x"), None, None);
@@ -492,7 +483,6 @@ mod tests {
     #[test]
     fn test_pretty_print_let() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let value_id = arena.add(Expr::Int(42), test_loc());
 
@@ -508,7 +498,6 @@ mod tests {
     #[test]
     fn test_pretty_print_assign() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let value_id = arena.add(Expr::Int(42), test_loc());
         let assign_expr = Expr::Assign(Name::str("x"), value_id);
@@ -519,7 +508,6 @@ mod tests {
     #[test]
     fn test_pretty_print_lambda() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         // |x| x + 1
         let x_id = arena.add(Expr::Id(Name::str("x")), test_loc());
@@ -537,7 +525,6 @@ mod tests {
     #[test]
     fn test_pretty_print_if() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let cond_id = arena.add(Expr::True, test_loc());
         let then_id = arena.add(Expr::Int(1), test_loc());
@@ -555,7 +542,6 @@ mod tests {
     #[test]
     fn test_pretty_print_while() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let cond_id = arena.add(Expr::True, test_loc());
         let body_id = arena.add(Expr::Block(vec![]), test_loc());
@@ -567,7 +553,6 @@ mod tests {
     #[test]
     fn test_pretty_print_for() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let start_id = arena.add(Expr::Int(0), test_loc());
         let end_id = arena.add(Expr::Int(10), test_loc());
@@ -586,7 +571,6 @@ mod tests {
     #[test]
     fn test_pretty_print_block() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         // Empty block
         let empty_block = Expr::Block(vec![]);
@@ -603,7 +587,6 @@ mod tests {
     #[test]
     fn test_pretty_print_return() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let value_id = arena.add(Expr::Int(42), test_loc());
         let return_expr = Expr::Return(value_id);
@@ -614,7 +597,6 @@ mod tests {
     #[test]
     fn test_pretty_print_tuple() {
         let mut arena = ExprArena::new();
-        let decls = DeclTable::new(vec![]);
 
         let elem1 = arena.add(Expr::Int(1), test_loc());
         let elem2 = arena.add(Expr::String("hello".to_string()), test_loc());
