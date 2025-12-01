@@ -217,7 +217,7 @@ impl Expr {
 
             Expr::AsTy(expr, ty) => {
                 let expr_str = arena.exprs[*expr].pretty_print(arena, decls, indent);
-                let ty_str = ty.pretty_print(decls);
+                let ty_str = ty.pretty_print();
                 format!("{}:{}", expr_str, ty_str)
             }
 
@@ -229,7 +229,7 @@ impl Expr {
             Expr::Let(name, expr, ty) => {
                 let expr_str = arena.exprs[*expr].pretty_print(arena, decls, indent);
                 if let Some(ty) = ty {
-                    format!("let {}: {} = {}", name, ty.pretty_print(decls), expr_str)
+                    format!("let {}: {} = {}", name, ty.pretty_print(), expr_str)
                 } else {
                     format!("let {} = {}", name, expr_str)
                 }
@@ -238,7 +238,7 @@ impl Expr {
             Expr::Var(name, init, ty) => {
                 let mut result = format!("var {}", name);
                 if let Some(ty) = ty {
-                    result.push_str(&format!(": {}", ty.pretty_print(decls)));
+                    result.push_str(&format!(": {}", ty.pretty_print()));
                 }
                 if let Some(init_id) = init {
                     let init_str = arena.exprs[*init_id].pretty_print(arena, decls, indent);
@@ -346,7 +346,7 @@ fn format_lambda_params(params: &[Param], decls: &DeclTable) -> String {
         .iter()
         .map(|p| {
             if let Some(ty) = p.ty {
-                format!("{}: {}", p.name, ty.pretty_print(decls))
+                format!("{}: {}", p.name, ty.pretty_print())
             } else {
                 p.name.to_string()
             }

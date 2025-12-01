@@ -153,7 +153,7 @@ impl Decl {
             Decl::Macro(func) => format_func_decl(func, decls, true),
             Decl::Struct(st) => format_struct_decl(st, decls),
             Decl::Enum { name, cases } => format_enum_decl(*name, cases),
-            Decl::Global { name, ty } => format!("var {}: {}", name, ty.pretty_print(decls)),
+            Decl::Global { name, ty } => format!("var {}: {}", name, ty.pretty_print()),
             Decl::Interface(iface) => format_interface(iface, decls),
         }
     }
@@ -172,7 +172,7 @@ fn format_params(params: &[Param], decls: &DeclTable) -> String {
         .iter()
         .map(|p| {
             if let Some(ty) = p.ty {
-                format!("{}: {}", p.name, ty.pretty_print(decls))
+                format!("{}: {}", p.name, ty.pretty_print())
             } else {
                 p.name.to_string()
             }
@@ -207,7 +207,7 @@ fn format_func_decl(func: &FuncDecl, decls: &DeclTable, is_macro: bool) -> Strin
     let ret_type = if matches!(&*func.ret, Type::Void) {
         String::new()
     } else {
-        format!(" → {}", func.ret.pretty_print(decls))
+        format!(" → {}", func.ret.pretty_print())
     };
     let constraints = format_constraints(&func.constraints);
 
@@ -232,7 +232,7 @@ fn format_struct_decl(st: &StructDecl, decls: &DeclTable) -> String {
     let fields = st
         .fields
         .iter()
-        .map(|f| format!("    {}: {}", f.name, f.ty.pretty_print(decls)))
+        .map(|f| format!("    {}: {}", f.name, f.ty.pretty_print()))
         .collect::<Vec<_>>()
         .join("\n");
 

@@ -175,12 +175,12 @@ impl TypeID {
     ///
     /// ```ignore
     /// let ty = mk_type(Type::Int32);
-    /// assert_eq!(ty.pretty_print(&decls), "i32");
+    /// assert_eq!(ty.pretty_print(), "i32");
     ///
     /// let arr_ty = mk_type(Type::Array(mk_type(Type::Float32), 10));
-    /// assert_eq!(arr_ty.pretty_print(&decls), "[f32; 10]");
+    /// assert_eq!(arr_ty.pretty_print(), "[f32; 10]");
     /// ```
-    pub fn pretty_print(self, decls: &DeclTable) -> String {
+    pub fn pretty_print(self) -> String {
         match &*self {
             Type::Void => "void".to_string(),
             Type::Bool => "bool".to_string(),
@@ -195,7 +195,7 @@ impl TypeID {
                     "({})",
                     types
                         .iter()
-                        .map(|t| t.pretty_print(decls))
+                        .map(|t| t.pretty_print())
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
@@ -203,9 +203,9 @@ impl TypeID {
             Type::Var(name) => name.to_string(),
             Type::Anon(id) => format!("?{}", id),
             Type::Func(dom, rng) => {
-                format!("{} → {}", dom.pretty_print(decls), rng.pretty_print(decls))
+                format!("{} → {}", dom.pretty_print(), rng.pretty_print())
             }
-            Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(decls), size),
+            Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),
             Type::Name(name, params) => {
                 if params.is_empty() {
                     name.to_string()
@@ -215,7 +215,7 @@ impl TypeID {
                         name,
                         params
                             .iter()
-                            .map(|t| t.pretty_print(decls))
+                            .map(|t| t.pretty_print())
                             .collect::<Vec<_>>()
                             .join(", ")
                     )
@@ -513,84 +513,72 @@ mod tests {
 
     #[test]
     fn test_pretty_print_primitives() {
-        let decls = DeclTable::new(vec![]);
-
-        assert_eq!(mk_type(Type::Void).pretty_print(&decls), "void");
-        assert_eq!(mk_type(Type::Bool).pretty_print(&decls), "bool");
-        assert_eq!(mk_type(Type::Int8).pretty_print(&decls), "i8");
-        assert_eq!(mk_type(Type::UInt8).pretty_print(&decls), "u8");
-        assert_eq!(mk_type(Type::Int32).pretty_print(&decls), "i32");
-        assert_eq!(mk_type(Type::UInt32).pretty_print(&decls), "u32");
-        assert_eq!(mk_type(Type::Float32).pretty_print(&decls), "f32");
-        assert_eq!(mk_type(Type::Float64).pretty_print(&decls), "f64");
+        assert_eq!(mk_type(Type::Void).pretty_print(), "void");
+        assert_eq!(mk_type(Type::Bool).pretty_print(), "bool");
+        assert_eq!(mk_type(Type::Int8).pretty_print(), "i8");
+        assert_eq!(mk_type(Type::UInt8).pretty_print(), "u8");
+        assert_eq!(mk_type(Type::Int32).pretty_print(), "i32");
+        assert_eq!(mk_type(Type::UInt32).pretty_print(), "u32");
+        assert_eq!(mk_type(Type::Float32).pretty_print(), "f32");
+        assert_eq!(mk_type(Type::Float64).pretty_print(), "f64");
     }
 
     #[test]
     fn test_pretty_print_array() {
-        let decls = DeclTable::new(vec![]);
-
         let arr_ty = mk_type(Type::Array(mk_type(Type::Int32), 10));
-        assert_eq!(arr_ty.pretty_print(&decls), "[i32; 10]");
+        assert_eq!(arr_ty.pretty_print(), "[i32; 10]");
 
         let nested = mk_type(Type::Array(mk_type(Type::Array(mk_type(Type::Float32), 5)), 3));
-        assert_eq!(nested.pretty_print(&decls), "[[f32; 5]; 3]");
+        assert_eq!(nested.pretty_print(), "[[f32; 5]; 3]");
     }
 
     #[test]
     fn test_pretty_print_func() {
-        let decls = DeclTable::new(vec![]);
-
         let func_ty = mk_type(Type::Func(mk_type(Type::Int32), mk_type(Type::Bool)));
-        assert_eq!(func_ty.pretty_print(&decls), "i32 → bool");
+        assert_eq!(func_ty.pretty_print(), "i32 → bool");
 
         let higher_order =
             mk_type(Type::Func(func_ty, mk_type(Type::Float32)));
-        assert_eq!(higher_order.pretty_print(&decls), "i32 → bool → f32");
+        assert_eq!(higher_order.pretty_print(), "i32 → bool → f32");
     }
 
     #[test]
     fn test_pretty_print_tuple() {
-        let decls = DeclTable::new(vec![]);
-
         let tuple_ty = mk_type(Type::Tuple(vec![
             mk_type(Type::Int32),
             mk_type(Type::Float32),
             mk_type(Type::Bool),
         ]));
-        assert_eq!(tuple_ty.pretty_print(&decls), "(i32, f32, bool)");
+        assert_eq!(tuple_ty.pretty_print(), "(i32, f32, bool)");
 
         let empty_tuple = mk_type(Type::Tuple(vec![]));
-        assert_eq!(empty_tuple.pretty_print(&decls), "()");
+        assert_eq!(empty_tuple.pretty_print(), "()");
     }
 
     #[test]
     fn test_pretty_print_named_type() {
-        let decls = DeclTable::new(vec![]);
-
         let named_ty = mk_type(Type::Name(Name::str("Point"), vec![]));
-        assert_eq!(named_ty.pretty_print(&decls), "Point");
+        assert_eq!(named_ty.pretty_print(), "Point");
 
         let generic_ty = mk_type(Type::Name(
             Name::str("Vec"),
             vec![mk_type(Type::Int32)],
         ));
-        assert_eq!(generic_ty.pretty_print(&decls), "Vec<i32>");
+        assert_eq!(generic_ty.pretty_print(), "Vec<i32>");
 
         let multi_param = mk_type(Type::Name(
             Name::str("Map"),
             vec![mk_type(Type::Int32), mk_type(Type::Float32)],
         ));
-        assert_eq!(multi_param.pretty_print(&decls), "Map<i32, f32>");
+        assert_eq!(multi_param.pretty_print(), "Map<i32, f32>");
     }
 
     #[test]
     fn test_pretty_print_type_var() {
-        let decls = DeclTable::new(vec![]);
-
         let var_ty = mk_type(Type::Var(Name::str("T")));
-        assert_eq!(var_ty.pretty_print(&decls), "T");
+        assert_eq!(var_ty.pretty_print(), "T");
 
         let anon_ty = mk_type(Type::Anon(42));
-        assert_eq!(anon_ty.pretty_print(&decls), "?42");
+        assert_eq!(anon_ty.pretty_print(), "?42");
     }
 }
