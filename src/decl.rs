@@ -147,11 +147,11 @@ impl Decl {
     /// let output = decl.pretty_print(&decls);
     /// // Output: "add(a: i32, b: i32) → i32"
     /// ```
-    pub fn pretty_print(&self, decls: &DeclTable) -> String {
+    pub fn pretty_print(&self) -> String {
         match self {
             Decl::Func(func) => format_func_decl(func, false),
             Decl::Macro(func) => format_func_decl(func, true),
-            Decl::Struct(st) => format_struct_decl(st, decls),
+            Decl::Struct(st) => format_struct_decl(st),
             Decl::Enum { name, cases } => format_enum_decl(*name, cases),
             Decl::Global { name, ty } => format!("var {}: {}", name, ty.pretty_print()),
             Decl::Interface(iface) => format_interface(iface),
@@ -227,7 +227,7 @@ fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
     }
 }
 
-fn format_struct_decl(st: &StructDecl, _decls: &DeclTable) -> String {
+fn format_struct_decl(st: &StructDecl) -> String {
     let typevars = format_typevars(&st.typevars);
     let fields = st
         .fields
@@ -279,7 +279,6 @@ mod tests {
 
     #[test]
     fn test_pretty_print_func() {
-        let decls = DeclTable::new(vec![]);
 
         let func = FuncDecl {
             name: Name::str("add"),
@@ -303,13 +302,12 @@ mod tests {
         };
 
         let decl = Decl::Func(func);
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "add(a: i32, b: i32) → i32");
     }
 
     #[test]
     fn test_pretty_print_generic_func() {
-        let decls = DeclTable::new(vec![]);
 
         let mut arena = ExprArena::new();
         let body_id = arena.add(Expr::Id(Name::str("x")), test_loc());
@@ -330,13 +328,12 @@ mod tests {
         };
 
         let decl = Decl::Func(func);
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "id<T>(x: T) → T x");
     }
 
     #[test]
     fn test_pretty_print_struct() {
-        let decls = DeclTable::new(vec![]);
 
         let st = StructDecl {
             name: Name::str("Point"),
@@ -356,13 +353,12 @@ mod tests {
         };
 
         let decl = Decl::Struct(st);
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "struct Point {\n    x: f32\n    y: f32\n}");
     }
 
     #[test]
     fn test_pretty_print_interface() {
-        let decls = DeclTable::new(vec![]);
 
         let iface = Interface {
             name: Name::str("Compare"),
@@ -391,40 +387,36 @@ mod tests {
         };
 
         let decl = Decl::Interface(iface);
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "interface Compare<A> {\n    cmp(lhs: A, rhs: A) → i32\n}");
     }
 
     #[test]
     fn test_pretty_print_global() {
-        let decls = DeclTable::new(vec![]);
 
         let decl = Decl::Global {
             name: Name::str("counter"),
             ty: mk_type(Type::Int32),
         };
 
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "var counter: i32");
     }
 
     #[test]
     fn test_pretty_print_enum() {
-        let decls = DeclTable::new(vec![]);
 
         let decl = Decl::Enum {
             name: Name::str("Status"),
             cases: vec![Name::str("Active"), Name::str("Inactive")],
         };
 
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "enum Status {\n    Active\n    Inactive\n}");
     }
 
     #[test]
     fn test_pretty_print_func_with_block_body() {
-        let decls = DeclTable::new(vec![]);
-
         let mut arena = ExprArena::new();
         // Create body: { x + 1 }
         let x_id = arena.add(Expr::Id(Name::str("x")), test_loc());
@@ -448,7 +440,7 @@ mod tests {
         };
 
         let decl = Decl::Func(func);
-        let output = decl.pretty_print(&decls);
+        let output = decl.pretty_print();
         assert_eq!(output, "increment(x: i32) → i32 {\n    x + 1\n}");
     }
 }
