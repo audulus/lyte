@@ -473,10 +473,15 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Expr::Block(exprs) => {
-                for expr in exprs {
-                    self.translate_expr(*expr, decl, decls);
+                if exprs.is_empty() {
+                    self.builder.ins().iconst(I32, 0)
+                } else {
+                    let mut result = None;
+                    for expr in exprs {
+                        result = Some(self.translate_expr(*expr, decl, decls));
+                    }
+                    result.unwrap()
                 }
-                self.builder.ins().iconst(I32, 0)
             }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
