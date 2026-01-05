@@ -317,6 +317,24 @@ mod tests {
         jit(code);
     }
 
+     #[test]
+    fn test_call_id() {
+        let code = r#"
+            assert(cond: bool) → void
+
+            id(x: i32) → i32 {
+                x
+            }
+
+            main {
+                let y = id(42)
+                // assert(y == 42)
+            }
+        "#;
+
+        jit(code);
+    }
+
     #[test]
     fn test_neg() {
         let code = r#"

@@ -170,6 +170,11 @@ impl JIT {
 
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
 
+        // Add variables for the function parameters.
+        for param in &decl.params {
+            trans.declare_variable(&param.name, param.ty.expect("expected type").cranelift_type());
+        }
+
         trans.translate_fn(decl, decls);
 
         // Need a return instruction at the end of the function's block.
