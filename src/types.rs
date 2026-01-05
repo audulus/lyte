@@ -479,7 +479,7 @@ mod tests {
         vd.typevars(&mut |_name| ());
 
         let v = typevar("T");
-        v.typevars(&mut |name| (assert_eq!(name, Name::new("T".into()))));
+        v.typevars(&mut |name| assert_eq!(name, Name::new("T".into())));
     }
 
     #[test]
