@@ -112,7 +112,7 @@ impl JIT {
 
         // Print the generated IR
         if self.print_ir {
-            println!("Generated IR:\n{}", self.ctx.func.display());
+            println!("Generated IR for \"{}\":\n{}", decl.name, self.ctx.func.display());
         }
 
         // Next, declare the function to jit. Functions must be declared
