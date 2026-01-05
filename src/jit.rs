@@ -106,7 +106,9 @@ impl JIT {
         decls: &DeclTable,
         decl: &FuncDecl,
     ) -> Result<cranelift_module::FuncId, String> {
-        // self.ctx.func.signature =
+        self.ctx.func.signature = fn_sig(&self.module, 
+            decl.domain(),
+            decl.ret);
 
         let called_functions = self.function_body(decls, decl);
 
