@@ -53,6 +53,20 @@ pub struct FuncDecl {
     pub types: Vec<TypeID>,
 }
 
+impl FuncDecl {
+    /// Get the types of the function parameters.
+    pub fn param_types(&self) -> Vec<TypeID> {
+        self.params
+            .iter()
+            .map(|p| p.ty.expect("parameter type should be known"))
+            .collect()
+    }
+
+    pub fn domain(&self) -> TypeID {
+        crate::TypeID::new(crate::Type::Tuple(self.param_types()))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct StructDecl {
     pub name: Name,
