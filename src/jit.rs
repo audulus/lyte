@@ -390,6 +390,7 @@ impl<'a> FunctionTranslator<'a> {
                     kind: StackSlotKind::ExplicitSlot,
                     size: sz,
                     align_shift: 0,
+                    key: None,
                 });
 
                 // Create an instruction that loads the address of the stack slot.
@@ -457,6 +458,7 @@ impl<'a> FunctionTranslator<'a> {
                         kind: StackSlotKind::ExplicitSlot,
                         size: sz,
                         align_shift: 0,
+                        key: None,
                     });
 
                     // Create an instruction that loads the address of the stack slot.
