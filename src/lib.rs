@@ -42,3 +42,5 @@ mod monomorph_pass;
 pub use monomorph_pass::*;
 
 pub mod vm;
+
+pub mod vm_codegen;
