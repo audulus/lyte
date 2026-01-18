@@ -68,6 +68,9 @@ pub enum Opcode {
     /// Integer negate: dst = -src
     INeg { dst: Reg, src: Reg },
 
+    /// Integer add immediate: dst = src + imm
+    IAddImm { dst: Reg, src: Reg, imm: i32 },
+
     // ============ Floating Point Arithmetic ============
 
     /// Float32 add: dst = a + b
@@ -85,6 +88,12 @@ pub enum Opcode {
     /// Float32 negate: dst = -src
     FNeg { dst: Reg, src: Reg },
 
+    /// Float32 fused multiply-add: dst = a * b + c
+    FMulAdd { dst: Reg, a: Reg, b: Reg, c: Reg },
+
+    /// Float32 fused multiply-subtract: dst = a * b - c
+    FMulSub { dst: Reg, a: Reg, b: Reg, c: Reg },
+
     // ============ Float64 Arithmetic ============
 
     /// Float64 add: dst = a + b
@@ -101,6 +110,12 @@ pub enum Opcode {
 
     /// Float64 negate: dst = -src
     DNeg { dst: Reg, src: Reg },
+
+    /// Float64 fused multiply-add: dst = a * b + c
+    DMulAdd { dst: Reg, a: Reg, b: Reg, c: Reg },
+
+    /// Float64 fused multiply-subtract: dst = a * b - c
+    DMulSub { dst: Reg, a: Reg, b: Reg, c: Reg },
 
     // ============ Bitwise Operations ============
 
@@ -244,6 +259,14 @@ pub enum Opcode {
     /// Jump if register is non-zero (true)
     JumpIfNotZero { cond: Reg, offset: Offset },
 
+    // ============ Superinstructions: Compare and Branch ============
+
+    /// Jump if a < b (signed): if !(a < b) jump
+    ILtJump { a: Reg, b: Reg, offset: Offset },
+
+    /// Jump if a >= b (signed): if !(a >= b) jump
+    IGeJump { a: Reg, b: Reg, offset: Offset },
+
     /// Call function by index, args in registers starting at `args_start`
     /// Result (if any) goes in register 0
     Call { func: FuncIdx, args_start: Reg, arg_count: u8 },
@@ -326,7 +349,9 @@ impl VMFunction {
         match &mut self.code[idx] {
             Opcode::Jump { offset: off } |
             Opcode::JumpIfZero { offset: off, .. } |
-            Opcode::JumpIfNotZero { offset: off, .. } => {
+            Opcode::JumpIfNotZero { offset: off, .. } |
+            Opcode::ILtJump { offset: off, .. } |
+            Opcode::IGeJump { offset: off, .. } => {
                 *off = offset;
             }
             _ => panic!("patch_jump called on non-jump instruction"),
@@ -588,6 +613,10 @@ impl VM {
                     self.set_i64(dst, -self.get_i64(src));
                 }
 
+                Opcode::IAddImm { dst, src, imm } => {
+                    self.set_i64(dst, self.get_i64(src).wrapping_add(imm as i64));
+                }
+
                 // Float32 arithmetic
                 Opcode::FAdd { dst, a, b } => {
                     self.set_f32(dst, self.get_f32(a) + self.get_f32(b));
@@ -609,6 +638,14 @@ impl VM {
                     self.set_f32(dst, -self.get_f32(src));
                 }
 
+                Opcode::FMulAdd { dst, a, b, c } => {
+                    self.set_f32(dst, self.get_f32(a).mul_add(self.get_f32(b), self.get_f32(c)));
+                }
+
+                Opcode::FMulSub { dst, a, b, c } => {
+                    self.set_f32(dst, self.get_f32(a).mul_add(self.get_f32(b), -self.get_f32(c)));
+                }
+
                 // Float64 arithmetic
                 Opcode::DAdd { dst, a, b } => {
                     self.set_f64(dst, self.get_f64(a) + self.get_f64(b));
@@ -628,6 +665,14 @@ impl VM {
 
                 Opcode::DNeg { dst, src } => {
                     self.set_f64(dst, -self.get_f64(src));
+                }
+
+                Opcode::DMulAdd { dst, a, b, c } => {
+                    self.set_f64(dst, self.get_f64(a).mul_add(self.get_f64(b), self.get_f64(c)));
+                }
+
+                Opcode::DMulSub { dst, a, b, c } => {
+                    self.set_f64(dst, self.get_f64(a).mul_add(self.get_f64(b), -self.get_f64(c)));
                 }
 
                 // Bitwise operations
@@ -830,6 +875,19 @@ impl VM {
                     }
                 }
 
+                // Superinstructions: compare and branch
+                Opcode::ILtJump { a, b, offset } => {
+                    if self.get_i64(a) >= self.get_i64(b) {
+                        self.ip = (self.ip as i32 + offset) as usize;
+                    }
+                }
+
+                Opcode::IGeJump { a, b, offset } => {
+                    if self.get_i64(a) < self.get_i64(b) {
+                        self.ip = (self.ip as i32 + offset) as usize;
+                    }
+                }
+
                 Opcode::Call { func, args_start, arg_count } => {
                     // Save current frame
                     let frame = CallFrame {
@@ -1022,45 +1080,37 @@ pub fn create_biquad_program() -> VMProgram {
     biquad.emit(Opcode::Load32Off { dst: 13, base: 2, offset: 12 }); // r13 = a1
     biquad.emit(Opcode::Load32Off { dst: 14, base: 2, offset: 16 }); // r14 = a2
 
-    // Compute output:
+    // Compute output using FMulAdd/FMulSub superinstructions:
     // y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2
 
     // r20 = b0 * x0
     biquad.emit(Opcode::FMul { dst: 20, a: 10, b: 0 });
 
-    // r21 = b1 * x1
-    biquad.emit(Opcode::FMul { dst: 21, a: 11, b: 3 });
+    // r20 = b1 * x1 + r20  (b0*x0 + b1*x1)
+    biquad.emit(Opcode::FMulAdd { dst: 20, a: 11, b: 3, c: 20 });
 
-    // r22 = b2 * x2
-    biquad.emit(Opcode::FMul { dst: 22, a: 12, b: 4 });
+    // r20 = b2 * x2 + r20  (b0*x0 + b1*x1 + b2*x2)
+    biquad.emit(Opcode::FMulAdd { dst: 20, a: 12, b: 4, c: 20 });
 
-    // r23 = a1 * y1
-    biquad.emit(Opcode::FMul { dst: 23, a: 13, b: 5 });
+    // r20 = r20 - a1 * y1  (using FMulSub: r20 = a1*y1 - r20, then negate... or use different approach)
+    // Actually FMulSub is: dst = a * b - c, so we need: r20 - a1*y1
+    // Let's compute a1*y1 first, then subtract
+    biquad.emit(Opcode::FMul { dst: 21, a: 13, b: 5 });   // r21 = a1 * y1
+    biquad.emit(Opcode::FSub { dst: 20, a: 20, b: 21 }); // r20 = r20 - a1*y1
 
-    // r24 = a2 * y2
-    biquad.emit(Opcode::FMul { dst: 24, a: 14, b: 6 });
-
-    // r25 = r20 + r21  (b0*x0 + b1*x1)
-    biquad.emit(Opcode::FAdd { dst: 25, a: 20, b: 21 });
-
-    // r25 = r25 + r22  (+ b2*x2)
-    biquad.emit(Opcode::FAdd { dst: 25, a: 25, b: 22 });
-
-    // r25 = r25 - r23  (- a1*y1)
-    biquad.emit(Opcode::FSub { dst: 25, a: 25, b: 23 });
-
-    // r25 = r25 - r24  (- a2*y2)  -> this is y0
-    biquad.emit(Opcode::FSub { dst: 25, a: 25, b: 24 });
+    // r20 = r20 - a2 * y2
+    biquad.emit(Opcode::FMul { dst: 21, a: 14, b: 6 });   // r21 = a2 * y2
+    biquad.emit(Opcode::FSub { dst: 20, a: 20, b: 21 }); // r20 = r20 - a2*y2 -> this is y0
 
     // Update state:
     // x2 = x1, x1 = x0, y2 = y1, y1 = y0
     biquad.emit(Opcode::Store32Off { base: 1, offset: 4, src: 3 });  // x2 = x1
     biquad.emit(Opcode::Store32Off { base: 1, offset: 0, src: 0 });  // x1 = x0
     biquad.emit(Opcode::Store32Off { base: 1, offset: 12, src: 5 }); // y2 = y1
-    biquad.emit(Opcode::Store32Off { base: 1, offset: 8, src: 25 }); // y1 = y0
+    biquad.emit(Opcode::Store32Off { base: 1, offset: 8, src: 20 }); // y1 = y0
 
     // Return y0
-    biquad.emit(Opcode::ReturnReg { src: 25 });
+    biquad.emit(Opcode::ReturnReg { src: 20 });
 
     let biquad_idx = program.add_function(biquad);
 
@@ -1101,9 +1151,8 @@ pub fn create_biquad_program() -> VMProgram {
     // Loop start (instruction index for jump target)
     let loop_start = main.code.len();
 
-    // Check i < N
-    main.emit(Opcode::ILt { dst: 22, a: 20, b: 21 });
-    let jump_end = main.emit(Opcode::JumpIfZero { cond: 22, offset: 0 }); // patched later
+    // Check i < N using superinstruction (jumps if NOT i < N)
+    let jump_end = main.emit(Opcode::ILtJump { a: 20, b: 21, offset: 0 }); // patched later
 
     // Generate input: simple sawtooth wave
     // input = (i % 100) / 100.0 - 0.5
@@ -1123,9 +1172,8 @@ pub fn create_biquad_program() -> VMProgram {
     // Accumulate output
     main.emit(Opcode::FAdd { dst: 30, a: 30, b: 0 });        // sum += output
 
-    // i++
-    main.emit(Opcode::LoadImm { dst: 23, value: 1 });
-    main.emit(Opcode::IAdd { dst: 20, a: 20, b: 23 });
+    // i++ using superinstruction
+    main.emit(Opcode::IAddImm { dst: 20, src: 20, imm: 1 });
 
     // Jump back to loop start
     let loop_end = main.code.len();
@@ -1372,5 +1420,123 @@ mod tests {
         let mut vm = VM::new();
         let result = vm.run(&program);
         assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_fmul_add() {
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadF32 { dst: 0, value: 2.0 });
+        func.emit(Opcode::LoadF32 { dst: 1, value: 3.0 });
+        func.emit(Opcode::LoadF32 { dst: 2, value: 4.0 });
+        // dst = 2.0 * 3.0 + 4.0 = 10.0
+        func.emit(Opcode::FMulAdd { dst: 0, a: 0, b: 1, c: 2 });
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+        let result = vm.run_f32(&program);
+        assert!((result - 10.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_fmul_sub() {
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadF32 { dst: 0, value: 2.0 });
+        func.emit(Opcode::LoadF32 { dst: 1, value: 3.0 });
+        func.emit(Opcode::LoadF32 { dst: 2, value: 4.0 });
+        // dst = 2.0 * 3.0 - 4.0 = 2.0
+        func.emit(Opcode::FMulSub { dst: 0, a: 0, b: 1, c: 2 });
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+        let result = vm.run_f32(&program);
+        assert!((result - 2.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_iadd_imm() {
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadImm { dst: 0, value: 40 });
+        func.emit(Opcode::IAddImm { dst: 0, src: 0, imm: 2 });
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+        let result = vm.run(&program);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_ilt_jump() {
+        // Test the fused compare-and-branch: ILtJump jumps if NOT (a < b)
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadImm { dst: 0, value: 5 });
+        func.emit(Opcode::LoadImm { dst: 1, value: 10 });
+        // 5 < 10 is true, so we should NOT jump
+        func.emit(Opcode::ILtJump { a: 0, b: 1, offset: 2 });
+        func.emit(Opcode::LoadImm { dst: 0, value: 100 });  // should execute
+        func.emit(Opcode::Jump { offset: 1 });
+        func.emit(Opcode::LoadImm { dst: 0, value: 200 });  // should skip
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+        let result = vm.run(&program);
+        assert_eq!(result, 100);
+    }
+
+    #[test]
+    fn test_ilt_jump_taken() {
+        // Test when jump IS taken: a >= b
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadImm { dst: 0, value: 10 });
+        func.emit(Opcode::LoadImm { dst: 1, value: 5 });
+        // 10 < 5 is false, so we SHOULD jump
+        func.emit(Opcode::ILtJump { a: 0, b: 1, offset: 2 });
+        func.emit(Opcode::LoadImm { dst: 0, value: 100 });  // should skip
+        func.emit(Opcode::Jump { offset: 1 });
+        func.emit(Opcode::LoadImm { dst: 0, value: 200 });  // should execute
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+        let result = vm.run(&program);
+        assert_eq!(result, 200);
+    }
+
+    #[test]
+    fn test_loop_with_superinstructions() {
+        // Sum 1..10 using IAddImm and ILtJump
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadImm { dst: 0, value: 0 });   // sum = 0
+        func.emit(Opcode::LoadImm { dst: 1, value: 1 });   // i = 1
+        func.emit(Opcode::LoadImm { dst: 2, value: 11 });  // limit = 11
+
+        // Loop start (index 3)
+        // ILtJump: if !(i < 11) jump to end
+        func.emit(Opcode::ILtJump { a: 1, b: 2, offset: 3 });
+        func.emit(Opcode::IAdd { dst: 0, a: 0, b: 1 });    // sum += i
+        func.emit(Opcode::IAddImm { dst: 1, src: 1, imm: 1 }); // i++
+        func.emit(Opcode::Jump { offset: -4 });            // back to loop start
+
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+        let result = vm.run(&program);
+        assert_eq!(result, 55);  // 1+2+3+...+10 = 55
     }
 }
