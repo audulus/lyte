@@ -120,21 +120,12 @@ impl Compiler {
         if let Ok((code_ptr, globals_size)) = r {
             println!("compilation successful");
 
-            if globals_size > 0 {
-                // Allocate zeroed global memory and pass to main.
-                type EntryWithGlobals = fn(*mut u8) -> ();
-                let mut globals: Vec<u8> = vec![0u8; globals_size];
-                unsafe {
-                    let code_fn = mem::transmute::<_, EntryWithGlobals>(code_ptr);
-                    code_fn(globals.as_mut_ptr());
-                }
-            } else {
-                // No globals, call main with no arguments.
-                type Entry = fn() -> ();
-                unsafe {
-                    let code_fn = mem::transmute::<_, Entry>(code_ptr);
-                    code_fn();
-                }
+            // Allocate zeroed global memory and pass to main.
+            type Entry = fn(*mut u8) -> ();
+            let mut globals: Vec<u8> = vec![0u8; globals_size];
+            unsafe {
+                let code_fn = mem::transmute::<_, Entry>(code_ptr);
+                code_fn(globals.as_mut_ptr());
             }
         } else {
             println!("{:?}", r);

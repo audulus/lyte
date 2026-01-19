@@ -124,8 +124,7 @@ impl JIT {
             decl.ret);
 
         // For main function, add globals base pointer as first parameter.
-        let has_globals = is_main && self.globals_size > 0;
-        if has_globals {
+        if is_main {
             self.ctx.func.signature.params.insert(0, AbiParam::new(I64));
         }
 
@@ -137,7 +136,7 @@ impl JIT {
             .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
-        let called_functions = self.function_body(decls, decl, has_globals);
+        let called_functions = self.function_body(decls, decl, is_main);
 
         // Print the generated IR
         if self.print_ir {
