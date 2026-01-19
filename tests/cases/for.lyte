@@ -1,6 +1,10 @@
 
+assert(cond: bool) → void
+
 main {
+    var sum = 0
     for x in 0 .. 42 {
-        
+        sum = sum + x
     }
+    assert(sum == 882)
 }
