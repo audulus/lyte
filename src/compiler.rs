@@ -1,3 +1,5 @@
+use crate::vm::{VM, VMProgram};
+use crate::vm_codegen::VMCodegen;
 use crate::*;
 use core::mem;
 use std::fs;
@@ -125,6 +127,21 @@ impl Compiler {
         }
     }
 
+    /// Compile the declarations to a VM program.
+    pub fn compile_vm(&self) -> Result<VMProgram, String> {
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let mut codegen = VMCodegen::new();
+        codegen.compile(&self.decls)
+    }
+
+    /// Run the code using the VM interpreter.
+    pub fn run_vm(&mut self) -> Result<i64, String> {
+        let program = self.compile_vm()?;
+        let mut vm = VM::new();
+        Ok(vm.run(&program))
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +160,17 @@ mod tests {
         compiler.run();
     }
 
+    fn run(code: &str) {
+        let mut compiler = Compiler::new();
+        let paths = vec![String::from(".")];
+
+        compiler.parse(code.into(), &paths[0]);
+        assert!(compiler.check());
+        compiler.specialize();
+        assert!(compiler.decls.decls.len() > 0);
+        compiler.run_vm().expect("VM execution failed");
+    }
+
     #[test]
     fn basic() {
         let code = r#"
@@ -152,6 +180,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -164,6 +193,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -176,6 +206,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -189,6 +220,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -202,6 +234,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -221,11 +254,12 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
     fn test_field_assign_2() {
-        jit(r#"
+        let code = r#"
             assert(cond: bool) → void
 
             struct S {
@@ -239,7 +273,9 @@ mod tests {
                 s.z = 42
                 assert(s.z == 42)
             }
-        "#);
+        "#;
+        jit(code);
+        run(code);
     }
 
     #[test]
@@ -261,6 +297,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -276,6 +313,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -293,6 +331,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -315,9 +354,10 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
-     #[test]
+    #[test]
     fn test_call_id() {
         let code = r#"
             assert(cond: bool) → void
@@ -333,6 +373,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -346,6 +387,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -366,6 +408,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -380,6 +423,7 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 
     #[test]
@@ -399,5 +443,6 @@ mod tests {
         "#;
 
         jit(code);
+        run(code);
     }
 }

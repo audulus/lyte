@@ -11,6 +11,17 @@ use crate::vm::*;
 use crate::DeclTable;
 use std::collections::{HashMap, HashSet};
 
+/// A call that needs to be patched with the correct function index.
+#[derive(Clone, Debug)]
+struct PendingCall {
+    /// Index of the function containing this call.
+    func_idx: FuncIdx,
+    /// Index of the Call instruction within that function.
+    instr_idx: usize,
+    /// Name of the function being called.
+    callee: Name,
+}
+
 /// Code generator for the VM.
 pub struct VMCodegen {
     /// The program being built.
@@ -24,6 +35,9 @@ pub struct VMCodegen {
 
     /// Functions that need to be compiled.
     pending_functions: Vec<Name>,
+
+    /// Calls that need to be patched after all functions are compiled.
+    pending_calls: Vec<PendingCall>,
 }
 
 impl Default for VMCodegen {
@@ -39,6 +53,7 @@ impl VMCodegen {
             func_indices: HashMap::new(),
             compiled_functions: HashSet::new(),
             pending_functions: Vec::new(),
+            pending_calls: Vec::new(),
         }
     }
 
@@ -81,6 +96,16 @@ impl VMCodegen {
         // Set entry point to main.
         self.program.entry = *self.func_indices.get(&main_name).unwrap();
 
+        // Patch all pending calls with the correct function indices.
+        for pending in &self.pending_calls {
+            if let Some(&callee_idx) = self.func_indices.get(&pending.callee) {
+                let func = &mut self.program.functions[pending.func_idx as usize];
+                if let Opcode::Call { func: ref mut f, .. } = func.code[pending.instr_idx] {
+                    *f = callee_idx;
+                }
+            }
+        }
+
         Ok(std::mem::take(&mut self.program))
     }
 
@@ -95,6 +120,15 @@ impl VMCodegen {
         let idx = self.program.add_function(func);
         self.func_indices.insert(decl.name, idx);
         self.compiled_functions.insert(decl.name);
+
+        // Collect pending calls from the translator.
+        for call in translator.calls_to_patch {
+            self.pending_calls.push(PendingCall {
+                func_idx: idx,
+                instr_idx: call.instr_idx,
+                callee: call.callee,
+            });
+        }
 
         Ok(idx)
     }
@@ -111,6 +145,14 @@ impl VMCodegen {
             idx
         }
     }
+}
+
+/// A call instruction that needs patching.
+struct CallToPatch {
+    /// Index of the Call instruction.
+    instr_idx: usize,
+    /// Name of the function being called.
+    callee: Name,
 }
 
 /// Translator for a single function body.
@@ -144,6 +186,9 @@ struct FunctionTranslator<'a> {
 
     /// Current next function index for placeholders.
     next_func_idx: FuncIdx,
+
+    /// Calls that need patching.
+    calls_to_patch: Vec<CallToPatch>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -163,6 +208,7 @@ impl<'a> FunctionTranslator<'a> {
             pending_functions,
             called_functions: HashMap::new(),
             next_func_idx: 0,
+            calls_to_patch: Vec::new(),
         }
     }
 
@@ -761,12 +807,18 @@ impl<'a> FunctionTranslator<'a> {
             // Add function to pending list.
             self.pending_functions.push(*name);
 
-            // For now, use function index 0 - this needs to be fixed up later.
-            // In a real implementation, we'd use a relocation table.
-            func.emit(Opcode::Call {
+            // Emit the call with a placeholder function index.
+            // Record the instruction index for later patching.
+            let instr_idx = func.emit(Opcode::Call {
                 func: 0, // Placeholder - needs relocation.
                 args_start,
                 arg_count: arg_ids.len() as u8,
+            });
+
+            // Record this call for patching.
+            self.calls_to_patch.push(CallToPatch {
+                instr_idx,
+                callee: *name,
             });
 
             // Result is in register 0.
