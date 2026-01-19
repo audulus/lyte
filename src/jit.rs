@@ -218,6 +218,8 @@ impl crate::Type {
     fn cranelift_type(&self) -> Type {
         match self {
             crate::Type::Void => I32,
+            crate::Type::Int8 => I8,
+            crate::Type::UInt8 => I8,
             crate::Type::Int32 => I32,
             crate::Type::UInt32 => I32,
             crate::Type::Float32 => F32,
@@ -356,6 +358,7 @@ impl<'a> FunctionTranslator<'a> {
                 let val: f64 = s.parse().expect("invalid float literal");
                 self.builder.ins().f64const(val)
             }
+            Expr::Char(c) => self.builder.ins().iconst(I8, *c as i64),
             Expr::Id(name) => {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
@@ -442,10 +445,17 @@ impl<'a> FunctionTranslator<'a> {
                     let struct_decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &struct_decl[0] {
                         let off = s.field_offset(name, decls, &self.current_instance);
-                        let load_ty = decl.types[expr].cranelift_type();
-                        self.builder
-                            .ins()
-                            .load(load_ty, MemFlags::new(), lhs_val, off)
+                        let field_ty = &decl.types[expr];
+                        // Arrays are stored inline, so return the address of the field
+                        if field_ty.is_ptr() {
+                            let off_val = self.builder.ins().iconst(I64, off as i64);
+                            self.builder.ins().iadd(lhs_val, off_val)
+                        } else {
+                            let load_ty = field_ty.cranelift_type();
+                            self.builder
+                                .ins()
+                                .load(load_ty, MemFlags::new(), lhs_val, off)
+                        }
                     } else {
                         panic!("unknown struct. should be caught by checker");
                     }
