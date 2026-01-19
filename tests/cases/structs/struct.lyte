@@ -21,7 +21,7 @@ infer_person {
     assert(f(tay) == 27)
 }
 
-test {
+main {
 
     var p = return_person()
     assert(p.age == 27)
