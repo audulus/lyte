@@ -385,6 +385,7 @@ mod tests {
         ";
 
         let errors = check(s);
+        // i could be negative!
         assert_eq!(errors.len(), 1);
     }
 
