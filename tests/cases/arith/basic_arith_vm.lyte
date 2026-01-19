@@ -1,0 +1,12 @@
+
+// args: -r
+// expected stdout:
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+main {
+    var x = 2+2
+    assert(x == 4)
+}

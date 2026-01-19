@@ -14,6 +14,9 @@ struct Args {
 
     #[clap(long)]
     c: bool,
+
+    #[clap(short)]
+    r: bool,
 }
 
 fn main() {
@@ -54,6 +57,20 @@ fn main() {
             std::process::exit(1);
         }
         compiler.run();
+    }
+
+    if args.r {
+        if !compiler.has_decls() {
+            println!("{:?}", Err::<(), _>("No declarations to compile"));
+            std::process::exit(1);
+        }
+        match compiler.run_vm() {
+            Ok(_) => println!("vm execution successful"),
+            Err(e) => {
+                eprintln!("VM error: {}", e);
+                std::process::exit(1);
+            }
+        }
     }
 
     std::process::exit(0)

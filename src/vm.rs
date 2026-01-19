@@ -983,7 +983,9 @@ impl VM {
                 }
 
                 Opcode::Assert { src } => {
-                    if self.get_u64(src) == 0 {
+                    let val = self.get_u64(src) != 0;
+                    println!("assert({})", val);
+                    if !val {
                         panic!("Assertion failed at {}:{}",
                             program.functions[self.current_func as usize].name,
                             self.ip - 1);
