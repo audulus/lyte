@@ -12,7 +12,7 @@ struct Args {
     #[clap(long)]
     ir: bool,
 
-    #[clap(long)]
+    #[clap(short)]
     c: bool,
 
     #[clap(short)]

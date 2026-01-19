@@ -1,4 +1,4 @@
-// args: --c
+// args: -c
 // expected stdout:
 // Err("No declarations to compile")
 
