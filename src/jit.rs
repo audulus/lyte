@@ -206,20 +206,34 @@ impl JIT {
         // Get the block parameters (function arguments).
         let block_params: Vec<_> = builder.block_params(entry_block).to_vec();
 
+        // Track current parameter index.
+        let mut param_idx = 0;
+
         // If this function has globals, the first block param is the globals base pointer.
-        let (globals_base, param_offset) = if has_globals {
-            (Some(block_params[0]), 1)
+        let globals_base = if has_globals {
+            let base = block_params[param_idx];
+            param_idx += 1;
+            Some(base)
         } else {
-            (None, 0)
+            None
         };
 
-        let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base);
+        // If return type is a pointer type, first param (after globals) is output pointer.
+        let output_ptr = if returns_via_pointer(decl.ret) {
+            let ptr = block_params[param_idx];
+            param_idx += 1;
+            Some(ptr)
+        } else {
+            None
+        };
+
+        let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base, output_ptr);
 
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
             let ty = param.ty.expect("expected type").cranelift_type();
             let var = trans.declare_variable(&param.name, ty);
-            trans.builder.def_var(var, block_params[i + param_offset]);
+            trans.builder.def_var(var, block_params[i + param_idx]);
             // Function parameters are like let bindings - they hold values directly.
             trans.let_bindings.insert(param.name.to_string());
         }
@@ -227,11 +241,21 @@ impl JIT {
         let result = trans.translate_fn(decl, decls);
 
         // Need a return instruction at the end of the function's block.
-        // If the function returns void, return nothing; otherwise return the body's result.
-        if *decl.ret == crate::Type::Void {
-            trans.builder.ins().return_(&[]);
-        } else {
-            trans.builder.ins().return_(&[result]);
+        // Skip if the block is already unreachable (e.g., body ended with explicit return).
+        if !trans.builder.is_unreachable() {
+            if returns_via_pointer(decl.ret) {
+                // Copy result to output pointer and return void.
+                let output = trans.output_ptr.unwrap();
+                let size = decl.ret.size(decls) as i64;
+                let size_val = trans.builder.ins().iconst(I64, size);
+                // Use memcpy to copy the data.
+                trans.builder.call_memcpy(trans.module.target_config(), output, result, size_val);
+                trans.builder.ins().return_(&[]);
+            } else if *decl.ret == crate::Type::Void {
+                trans.builder.ins().return_(&[]);
+            } else {
+                trans.builder.ins().return_(&[result]);
+            }
         }
 
         // Indicate we're finished with the function.
@@ -292,18 +316,29 @@ impl crate::Type {
     }
 }
 
+/// Returns true if this type is returned via an output pointer parameter.
+fn returns_via_pointer(ty: crate::TypeID) -> bool {
+    ty.is_ptr()
+}
+
 fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signature {
     let mut sig = module.make_signature();
+
+    // If return type is a pointer type (array, struct, tuple), add output pointer as first param.
+    if returns_via_pointer(to) {
+        sig.params.push(AbiParam::new(I64));
+    }
+
     if let crate::Type::Tuple(args) = &*from {
-        sig.params = args
-            .iter()
-            .map(|t| AbiParam::new(t.cranelift_type()))
-            .collect();
+        for t in args.iter() {
+            sig.params.push(AbiParam::new(t.cranelift_type()));
+        }
     } else {
         panic!();
     }
 
-    if *to != crate::Type::Void {
+    // Only add return value if not void and not returned via pointer.
+    if *to != crate::Type::Void && !returns_via_pointer(to) {
         sig.returns = vec![AbiParam::new(to.cranelift_type())];
     }
     sig
@@ -331,10 +366,19 @@ struct FunctionTranslator<'a> {
 
     /// Base pointer for globals (passed as first param to main).
     globals_base: Option<Value>,
+
+    /// Output pointer for functions returning via pointer (arrays, structs, tuples).
+    output_ptr: Option<Value>,
 }
 
 impl<'a> FunctionTranslator<'a> {
-    fn new(builder: FunctionBuilder<'a>, module: &'a mut JITModule, globals: &'a HashMap<Name, i32>, globals_base: Option<Value>) -> Self {
+    fn new(
+        builder: FunctionBuilder<'a>,
+        module: &'a mut JITModule,
+        globals: &'a HashMap<Name, i32>,
+        globals_base: Option<Value>,
+        output_ptr: Option<Value>,
+    ) -> Self {
         Self {
             builder,
             variables: HashMap::new(),
@@ -345,6 +389,7 @@ impl<'a> FunctionTranslator<'a> {
             let_bindings: HashSet::new(),
             globals,
             globals_base,
+            output_ptr,
         }
     }
 
@@ -438,16 +483,37 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Call(fn_id, arg_ids) => {
                 let f = self.translate_expr(*fn_id, decl, decls);
 
-                let mut args = vec![];
-                for arg_id in arg_ids {
-                    args.push(self.translate_expr(*arg_id, decl, decls))
-                }
-
                 if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
+                    let mut args = vec![];
+
+                    // If return type is pointer, allocate stack space and pass as first arg.
+                    let output_slot = if returns_via_pointer(to) {
+                        let size = to.size(decls) as u32;
+                        let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                            kind: StackSlotKind::ExplicitSlot,
+                            size,
+                            align_shift: 0,
+                            key: None,
+                        });
+                        let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                        args.push(addr);
+                        Some(addr)
+                    } else {
+                        None
+                    };
+
+                    for arg_id in arg_ids {
+                        args.push(self.translate_expr(*arg_id, decl, decls))
+                    }
+
                     let sig = fn_sig(&self.module, from, to);
                     let sref = self.builder.import_signature(sig);
                     let call = self.builder.ins().call_indirect(sref, f, &args);
-                    if let Some(result) = self.builder.inst_results(call).first() {
+
+                    if let Some(addr) = output_slot {
+                        // Return the address of the output buffer.
+                        addr
+                    } else if let Some(result) = self.builder.inst_results(call).first() {
                         *result
                     } else {
                         self.builder.ins().iconst(I32, 0)
@@ -538,18 +604,17 @@ impl<'a> FunctionTranslator<'a> {
                     .iter()
                     .map(|e| self.translate_expr(*e, decl, decls))
                     .collect();
-                
+
                 let ty = decl.types[expr];
 
-                if let crate::Type::Array(ty, _) = &*ty { 
+                if let crate::Type::Array(elem_ty, _) = &*ty {
+                    let element_size = elem_ty.size(decls) as u32;
+                    let total_size = element_size * elements.len() as u32;
 
-                    let sz = ty.size(decls) as u32;
-                    let element_size = sz / elements.len() as u32;
-
-                    // Allocate a new stack slot with a size of the variable.
+                    // Allocate a new stack slot with a size of the array.
                     let slot = self.builder.create_sized_stack_slot(StackSlotData {
                         kind: StackSlotKind::ExplicitSlot,
-                        size: sz,
+                        size: total_size,
                         align_shift: 0,
                         key: None,
                     });
@@ -662,13 +727,28 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Return(expr_id) => {
                 let result = self.translate_expr(*expr_id, decl, decls);
-                self.builder.ins().return_(&[result]);
+                let ret_ty = decl.types[*expr_id];
+
+                if returns_via_pointer(ret_ty) {
+                    // Copy result to output pointer and return void.
+                    let output = self.output_ptr.expect("output_ptr not set for pointer return");
+                    let size = ret_ty.size(decls) as i64;
+                    let size_val = self.builder.ins().iconst(I64, size);
+                    self.builder.call_memcpy(self.module.target_config(), output, result, size_val);
+                    self.builder.ins().return_(&[]);
+                } else {
+                    self.builder.ins().return_(&[result]);
+                }
+
                 // Create an unreachable block for any code after return.
                 let unreachable_block = self.builder.create_block();
                 self.builder.switch_to_block(unreachable_block);
                 self.builder.seal_block(unreachable_block);
-                // Return a dummy value - this code is unreachable.
-                self.builder.ins().iconst(I32, 0)
+                // Create a dummy value before adding trap (trap terminates the block).
+                let dummy = self.builder.ins().iconst(I32, 0);
+                // Add a trap - this code is unreachable.
+                self.builder.ins().trap(TrapCode::user(1).unwrap());
+                dummy
             }
             Expr::While(cond_id, body_id) => {
                 // Create blocks for header, body, and exit.
