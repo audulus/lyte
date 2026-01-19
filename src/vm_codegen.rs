@@ -610,8 +610,19 @@ impl<'a> FunctionTranslator<'a> {
                 }
             },
 
-            Binop::Geq => {
-                func.emit(Opcode::IGe { dst, a: lhs, b: rhs });
+            Binop::Geq => match &*ty {
+                Type::Float32 => {
+                    // a >= b ≡ b <= a
+                    func.emit(Opcode::FLe { dst, a: rhs, b: lhs });
+                }
+                Type::Float64 => {
+                    // a >= b ≡ b <= a
+                    func.emit(Opcode::DLe { dst, a: rhs, b: lhs });
+                }
+                _ => {
+                    // a >= b ≡ b <= a
+                    func.emit(Opcode::ILe { dst, a: rhs, b: lhs });
+                }
             }
 
             Binop::And => {

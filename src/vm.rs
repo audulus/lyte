@@ -166,9 +166,6 @@ pub enum Opcode {
     /// Signed greater than: dst = (a > b)
     IGt { dst: Reg, a: Reg, b: Reg },
 
-    /// Signed greater or equal: dst = (a >= b)
-    IGe { dst: Reg, a: Reg, b: Reg },
-
     /// Unsigned less than
     ULt { dst: Reg, a: Reg, b: Reg },
 
@@ -189,9 +186,6 @@ pub enum Opcode {
 
     /// Float32 greater than
     FGt { dst: Reg, a: Reg, b: Reg },
-
-    /// Float32 greater or equal
-    FGe { dst: Reg, a: Reg, b: Reg },
 
     /// Float64 equal
     DEq { dst: Reg, a: Reg, b: Reg },
@@ -272,9 +266,6 @@ pub enum Opcode {
 
     /// Jump if a < b (signed): if !(a < b) jump
     ILtJump { a: Reg, b: Reg, offset: Offset },
-
-    /// Jump if a >= b (signed): if !(a >= b) jump
-    IGeJump { a: Reg, b: Reg, offset: Offset },
 
     /// Call function by index, args in registers starting at `args_start`
     /// Result (if any) goes in register 0
@@ -359,8 +350,7 @@ impl VMFunction {
             Opcode::Jump { offset: off } |
             Opcode::JumpIfZero { offset: off, .. } |
             Opcode::JumpIfNotZero { offset: off, .. } |
-            Opcode::ILtJump { offset: off, .. } |
-            Opcode::IGeJump { offset: off, .. } => {
+            Opcode::ILtJump { offset: off, .. } => {
                 *off = offset;
             }
             _ => panic!("patch_jump called on non-jump instruction"),
@@ -751,10 +741,6 @@ impl VM {
                     self.set_bool(dst, self.get_i64(a) > self.get_i64(b));
                 }
 
-                Opcode::IGe { dst, a, b } => {
-                    self.set_bool(dst, self.get_i64(a) >= self.get_i64(b));
-                }
-
                 Opcode::ULt { dst, a, b } => {
                     self.set_bool(dst, self.get_u64(a) < self.get_u64(b));
                 }
@@ -782,10 +768,6 @@ impl VM {
 
                 Opcode::FGt { dst, a, b } => {
                     self.set_bool(dst, self.get_f32(a) > self.get_f32(b));
-                }
-
-                Opcode::FGe { dst, a, b } => {
-                    self.set_bool(dst, self.get_f32(a) >= self.get_f32(b));
                 }
 
                 // Float64 comparisons
@@ -901,12 +883,6 @@ impl VM {
                 // Superinstructions: compare and branch
                 Opcode::ILtJump { a, b, offset } => {
                     if self.get_i64(a) >= self.get_i64(b) {
-                        self.ip = (self.ip as i32 + offset) as usize;
-                    }
-                }
-
-                Opcode::IGeJump { a, b, offset } => {
-                    if self.get_i64(a) < self.get_i64(b) {
                         self.ip = (self.ip as i32 + offset) as usize;
                     }
                 }
