@@ -1,10 +1,15 @@
-
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
 
 assert(cond: bool) → void
 
 var global: i32
 
-test {
+main {
+    assert(global == 0)
     global = 42
     assert(global == 42)
 }

@@ -106,7 +106,7 @@ impl Compiler {
         !self.decls.decls.is_empty()
     }
 
-    pub fn jit(&self) -> Result<*const u8, String> {
+    pub fn jit(&self) -> Result<(*const u8, usize), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
         if self.decls.decls.is_empty() {
@@ -117,14 +117,24 @@ impl Compiler {
 
     pub fn run(&mut self) {
         let r = self.jit();
-        if let Ok(code_ptr) = r {
+        if let Ok((code_ptr, globals_size)) = r {
             println!("compilation successful");
 
-            type Entry = fn() -> ();
-
-            unsafe {
-                let code_fn = mem::transmute::<_, Entry>(code_ptr);
-                code_fn();
+            if globals_size > 0 {
+                // Allocate zeroed global memory and pass to main.
+                type EntryWithGlobals = fn(*mut u8) -> ();
+                let mut globals: Vec<u8> = vec![0u8; globals_size];
+                unsafe {
+                    let code_fn = mem::transmute::<_, EntryWithGlobals>(code_ptr);
+                    code_fn(globals.as_mut_ptr());
+                }
+            } else {
+                // No globals, call main with no arguments.
+                type Entry = fn() -> ();
+                unsafe {
+                    let code_fn = mem::transmute::<_, Entry>(code_ptr);
+                    code_fn();
+                }
             }
         } else {
             println!("{:?}", r);

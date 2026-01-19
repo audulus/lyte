@@ -34,6 +34,12 @@ pub struct JIT {
 
     defined_functions: HashSet<Name>,
 
+    /// Global variable offsets from base pointer.
+    globals: HashMap<Name, i32>,
+
+    /// Total size of global memory needed.
+    globals_size: usize,
+
     pub print_ir: bool,
 }
 
@@ -63,6 +69,8 @@ impl Default for JIT {
             ctx: module.make_context(),
             module,
             defined_functions: HashSet::new(),
+            globals: HashMap::new(),
+            globals_size: 0,
             print_ir: false,
         }
     }
@@ -70,7 +78,11 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile our AST into native code.
-    pub fn compile(&mut self, decls: &DeclTable) -> Result<*const u8, String> {
+    /// Returns (code_ptr, globals_size).
+    pub fn compile(&mut self, decls: &DeclTable) -> Result<(*const u8, usize), String> {
+        // First, declare all global variables.
+        self.declare_globals(decls);
+
         let name = "main";
 
         let main_decls = &decls.find(Name::new(name.into()));
@@ -86,7 +98,7 @@ impl JIT {
             panic!("no main function found");
         };
 
-        let id = self.compile_function(decls, main_decl)?;
+        let id = self.compile_function(decls, main_decl, true)?;
 
         // Finalize the functions which we just defined, which resolves any
         // outstanding relocations (patching in addresses, now that they're
@@ -98,17 +110,24 @@ impl JIT {
         // We can now retrieve a pointer to the machine code.
         let code = self.module.get_finalized_function(id);
 
-        Ok(code)
+        Ok((code, self.globals_size))
     }
 
     fn compile_function(
         &mut self,
         decls: &DeclTable,
         decl: &FuncDecl,
+        is_main: bool,
     ) -> Result<cranelift_module::FuncId, String> {
         self.ctx.func.signature = fn_sig(&self.module,
             decl.domain(),
             decl.ret);
+
+        // For main function, add globals base pointer as first parameter.
+        let has_globals = is_main && self.globals_size > 0;
+        if has_globals {
+            self.ctx.func.signature.params.insert(0, AbiParam::new(I64));
+        }
 
         // Declare the function first, before generating its body.
         // This ensures that any functions called within the body get
@@ -118,7 +137,7 @@ impl JIT {
             .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
-        let called_functions = self.function_body(decls, decl);
+        let called_functions = self.function_body(decls, decl, has_globals);
 
         // Print the generated IR
         if self.print_ir {
@@ -154,13 +173,24 @@ impl JIT {
                 panic!()
             };
 
-            self.compile_function(decls, decl)?;
+            self.compile_function(decls, decl, false)?;
         }
 
         Ok(id)
     }
 
-    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl) -> HashSet<Name> {
+    fn declare_globals(&mut self, decls: &DeclTable) {
+        let mut offset: i32 = 0;
+        for decl in &decls.decls {
+            if let Decl::Global { name, ty } = decl {
+                self.globals.insert(*name, offset);
+                offset += ty.size(decls) as i32;
+            }
+        }
+        self.globals_size = offset as usize;
+    }
+
+    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl, has_globals: bool) -> HashSet<Name> {
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -177,13 +207,20 @@ impl JIT {
         // Get the block parameters (function arguments).
         let block_params: Vec<_> = builder.block_params(entry_block).to_vec();
 
-        let mut trans = FunctionTranslator::new(builder, &mut self.module);
+        // If this function has globals, the first block param is the globals base pointer.
+        let (globals_base, param_offset) = if has_globals {
+            (Some(block_params[0]), 1)
+        } else {
+            (None, 0)
+        };
+
+        let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base);
 
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
             let ty = param.ty.expect("expected type").cranelift_type();
             let var = trans.declare_variable(&param.name, ty);
-            trans.builder.def_var(var, block_params[i]);
+            trans.builder.def_var(var, block_params[i + param_offset]);
             // Function parameters are like let bindings - they hold values directly.
             trans.let_bindings.insert(param.name.to_string());
         }
@@ -289,10 +326,16 @@ struct FunctionTranslator<'a> {
     /// Tracks which variables are `let` bindings (hold values directly)
     /// vs `var` bindings (hold pointers to stack slots).
     let_bindings: HashSet<String>,
+
+    /// Global variable offsets from base pointer.
+    globals: &'a HashMap<Name, i32>,
+
+    /// Base pointer for globals (passed as first param to main).
+    globals_base: Option<Value>,
 }
 
 impl<'a> FunctionTranslator<'a> {
-    fn new(builder: FunctionBuilder<'a>, module: &'a mut JITModule) -> Self {
+    fn new(builder: FunctionBuilder<'a>, module: &'a mut JITModule, globals: &'a HashMap<Name, i32>, globals_base: Option<Value>) -> Self {
         Self {
             builder,
             variables: HashMap::new(),
@@ -301,6 +344,8 @@ impl<'a> FunctionTranslator<'a> {
             current_instance: Instance::new(),
             called_functions: HashSet::new(),
             let_bindings: HashSet::new(),
+            globals,
+            globals_base,
         }
     }
 
@@ -311,8 +356,15 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
             Expr::Id(name) => {
-                let var = *self.variables.get(&**name).unwrap();
-                self.builder.use_var(var)
+                if let Some(variable) = self.variables.get(&**name) {
+                    self.builder.use_var(*variable)
+                } else if let Some(&offset) = self.globals.get(name) {
+                    // Global variable - compute address from base + offset.
+                    let base = self.globals_base.expect("globals_base not set");
+                    self.builder.ins().iadd_imm(base, offset as i64)
+                } else {
+                    panic!("unknown lvalue: {:?}", name);
+                }
             }
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.types[*lhs];
@@ -371,6 +423,11 @@ impl<'a> FunctionTranslator<'a> {
                             .ins()
                             .load(ty.cranelift_type(), MemFlags::new(), val, 0)
                     }
+                } else if let Some(&offset) = self.globals.get(name) {
+                    // Global variable - load from base + offset.
+                    let base = self.globals_base.expect("globals_base not set");
+                    let addr = self.builder.ins().iadd_imm(base, offset as i64);
+                    self.builder.ins().load(ty.cranelift_type(), MemFlags::new(), addr, 0)
                 } else {
                     self.translate_func(name, &*ty)
                 }
