@@ -1,0 +1,15 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+var global: i32
+
+main {
+    assert(global == 0)
+    global = 42
+    assert(global == 42)
+}

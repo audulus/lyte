@@ -38,6 +38,9 @@ pub struct VMCodegen {
 
     /// Calls that need to be patched after all functions are compiled.
     pending_calls: Vec<PendingCall>,
+
+    /// Global variable offsets.
+    globals: HashMap<Name, i32>,
 }
 
 impl Default for VMCodegen {
@@ -54,7 +57,20 @@ impl VMCodegen {
             compiled_functions: HashSet::new(),
             pending_functions: Vec::new(),
             pending_calls: Vec::new(),
+            globals: HashMap::new(),
         }
+    }
+
+    /// Collect global variables and compute their offsets.
+    fn declare_globals(&mut self, decls: &DeclTable) {
+        let mut offset: i32 = 0;
+        for decl in &decls.decls {
+            if let Decl::Global { name, ty } = decl {
+                self.globals.insert(*name, offset);
+                offset += ty.size(decls) as i32;
+            }
+        }
+        self.program.globals_size = offset as usize;
     }
 
     /// Compile a DeclTable into a VMProgram.
@@ -62,6 +78,9 @@ impl VMCodegen {
     /// This looks for a "main" function and compiles it along with all
     /// functions it calls.
     pub fn compile(&mut self, decls: &DeclTable) -> Result<VMProgram, String> {
+        // First, collect all global variables.
+        self.declare_globals(decls);
+
         let main_name = Name::str("main");
         let main_decls = decls.find(main_name);
 
@@ -114,7 +133,7 @@ impl VMCodegen {
         let mut func = VMFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
 
-        let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions);
+        let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &self.globals);
         translator.translate(&mut func);
 
         let idx = self.program.add_function(func);
@@ -189,6 +208,9 @@ struct FunctionTranslator<'a> {
 
     /// Calls that need patching.
     calls_to_patch: Vec<CallToPatch>,
+
+    /// Global variable offsets.
+    globals: &'a HashMap<Name, i32>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -196,6 +218,7 @@ impl<'a> FunctionTranslator<'a> {
         decl: &'a FuncDecl,
         decls: &'a DeclTable,
         pending_functions: &'a mut Vec<Name>,
+        globals: &'a HashMap<Name, i32>,
     ) -> Self {
         Self {
             decl,
@@ -209,6 +232,7 @@ impl<'a> FunctionTranslator<'a> {
             called_functions: HashMap::new(),
             next_func_idx: 0,
             calls_to_patch: Vec::new(),
+            globals,
         }
     }
 
@@ -332,6 +356,13 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         reg
                     }
+                } else if let Some(&offset) = self.globals.get(name) {
+                    // Global variable - load from globals memory.
+                    let addr = self.alloc_reg();
+                    func.emit(Opcode::GlobalAddr { dst: addr, offset });
+                    let dst = self.alloc_reg();
+                    self.emit_load(&ty, dst, addr, func);
+                    dst
                 } else {
                     // Check if it's a function.
                     if let Type::Func(_, _) = &*ty {
@@ -681,6 +712,11 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Id(name) => {
                 if let Some(&reg) = self.variables.get(name) {
                     reg
+                } else if let Some(&offset) = self.globals.get(name) {
+                    // Global variable - return its address.
+                    let dst = self.alloc_reg();
+                    func.emit(Opcode::GlobalAddr { dst, offset });
+                    dst
                 } else {
                     let dst = self.alloc_reg();
                     func.emit(Opcode::LoadImm { dst, value: 0 });

@@ -242,6 +242,9 @@ pub enum Opcode {
     /// Get address of local variable slot
     LocalAddr { dst: Reg, slot: u16 },
 
+    /// Get address of global variable at offset
+    GlobalAddr { dst: Reg, offset: i32 },
+
     // ============ Control Flow ============
 
     /// Unconditional jump
@@ -360,6 +363,9 @@ pub struct VMProgram {
 
     /// Entry point function index
     pub entry: FuncIdx,
+
+    /// Size of global memory needed (in bytes)
+    pub globals_size: usize,
 }
 
 impl VMProgram {
@@ -404,6 +410,9 @@ pub struct VM {
     /// Heap memory for dynamic allocations
     heap: Vec<u8>,
 
+    /// Global variable memory (zero-initialized)
+    globals: Vec<u8>,
+
     /// Current instruction pointer
     ip: usize,
 
@@ -427,6 +436,7 @@ impl VM {
             locals: vec![0; 1024 * 1024], // 1MB stack
             call_stack: Vec::with_capacity(1024),
             heap: vec![0; 1024 * 1024], // 1MB heap
+            globals: Vec::new(), // Allocated when program runs
             ip: 0,
             current_func: 0,
             locals_base: 0,
@@ -511,6 +521,9 @@ impl VM {
 
         // Clear registers
         self.registers = [0; 256];
+
+        // Allocate zero-initialized global memory
+        self.globals = vec![0u8; program.globals_size];
 
         loop {
             let func = &program.functions[self.current_func as usize];
@@ -840,6 +853,11 @@ impl VM {
 
                 Opcode::LocalAddr { dst, slot } => {
                     self.set_u64(dst, self.local_ptr(slot) as u64);
+                }
+
+                Opcode::GlobalAddr { dst, offset } => {
+                    let addr = unsafe { self.globals.as_ptr().add(offset as usize) };
+                    self.set_u64(dst, addr as u64);
                 }
 
                 // Control flow
