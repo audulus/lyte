@@ -1,7 +1,14 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+
+assert(cond: bool) → void
 
 main {
     var i: i32
     while i < 100 {
         i = i + 1
     }
+    assert(i == 100)
 }

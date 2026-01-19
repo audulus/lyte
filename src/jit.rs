@@ -614,6 +614,37 @@ impl<'a> FunctionTranslator<'a> {
                 // Return a dummy value - this code is unreachable.
                 self.builder.ins().iconst(I32, 0)
             }
+            Expr::While(cond_id, body_id) => {
+                // Create blocks for header, body, and exit.
+                let header_block = self.builder.create_block();
+                let body_block = self.builder.create_block();
+                let exit_block = self.builder.create_block();
+
+                // Jump to header.
+                self.builder.ins().jump(header_block, &[]);
+
+                // Header block: evaluate condition.
+                self.builder.switch_to_block(header_block);
+                let cond_val = self.translate_expr(*cond_id, decl, decls);
+                self.builder.ins().brif(cond_val, body_block, &[], exit_block, &[]);
+
+                // Body block.
+                self.builder.switch_to_block(body_block);
+                self.builder.seal_block(body_block);
+                self.translate_expr(*body_id, decl, decls);
+
+                // Jump back to header.
+                self.builder.ins().jump(header_block, &[]);
+
+                // Seal header after all predecessors are known.
+                self.builder.seal_block(header_block);
+
+                // Exit block.
+                self.builder.switch_to_block(exit_block);
+                self.builder.seal_block(exit_block);
+
+                self.builder.ins().iconst(I32, 0)
+            }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
                 todo!();
