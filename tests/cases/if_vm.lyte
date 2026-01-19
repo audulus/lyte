@@ -1,0 +1,20 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+main {
+    var x: i32
+
+    if false {
+        x = 1
+    } else if false {
+        x = 2
+    } else {
+        x = 3
+    }
+
+    assert(x == 3)
+}
