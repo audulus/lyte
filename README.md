@@ -7,11 +7,10 @@ A simple programming language for writing Audulus nodes, and maybe other things 
 
 Goals:
 
-- "dynamic ownership" memory management, no GC
+- familiar syntax (a mix of rust and swift)
 - function and operator overloading
 - generics constrained by "interfaces"
-- familiar syntax (a mix of rust and swift)
-- arena allocation for realtime
+- no GC
 - memory safety
 - type inference
 - Cranelift backend
