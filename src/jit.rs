@@ -562,6 +562,12 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.types[*lhs];
+                // Handle array.len - return the compile-time length.
+                if let crate::Type::Array(_, len) = &*lhs_ty {
+                    if **name == "len" {
+                        return self.builder.ins().iconst(I32, *len as i64);
+                    }
+                }
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
                 if let crate::Type::Name(struct_name, _) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);

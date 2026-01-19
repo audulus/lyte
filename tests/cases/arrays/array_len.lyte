@@ -1,0 +1,10 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+assert(cond: bool) → void
+
+main {
+    var a = [1, 2, 3]
+    assert(a.len == 3)
+}
