@@ -65,6 +65,9 @@ pub enum Opcode {
     /// Integer remainder: dst = a % b
     IRem { dst: Reg, a: Reg, b: Reg },
 
+    /// Integer power: dst = a ^ b
+    IPow { dst: Reg, a: Reg, b: Reg },
+
     /// Integer negate: dst = -src
     INeg { dst: Reg, src: Reg },
 
@@ -88,6 +91,9 @@ pub enum Opcode {
     /// Float32 negate: dst = -src
     FNeg { dst: Reg, src: Reg },
 
+    /// Float32 power: dst = a ^ b
+    FPow { dst: Reg, a: Reg, b: Reg },
+
     /// Float32 fused multiply-add: dst = a * b + c
     FMulAdd { dst: Reg, a: Reg, b: Reg, c: Reg },
 
@@ -110,6 +116,9 @@ pub enum Opcode {
 
     /// Float64 negate: dst = -src
     DNeg { dst: Reg, src: Reg },
+
+    /// Float64 power: dst = a ^ b
+    DPow { dst: Reg, a: Reg, b: Reg },
 
     /// Float64 fused multiply-add: dst = a * b + c
     DMulAdd { dst: Reg, a: Reg, b: Reg, c: Reg },
@@ -609,6 +618,12 @@ impl VM {
                     self.set_i64(dst, self.get_i64(a) % b_val);
                 }
 
+                Opcode::IPow { dst, a, b } => {
+                    let base = self.get_i64(a);
+                    let exp = self.get_i64(b) as u32;
+                    self.set_i64(dst, base.wrapping_pow(exp));
+                }
+
                 Opcode::INeg { dst, src } => {
                     self.set_i64(dst, -self.get_i64(src));
                 }
@@ -638,6 +653,10 @@ impl VM {
                     self.set_f32(dst, -self.get_f32(src));
                 }
 
+                Opcode::FPow { dst, a, b } => {
+                    self.set_f32(dst, self.get_f32(a).powf(self.get_f32(b)));
+                }
+
                 Opcode::FMulAdd { dst, a, b, c } => {
                     self.set_f32(dst, self.get_f32(a).mul_add(self.get_f32(b), self.get_f32(c)));
                 }
@@ -665,6 +684,10 @@ impl VM {
 
                 Opcode::DNeg { dst, src } => {
                     self.set_f64(dst, -self.get_f64(src));
+                }
+
+                Opcode::DPow { dst, a, b } => {
+                    self.set_f64(dst, self.get_f64(a).powf(self.get_f64(b)));
                 }
 
                 Opcode::DMulAdd { dst, a, b, c } => {

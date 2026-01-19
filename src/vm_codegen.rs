@@ -622,9 +622,16 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(Opcode::Or { dst, a: lhs, b: rhs });
             }
 
-            Binop::Pow => {
-                // Power is not directly supported - just multiply for now.
-                func.emit(Opcode::IMul { dst, a: lhs, b: rhs });
+            Binop::Pow => match &*ty {
+                Type::Float32 => {
+                    func.emit(Opcode::FPow { dst, a: lhs, b: rhs });
+                }
+                Type::Float64 => {
+                    func.emit(Opcode::DPow { dst, a: lhs, b: rhs });
+                }
+                _ => {
+                    func.emit(Opcode::IPow { dst, a: lhs, b: rhs });
+                }
             }
 
             Binop::Assign => {
