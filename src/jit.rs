@@ -836,6 +836,7 @@ impl<'a> FunctionTranslator<'a> {
 }
 
 extern "C" fn lyte_assert(val: i8) {
+    println!("assert({})", val != 0);
     assert!(val != 0);
 }
 
