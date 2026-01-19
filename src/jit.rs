@@ -352,6 +352,10 @@ impl<'a> FunctionTranslator<'a> {
             Expr::False => self.builder.ins().iconst(I8, 0),
             Expr::True => self.builder.ins().iconst(I8, 1),
             Expr::Int(imm) => self.builder.ins().iconst(I32, *imm),
+            Expr::Real(s) => {
+                let val: f64 = s.parse().expect("invalid float literal");
+                self.builder.ins().f64const(val)
+            }
             Expr::Id(name) => {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {

@@ -1,8 +1,19 @@
 
+// args: --c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 
 assert(cond: bool) → void
 
-test {
+main {
     assert(1.0 == 1.0)
     assert(1.0 < 2.0)
     assert(2.0 > 1.0)
