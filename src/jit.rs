@@ -106,9 +106,17 @@ impl JIT {
         decls: &DeclTable,
         decl: &FuncDecl,
     ) -> Result<cranelift_module::FuncId, String> {
-        self.ctx.func.signature = fn_sig(&self.module, 
+        self.ctx.func.signature = fn_sig(&self.module,
             decl.domain(),
             decl.ret);
+
+        // Declare the function first, before generating its body.
+        // This ensures that any functions called within the body get
+        // different func IDs than the function being compiled.
+        let id = self
+            .module
+            .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
+            .map_err(|e| e.to_string())?;
 
         let called_functions = self.function_body(decls, decl);
 
@@ -116,13 +124,6 @@ impl JIT {
         if self.print_ir {
             println!("Generated IR for \"{}\":\n{}", decl.name, self.ctx.func.display());
         }
-
-        // Next, declare the function to jit. Functions must be declared
-        // before they can be called, or defined.
-        let id = self
-            .module
-            .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
-            .map_err(|e| e.to_string())?;
 
         // Define the function to jit. This finishes compilation, although
         // there may be outstanding relocations to perform. Currently, jit
@@ -167,20 +168,35 @@ impl JIT {
         // Create the entry block, to start emitting code in.
         let entry_block = builder.create_block();
 
+        // Add block parameters for function parameters.
+        builder.append_block_params_for_function_params(entry_block);
+
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
+        // Get the block parameters (function arguments).
+        let block_params: Vec<_> = builder.block_params(entry_block).to_vec();
+
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
 
-        // Add variables for the function parameters.
-        for param in &decl.params {
-            trans.declare_variable(&param.name, param.ty.expect("expected type").cranelift_type());
+        // Add variables for the function parameters and define them with block param values.
+        for (i, param) in decl.params.iter().enumerate() {
+            let ty = param.ty.expect("expected type").cranelift_type();
+            let var = trans.declare_variable(&param.name, ty);
+            trans.builder.def_var(var, block_params[i]);
+            // Function parameters are like let bindings - they hold values directly.
+            trans.let_bindings.insert(param.name.to_string());
         }
 
-        trans.translate_fn(decl, decls);
+        let result = trans.translate_fn(decl, decls);
 
         // Need a return instruction at the end of the function's block.
-        trans.builder.ins().return_(&[]);
+        // If the function returns void, return nothing; otherwise return the body's result.
+        if *decl.ret == crate::Type::Void {
+            trans.builder.ins().return_(&[]);
+        } else {
+            trans.builder.ins().return_(&[result]);
+        }
 
         // Indicate we're finished with the function.
         trans.builder.finalize();
@@ -267,6 +283,10 @@ struct FunctionTranslator<'a> {
     current_instance: Instance,
 
     called_functions: HashSet<Name>,
+
+    /// Tracks which variables are `let` bindings (hold values directly)
+    /// vs `var` bindings (hold pointers to stack slots).
+    let_bindings: HashSet<String>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -278,11 +298,12 @@ impl<'a> FunctionTranslator<'a> {
             next_index: 0,
             current_instance: Instance::new(),
             called_functions: HashSet::new(),
+            let_bindings: HashSet::new(),
         }
     }
 
-    fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) {
-        self.translate_expr(decl.body.unwrap(), decl, decls);
+    fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
+        self.translate_expr(decl.body.unwrap(), decl, decls)
     }
 
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
@@ -334,13 +355,14 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Id(name) => {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
-                    let p = self.builder.use_var(*variable);
-                    if ty.is_ptr() {
-                        p
+                    let val = self.builder.use_var(*variable);
+                    // Let bindings hold values directly; var bindings hold pointers
+                    if self.let_bindings.contains(&**name) || ty.is_ptr() {
+                        val
                     } else {
                         self.builder
                             .ins()
-                            .load(ty.cranelift_type(), MemFlags::new(), p, 0)
+                            .load(ty.cranelift_type(), MemFlags::new(), val, 0)
                     }
                 } else {
                     self.translate_func(name, &*ty)
@@ -376,6 +398,7 @@ impl<'a> FunctionTranslator<'a> {
                 let init_val = self.translate_expr(*init, decl, decls);
                 let var = self.declare_variable(name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
+                self.let_bindings.insert(name.to_string());
                 init_val
             }
             Expr::Var(name, init, _) => {
