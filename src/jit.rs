@@ -604,6 +604,16 @@ impl<'a> FunctionTranslator<'a> {
 
                 self.builder.ins().iconst(I32, 0)
             }
+            Expr::Return(expr_id) => {
+                let result = self.translate_expr(*expr_id, decl, decls);
+                self.builder.ins().return_(&[result]);
+                // Create an unreachable block for any code after return.
+                let unreachable_block = self.builder.create_block();
+                self.builder.switch_to_block(unreachable_block);
+                self.builder.seal_block(unreachable_block);
+                // Return a dummy value - this code is unreachable.
+                self.builder.ins().iconst(I32, 0)
+            }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
                 todo!();
