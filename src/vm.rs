@@ -163,14 +163,8 @@ pub enum Opcode {
     /// Signed less or equal: dst = (a <= b)
     ILe { dst: Reg, a: Reg, b: Reg },
 
-    /// Signed greater than: dst = (a > b)
-    IGt { dst: Reg, a: Reg, b: Reg },
-
     /// Unsigned less than
     ULt { dst: Reg, a: Reg, b: Reg },
-
-    /// Unsigned greater than
-    UGt { dst: Reg, a: Reg, b: Reg },
 
     /// Float32 equal
     FEq { dst: Reg, a: Reg, b: Reg },
@@ -183,9 +177,6 @@ pub enum Opcode {
 
     /// Float32 less or equal
     FLe { dst: Reg, a: Reg, b: Reg },
-
-    /// Float32 greater than
-    FGt { dst: Reg, a: Reg, b: Reg },
 
     /// Float64 equal
     DEq { dst: Reg, a: Reg, b: Reg },
@@ -737,16 +728,8 @@ impl VM {
                     self.set_bool(dst, self.get_i64(a) <= self.get_i64(b));
                 }
 
-                Opcode::IGt { dst, a, b } => {
-                    self.set_bool(dst, self.get_i64(a) > self.get_i64(b));
-                }
-
                 Opcode::ULt { dst, a, b } => {
                     self.set_bool(dst, self.get_u64(a) < self.get_u64(b));
-                }
-
-                Opcode::UGt { dst, a, b } => {
-                    self.set_bool(dst, self.get_u64(a) > self.get_u64(b));
                 }
 
                 // Float32 comparisons
@@ -764,10 +747,6 @@ impl VM {
 
                 Opcode::FLe { dst, a, b } => {
                     self.set_bool(dst, self.get_f32(a) <= self.get_f32(b));
-                }
-
-                Opcode::FGt { dst, a, b } => {
-                    self.set_bool(dst, self.get_f32(a) > self.get_f32(b));
                 }
 
                 // Float64 comparisons

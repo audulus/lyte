@@ -588,13 +588,20 @@ impl<'a> FunctionTranslator<'a> {
 
             Binop::Greater => match &*ty {
                 Type::Float32 => {
-                    func.emit(Opcode::FGt { dst, a: lhs, b: rhs });
+                    // a > b ≡ b < a
+                    func.emit(Opcode::FLt { dst, a: rhs, b: lhs });
+                }
+                Type::Float64 => {
+                    // a > b ≡ b < a
+                    func.emit(Opcode::DLt { dst, a: rhs, b: lhs });
                 }
                 Type::UInt32 | Type::UInt8 => {
-                    func.emit(Opcode::UGt { dst, a: lhs, b: rhs });
+                    // a > b ≡ b < a
+                    func.emit(Opcode::ULt { dst, a: rhs, b: lhs });
                 }
                 _ => {
-                    func.emit(Opcode::IGt { dst, a: lhs, b: rhs });
+                    // a > b ≡ b < a
+                    func.emit(Opcode::ILt { dst, a: rhs, b: lhs });
                 }
             },
 
