@@ -1,0 +1,22 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+struct ArrayInStruct {
+    array:[i8; 1]
+}
+
+main {
+    var a: ArrayInStruct
+    a.array[0] = 'x'
+
+    var b = a
+    b.array[0] = 'y'
+    assert(b.array[0] == 'y')
+
+    assert(a.array[0] == 'x')
+}

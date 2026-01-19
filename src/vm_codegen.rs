@@ -1050,7 +1050,6 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_field(&mut self, lhs_id: ExprID, name: Name, func: &mut VMFunction) -> Reg {
         let lhs = self.translate_expr(lhs_id, func);
         let lhs_ty = self.expr_type(lhs_id);
-        let result_ty = self.expr_type(lhs_id); // Placeholder - should be field type.
 
         if let Type::Name(struct_name, _) = &*lhs_ty {
             let struct_decl = self.decls.find(*struct_name);
@@ -1061,9 +1060,21 @@ impl<'a> FunctionTranslator<'a> {
                 // Find field type.
                 let field = s.find_field(&name);
                 if let Some(field) = field {
-                    let dst = self.alloc_reg();
-                    self.emit_load_offset(&field.ty, dst, lhs, offset, func);
-                    return dst;
+                    // Arrays and other pointer types are stored inline,
+                    // so return the address of the field instead of loading.
+                    if self.is_ptr_type(&field.ty) {
+                        let dst = self.alloc_reg();
+                        func.emit(Opcode::IAddImm {
+                            dst,
+                            src: lhs,
+                            imm: offset,
+                        });
+                        return dst;
+                    } else {
+                        let dst = self.alloc_reg();
+                        self.emit_load_offset(&field.ty, dst, lhs, offset, func);
+                        return dst;
+                    }
                 }
             }
         }
