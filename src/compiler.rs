@@ -367,13 +367,13 @@ mod tests {
         let code = r#"
             assert(cond: bool) → void
 
-            // id(x: i32) → i32 {
-            //     x
-            // }
+            id(x: i32) → i32 {
+                 x
+            }
 
             main {
-                // let y = id(42)
-                // assert(y == 42)
+                let y = id(42)
+                assert(y == 42)
             }
         "#;
 
