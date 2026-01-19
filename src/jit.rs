@@ -558,6 +558,52 @@ impl<'a> FunctionTranslator<'a> {
                 // If we need if-as-expression, we'd use block parameters.
                 self.builder.ins().iconst(I32, 0)
             }
+            Expr::For { var, start, end, body } => {
+                // Evaluate start and end values.
+                let start_val = self.translate_expr(*start, decl, decls);
+                let end_val = self.translate_expr(*end, decl, decls);
+
+                // Create a variable for the loop counter.
+                let loop_var = self.declare_variable(var, I32);
+                self.builder.def_var(loop_var, start_val);
+                self.let_bindings.insert(var.to_string());
+
+                // Create blocks for header, body, and exit.
+                let header_block = self.builder.create_block();
+                let body_block = self.builder.create_block();
+                let exit_block = self.builder.create_block();
+
+                // Jump to header.
+                self.builder.ins().jump(header_block, &[]);
+
+                // Header block: check condition (loop_var < end).
+                self.builder.switch_to_block(header_block);
+                let current_val = self.builder.use_var(loop_var);
+                let cond = self.builder.ins().icmp(IntCC::SignedLessThan, current_val, end_val);
+                self.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
+
+                // Body block.
+                self.builder.switch_to_block(body_block);
+                self.builder.seal_block(body_block);
+                self.translate_expr(*body, decl, decls);
+
+                // Increment loop variable.
+                let current_val = self.builder.use_var(loop_var);
+                let incremented = self.builder.ins().iadd_imm(current_val, 1);
+                self.builder.def_var(loop_var, incremented);
+
+                // Jump back to header.
+                self.builder.ins().jump(header_block, &[]);
+
+                // Seal header after all predecessors are known.
+                self.builder.seal_block(header_block);
+
+                // Exit block.
+                self.builder.switch_to_block(exit_block);
+                self.builder.seal_block(exit_block);
+
+                self.builder.ins().iconst(I32, 0)
+            }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
                 todo!();
