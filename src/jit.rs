@@ -167,31 +167,20 @@ impl JIT {
         // Create the entry block, to start emitting code in.
         let entry_block = builder.create_block();
 
-        // Add block parameters for function parameters.
-        builder.append_block_params_for_function_params(entry_block);
-
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
         let mut trans = FunctionTranslator::new(builder, &mut self.module);
 
-        // Add variables for the function parameters and define them from block params.
-        let block_params: Vec<_> = trans.builder.block_params(entry_block).to_vec();
-        for (i, param) in decl.params.iter().enumerate() {
-            let ty = param.ty.expect("expected type").cranelift_type();
-            trans.declare_variable(&param.name, ty);
-            let var = *trans.variables.get(&*param.name).unwrap();
-            trans.builder.def_var(var, block_params[i]);
+        // Add variables for the function parameters.
+        for param in &decl.params {
+            trans.declare_variable(&param.name, param.ty.expect("expected type").cranelift_type());
         }
 
-        let result = trans.translate_fn(decl, decls);
+        trans.translate_fn(decl, decls);
 
         // Need a return instruction at the end of the function's block.
-        if matches!(*decl.ret, crate::Type::Void) {
-            trans.builder.ins().return_(&[]);
-        } else {
-            trans.builder.ins().return_(&[result]);
-        }
+        trans.builder.ins().return_(&[]);
 
         // Indicate we're finished with the function.
         trans.builder.finalize();
@@ -292,8 +281,8 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
-        self.translate_expr(decl.body.unwrap(), decl, decls)
+    fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) {
+        self.translate_expr(decl.body.unwrap(), decl, decls);
     }
 
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {

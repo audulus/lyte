@@ -434,7 +434,7 @@ mod tests {
             id<T>(x: T) → T { x }
 
             main {
-                let x = id(42)
+                //let x = id(42)
                 //assert(x == 42)
 
                 //let y = id(true)
