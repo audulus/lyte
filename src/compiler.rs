@@ -102,6 +102,10 @@ impl Compiler {
         false
     }
 
+    pub fn has_decls(&self) -> bool {
+        !self.decls.decls.is_empty()
+    }
+
     pub fn jit(&self) -> Result<*const u8, String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
@@ -124,6 +128,7 @@ impl Compiler {
             }
         } else {
             println!("{:?}", r);
+            panic!();
         }
     }
 

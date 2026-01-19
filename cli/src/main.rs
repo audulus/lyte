@@ -49,6 +49,10 @@ fn main() {
     compiler.print_ir = args.ir;
 
     if args.c {
+        if !compiler.has_decls() {
+            println!("{:?}", Err::<(), _>("No declarations to compile"));
+            std::process::exit(1);
+        }
         compiler.run();
     }
 
