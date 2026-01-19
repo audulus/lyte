@@ -1,11 +1,16 @@
-
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
 
 assert(cond: bool) → void
 
-test {
+// Test that values are zero-initialized.
+main {
     var x:i32
     assert(x == 0)
 
-    var a:[i32]
-    assert(a.len == 0)
+    var a : [i32; 1]
+    assert(a[0] == 0)
 }
