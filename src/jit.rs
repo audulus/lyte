@@ -524,6 +524,40 @@ impl<'a> FunctionTranslator<'a> {
                     result.unwrap()
                 }
             }
+            Expr::If(cond_id, then_id, else_id) => {
+                let cond_val = self.translate_expr(*cond_id, decl, decls);
+
+                let then_block = self.builder.create_block();
+                let else_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+
+                // Branch based on condition.
+                self.builder.ins().brif(cond_val, then_block, &[], else_block, &[]);
+
+                // Then block.
+                self.builder.switch_to_block(then_block);
+                self.builder.seal_block(then_block);
+                let then_val = self.translate_expr(*then_id, decl, decls);
+                self.builder.ins().jump(merge_block, &[]);
+
+                // Else block.
+                self.builder.switch_to_block(else_block);
+                self.builder.seal_block(else_block);
+                let else_val = if let Some(else_expr_id) = else_id {
+                    self.translate_expr(*else_expr_id, decl, decls)
+                } else {
+                    self.builder.ins().iconst(I32, 0)
+                };
+                self.builder.ins().jump(merge_block, &[]);
+
+                // Merge block - continue execution here.
+                self.builder.switch_to_block(merge_block);
+                self.builder.seal_block(merge_block);
+
+                // Return a dummy value since if-as-statement doesn't produce a value.
+                // If we need if-as-expression, we'd use block parameters.
+                self.builder.ins().iconst(I32, 0)
+            }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
                 todo!();
