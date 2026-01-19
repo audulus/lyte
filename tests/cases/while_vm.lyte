@@ -1,0 +1,14 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+main {
+    var i: i32
+    while i < 100 {
+        i = i + 1
+    }
+    assert(i == 100)
+}
