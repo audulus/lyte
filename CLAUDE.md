@@ -33,7 +33,10 @@ cargo build --release
 ### Running the CLI
 ```bash
 # Compile and run a single file
-cargo run --bin lyte <file.lyte> --c
+cargo run --bin lyte <file.lyte> -c
+
+# Compile and run a single file with the VM
+cargo run --bin lyte <file.lyte> -r
 
 # Parse and show AST
 cargo run --bin lyte <file.lyte> --ast
