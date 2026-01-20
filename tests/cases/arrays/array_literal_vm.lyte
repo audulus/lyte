@@ -1,0 +1,12 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// vm execution successful
+assert(cond: bool) → void
+
+main {
+    var a = [42]
+    assert(a[0] == 42)
+    assert([42][0] == 42)
+}
