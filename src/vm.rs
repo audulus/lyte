@@ -394,6 +394,9 @@ struct CallFrame {
 
     /// Register snapshot (for return value handling)
     return_reg: Reg,
+
+    /// Saved registers - stored as boxed array to avoid stack overflow
+    saved_registers: Box<[u64; 256]>,
 }
 
 /// The virtual machine state
@@ -885,12 +888,13 @@ impl VM {
                 }
 
                 Opcode::Call { func, args_start, arg_count } => {
-                    // Save current frame
+                    // Save current frame with registers
                     let frame = CallFrame {
                         func_idx: self.current_func,
                         ip: self.ip,
                         locals_base: self.locals_base,
                         return_reg: 0,
+                        saved_registers: Box::new(self.registers),
                     };
                     self.call_stack.push(frame);
 
@@ -921,12 +925,13 @@ impl VM {
                 Opcode::CallIndirect { func_reg, args_start, arg_count } => {
                     let func_idx = self.get_u64(func_reg) as FuncIdx;
 
-                    // Save current frame
+                    // Save current frame with registers
                     let frame = CallFrame {
                         func_idx: self.current_func,
                         ip: self.ip,
                         locals_base: self.locals_base,
                         return_reg: 0,
+                        saved_registers: Box::new(self.registers),
                     };
                     self.call_stack.push(frame);
 
@@ -948,6 +953,9 @@ impl VM {
                 }
 
                 Opcode::Return => {
+                    // Save return value (implicitly in r0) before restoring registers
+                    let return_value = self.registers[0];
+
                     if self.call_stack.is_empty() {
                         return self.get_i64(0);
                     }
@@ -955,19 +963,26 @@ impl VM {
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
+                    // Restore caller's registers and put return value in r0
+                    self.registers = *frame.saved_registers;
+                    self.registers[0] = return_value;
                 }
 
                 Opcode::ReturnReg { src } => {
-                    // Move return value to r0
-                    self.registers[0] = self.registers[src as usize];
+                    // Save return value before restoring registers
+                    let return_value = self.registers[src as usize];
 
                     if self.call_stack.is_empty() {
+                        self.registers[0] = return_value;
                         return self.get_i64(0);
                     }
                     let frame = self.call_stack.pop().unwrap();
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
+                    // Restore caller's registers and put return value in r0
+                    self.registers = *frame.saved_registers;
+                    self.registers[0] = return_value;
                 }
 
                 Opcode::AllocLocals { size } => {

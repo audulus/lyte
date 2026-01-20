@@ -1,0 +1,19 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+fact(x: i32) → i32 {
+
+    if x == 1 {
+        return 1
+    }
+
+    return x * fact(x-1)
+}
+
+main {
+    assert(fact(4) == 24)
+}

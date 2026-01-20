@@ -257,10 +257,26 @@ impl<'a> FunctionTranslator<'a> {
             func.param_count += 1;
         }
 
-        // Reserve registers for parameters.
-        for param in &self.decl.params {
-            let reg = self.alloc_reg();
-            self.variables.insert(param.name, reg);
+        // Reserve registers for parameters (these are the incoming argument positions).
+        let param_count = self.decl.params.len();
+        for _ in 0..param_count {
+            self.alloc_reg();
+        }
+
+        // Save parameters to local slots so they persist across recursive calls.
+        // Registers are shared across all call frames, but locals are per-frame.
+        for (i, param) in self.decl.params.iter().enumerate() {
+            let src_reg = i as Reg;
+            let ty = param.ty.expect("parameter must have type");
+            let size = ty.size(self.decls) as u32;
+            let slot = self.alloc_local(size);
+            self.local_slots.insert(param.name, slot);
+
+            // Get address of local slot and store the parameter there.
+            let addr_reg = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+            self.emit_store(&ty, addr_reg, src_reg, func);
+            self.variables.insert(param.name, addr_reg);
         }
 
         // Translate the body if present.
@@ -424,7 +440,18 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Let(name, init, _) => {
                 let init_reg = self.translate_expr(*init, func);
-                self.variables.insert(*name, init_reg);
+                let ty = self.expr_type(expr);
+
+                // Store let bindings in local slots to preserve them across recursive calls.
+                // Registers are shared across all call frames, but locals are per-frame.
+                let size = ty.size(self.decls) as u32;
+                let slot = self.alloc_local(size);
+                self.local_slots.insert(*name, slot);
+
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                self.emit_store(&ty, addr_reg, init_reg, func);
+                self.variables.insert(*name, addr_reg);
                 init_reg
             }
 
@@ -567,7 +594,13 @@ impl<'a> FunctionTranslator<'a> {
             return self.translate_assign(lhs_id, rhs_id, func);
         }
 
-        let lhs = self.translate_expr(lhs_id, func);
+        let lhs_result = self.translate_expr(lhs_id, func);
+        // Save lhs to a fresh register before evaluating rhs, in case rhs
+        // contains a function call that clobbers registers (calls copy args
+        // to registers 0..N and return in register 0).
+        let lhs = self.alloc_reg();
+        func.emit(Opcode::Move { dst: lhs, src: lhs_result });
+
         let rhs = self.translate_expr(rhs_id, func);
         let dst = self.alloc_reg();
 
@@ -922,8 +955,16 @@ impl<'a> FunctionTranslator<'a> {
                 None
             };
 
-            // Arguments need to be in consecutive registers.
-            // Start with the output pointer if present.
+            // First, translate all arguments to get their values.
+            // We need to do this before allocating the consecutive arg registers
+            // because translation may allocate temporary registers.
+            let mut arg_values = Vec::new();
+            for arg_id in arg_ids {
+                let arg_reg = self.translate_expr(*arg_id, func);
+                arg_values.push(arg_reg);
+            }
+
+            // Now allocate consecutive registers for the call arguments.
             let args_start = self.next_reg;
 
             if let Some(slot) = output_slot {
@@ -932,13 +973,20 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
             }
 
-            // Translate regular arguments into consecutive registers.
-            for arg_id in arg_ids {
-                let arg_reg = self.translate_expr(*arg_id, func);
-                // If the result isn't already in the expected position, move it.
-                let expected_reg = self.next_reg - 1;
-                if arg_reg != expected_reg {
-                    func.emit(Opcode::Move { dst: expected_reg, src: arg_reg });
+            // Move argument values to consecutive registers starting at args_start
+            // (or args_start + 1 if we have an output pointer).
+            let first_arg_reg = if output_slot.is_some() {
+                args_start + 1
+            } else {
+                args_start
+            };
+
+            for (i, &arg_reg) in arg_values.iter().enumerate() {
+                let target_reg = first_arg_reg + i as u8;
+                // Allocate the target register (to keep next_reg in sync).
+                let _ = self.alloc_reg();
+                if arg_reg != target_reg {
+                    func.emit(Opcode::Move { dst: target_reg, src: arg_reg });
                 }
             }
 
@@ -973,8 +1021,11 @@ impl<'a> FunctionTranslator<'a> {
                 return addr_reg;
             }
 
-            // Result is in register 0.
-            0
+            // Result is in register 0. Move it to a fresh register so it doesn't
+            // get clobbered by subsequent operations that might use register 0.
+            let result_reg = self.alloc_reg();
+            func.emit(Opcode::Move { dst: result_reg, src: 0 });
+            result_reg
         } else {
             // Indirect call.
             let fn_reg = self.translate_expr(fn_id, func);
@@ -991,7 +1042,10 @@ impl<'a> FunctionTranslator<'a> {
                 arg_count: arg_ids.len() as u8,
             });
 
-            0
+            // Move result to a fresh register.
+            let result_reg = self.alloc_reg();
+            func.emit(Opcode::Move { dst: result_reg, src: 0 });
+            result_reg
         }
     }
 
@@ -1016,26 +1070,23 @@ impl<'a> FunctionTranslator<'a> {
             src: then_result,
         });
 
+        // Jump over else branch (or to end if no else).
+        let jump_to_end = func.emit(Opcode::Jump { offset: 0 });
+
+        // Patch jump to else (which is now here, after the then branch's jump to end).
+        func.patch_jump(jump_to_else);
+
         if let Some(else_expr_id) = else_id {
-            // Jump over else branch.
-            let jump_to_end = func.emit(Opcode::Jump { offset: 0 });
-
-            // Patch jump to else.
-            func.patch_jump(jump_to_else);
-
             // Else branch.
             let else_result = self.translate_expr(else_expr_id, func);
             func.emit(Opcode::Move {
                 dst: result_reg,
                 src: else_result,
             });
-
-            // Patch jump to end.
-            func.patch_jump(jump_to_end);
-        } else {
-            // No else branch - patch jump.
-            func.patch_jump(jump_to_else);
         }
+
+        // Patch jump to end (for both cases: after else, or when no else).
+        func.patch_jump(jump_to_end);
 
         result_reg
     }
