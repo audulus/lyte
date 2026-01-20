@@ -903,8 +903,11 @@ impl VM {
                     }
 
                     // Set up new frame
+                    // Move locals_base past the current function's locals
+                    let current_func = &program.functions[self.current_func as usize];
+                    self.locals_base += current_func.locals_size as usize;
+
                     let new_func = &program.functions[func as usize];
-                    self.locals_base += new_func.locals_size as usize;
                     self.current_func = func;
                     self.ip = 0;
 
@@ -936,8 +939,10 @@ impl VM {
                     }
 
                     // Set up new frame
-                    let new_func = &program.functions[func_idx as usize];
-                    self.locals_base += new_func.locals_size as usize;
+                    // Move locals_base past the current function's locals
+                    let current_func = &program.functions[self.current_func as usize];
+                    self.locals_base += current_func.locals_size as usize;
+
                     self.current_func = func_idx;
                     self.ip = 0;
                 }

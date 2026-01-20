@@ -211,6 +211,17 @@ struct FunctionTranslator<'a> {
 
     /// Global variable offsets.
     globals: &'a HashMap<Name, i32>,
+
+    /// Output pointer register for functions returning pointer types.
+    output_ptr: Option<Reg>,
+
+    /// Tracks if a return has been emitted (so we don't emit epilogue).
+    has_returned: bool,
+}
+
+/// Check if a type should be returned via output pointer.
+fn returns_via_pointer(ty: TypeID) -> bool {
+    matches!(&*ty, Type::Array(_, _) | Type::Name(_, _) | Type::Tuple(_))
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -233,11 +244,19 @@ impl<'a> FunctionTranslator<'a> {
             next_func_idx: 0,
             calls_to_patch: Vec::new(),
             globals,
+            output_ptr: None,
+            has_returned: false,
         }
     }
 
     /// Translate the function body.
     fn translate(&mut self, func: &mut VMFunction) {
+        // If return type is a pointer type, first parameter is output pointer.
+        if returns_via_pointer(self.decl.ret) {
+            self.output_ptr = Some(self.alloc_reg());
+            func.param_count += 1;
+        }
+
         // Reserve registers for parameters.
         for param in &self.decl.params {
             let reg = self.alloc_reg();
@@ -248,11 +267,24 @@ impl<'a> FunctionTranslator<'a> {
         if let Some(body) = self.decl.body {
             let result_reg = self.translate_expr(body, func);
 
-            // Return the result.
-            if result_reg != 0 {
-                func.emit(Opcode::ReturnReg { src: result_reg });
-            } else {
-                func.emit(Opcode::Return);
+            // Skip epilogue if we already emitted a return (e.g., explicit return statement).
+            if !self.has_returned {
+                // Return the result.
+                if returns_via_pointer(self.decl.ret) {
+                    // Copy result to output pointer.
+                    let output = self.output_ptr.unwrap();
+                    let size = self.decl.ret.size(self.decls) as u32;
+                    func.emit(Opcode::MemCopy {
+                        dst: output,
+                        src: result_reg,
+                        size,
+                    });
+                    func.emit(Opcode::Return);
+                } else if result_reg != 0 {
+                    func.emit(Opcode::ReturnReg { src: result_reg });
+                } else {
+                    func.emit(Opcode::Return);
+                }
             }
         } else {
             func.emit(Opcode::Return);
@@ -388,7 +420,7 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Unop(op, arg_id) => self.translate_unop(*op, *arg_id, func),
 
-            Expr::Call(fn_id, arg_ids) => self.translate_call(*fn_id, arg_ids, func),
+            Expr::Call(fn_id, arg_ids) => self.translate_call(*fn_id, arg_ids, expr, func),
 
             Expr::Let(name, init, _) => {
                 let init_reg = self.translate_expr(*init, func);
@@ -413,6 +445,15 @@ impl<'a> FunctionTranslator<'a> {
                 // Initialize if there's an initializer.
                 if let Some(init_id) = init {
                     let init_reg = self.translate_expr(*init_id, func);
+
+                    // After translating the initializer (which may involve calls),
+                    // registers may have been clobbered. Re-emit LocalAddr to ensure
+                    // addr_reg has the correct value.
+                    func.emit(Opcode::LocalAddr {
+                        dst: addr_reg,
+                        slot,
+                    });
+
                     self.emit_store(&ty, addr_reg, init_reg, func);
                 } else {
                     // Zero-initialize.
@@ -460,7 +501,22 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Return(expr_id) => {
                 let result = self.translate_expr(*expr_id, func);
-                func.emit(Opcode::ReturnReg { src: result });
+                let ret_ty = self.expr_type(*expr_id);
+
+                if returns_via_pointer(ret_ty) {
+                    // Copy result to output pointer.
+                    let output = self.output_ptr.expect("output_ptr not set for pointer return");
+                    let size = ret_ty.size(self.decls) as u32;
+                    func.emit(Opcode::MemCopy {
+                        dst: output,
+                        src: result,
+                        size,
+                    });
+                    func.emit(Opcode::Return);
+                } else {
+                    func.emit(Opcode::ReturnReg { src: result });
+                }
+                self.has_returned = true;
                 result
             }
 
@@ -820,6 +876,7 @@ impl<'a> FunctionTranslator<'a> {
         &mut self,
         fn_id: ExprID,
         arg_ids: &[ExprID],
+        call_expr: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
         // Special handling for built-in functions.
@@ -853,27 +910,54 @@ impl<'a> FunctionTranslator<'a> {
                 return dst;
             }
 
-            // Regular function call.
-            // Evaluate arguments into consecutive registers.
+            // Get the return type of the call expression.
+            let ret_ty = self.expr_type(call_expr);
+            let returns_ptr = returns_via_pointer(ret_ty);
+
+            // If returning a pointer type, allocate local storage for the result.
+            let output_slot = if returns_ptr {
+                let size = ret_ty.size(self.decls);
+                Some(self.alloc_local(size as u32))
+            } else {
+                None
+            };
+
+            // Arguments need to be in consecutive registers.
+            // Start with the output pointer if present.
             let args_start = self.next_reg;
+
+            if let Some(slot) = output_slot {
+                // Allocate register for output pointer.
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+            }
+
+            // Translate regular arguments into consecutive registers.
             for arg_id in arg_ids {
                 let arg_reg = self.translate_expr(*arg_id, func);
-                // Ensure arguments are in consecutive registers.
-                if arg_reg != self.next_reg - 1 {
-                    let dst = self.alloc_reg();
-                    func.emit(Opcode::Move { dst, src: arg_reg });
+                // If the result isn't already in the expected position, move it.
+                let expected_reg = self.next_reg - 1;
+                if arg_reg != expected_reg {
+                    func.emit(Opcode::Move { dst: expected_reg, src: arg_reg });
                 }
             }
 
             // Add function to pending list.
             self.pending_functions.push(*name);
 
+            // Calculate arg count (including output pointer if present).
+            let arg_count = if output_slot.is_some() {
+                arg_ids.len() as u8 + 1
+            } else {
+                arg_ids.len() as u8
+            };
+
             // Emit the call with a placeholder function index.
             // Record the instruction index for later patching.
             let instr_idx = func.emit(Opcode::Call {
                 func: 0, // Placeholder - needs relocation.
                 args_start,
-                arg_count: arg_ids.len() as u8,
+                arg_count,
             });
 
             // Record this call for patching.
@@ -881,6 +965,13 @@ impl<'a> FunctionTranslator<'a> {
                 instr_idx,
                 callee: *name,
             });
+
+            // If returning pointer type, return the address of the output storage.
+            if let Some(slot) = output_slot {
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                return addr_reg;
+            }
 
             // Result is in register 0.
             0

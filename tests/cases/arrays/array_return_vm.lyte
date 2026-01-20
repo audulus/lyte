@@ -1,0 +1,19 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+ret_array_literal() → [i32; 3] {
+    return [1,2,3]
+}
+
+main {
+    var a = ret_array_literal()
+    assert(a[0] == 1)
+    assert(a[1] == 2)
+    assert(a[2] == 3)
+}
