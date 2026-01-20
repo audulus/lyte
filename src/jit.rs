@@ -98,7 +98,7 @@ impl JIT {
             panic!("no main function found");
         };
 
-        let id = self.compile_function(decls, main_decl, true)?;
+        let id = self.compile_function(decls, main_decl)?;
 
         // Finalize the functions which we just defined, which resolves any
         // outstanding relocations (patching in addresses, now that they're
@@ -117,7 +117,6 @@ impl JIT {
         &mut self,
         decls: &DeclTable,
         decl: &FuncDecl,
-        _is_main: bool,
     ) -> Result<cranelift_module::FuncId, String> {
         self.ctx.func.signature = fn_sig(&self.module,
             decl.domain(),
@@ -171,7 +170,7 @@ impl JIT {
                 panic!()
             };
 
-            self.compile_function(decls, decl, false)?;
+            self.compile_function(decls, decl)?;
         }
 
         Ok(id)
