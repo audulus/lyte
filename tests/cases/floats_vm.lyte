@@ -1,0 +1,25 @@
+
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+assert(cond: bool) → void
+
+main {
+    assert(1.0 == 1.0)
+    assert(1.0 < 2.0)
+    assert(2.0 > 1.0)
+    assert(1.0 != 2.0)
+    assert(1.0 <= 1.0)
+    assert(1.0 >= 1.0)
+    assert(1.0 + 1.0 == 2.0)
+    assert(1.0 + 1.0 == 1.0 + 1.0)
+}
