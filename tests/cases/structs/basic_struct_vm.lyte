@@ -1,0 +1,13 @@
+// args: -r
+// expected stdout:
+// vm execution successful
+
+struct MyStruct {
+    i: i32,
+    f: f32
+}
+
+main {
+    var x: MyStruct
+    x.i = 1
+}
