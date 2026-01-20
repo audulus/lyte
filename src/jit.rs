@@ -664,18 +664,24 @@ impl<'a> FunctionTranslator<'a> {
                 // Then block.
                 self.builder.switch_to_block(then_block);
                 self.builder.seal_block(then_block);
-                let then_val = self.translate_expr(*then_id, decl, decls);
-                self.builder.ins().jump(merge_block, &[]);
+                let _then_val = self.translate_expr(*then_id, decl, decls);
+                // Only jump if block is not already terminated (e.g., by a return).
+                if !self.builder.is_unreachable() {
+                    self.builder.ins().jump(merge_block, &[]);
+                }
 
                 // Else block.
                 self.builder.switch_to_block(else_block);
                 self.builder.seal_block(else_block);
-                let else_val = if let Some(else_expr_id) = else_id {
+                let _else_val = if let Some(else_expr_id) = else_id {
                     self.translate_expr(*else_expr_id, decl, decls)
                 } else {
                     self.builder.ins().iconst(I32, 0)
                 };
-                self.builder.ins().jump(merge_block, &[]);
+                // Only jump if block is not already terminated (e.g., by a return).
+                if !self.builder.is_unreachable() {
+                    self.builder.ins().jump(merge_block, &[]);
+                }
 
                 // Merge block - continue execution here.
                 self.builder.switch_to_block(merge_block);
