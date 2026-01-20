@@ -217,6 +217,9 @@ struct FunctionTranslator<'a> {
 
     /// Tracks if a return has been emitted (so we don't emit epilogue).
     has_returned: bool,
+
+    /// Byte offset in locals where registers are saved.
+    save_regs_offset: u32,
 }
 
 /// Check if a type should be returned via output pointer.
@@ -246,6 +249,7 @@ impl<'a> FunctionTranslator<'a> {
             globals,
             output_ptr: None,
             has_returned: false,
+            save_regs_offset: 0,
         }
     }
 
@@ -262,6 +266,17 @@ impl<'a> FunctionTranslator<'a> {
         for _ in 0..param_count {
             self.alloc_reg();
         }
+
+        // Reserve space for saving registers. We'll patch this after translation
+        // when we know how many registers are used.
+        // Reserve 256 * 8 = 2048 bytes maximum, but we'll only use what we need.
+        let save_regs_slot = self.alloc_local(256 * 8);
+        self.save_regs_offset = (save_regs_slot as u32) * 8; // Convert slot to byte offset
+        func.emit(Opcode::SaveRegs {
+            start_reg: 0,
+            count: 0, // Placeholder - will be patched
+            slot: self.save_regs_offset,
+        });
 
         // Save parameters to local slots so they persist across recursive calls.
         // Registers are shared across all call frames, but locals are per-frame.
@@ -295,16 +310,57 @@ impl<'a> FunctionTranslator<'a> {
                         src: result_reg,
                         size,
                     });
+                    // Restore all registers before return.
+                    func.emit(Opcode::RestoreRegs {
+                        start_reg: 0,
+                        count: 0, // Placeholder - will be patched
+                        slot: self.save_regs_offset,
+                    });
                     func.emit(Opcode::Return);
-                } else if result_reg != 0 {
-                    func.emit(Opcode::ReturnReg { src: result_reg });
                 } else {
+                    // Move result to r0, restore r1..N, return
+                    if result_reg != 0 {
+                        func.emit(Opcode::Move { dst: 0, src: result_reg });
+                    }
+                    func.emit(Opcode::RestoreRegs {
+                        start_reg: 1, // Skip r0 which has the return value
+                        count: 0,     // Placeholder - will be patched
+                        slot: self.save_regs_offset + 8,
+                    });
                     func.emit(Opcode::Return);
                 }
             }
         } else {
+            // No body - restore all registers and return
+            func.emit(Opcode::RestoreRegs {
+                start_reg: 0,
+                count: 0, // Placeholder - will be patched
+                slot: self.save_regs_offset,
+            });
             func.emit(Opcode::Return);
         }
+
+        // Patch SaveRegs/RestoreRegs instructions with actual register count.
+        let reg_count = self.next_reg;
+        for op in &mut func.code {
+            match op {
+                Opcode::SaveRegs { count, .. } => {
+                    *count = reg_count;
+                }
+                Opcode::RestoreRegs { start_reg, count, .. } => {
+                    // If start_reg is 1, we're skipping r0 (for returns with value)
+                    if *start_reg == 1 {
+                        *count = if reg_count > 1 { reg_count - 1 } else { 0 };
+                    } else {
+                        *count = reg_count;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Adjust locals_size to account for saved registers.
+        self.locals_size = self.save_regs_offset + (reg_count as u32) * 8;
 
         // Set function metadata.
         func.locals_size = self.locals_size;
@@ -539,9 +595,25 @@ impl<'a> FunctionTranslator<'a> {
                         src: result,
                         size,
                     });
+                    // Restore caller's registers before returning.
+                    func.emit(Opcode::RestoreRegs {
+                        start_reg: 0,
+                        count: 0, // Will be patched
+                        slot: self.save_regs_offset,
+                    });
                     func.emit(Opcode::Return);
                 } else {
-                    func.emit(Opcode::ReturnReg { src: result });
+                    // Move result to r0 before restoring (it will be preserved).
+                    if result != 0 {
+                        func.emit(Opcode::Move { dst: 0, src: result });
+                    }
+                    // Restore caller's registers, but skip r0 which has return value.
+                    func.emit(Opcode::RestoreRegs {
+                        start_reg: 1, // Skip r0
+                        count: 0,     // Will be patched to next_reg - 1
+                        slot: self.save_regs_offset + 8, // Skip first 8 bytes (r0's slot)
+                    });
+                    func.emit(Opcode::Return);
                 }
                 self.has_returned = true;
                 result

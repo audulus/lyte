@@ -1,6 +1,7 @@
 // Register-based virtual machine for when we can't JIT,
 // like on iOS.
 
+use std::convert::TryInto;
 use std::fmt;
 
 /// Register index (0-255)
@@ -285,6 +286,15 @@ pub enum Opcode {
     /// Zero memory region
     MemZero { dst: Reg, size: u32 },
 
+    // ============ Register Save/Restore ============
+
+    /// Save registers [start_reg..start_reg+count] to locals at slot offset.
+    /// Each register is 8 bytes.
+    SaveRegs { start_reg: Reg, count: u8, slot: u32 },
+
+    /// Restore registers [start_reg..start_reg+count] from locals at slot offset.
+    RestoreRegs { start_reg: Reg, count: u8, slot: u32 },
+
     // ============ Debugging ============
 
     /// Print integer value (for debugging)
@@ -394,9 +404,6 @@ struct CallFrame {
 
     /// Register snapshot (for return value handling)
     return_reg: Reg,
-
-    /// Saved registers - stored as boxed array to avoid stack overflow
-    saved_registers: Box<[u64; 256]>,
 }
 
 /// The virtual machine state
@@ -888,13 +895,12 @@ impl VM {
                 }
 
                 Opcode::Call { func, args_start, arg_count } => {
-                    // Save current frame with registers
+                    // Save current frame
                     let frame = CallFrame {
                         func_idx: self.current_func,
                         ip: self.ip,
                         locals_base: self.locals_base,
                         return_reg: 0,
-                        saved_registers: Box::new(self.registers),
                     };
                     self.call_stack.push(frame);
 
@@ -925,13 +931,12 @@ impl VM {
                 Opcode::CallIndirect { func_reg, args_start, arg_count } => {
                     let func_idx = self.get_u64(func_reg) as FuncIdx;
 
-                    // Save current frame with registers
+                    // Save current frame
                     let frame = CallFrame {
                         func_idx: self.current_func,
                         ip: self.ip,
                         locals_base: self.locals_base,
                         return_reg: 0,
-                        saved_registers: Box::new(self.registers),
                     };
                     self.call_stack.push(frame);
 
@@ -953,9 +958,6 @@ impl VM {
                 }
 
                 Opcode::Return => {
-                    // Save return value (implicitly in r0) before restoring registers
-                    let return_value = self.registers[0];
-
                     if self.call_stack.is_empty() {
                         return self.get_i64(0);
                     }
@@ -963,26 +965,19 @@ impl VM {
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
-                    // Restore caller's registers and put return value in r0
-                    self.registers = *frame.saved_registers;
-                    self.registers[0] = return_value;
                 }
 
                 Opcode::ReturnReg { src } => {
-                    // Save return value before restoring registers
-                    let return_value = self.registers[src as usize];
+                    // Move return value to r0
+                    self.registers[0] = self.registers[src as usize];
 
                     if self.call_stack.is_empty() {
-                        self.registers[0] = return_value;
                         return self.get_i64(0);
                     }
                     let frame = self.call_stack.pop().unwrap();
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
-                    // Restore caller's registers and put return value in r0
-                    self.registers = *frame.saved_registers;
-                    self.registers[0] = return_value;
                 }
 
                 Opcode::AllocLocals { size } => {
@@ -1008,6 +1003,24 @@ impl VM {
                     let ptr = self.get_u64(dst) as *mut u8;
                     unsafe {
                         std::ptr::write_bytes(ptr, 0, size as usize);
+                    }
+                }
+
+                Opcode::SaveRegs { start_reg, count, slot } => {
+                    let base = self.locals_base + slot as usize;
+                    for i in 0..count as usize {
+                        let reg_val = self.registers[start_reg as usize + i];
+                        let offset = base + i * 8;
+                        self.locals[offset..offset + 8].copy_from_slice(&reg_val.to_le_bytes());
+                    }
+                }
+
+                Opcode::RestoreRegs { start_reg, count, slot } => {
+                    let base = self.locals_base + slot as usize;
+                    for i in 0..count as usize {
+                        let offset = base + i * 8;
+                        let bytes: [u8; 8] = self.locals[offset..offset + 8].try_into().unwrap();
+                        self.registers[start_reg as usize + i] = u64::from_le_bytes(bytes);
                     }
                 }
 
