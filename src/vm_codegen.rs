@@ -1048,8 +1048,18 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate a field access.
     fn translate_field(&mut self, lhs_id: ExprID, name: Name, func: &mut VMFunction) -> Reg {
-        let lhs = self.translate_expr(lhs_id, func);
         let lhs_ty = self.expr_type(lhs_id);
+
+        // Handle array.len - return the compile-time length.
+        if let Type::Array(_, len) = &*lhs_ty {
+            if *name == "len" {
+                let dst = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst, value: *len as i64 });
+                return dst;
+            }
+        }
+
+        let lhs = self.translate_expr(lhs_id, func);
 
         if let Type::Name(struct_name, _) = &*lhs_ty {
             let struct_decl = self.decls.find(*struct_name);
