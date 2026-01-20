@@ -117,16 +117,14 @@ impl JIT {
         &mut self,
         decls: &DeclTable,
         decl: &FuncDecl,
-        is_main: bool,
+        _is_main: bool,
     ) -> Result<cranelift_module::FuncId, String> {
         self.ctx.func.signature = fn_sig(&self.module,
             decl.domain(),
             decl.ret);
 
-        // For main function, add globals base pointer as first parameter.
-        if is_main {
-            self.ctx.func.signature.params.insert(0, AbiParam::new(I64));
-        }
+        // Add globals base pointer as first parameter to all functions.
+        self.ctx.func.signature.params.insert(0, AbiParam::new(I64));
 
         // Declare the function first, before generating its body.
         // This ensures that any functions called within the body get
@@ -136,7 +134,8 @@ impl JIT {
             .declare_function(&*decl.name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
-        let called_functions = self.function_body(decls, decl, is_main);
+        // All functions now receive globals pointer as first parameter.
+        let called_functions = self.function_body(decls, decl, true);
 
         // Print the generated IR
         if self.print_ir {
@@ -486,6 +485,18 @@ impl<'a> FunctionTranslator<'a> {
                 if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
                     let mut args = vec![];
 
+                    // Pass globals pointer as first argument to all user-defined functions.
+                    // Check if this is a user-defined function (not a builtin like assert/print).
+                    let is_user_func = if let Expr::Id(name) = &decl.arena[*fn_id] {
+                        *name != Name::str("assert") && *name != Name::str("print")
+                    } else {
+                        true // Assume indirect calls are to user functions
+                    };
+
+                    if is_user_func {
+                        args.push(self.globals_base.expect("globals_base not set"));
+                    }
+
                     // If return type is pointer, allocate stack space and pass as first arg.
                     let output_slot = if returns_via_pointer(to) {
                         let size = to.size(decls) as u32;
@@ -506,7 +517,11 @@ impl<'a> FunctionTranslator<'a> {
                         args.push(self.translate_expr(*arg_id, decl, decls))
                     }
 
-                    let sig = fn_sig(&self.module, from, to);
+                    let mut sig = fn_sig(&self.module, from, to);
+                    // Add globals pointer parameter for user-defined functions.
+                    if is_user_func {
+                        sig.params.insert(0, AbiParam::new(I64));
+                    }
                     let sref = self.builder.import_signature(sig);
                     let call = self.builder.ins().call_indirect(sref, f, &args);
 
@@ -1091,7 +1106,9 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         if let crate::Type::Func(dom, rng) = ty {
-            let sig = fn_sig(&self.module, *dom, *rng);
+            let mut sig = fn_sig(&self.module, *dom, *rng);
+            // Add globals pointer as first parameter for user-defined functions.
+            sig.params.insert(0, AbiParam::new(I64));
             let callee = self
                 .module
                 .declare_function(&name, Linkage::Import, &sig)

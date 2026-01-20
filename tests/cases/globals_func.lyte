@@ -1,0 +1,19 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+assert(cond: bool) → void
+
+var global: i32
+
+f {
+    global = 42
+}
+
+main {
+    assert(global == 0)
+    f()
+    assert(global == 42)
+}
