@@ -53,7 +53,7 @@ test_infer_generic3 {
     assert(a == [2,3,4])
 }
 
-test {
+main {
     test_identity()
     test_map()
     test_infer_generic()

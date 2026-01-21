@@ -10,7 +10,7 @@ overload(x: [i8]) {
     putc('b')
 }
 
-test {
+main {
     overload(42)
     overload("test")
 }

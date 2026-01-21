@@ -1,4 +1,4 @@
-test {
+main {
 
    var outer = 0
    arena {

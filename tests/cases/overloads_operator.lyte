@@ -34,7 +34,7 @@ __mul(lhs: Point, rhs: i32) → Point {
 //     return p
 // }
 
-test {
+main {
     var p0: Point
     p0.x = 1
     p0.y = 2

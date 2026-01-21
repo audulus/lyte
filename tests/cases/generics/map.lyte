@@ -25,6 +25,6 @@ test_map {
     assert(c == [4,5,6])
 }
 
-test {
+main {
     test_map()
 }

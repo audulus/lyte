@@ -1,6 +1,6 @@
 
 
-test {
+main {
     var x = (1,2)
     var y = (1,2,3)
     var z = (1,2,3,4)

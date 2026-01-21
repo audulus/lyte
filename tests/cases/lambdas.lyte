@@ -58,7 +58,7 @@ test_lambda_infer3 {
     assert(a == [2,3,4])
 }
 
-test {
+main {
     test_lambda_basic()
     test_lambda_call()
     test_lambda_nested()

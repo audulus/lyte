@@ -1,7 +1,7 @@
 
 
 
-test {
+main {
     var a = [0; 64]
     assert(a[0] == 0)
 }
