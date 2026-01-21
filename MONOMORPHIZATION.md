@@ -133,8 +133,6 @@ The module includes 26 unit tests covering:
 cargo test --lib monomorph_pass::tests
 ```
 
-All tests pass with 100% success rate.
-
 ## Current Limitations
 
 The current implementation has some simplifications that will need to be enhanced:
