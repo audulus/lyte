@@ -2,6 +2,8 @@
 
 main {
     var x = (1,2)
+    assert(x.0 == 1)
+    assert(x.1 == 2)
     var y = (1,2,3)
     var z = (1,2,3,4)
 }
