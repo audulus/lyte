@@ -12,6 +12,6 @@ sort<T>(array: [T]) -> [T] where Compare<T> {
 
 cmp(lhs: i32, rhs: i32) -> i32
 
-test {
+main {
     sort([1,2,3])
 }
