@@ -55,7 +55,6 @@ struct Var {
 /// # Limitations
 ///
 /// - Only tracks `+`, `-`, and `*` for arithmetic (not `/`, etc.)
-/// - Constraints from while loop conditions don't persist after mutation
 /// - Complex expressions may result in unconstrained intervals
 pub struct ArrayChecker {
     /// Currently declared vars, as we're checking.
