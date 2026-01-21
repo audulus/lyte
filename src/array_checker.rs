@@ -71,6 +71,43 @@ struct Var {
     ty: TypeID,
 }
 
+/// Static array bounds checker using abstract interpretation.
+///
+/// `ArrayChecker` performs compile-time verification that array accesses are within bounds.
+/// It uses interval arithmetic to track the possible range of integer values and propagates
+/// constraints from conditionals (e.g., `if i < n`) to prove that array indices are valid.
+///
+/// # How It Works
+///
+/// The checker maintains a set of constraints on variable values as it traverses the AST.
+/// When it encounters an array index expression `a[i]`, it checks whether the computed
+/// interval for `i` is within `[0, array_length)`.
+///
+/// Constraints are derived from:
+/// - **Conditionals**: `if i < 100` adds the constraint `i.max = 99` in the then-branch
+/// - **Type information**: `u32` variables are known to be `>= 0`
+/// - **Assignments**: `i = 5` updates the interval to `[5, 5]`
+/// - **Arithmetic**: intervals are propagated through `+` operations
+///
+/// # Example
+///
+/// ```ignore
+/// f(i: i32) {
+///     var a: [i32; 100]
+///     if i >= 0 && i < 100 {
+///         a[i]  // OK: i is proven to be in [0, 99]
+///     }
+/// }
+/// ```
+///
+/// Without the conditional guard, the checker would report an error because `i` could
+/// be negative or >= 100.
+///
+/// # Limitations
+///
+/// - Only tracks `+` for arithmetic (not `-`, `*`, etc.)
+/// - Constraints from while loop conditions don't persist after mutation
+/// - Complex expressions may result in unconstrained intervals
 pub struct ArrayChecker {
     /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
