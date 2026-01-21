@@ -370,6 +370,24 @@ mod tests {
     }
 
     #[test]
+    pub fn test_array_if_mutate_bad() {
+        let s = "
+        f(x: i32) {
+            var i = x
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                a[i]
+                i = i + 1
+                a[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
     pub fn test_array_if_bad() {
         let s = "
         f(i: i32) {
