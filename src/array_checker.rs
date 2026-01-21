@@ -50,6 +50,39 @@ impl std::ops::Add<IndexInterval> for IndexInterval {
     }
 }
 
+impl std::ops::Sub<IndexInterval> for IndexInterval {
+    type Output = IndexInterval;
+
+    fn sub(self, rhs: IndexInterval) -> IndexInterval {
+        // For subtraction: [a, b] - [c, d] = [a - d, b - c]
+        // The minimum result is self.min - rhs.max
+        // The maximum result is self.max - rhs.min
+        let min = if let Some(result) = self.min.checked_sub(rhs.max) {
+            result
+        } else {
+            // Overflow occurred, return saturated value
+            if self.min < 0 && rhs.max > 0 {
+                i64::MIN
+            } else {
+                i64::MAX
+            }
+        };
+
+        let max = if let Some(result) = self.max.checked_sub(rhs.min) {
+            result
+        } else {
+            // Overflow occurred, return saturated value
+            if self.max > 0 && rhs.min < 0 {
+                i64::MAX
+            } else {
+                i64::MIN
+            }
+        };
+
+        IndexInterval { min, max }
+    }
+}
+
 impl Default for IndexInterval {
     fn default() -> IndexInterval {
         IndexInterval { min: i64::min_value(), max: i64::max_value() }
@@ -87,7 +120,7 @@ struct Var {
 /// - **Conditionals**: `if i < 100` adds the constraint `i.max = 99` in the then-branch
 /// - **Type information**: `u32` variables are known to be `>= 0`
 /// - **Assignments**: `i = 5` updates the interval to `[5, 5]`
-/// - **Arithmetic**: intervals are propagated through `+` operations
+/// - **Arithmetic**: intervals are propagated through `+` and `-` operations
 ///
 /// # Example
 ///
@@ -105,7 +138,7 @@ struct Var {
 ///
 /// # Limitations
 ///
-/// - Only tracks `+` for arithmetic (not `-`, `*`, etc.)
+/// - Only tracks `+` and `-` for arithmetic (not `*`, `/`, etc.)
 /// - Constraints from while loop conditions don't persist after mutation
 /// - Complex expressions may result in unconstrained intervals
 pub struct ArrayChecker {
@@ -300,6 +333,12 @@ impl ArrayChecker {
                     let lhs_range = self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
                     return lhs_range + rhs_range
+                }
+
+                if *op == Binop::Minus {
+                    let lhs_range = self.check_expr(*lhs, decl, decls);
+                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    return lhs_range - rhs_range
                 }
 
                 if *op == Binop::Assign {
@@ -514,5 +553,38 @@ mod tests {
         let e = a + d;
         assert_eq!(e.min, i64::MIN);
         assert_eq!(e.max, i64::MAX);
+    }
+
+    #[test]
+    pub fn test_index_interval_sub() {
+        // [0, 10] - [5, 15] = [0 - 15, 10 - 5] = [-15, 5]
+        let a = IndexInterval { min: 0, max: 10 };
+        let b = IndexInterval { min: 5, max: 15 };
+        let c = a - b;
+        assert_eq!(c.min, -15);
+        assert_eq!(c.max, 5);
+
+        // [10, 20] - [2, 3] = [10 - 3, 20 - 2] = [7, 18]
+        let d = IndexInterval { min: 10, max: 20 };
+        let e = IndexInterval { min: 2, max: 3 };
+        let f = d - e;
+        assert_eq!(f.min, 7);
+        assert_eq!(f.max, 18);
+    }
+
+    #[test]
+    pub fn test_subtraction_bounds() {
+        // Test that n - 1 where n is in [1, 100] gives [0, 99]
+        let s = "
+        f(n: i32) {
+            var a: [i32; 100]
+            if n >= 1 && n <= 100 {
+                a[n - 1]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
     }
 }
