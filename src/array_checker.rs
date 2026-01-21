@@ -188,7 +188,6 @@ impl ArrayChecker {
             Expr::If(cond, then_expr, else_expr) => {
                 let initial_constraint_count = self.constraints.len();
 
-                self.check_expr(*cond, decl, decls);
                 self.match_expr(*cond, decl, decls);
 
                 let mut r = self.check_expr(*then_expr, decl, decls);
