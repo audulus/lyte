@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_while_mutate() {
+    pub fn test_while_mutate_bad() {
         let s = "
         f {
             var i: u32
