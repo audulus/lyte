@@ -4,7 +4,6 @@
 // assert(true)
 // assert(true)
 
-assert(cond: bool) → void
 
 id<T>(x: T) → T { x }
 

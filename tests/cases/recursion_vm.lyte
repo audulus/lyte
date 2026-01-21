@@ -3,7 +3,6 @@
 // assert(true)
 // vm execution successful
 
-assert(cond: bool) → void
 
 fact(x: i32) → i32 {
 

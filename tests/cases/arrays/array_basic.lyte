@@ -2,8 +2,6 @@
 // expected stdout:
 // compilation successful
 // assert(true)
-assert(cond: bool) → void
-// print(x: i32) → void
 
 main {
     var a : [i32; 1]

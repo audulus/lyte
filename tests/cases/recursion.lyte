@@ -3,7 +3,6 @@
 // compilation successful
 // assert(true)
 
-assert(cond: bool) → void
 
 fact(x: i32) → i32 {
 

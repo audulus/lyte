@@ -4,7 +4,6 @@
 // assert(true)
 // assert(true)
 
-assert(cond: bool) → void
 
 // Test that values are zero-initialized.
 main {

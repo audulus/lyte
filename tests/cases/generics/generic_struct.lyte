@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 struct GenericStruct<T> {
     x: T

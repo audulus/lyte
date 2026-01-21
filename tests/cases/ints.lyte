@@ -11,7 +11,6 @@
 // assert(true)
 // assert(true)
 
-assert(cond: bool) → void
 
 main {
     assert(2+2 == 4)

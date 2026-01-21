@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 ret_array_literal() → [i32; 3] {
     return [1,2,3]

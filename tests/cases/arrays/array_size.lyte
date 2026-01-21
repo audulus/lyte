@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 test {
     var a = [0; 64]

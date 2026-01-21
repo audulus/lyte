@@ -12,7 +12,6 @@
 // assert(true)
 // assert(true)
 
-assert(cond: bool) → void
 
 main {
     assert(1 == 1)

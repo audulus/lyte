@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 test {
     assert(1 == 1)

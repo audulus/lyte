@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 struct Person {
     name: [i8],

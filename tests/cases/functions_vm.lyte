@@ -6,7 +6,6 @@
 // assert(true)
 // vm execution successful
 
-assert(cond: bool) → void
 
 add_ints(a: i32, b: i32) → i32 {
     return a + b

@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 test {
     var a: [[i8]]

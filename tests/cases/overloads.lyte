@@ -1,7 +1,6 @@
 
 
 putc(c: i8)
-assert(cond: bool) → void
 
 overload(x: i32) {
     putc('a')

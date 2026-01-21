@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 struct Point {
     x: i32,

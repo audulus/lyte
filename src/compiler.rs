@@ -4,6 +4,42 @@ use crate::*;
 use core::mem;
 use std::fs;
 
+/// Returns the built-in function declarations (assert, print, etc.)
+fn builtin_decls() -> Vec<Decl> {
+    vec![
+        // assert(cond: bool) → void
+        Decl::Func(FuncDecl {
+            name: Name::new("assert".into()),
+            typevars: vec![],
+            params: vec![Param {
+                name: Name::new("cond".into()),
+                ty: Some(mk_type(Type::Bool)),
+            }],
+            body: None,
+            ret: mk_type(Type::Void),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+        }),
+        // print(value: i32) → void
+        Decl::Func(FuncDecl {
+            name: Name::new("print".into()),
+            typevars: vec![],
+            params: vec![Param {
+                name: Name::new("value".into()),
+                ty: Some(mk_type(Type::Int32)),
+            }],
+            body: None,
+            ret: mk_type(Type::Void),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+        }),
+    ]
+}
+
 // An AST.
 //
 // I've read that some IDE-oriented compilers prefer to
@@ -60,7 +96,7 @@ impl Compiler {
 
     pub fn check(&mut self) -> bool {
 
-        let mut decls = vec![];
+        let mut decls = builtin_decls();
         for tree in &self.ast {
             decls.append(&mut tree.decls.clone());
         }
@@ -103,7 +139,8 @@ impl Compiler {
     }
 
     pub fn has_decls(&self) -> bool {
-        !self.decls.decls.is_empty()
+        // Check if there are any user declarations beyond the built-ins
+        self.decls.decls.len() > builtin_decls().len()
     }
 
     pub fn jit(&self) -> Result<(*const u8, usize), String> {
@@ -218,7 +255,6 @@ mod tests {
     #[test]
     fn test_assert() {
         let code = r#"
-            assert(value: bool) → void
             main {
                var x = 42
                assert(x == 42)
@@ -232,7 +268,6 @@ mod tests {
     #[test]
     fn test_assert_ne() {
         let code = r#"
-            assert(value: bool) → void
             main {
                var x = 42
                assert(x != 5)
@@ -246,8 +281,6 @@ mod tests {
     #[test]
     fn test_field_assign() {
         let code = r#"
-            assert(cond: bool) → void
-
             struct S {
                 x: i32
             }
@@ -266,8 +299,6 @@ mod tests {
     #[test]
     fn test_field_assign_2() {
         let code = r#"
-            assert(cond: bool) → void
-
             struct S {
                 x: i32,
                 y: i32,
@@ -287,8 +318,6 @@ mod tests {
     #[test]
     fn test_struct_assign() {
         let code = r#"
-            assert(cond: bool) → void
-
             struct S {
                 x: i32
             }
@@ -309,8 +338,6 @@ mod tests {
     #[test]
     fn test_array() {
         let code = r#"
-            assert(cond: bool) → void
-
             main {
                 var a: [i32; 2]
                 a[1] = 42
@@ -325,8 +352,6 @@ mod tests {
     #[test]
     fn test_call() {
         let code = r#"
-            assert(cond: bool) → void
-
             f {
                 assert(1 == 1)
             }
@@ -343,8 +368,6 @@ mod tests {
     #[test]
     fn test_call2() {
         let code = r#"
-            assert(cond: bool) → void
-
             f {
                 assert(1 == 1)
             }
@@ -366,8 +389,6 @@ mod tests {
     #[test]
     fn test_call_id() {
         let code = r#"
-            assert(cond: bool) → void
-
             id(x: i32) → i32 {
                  x
             }
@@ -385,8 +406,6 @@ mod tests {
     #[test]
     fn test_neg() {
         let code = r#"
-            assert(cond: bool) → void
-
             main {
                 assert(1-2 == -1)
             }
@@ -399,8 +418,6 @@ mod tests {
     #[test]
     fn test_struct() {
         let code = r#"
-            assert(cond: bool) → void
-
             struct S {
                 i: i32,
                 f: f32
@@ -420,8 +437,6 @@ mod tests {
     #[test]
     fn test_array_literal() {
         let code = r#"
-            assert(cond: bool) → void
-
             main {
                 var a = [42]
                 assert(a[0] == 42)
@@ -435,8 +450,6 @@ mod tests {
     #[test]
     fn test_monomorph() {
         let code = r#"
-            assert(cond: bool) → void
-
             id<T>(x: T) → T { x }
 
             main {

@@ -3,7 +3,6 @@
 // assert(true)
 // assert(true)
 // vm execution successful
-assert(cond: bool) → void
 
 main {
     var a = [42]

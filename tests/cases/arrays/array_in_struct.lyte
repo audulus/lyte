@@ -4,7 +4,6 @@
 // assert(true)
 // assert(true)
 
-assert(cond: bool) → void
 
 struct ArrayInStruct {
     array:[i8; 1]

@@ -1,7 +1,3 @@
-
-
-assert(cond: bool)
-
 macro swap<T>(x: T, y: T) {
     let tmp = x
     //x = y

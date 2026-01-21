@@ -3,7 +3,6 @@
 // compilation successful
 // assert(true)
 
-assert(cond: bool) → void
 
 main {
     var x: i32

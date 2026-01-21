@@ -1,5 +1,3 @@
-assert(cond: bool) -> void
-
 test {
 
    var outer = 0

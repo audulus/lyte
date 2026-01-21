@@ -1,6 +1,5 @@
 
 
-assert(cond: bool) → void
 
 map<T0, T1>(a: [T0], f: T0 → T1) → [T1] {
    var i = 0

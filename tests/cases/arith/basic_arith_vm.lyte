@@ -4,7 +4,6 @@
 // assert(true)
 // vm execution successful
 
-assert(cond: bool) → void
 
 main {
     var x = 2+2

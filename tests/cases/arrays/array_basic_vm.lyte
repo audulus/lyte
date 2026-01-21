@@ -2,7 +2,6 @@
 // expected stdout:
 // assert(true)
 // vm execution successful
-assert(cond: bool) → void
 
 main {
     var a : [i32; 1]

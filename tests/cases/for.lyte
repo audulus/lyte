@@ -3,8 +3,6 @@
 // compilation successful
 // 861
 
-print(value: i32)
-
 main {
     var sum = 0
     for x in 0 .. 42 {
