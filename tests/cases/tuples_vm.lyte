@@ -1,8 +1,8 @@
-// args: -c
+// args: -r
 // expected stdout:
-// compilation successful
 // assert(true)
 // assert(true)
+// vm execution successful
 
 main {
     var x = (1,2)

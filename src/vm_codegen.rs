@@ -1301,6 +1301,27 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 }
             }
+        } else if let Type::Tuple(elem_types) = &*lhs_ty {
+            // Tuple field access: x.0, x.1, etc.
+            let index: usize = name.parse().expect("tuple field should be numeric");
+            let mut offset = 0i32;
+            for i in 0..index {
+                offset += elem_types[i].size(self.decls) as i32;
+            }
+            let elem_ty = &elem_types[index];
+            if self.is_ptr_type(elem_ty) {
+                let dst = self.alloc_reg();
+                func.emit(Opcode::IAddImm {
+                    dst,
+                    src: lhs,
+                    imm: offset,
+                });
+                return dst;
+            } else {
+                let dst = self.alloc_reg();
+                self.emit_load_offset(elem_ty, dst, lhs, offset, func);
+                return dst;
+            }
         }
 
         // Fallback - return lhs.

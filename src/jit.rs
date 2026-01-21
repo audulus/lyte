@@ -601,8 +601,25 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         panic!("unknown struct. should be caught by checker");
                     }
+                } else if let crate::Type::Tuple(elem_types) = &*lhs_ty {
+                    // Tuple field access: x.0, x.1, etc.
+                    let index: usize = name.parse().expect("tuple field should be numeric");
+                    let mut off = 0i32;
+                    for i in 0..index {
+                        off += elem_types[i].size(decls) as i32;
+                    }
+                    let field_ty = &decl.types[expr];
+                    if field_ty.is_ptr() {
+                        let off_val = self.builder.ins().iconst(I64, off as i64);
+                        self.builder.ins().iadd(lhs_val, off_val)
+                    } else {
+                        let load_ty = field_ty.cranelift_type();
+                        self.builder
+                            .ins()
+                            .load(load_ty, MemFlags::new(), lhs_val, off)
+                    }
                 } else {
-                    panic!("lhs of field expression is not a struct. should be caught by checker");
+                    panic!("lhs of field expression is not a struct or tuple. should be caught by checker");
                 }
             }
             Expr::ArrayIndex(lhs, rhs) => {
@@ -806,6 +823,42 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.seal_block(exit_block);
 
                 self.builder.ins().iconst(I32, 0)
+            }
+            Expr::Tuple(elements) => {
+                // Evaluate all element expressions first.
+                let element_values: Vec<Value> = elements
+                    .iter()
+                    .map(|e| self.translate_expr(*e, decl, decls))
+                    .collect();
+
+                let ty = decl.types[expr];
+
+                if let crate::Type::Tuple(elem_types) = &*ty {
+                    // Calculate total size.
+                    let total_size: u32 = elem_types.iter().map(|t| t.size(decls) as u32).sum();
+
+                    // Allocate a stack slot for the tuple.
+                    let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size: total_size,
+                        align_shift: 0,
+                        key: None,
+                    });
+
+                    // Get address of the stack slot.
+                    let addr = self.builder.ins().stack_addr(I64, slot, 0);
+
+                    // Store each element at its offset.
+                    let mut offset = 0i32;
+                    for (i, value) in element_values.iter().enumerate() {
+                        self.builder.ins().stack_store(*value, slot, offset);
+                        offset += elem_types[i].size(decls) as i32;
+                    }
+
+                    addr
+                } else {
+                    panic!("tuple expression not of tuple type");
+                }
             }
             _ => {
                 println!("unimplemented expression: {:?}", &decl.arena[expr]);
