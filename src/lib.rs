@@ -18,6 +18,9 @@ use parser::*;
 mod checker;
 pub use checker::*;
 
+mod interval;
+pub use interval::*;
+
 mod array_checker;
 pub use array_checker::*;
 
