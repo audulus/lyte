@@ -187,10 +187,8 @@ impl Lexer {
             };
         }
 
-        // Numbers.
-        if bytes[self.i].is_ascii_digit()
-            || (bytes[self.i] == b'.' && self.i + 1 < n && bytes[self.i + 1].is_ascii_digit())
-        {
+        // Numbers (must start with a digit, not a dot, to support tuple.0 indexing).
+        if bytes[self.i].is_ascii_digit() {
             let start = self.i;
             let mut fraction = false;
 
@@ -434,7 +432,7 @@ mod tests {
         assert_eq!(tokens("_x"), vec![id("_x")]);
         assert_eq!(tokens("42"), vec![Integer(42)]);
         assert_eq!(tokens("42.0"), vec![Real(Name::str("42.0"))]);
-        assert_eq!(tokens(".5"), vec![Real(Name::str(".5"))]);
+        assert_eq!(tokens(".5"), vec![Dot, Integer(5)]);
         assert_eq!(tokens("42u"), vec![UInteger(42)]);
         assert_eq!(tokens("2 + 2"), vec![Integer(2), Plus, Integer(2)]);
         assert_eq!(tokens("2u + 2u"), vec![UInteger(2), Plus, UInteger(2)]);
