@@ -73,6 +73,27 @@ impl std::ops::Sub<IndexInterval> for IndexInterval {
     }
 }
 
+impl std::ops::Mul<IndexInterval> for IndexInterval {
+    type Output = IndexInterval;
+
+    fn mul(self, rhs: IndexInterval) -> IndexInterval {
+        // For multiplication: [a, b] * [c, d]
+        // We need to consider all four products and take min/max
+        // because signs matter: e.g., [-2, 3] * [1, 4] = [-8, 12]
+        let products = [
+            self.min.saturating_mul(rhs.min),
+            self.min.saturating_mul(rhs.max),
+            self.max.saturating_mul(rhs.min),
+            self.max.saturating_mul(rhs.max),
+        ];
+
+        IndexInterval {
+            min: *products.iter().min().unwrap(),
+            max: *products.iter().max().unwrap(),
+        }
+    }
+}
+
 impl Default for IndexInterval {
     fn default() -> IndexInterval {
         IndexInterval {
@@ -123,6 +144,30 @@ mod tests {
         let f = d - e;
         assert_eq!(f.min, 7);
         assert_eq!(f.max, 18);
+    }
+
+    #[test]
+    fn test_index_interval_mul() {
+        // [2, 3] * [4, 5] = [8, 15]
+        let a = IndexInterval { min: 2, max: 3 };
+        let b = IndexInterval { min: 4, max: 5 };
+        let c = a * b;
+        assert_eq!(c.min, 8);
+        assert_eq!(c.max, 15);
+
+        // [-2, 3] * [1, 4] = [-8, 12]
+        let d = IndexInterval { min: -2, max: 3 };
+        let e = IndexInterval { min: 1, max: 4 };
+        let f = d * e;
+        assert_eq!(f.min, -8);
+        assert_eq!(f.max, 12);
+
+        // [-3, -1] * [-2, 4] = [-12, 6]
+        let g = IndexInterval { min: -3, max: -1 };
+        let h = IndexInterval { min: -2, max: 4 };
+        let i = g * h;
+        assert_eq!(i.min, -12);
+        assert_eq!(i.max, 6);
     }
 
     #[test]

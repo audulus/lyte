@@ -36,7 +36,7 @@ struct Var {
 /// - **Conditionals**: `if i < 100` adds the constraint `i.max = 99` in the then-branch
 /// - **Type information**: `u32` variables are known to be `>= 0`
 /// - **Assignments**: `i = 5` updates the interval to `[5, 5]`
-/// - **Arithmetic**: intervals are propagated through `+` and `-` operations
+/// - **Arithmetic**: intervals are propagated through `+`, `-`, and `*` operations
 ///
 /// # Example
 ///
@@ -54,7 +54,7 @@ struct Var {
 ///
 /// # Limitations
 ///
-/// - Only tracks `+` and `-` for arithmetic (not `*`, `/`, etc.)
+/// - Only tracks `+`, `-`, and `*` for arithmetic (not `/`, etc.)
 /// - Constraints from while loop conditions don't persist after mutation
 /// - Complex expressions may result in unconstrained intervals
 pub struct ArrayChecker {
@@ -255,6 +255,12 @@ impl ArrayChecker {
                     let lhs_range = self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
                     return lhs_range - rhs_range
+                }
+
+                if *op == Binop::Mult {
+                    let lhs_range = self.check_expr(*lhs, decl, decls);
+                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    return lhs_range * rhs_range
                 }
 
                 if *op == Binop::Assign {
@@ -465,6 +471,22 @@ mod tests {
             var a: [i32; 100]
             if n >= 1 && n <= 100 {
                 a[n - 1]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_multiplication_bounds() {
+        // Test that i * 2 where i is in [0, 49] gives [0, 98]
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 50 {
+                a[i * 2]
             }
         }
         ";
