@@ -46,12 +46,14 @@ impl fmt::Display for Name {
 pub struct Loc {
     pub file: Name,
     pub line: u32,
+    pub col: u32,
 }
 
 pub fn test_loc() -> Loc {
     Loc {
         file: Name::new("".into()),
         line: 0,
+        col: 0,
     }
 }
 

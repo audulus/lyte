@@ -91,10 +91,13 @@ pub struct Lexer {
     /// Current index in code.
     pub i: usize,
 
+    /// Index where the current line starts (for computing column).
+    line_start: usize,
+
     /// Current token.
     pub tok: Token,
 
-    /// Current source code location.
+    /// Current source code location (file and line, col computed on demand).
     pub loc: Loc,
 }
 
@@ -107,12 +110,22 @@ impl Lexer {
         Lexer {
             code: String::from(code),
             i: 0,
+            line_start: 0,
             tok: Token::Error,
             loc: Loc {
                 file: Name::new(file.into()),
                 line: 1,
+                col: 1,
             },
         }
+    }
+
+    /// Handle a newline: increment line and update line_start.
+    fn handle_newline(&mut self) {
+        self.i += 1;
+        self.loc.line += 1;
+        self.line_start = self.i;
+        self.loc.col = 1;
     }
 
     fn _next(&mut self) -> Token {
@@ -122,8 +135,7 @@ impl Lexer {
         // Skip whitespace.
         while self.i < n && bytes[self.i].is_ascii_whitespace() {
             if bytes[self.i] == b'\n' {
-                self.loc.line += 1;
-                self.i += 1;
+                self.handle_newline();
                 return Token::Endl;
             }
             self.i += 1;
@@ -134,8 +146,7 @@ impl Lexer {
             self.i += 2;
             while self.i < n {
                 if bytes[self.i] == b'\n' {
-                    self.loc.line += 1;
-                    self.i += 1;
+                    self.handle_newline();
                     return Token::Endl;
                 }
                 self.i += 1
@@ -146,6 +157,9 @@ impl Lexer {
         if self.i == bytes.len() {
             return Token::End;
         }
+
+        // Update column to reflect where this token starts.
+        self.loc.col = (self.i - self.line_start + 1) as u32;
 
         // Identifier.
         if bytes[self.i].is_ascii_alphabetic() || bytes[self.i] == b'_' {

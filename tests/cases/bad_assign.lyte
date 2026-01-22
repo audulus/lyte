@@ -1,5 +1,5 @@
 // expected stdout:
-// ❌ ../tests/cases/bad_assign.lyte:7: no solution for Int32 == Float32
+// ❌ ../tests/cases/bad_assign.lyte:7:1: no solution for Int32 == Float32
 
 f {
    var x: i32

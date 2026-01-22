@@ -316,8 +316,8 @@ impl ArrayChecker {
     pub fn print_errors(&self) {
         for err in &self.errors {
             println!(
-                "❌ {}:{}: {}",
-                err.location.file, err.location.line, err.message
+                "❌ {}:{}:{}: {}",
+                err.location.file, err.location.line, err.location.col, err.message
             );
         }
     }

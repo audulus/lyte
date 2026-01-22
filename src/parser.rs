@@ -447,16 +447,19 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
     match cx.lex.tok {
         Token::Id(id) => {
             let e = Expr::Id(id);
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         Token::True => {
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(Expr::True, cx.lex.loc)
+            arena.add(Expr::True, loc)
         }
         Token::False => {
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(Expr::False, cx.lex.loc)
+            arena.add(Expr::False, loc)
         }
         Token::Dot => {
             cx.next();
@@ -465,28 +468,33 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
         }
         Token::Integer(x) => {
             let e = Expr::Int(x);
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         Token::UInteger(x) => {
             let e = Expr::UInt(x);
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         Token::Real(x) => {
             let e = Expr::Real(x.to_string());
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         Token::String(s) => {
             let e = Expr::String(s.to_string());
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         Token::Char(c) => {
             let e = Expr::Char(c);
+            let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         Token::Lparen => {
             cx.next();
@@ -550,6 +558,7 @@ fn parse_exprlist(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContex
 }
 
 fn parse_array_literal(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    let loc = cx.lex.loc;
     expect(Token::Lbracket, cx);
     let mut r = vec![];
 
@@ -563,7 +572,7 @@ fn parse_array_literal(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseC
             let count = parse_expr(arena, typevars, cx);
             let e = Expr::Array(r[0], count);
             expect(Token::Rbracket, cx);
-            return arena.add(e, cx.lex.loc);
+            return arena.add(e, loc);
         } else if cx.lex.tok == Token::Rbracket {
             break;
         } else {
@@ -574,7 +583,7 @@ fn parse_array_literal(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseC
 
     cx.next();
 
-    arena.add(Expr::ArrayLiteral(r), cx.lex.loc)
+    arena.add(Expr::ArrayLiteral(r), loc)
 }
 
 fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
@@ -648,6 +657,7 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
 }
 
 fn parse_block(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    let loc = cx.lex.loc;
     let mut r = vec![];
     expect(Token::Lbrace, cx);
 
@@ -669,7 +679,7 @@ fn parse_block(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) 
 
     cx.next();
 
-    arena.add(Expr::Block(r), cx.lex.loc)
+    arena.add(Expr::Block(r), loc)
 }
 
 fn parse_fieldlist(typevars: &[Name], cx: &mut ParseContext) -> Vec<Field> {
