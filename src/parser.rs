@@ -690,16 +690,13 @@ fn parse_fieldlist(typevars: &[Name], cx: &mut ParseContext) -> Vec<Field> {
     while cx.lex.tok != Token::Rbrace {
         skip_newlines(cx.lex);
 
+        let loc = cx.lex.loc;
         let name = expect_id(cx);
 
         expect(Token::Colon, cx);
 
         let ty = parse_type(typevars, cx);
-        r.push(Field {
-            name,
-            ty,
-            loc: cx.lex.loc,
-        });
+        r.push(Field { name, ty, loc });
 
         skip_newlines(cx.lex);
 

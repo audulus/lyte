@@ -1,5 +1,5 @@
 // expected stdout:
-// ❌ ../tests/cases/repeated_field.lyte:7:1: repeated field: x
+// ❌ ../tests/cases/repeated_field.lyte:6:5: repeated field: x
 
 struct s { 
     x: i32,
