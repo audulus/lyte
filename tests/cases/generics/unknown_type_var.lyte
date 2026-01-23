@@ -1,5 +1,7 @@
 // expected stdout:
-// ❌ ../tests/cases/generics/unknown_type_var.lyte:5:5: unknown type variable: T
+// ❌ ../tests/cases/generics/unknown_type_var.lyte:7:5: unknown type variable: T
+//         x: typevar T
+//         ^
 
 struct s { 
     x: typevar T

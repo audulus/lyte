@@ -57,6 +57,28 @@ pub fn test_loc() -> Loc {
     }
 }
 
+/// Prints an error message with source context showing the exact location.
+///
+/// Output format:
+/// ```text
+/// ❌ file.lyte:10:5: error message
+///     source line content
+///     ^
+/// ```
+pub fn print_error_with_context(loc: Loc, message: &str) {
+    println!("❌ {}:{}:{}: {}", loc.file, loc.line, loc.col, message);
+
+    // Try to read the source file and display the relevant line
+    if let Ok(contents) = std::fs::read_to_string(&*loc.file) {
+        if let Some(line) = contents.lines().nth(loc.line as usize - 1) {
+            println!("    {}", line);
+            // Print caret at the right column (col is 1-indexed)
+            let spaces = " ".repeat(loc.col as usize - 1 + 4); // +4 for the leading indent
+            println!("{}^", spaces);
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Unop {
     Neg,

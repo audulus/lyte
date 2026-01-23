@@ -1,7 +1,13 @@
 // expected stdout:
-// ❌ ../tests/cases/undeclared.lyte:7:8: undeclared identifier: "i"
-// ❌ ../tests/cases/undeclared.lyte:7:18: undeclared identifier: "i"
-// ❌ ../tests/cases/undeclared.lyte:8:11: undeclared identifier: "i"
+// ❌ ../tests/cases/undeclared.lyte:13:8: undeclared identifier: "i"
+//         if i >= 0 && i < 100 {
+//            ^
+// ❌ ../tests/cases/undeclared.lyte:13:18: undeclared identifier: "i"
+//         if i >= 0 && i < 100 {
+//                      ^
+// ❌ ../tests/cases/undeclared.lyte:14:11: undeclared identifier: "i"
+//             a[i]
+//               ^
 f() {
     var a: [i32; 100]
     if i >= 0 && i < 100 {
