@@ -341,7 +341,10 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                     false
                 }
             }
-            (Type::Array(a, _), Type::Array(b, _)) => unify(*a, *b, inst),
+            (Type::Array(a, sa), Type::Array(b, sb)) => {
+                // Size 0 means "unknown size" ([T] without a bound), which unifies with any size.
+                (*sa == *sb || *sa == 0 || *sb == 0) && unify(*a, *b, inst)
+            }
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             _ => false,
         }

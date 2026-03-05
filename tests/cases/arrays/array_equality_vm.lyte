@@ -1,0 +1,12 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    assert([1,2,3] == [1,2,3])
+    assert([1,2,3] != [1,2,4])
+    assert([1,2,3] != [4,5,6])
+}
