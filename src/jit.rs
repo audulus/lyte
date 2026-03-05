@@ -1047,7 +1047,11 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::NotEqual, lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => {
+                        // For pointer types (structs, tuples, arrays): negate memcmp result.
+                        let eq = self.gen_eq(t, lhs, rhs, decls);
+                        self.builder.ins().bxor_imm(eq, 1)
+                    }
                 }
             }
             Binop::Less => {

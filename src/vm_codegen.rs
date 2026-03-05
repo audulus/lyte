@@ -749,6 +749,10 @@ impl<'a> FunctionTranslator<'a> {
                 Type::Float64 => {
                     func.emit(Opcode::DEq { dst, a: lhs, b: rhs });
                 }
+                Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
+                    let size = ty.size(self.decls) as u32;
+                    func.emit(Opcode::MemEq { dst, a: lhs, b: rhs, size });
+                }
                 _ => {
                     func.emit(Opcode::IEq { dst, a: lhs, b: rhs });
                 }
@@ -757,6 +761,10 @@ impl<'a> FunctionTranslator<'a> {
             Binop::NotEqual => match &*ty {
                 Type::Float32 => {
                     func.emit(Opcode::FNe { dst, a: lhs, b: rhs });
+                }
+                Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
+                    let size = ty.size(self.decls) as u32;
+                    func.emit(Opcode::MemNe { dst, a: lhs, b: rhs, size });
                 }
                 _ => {
                     func.emit(Opcode::INe { dst, a: lhs, b: rhs });

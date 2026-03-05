@@ -1,0 +1,30 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+struct Point {
+    x: i32,
+    y: i32
+}
+
+main {
+    var p: Point
+    p.x = 1
+    p.y = 2
+
+    var q: Point
+    q.x = 1
+    q.y = 2
+
+    assert(p == q)
+
+    var r: Point
+    r.x = 3
+    r.y = 4
+
+    assert(p != r)
+    assert(!(p == r))
+}

@@ -179,6 +179,12 @@ pub enum Opcode {
     /// Float32 less or equal
     FLe { dst: Reg, a: Reg, b: Reg },
 
+    /// Memory equal: compare `size` bytes at pointers in a and b
+    MemEq { dst: Reg, a: Reg, b: Reg, size: u32 },
+
+    /// Memory not equal: compare `size` bytes at pointers in a and b
+    MemNe { dst: Reg, a: Reg, b: Reg, size: u32 },
+
     /// Float64 equal
     DEq { dst: Reg, a: Reg, b: Reg },
 
@@ -770,6 +776,27 @@ impl VM {
 
                 Opcode::FLe { dst, a, b } => {
                     self.set_bool(dst, self.get_f32(a) <= self.get_f32(b));
+                }
+
+                // Memory comparisons (for structs, tuples, arrays)
+                Opcode::MemEq { dst, a, b, size } => {
+                    let pa = self.get_u64(a) as *const u8;
+                    let pb = self.get_u64(b) as *const u8;
+                    let eq = unsafe {
+                        std::slice::from_raw_parts(pa, size as usize)
+                            == std::slice::from_raw_parts(pb, size as usize)
+                    };
+                    self.set_bool(dst, eq);
+                }
+
+                Opcode::MemNe { dst, a, b, size } => {
+                    let pa = self.get_u64(a) as *const u8;
+                    let pb = self.get_u64(b) as *const u8;
+                    let ne = unsafe {
+                        std::slice::from_raw_parts(pa, size as usize)
+                            != std::slice::from_raw_parts(pb, size as usize)
+                    };
+                    self.set_bool(dst, ne);
                 }
 
                 // Float64 comparisons
