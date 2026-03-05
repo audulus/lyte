@@ -275,10 +275,11 @@ fn parse_assign(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext)
 
     while cx.lex.tok == Token::Assign {
         let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
         cx.next();
         let rhs = parse_eq(arena, typevars, cx);
 
-        lhs = arena.add(binop(&t, lhs, rhs), cx.lex.loc)
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
     }
 
     lhs
@@ -289,10 +290,11 @@ fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> 
 
     while cx.lex.tok == Token::Equal || cx.lex.tok == Token::NotEqual {
         let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
         cx.next();
         let rhs = parse_logic(arena, typevars, cx);
 
-        lhs = arena.add(binop(&t, lhs, rhs), cx.lex.loc)
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
     }
 
     lhs
@@ -303,10 +305,11 @@ fn parse_logic(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) 
 
     while cx.lex.tok == Token::Or || cx.lex.tok == Token::And {
         let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
         cx.next();
         let rhs = parse_rel(arena, typevars, cx);
 
-        lhs = arena.add(binop(&t, lhs, rhs), cx.lex.loc)
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
     }
 
     lhs
@@ -321,10 +324,11 @@ fn parse_rel(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) ->
         || cx.lex.tok == Token::Greater
     {
         let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
         cx.next();
         let rhs = parse_sum(arena, typevars, cx);
 
-        lhs = arena.add(binop(&t, lhs, rhs), cx.lex.loc)
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
     }
 
     lhs
@@ -335,10 +339,11 @@ fn parse_sum(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) ->
 
     while cx.lex.tok == Token::Plus || cx.lex.tok == Token::Minus {
         let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
         cx.next();
         let rhs = parse_term(arena, typevars, cx);
 
-        lhs = arena.add(binop(&t, lhs, rhs), cx.lex.loc)
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
     }
 
     lhs

@@ -1,7 +1,7 @@
 // expected stdout:
-// ❌ ../tests/cases/arrays/bad_array_equality.lyte:8:1: no solution for Array(Int32, 2) == Array(Int32, 3)
-//     }
-//     ^
+// ❌ ../tests/cases/arrays/bad_array_equality.lyte:7:19: no solution for Array(Int32, 2) == Array(Int32, 3)
+//         let x = [1,2] == [1,2,3]
+//                       ^
 
 main {
     let x = [1,2] == [1,2,3]
