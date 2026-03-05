@@ -280,8 +280,10 @@ impl<'a> FunctionTranslator<'a> {
 
         // Save parameters to local slots so they persist across recursive calls.
         // Registers are shared across all call frames, but locals are per-frame.
+        // When returning via pointer, r0 is the output pointer so params start at r1.
+        let param_offset = if returns_via_pointer(self.decl.ret) { 1u8 } else { 0u8 };
         for (i, param) in self.decl.params.iter().enumerate() {
-            let src_reg = i as Reg;
+            let src_reg = i as Reg + param_offset;
             let ty = param.ty.expect("parameter must have type");
             let size = ty.size(self.decls) as u32;
             let slot = self.alloc_local(size);
