@@ -15,7 +15,10 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
 use core::panic;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec;
+
+static LAMBDA_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// The basic JIT class.
 pub struct JIT {
@@ -134,7 +137,7 @@ impl JIT {
             .map_err(|e| e.to_string())?;
 
         // All functions now receive globals pointer as first parameter.
-        let called_functions = self.function_body(decls, decl, true);
+        let (called_functions, pending_lambdas) = self.function_body(decls, decl, true);
 
         // Print the generated IR
         if self.print_ir {
@@ -157,6 +160,11 @@ impl JIT {
         self.module.clear_context(&mut self.ctx);
 
         self.defined_functions.insert(decl.name);
+
+        // Compile lambda functions extracted from this function's body.
+        for lambda_decl in pending_lambdas {
+            self.compile_function(decls, &lambda_decl)?;
+        }
 
         // Compile any called functions that haven't already been defined.
         for name in called_functions {
@@ -187,7 +195,7 @@ impl JIT {
         self.globals_size = offset as usize;
     }
 
-    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl, has_globals: bool) -> HashSet<Name> {
+    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl, has_globals: bool) -> (HashSet<Name>, Vec<FuncDecl>) {
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -260,6 +268,7 @@ impl JIT {
         trans.builder.finalize();
 
         let called = trans.called_functions;
+        let pending_lambdas = trans.pending_lambdas;
 
         let flags = settings::Flags::new(settings::builder());
         let res = verify_function(&self.ctx.func, &flags);
@@ -268,7 +277,7 @@ impl JIT {
             panic!("{}", errors);
         }
 
-        called
+        (called, pending_lambdas)
     }
 }
 
@@ -355,6 +364,9 @@ struct FunctionTranslator<'a> {
 
     called_functions: HashSet<Name>,
 
+    /// Lambda functions extracted from this function body, to be compiled afterward.
+    pending_lambdas: Vec<FuncDecl>,
+
     /// Tracks which variables are `let` bindings (hold values directly)
     /// vs `var` bindings (hold pointers to stack slots).
     let_bindings: HashSet<String>,
@@ -384,6 +396,7 @@ impl<'a> FunctionTranslator<'a> {
             next_index: 0,
             current_instance: Instance::new(),
             called_functions: HashSet::new(),
+            pending_lambdas: Vec::new(),
             let_bindings: HashSet::new(),
             globals,
             globals_base,
@@ -858,6 +871,45 @@ impl<'a> FunctionTranslator<'a> {
                     addr
                 } else {
                     panic!("tuple expression not of tuple type");
+                }
+            }
+            Expr::Lambda { params, body } => {
+                let lambda_ty = decl.types[expr];
+                if let crate::Type::Func(dom, rng) = *lambda_ty {
+                    if let crate::Type::Tuple(param_types) = &*dom {
+                        let id = LAMBDA_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        let lambda_name = Name::new(format!("__lambda_{}", id));
+
+                        let lambda_params: Vec<Param> = params.iter().zip(param_types.iter())
+                            .map(|(p, ty)| Param { name: p.name, ty: Some(*ty) })
+                            .collect();
+
+                        let lambda_decl = FuncDecl {
+                            name: lambda_name,
+                            typevars: vec![],
+                            params: lambda_params,
+                            body: Some(*body),
+                            ret: rng,
+                            constraints: vec![],
+                            loc: decl.loc,
+                            arena: decl.arena.clone(),
+                            types: decl.types.clone(),
+                        };
+
+                        self.pending_lambdas.push(lambda_decl);
+
+                        let mut sig = fn_sig(&self.module, dom, rng);
+                        sig.params.insert(0, AbiParam::new(I64));
+                        let callee = self.module
+                            .declare_function(&*lambda_name, Linkage::Export, &sig)
+                            .expect("problem declaring lambda");
+                        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+                        self.builder.ins().func_addr(I64, local_callee)
+                    } else {
+                        panic!("lambda domain should be a tuple type");
+                    }
+                } else {
+                    panic!("lambda expression should have function type");
                 }
             }
             _ => {

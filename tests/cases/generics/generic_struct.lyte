@@ -1,5 +1,9 @@
-
-
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
 
 struct GenericStruct<T> {
     x: T
