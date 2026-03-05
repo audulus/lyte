@@ -149,14 +149,17 @@ impl TypeID {
             Type::Float32 => 4,
             Type::Float64 => 8,
             Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
-            Type::Name(name, _vars) => {
+            Type::Name(name, vars) => {
                 let decl = decls.find(*name);
                 // Must be a unique struct decl.
                 if decl.len() != 1 {
                     panic!("expected exactly one struct decl for type {}", name);
                 }
                 if let Decl::Struct(sdecl) = &decl[0] {
-                    sdecl.fields.iter().map(|field| field.ty.size(decls)).sum()
+                    let inst: Instance = sdecl.typevars.iter().zip(vars.iter())
+                        .map(|(tv, ty)| (mk_type(Type::Var(*tv)), *ty))
+                        .collect();
+                    sdecl.fields.iter().map(|field| field.ty.subst(&inst).size(decls)).sum()
                 } else {
                     panic!()
                 }
