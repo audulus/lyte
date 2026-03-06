@@ -907,6 +907,15 @@ mod tests {
     }
 
     #[test]
+    pub fn test_recursive_struct_array() {
+        // struct A { x: [A; 5] } — self-reference inside a fixed-size array
+        let s = "struct A { x: [A; 5] }";
+        let errors = check(s);
+        assert!(!errors.is_empty(), "expected an error for recursive struct via array");
+        assert!(errors[0].message.contains("recursive"));
+    }
+
+    #[test]
     pub fn test_non_recursive_struct() {
         // struct Point { x: i32, y: i32 } — not recursive
         let s = "struct Point { x: i32, y: i32 }";
