@@ -1,0 +1,21 @@
+{
+    "name": "lyte-language",
+    "displayName": "Lyte",
+    "description": "Syntax highlighting for the Lyte programming language",
+    "version": "0.1.0",
+    "engines": { "vscode": "^1.70.0" },
+    "categories": ["Programming Languages"],
+    "contributes": {
+        "languages": [{
+            "id": "lyte",
+            "aliases": ["Lyte", "lyte"],
+            "extensions": [".lyte"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "lyte",
+            "scopeName": "source.lyte",
+            "path": "./syntaxes/lyte.tmLanguage.json"
+        }]
+    }
+}
