@@ -917,9 +917,75 @@ impl<'a> FunctionTranslator<'a> {
                     panic!("lambda expression should have function type");
                 }
             }
+            Expr::UInt(n) => self.builder.ins().iconst(I32, *n as i64),
+            Expr::AsTy(expr_id, target_ty) => {
+                let val = self.translate_expr(*expr_id, decl, decls);
+                let src_ty = decl.types[*expr_id];
+                match (&*src_ty, &**target_ty) {
+                    (crate::Type::Int32, crate::Type::Float32) => {
+                        self.builder.ins().fcvt_from_sint(F32, val)
+                    }
+                    (crate::Type::UInt32, crate::Type::Float32) => {
+                        self.builder.ins().fcvt_from_uint(F32, val)
+                    }
+                    (crate::Type::Float32, crate::Type::Int32) => {
+                        self.builder.ins().fcvt_to_sint_sat(I32, val)
+                    }
+                    (crate::Type::Float32, crate::Type::UInt32) => {
+                        self.builder.ins().fcvt_to_uint_sat(I32, val)
+                    }
+                    (crate::Type::Int32, crate::Type::Float64) => {
+                        self.builder.ins().fcvt_from_sint(F64, val)
+                    }
+                    (crate::Type::UInt32, crate::Type::Float64) => {
+                        self.builder.ins().fcvt_from_uint(F64, val)
+                    }
+                    (crate::Type::Float64, crate::Type::Int32) => {
+                        self.builder.ins().fcvt_to_sint_sat(I32, val)
+                    }
+                    (crate::Type::Float64, crate::Type::UInt32) => {
+                        self.builder.ins().fcvt_to_uint_sat(I32, val)
+                    }
+                    (crate::Type::Float32, crate::Type::Float64) => {
+                        self.builder.ins().fpromote(F64, val)
+                    }
+                    (crate::Type::Float64, crate::Type::Float32) => {
+                        self.builder.ins().fdemote(F32, val)
+                    }
+                    _ => val,
+                }
+            }
+            Expr::Assign(name, value_id) => {
+                let value = self.translate_expr(*value_id, decl, decls);
+                let ty = decl.types[*value_id];
+                if let Some(&var) = self.variables.get(&**name) {
+                    if !self.let_bindings.contains(&**name) {
+                        let addr = self.builder.use_var(var);
+                        self.gen_copy(ty, addr, value, decls);
+                    }
+                } else if let Some(&offset) = self.globals.get(name) {
+                    let base = self.globals_base.expect("globals_base not set");
+                    let addr = self.builder.ins().iadd_imm(base, offset as i64);
+                    self.gen_copy(ty, addr, value, decls);
+                }
+                value
+            }
+            Expr::Enum(case_name) => {
+                if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
+                    let enum_decls = decls.find(*enum_name);
+                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls.iter().find(|d| matches!(d, crate::Decl::Enum { .. })) {
+                        let index = cases.iter().position(|c| c == case_name).unwrap_or(0);
+                        self.builder.ins().iconst(I32, index as i64)
+                    } else {
+                        self.builder.ins().iconst(I32, 0)
+                    }
+                } else {
+                    self.builder.ins().iconst(I32, 0)
+                }
+            }
+            Expr::Arena(block_id) => self.translate_expr(*block_id, decl, decls),
             _ => {
-                println!("unimplemented expression: {:?}", &decl.arena[expr]);
-                todo!();
+                panic!("unimplemented expression: {:?}", &decl.arena[expr]);
             }
         }
     }
