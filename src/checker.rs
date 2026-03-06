@@ -58,12 +58,12 @@ pub struct Checker {
 ///
 /// Slices are only allowed as function parameters, not in struct fields or return types.
 /// For function types, only the return type is checked (slice parameters are fine).
-fn type_contains_slice(ty: TypeID) -> bool {
+fn type_contains_bad_slice(ty: TypeID) -> bool {
     match &*ty {
         Type::Array(_, ArraySize::Known(0)) => true,
-        Type::Array(elem, _) => type_contains_slice(*elem),
-        Type::Tuple(types) => types.iter().any(|t| type_contains_slice(*t)),
-        Type::Func(_, ret) => type_contains_slice(*ret),
+        Type::Array(elem, _) => type_contains_bad_slice(*elem),
+        Type::Tuple(types) => types.iter().any(|t| type_contains_bad_slice(*t)),
+        Type::Func(_, ret) => type_contains_bad_slice(*ret),
         _ => false,
     }
 }
@@ -724,7 +724,7 @@ impl Checker {
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
         // Disallow slice types in return position.
-        if type_contains_slice(func_decl.ret) {
+        if type_contains_bad_slice(func_decl.ret) {
             self.errors.push(TypeError {
                 location: func_decl.loc,
                 message: format!(
@@ -846,7 +846,7 @@ impl Checker {
 
         // Disallow slice types in struct fields.
         for field in &st.fields {
-            if type_contains_slice(field.ty) {
+            if type_contains_bad_slice(field.ty) {
                 self.errors.push(TypeError {
                     location: field.loc,
                     message: format!(
