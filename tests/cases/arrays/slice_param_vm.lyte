@@ -1,0 +1,16 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// vm execution successful
+
+sum(a: [i32]) -> i32 {
+    var s = 0
+    for i in 0 .. a.len {
+        s = s + a[i]
+    }
+    s
+}
+
+main {
+    assert(sum([1, 2, 3]) == 6)
+}

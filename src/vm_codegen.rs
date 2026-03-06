@@ -259,7 +259,7 @@ struct FunctionTranslator<'a> {
 
 /// Check if a type should be returned via output pointer.
 fn returns_via_pointer(ty: TypeID) -> bool {
-    matches!(&*ty, Type::Array(_, _) | Type::Name(_, _) | Type::Tuple(_))
+    matches!(&*ty, Type::Array(_, _) | Type::Slice(_) | Type::Name(_, _) | Type::Tuple(_))
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -1003,32 +1003,44 @@ impl<'a> FunctionTranslator<'a> {
                 let idx = self.translate_expr(*idx_id, func);
                 let arr_ty = self.expr_type(*arr_id);
 
-                if let Type::Array(elem_ty, _) = &*arr_ty {
-                    let elem_size = elem_ty.size(self.decls);
-                    let offset_reg = self.alloc_reg();
+                let (elem_ty, is_slice) = match &*arr_ty {
+                    Type::Array(elem_ty, _) => (*elem_ty, false),
+                    Type::Slice(elem_ty) => (*elem_ty, true),
+                    _ => return arr_addr,
+                };
 
-                    // offset = idx * elem_size
-                    let size_reg = self.alloc_reg();
-                    func.emit(Opcode::LoadImm {
-                        dst: size_reg,
-                        value: elem_size as i64,
-                    });
-                    func.emit(Opcode::IMul {
-                        dst: offset_reg,
-                        a: idx,
-                        b: size_reg,
-                    });
+                // For slices, load the data pointer from the fat pointer.
+                let base = if is_slice {
+                    let data_ptr = self.alloc_reg();
+                    func.emit(Opcode::Load64 { dst: data_ptr, addr: arr_addr });
+                    data_ptr
+                } else {
+                    arr_addr
+                };
 
-                    // result = arr_addr + offset
-                    let dst = self.alloc_reg();
-                    func.emit(Opcode::IAdd {
-                        dst,
-                        a: arr_addr,
-                        b: offset_reg,
-                    });
-                    return dst;
-                }
-                arr_addr
+                let elem_size = elem_ty.size(self.decls);
+                let offset_reg = self.alloc_reg();
+
+                // offset = idx * elem_size
+                let size_reg = self.alloc_reg();
+                func.emit(Opcode::LoadImm {
+                    dst: size_reg,
+                    value: elem_size as i64,
+                });
+                func.emit(Opcode::IMul {
+                    dst: offset_reg,
+                    a: idx,
+                    b: size_reg,
+                });
+
+                // result = base + offset
+                let dst = self.alloc_reg();
+                func.emit(Opcode::IAdd {
+                    dst,
+                    a: base,
+                    b: offset_reg,
+                });
+                dst
             }
 
             _ => {
@@ -1153,12 +1165,28 @@ impl<'a> FunctionTranslator<'a> {
                 None
             };
 
+            // Get the callee's parameter types to detect slice params.
+            let fn_ty = self.expr_type(fn_id);
+            let param_types: Vec<TypeID> = if let Type::Func(from, _) = &*fn_ty {
+                if let Type::Tuple(pts) = &**from { pts.clone() } else { vec![] }
+            } else {
+                vec![]
+            };
+
             // First, translate all arguments to get their values.
             // We need to do this before allocating the consecutive arg registers
             // because translation may allocate temporary registers.
             let mut arg_values = Vec::new();
-            for arg_id in arg_ids {
+            for (i, arg_id) in arg_ids.iter().enumerate() {
                 let arg_reg = self.translate_expr(*arg_id, func);
+                // If the callee expects a slice, wrap sized arrays in a fat pointer.
+                if i < param_types.len() {
+                    if matches!(&*param_types[i], Type::Slice(_)) {
+                        let wrapped = self.wrap_as_slice(arg_reg, self.expr_type(*arg_id), func);
+                        arg_values.push(wrapped);
+                        continue;
+                    }
+                }
                 arg_values.push(arg_reg);
             }
 
@@ -1397,12 +1425,22 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_field(&mut self, lhs_id: ExprID, name: Name, func: &mut VMFunction) -> Reg {
         let lhs_ty = self.expr_type(lhs_id);
 
-        // Handle array.len - return the compile-time length.
-        if let Type::Array(_, len) = &*lhs_ty {
-            if *name == "len" {
-                let dst = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst, value: len.known() as i64 });
-                return dst;
+        // Handle array.len / slice.len.
+        if *name == "len" {
+            match &*lhs_ty {
+                Type::Slice(_) => {
+                    // Slice: load length from fat pointer at offset 8.
+                    let lhs = self.translate_expr(lhs_id, func);
+                    let dst = self.alloc_reg();
+                    func.emit(Opcode::Load32Off { dst, base: lhs, offset: 8 });
+                    return dst;
+                }
+                Type::Array(_, len) => {
+                    let dst = self.alloc_reg();
+                    func.emit(Opcode::LoadImm { dst, value: len.known() as i64 });
+                    return dst;
+                }
+                _ => {}
             }
         }
 
@@ -1472,37 +1510,47 @@ impl<'a> FunctionTranslator<'a> {
         let idx = self.translate_expr(idx_id, func);
         let arr_ty = self.expr_type(arr_id);
 
-        if let Type::Array(elem_ty, _) = &*arr_ty {
-            let elem_size = elem_ty.size(self.decls);
+        let (elem_ty, is_slice) = match &*arr_ty {
+            Type::Array(elem_ty, _) => (*elem_ty, false),
+            Type::Slice(elem_ty) => (*elem_ty, true),
+            _ => return arr, // Fallback
+        };
 
-            // Calculate offset.
-            let size_reg = self.alloc_reg();
-            func.emit(Opcode::LoadImm {
-                dst: size_reg,
-                value: elem_size as i64,
-            });
+        // For slices, load the data pointer from the fat pointer.
+        let base = if is_slice {
+            let data_ptr = self.alloc_reg();
+            func.emit(Opcode::Load64 { dst: data_ptr, addr: arr });
+            data_ptr
+        } else {
+            arr
+        };
 
-            let offset_reg = self.alloc_reg();
-            func.emit(Opcode::IMul {
-                dst: offset_reg,
-                a: idx,
-                b: size_reg,
-            });
+        let elem_size = elem_ty.size(self.decls);
 
-            let addr_reg = self.alloc_reg();
-            func.emit(Opcode::IAdd {
-                dst: addr_reg,
-                a: arr,
-                b: offset_reg,
-            });
+        // Calculate offset.
+        let size_reg = self.alloc_reg();
+        func.emit(Opcode::LoadImm {
+            dst: size_reg,
+            value: elem_size as i64,
+        });
 
-            let dst = self.alloc_reg();
-            self.emit_load(elem_ty, dst, addr_reg, func);
-            return dst;
-        }
+        let offset_reg = self.alloc_reg();
+        func.emit(Opcode::IMul {
+            dst: offset_reg,
+            a: idx,
+            b: size_reg,
+        });
 
-        // Fallback.
-        arr
+        let addr_reg = self.alloc_reg();
+        func.emit(Opcode::IAdd {
+            dst: addr_reg,
+            a: base,
+            b: offset_reg,
+        });
+
+        let dst = self.alloc_reg();
+        self.emit_load(&elem_ty, dst, addr_reg, func);
+        dst
     }
 
     /// Translate an array literal.
@@ -1607,9 +1655,31 @@ impl<'a> FunctionTranslator<'a> {
         dst
     }
 
+    /// Wraps a sized array value in a slice fat pointer {data_ptr: i64, len: i32} on the stack.
+    /// If the value is already a slice, returns it as-is.
+    fn wrap_as_slice(&mut self, val: Reg, actual_ty: TypeID, func: &mut VMFunction) -> Reg {
+        match &*actual_ty {
+            Type::Slice(_) => val,
+            Type::Array(_, sz) => {
+                // Allocate 12 bytes for fat pointer {data_ptr: i64, len: i32}.
+                let slot = self.alloc_local(12);
+                let fat_addr = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: fat_addr, slot });
+                // Store data_ptr at offset 0.
+                func.emit(Opcode::Store64 { addr: fat_addr, src: val });
+                // Store len at offset 8.
+                let len_reg = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst: len_reg, value: sz.known() as i64 });
+                func.emit(Opcode::Store32Off { base: fat_addr, offset: 8, src: len_reg });
+                fat_addr
+            }
+            _ => panic!("expected array type for slice parameter"),
+        }
+    }
+
     /// Check if a type is represented as a pointer.
     fn is_ptr_type(&self, ty: &TypeID) -> bool {
-        matches!(&**ty, Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _))
+        matches!(&**ty, Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_))
     }
 
     /// Emit a load instruction based on type.
