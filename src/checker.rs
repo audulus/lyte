@@ -1015,6 +1015,14 @@ fn expr_is_tainted(
             expr_is_tainted(*then, arena, scope, tainted)
                 || else_.map_or(false, |e| expr_is_tainted(e, arena, scope, tainted))
         }
+        // Conservatively: if a tainted value flows into a call (as the function
+        // expression or as any argument), the result is also considered tainted.
+        // This catches laundering patterns like `return launder(f)` where `f` is
+        // a capturing lambda.
+        Expr::Call(fn_expr, args) => {
+            expr_is_tainted(*fn_expr, arena, scope, tainted)
+                || args.iter().any(|a| expr_is_tainted(*a, arena, scope, tainted))
+        }
         _ => false,
     }
 }
