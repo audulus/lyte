@@ -857,6 +857,9 @@ impl Checker {
 
     pub fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
         self._check_decl(decl, decls);
+        if let Decl::Func(fd) | Decl::Macro(fd) = decl {
+            check_escape_in_func(fd, &mut self.errors);
+        }
     }
 
     /// Returns types we've solved for.
