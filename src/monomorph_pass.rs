@@ -1,5 +1,5 @@
 use crate::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Manages the monomorphization process, generating specialized versions
 /// of generic functions and structs.
@@ -12,6 +12,9 @@ pub struct MonomorphPass {
 
     /// Newly generated specialized declarations
     out_decls: Vec<Decl>,
+
+    /// Non-generic functions whose bodies have been processed (to prevent reprocessing).
+    processed_non_generic: HashSet<Name>,
 }
 
 impl MonomorphPass {
@@ -20,6 +23,7 @@ impl MonomorphPass {
             instantiations: HashMap::new(),
             recursion_detector: RecursionDetector::new(),
             out_decls: Vec::new(),
+            processed_non_generic: HashSet::new(),
         }
     }
 
@@ -48,6 +52,7 @@ impl MonomorphPass {
         }
 
         if let Decl::Func(fdecl) = &func_decls[0] {
+            self.processed_non_generic.insert(fdecl.name);
             let mut fdecl = fdecl.clone();
             self.process_function(&mut fdecl, decls)?;
             self.out_decls.push(Decl::Func(fdecl));
@@ -119,17 +124,12 @@ impl MonomorphPass {
                                 fdecl.arena.exprs[expr_id] = Expr::Id(mangled_name);
                             }
                         } else {
-                            // Non-generic function - include it in outputs if not already there
-                            let already_included = self.out_decls.iter().any(|d| {
-                                if let Decl::Func(f) = d {
-                                    f.name == target_fdecl.name
-                                } else {
-                                    false
-                                }
-                            });
-
-                            if !already_included {
-                                self.out_decls.push(decl.clone());
+                            // Non-generic function - include it and recursively process its body.
+                            if !self.processed_non_generic.contains(&target_fdecl.name) {
+                                self.processed_non_generic.insert(target_fdecl.name);
+                                let mut func = target_fdecl.clone();
+                                self.process_function(&mut func, decls)?;
+                                self.out_decls.push(Decl::Func(func));
                             }
                         }
                     }

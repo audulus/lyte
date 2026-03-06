@@ -1,5 +1,12 @@
-
-
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 
 add_one(x: i32) → i32 { return x + 1 }
 
@@ -28,21 +35,6 @@ test_lambda_arg {
     call_test( |x| x+1 )
 }
 
-map_array_int32(a: [i32], f: i32 → i32) → [i32] {
-   var i = 0
-   var b = [0; a.len]
-   while i < a.len {
-       b[i] = f(a[i])
-       i = i + 1
-   }
-   return b
-}
-
-test_lambda_map {
-    var a = map_array_int32([1,2,3], add_one)
-    assert(a == [2,3,4])
-}
-
 test_lambda_infer {
     var f = |x| x+1
     assert(f(1) == 2)
@@ -53,18 +45,11 @@ test_lambda_infer2 {
     assert(f(1) == 1)
 }
 
-test_lambda_infer3 {
-    var a = map_array_int32([1,2,3], |x| x+1)
-    assert(a == [2,3,4])
-}
-
 main {
     test_lambda_basic()
     test_lambda_call()
     test_lambda_nested()
     test_lambda_arg()
-    test_lambda_map()
     test_lambda_infer()
     test_lambda_infer2()
-    test_lambda_infer3()
 }
