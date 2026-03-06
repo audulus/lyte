@@ -10,9 +10,6 @@ use crate::types::*;
 use crate::vm::*;
 use crate::DeclTable;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static LAMBDA_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// A call that needs to be patched with the correct function index.
 #[derive(Clone, Debug)]
@@ -44,6 +41,9 @@ pub struct VMCodegen {
 
     /// Global variable offsets.
     globals: HashMap<Name, i32>,
+
+    /// Counter for generating unique lambda names.
+    lambda_counter: usize,
 }
 
 impl Default for VMCodegen {
@@ -61,6 +61,7 @@ impl VMCodegen {
             pending_functions: Vec::new(),
             pending_calls: Vec::new(),
             globals: HashMap::new(),
+            lambda_counter: 0,
         }
     }
 
@@ -136,7 +137,7 @@ impl VMCodegen {
         let mut func = VMFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
 
-        let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &self.globals);
+        let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &mut self.lambda_counter, &self.globals);
         translator.translate(&mut func);
 
         let idx = self.program.add_function(func);
@@ -225,6 +226,9 @@ struct FunctionTranslator<'a> {
     /// Functions that are called and need to be compiled.
     pending_functions: &'a mut Vec<Name>,
 
+    /// Counter for generating unique lambda names.
+    lambda_counter: &'a mut usize,
+
     /// Map from function name to expected function index.
     called_functions: HashMap<Name, FuncIdx>,
 
@@ -263,6 +267,7 @@ impl<'a> FunctionTranslator<'a> {
         decl: &'a FuncDecl,
         decls: &'a DeclTable,
         pending_functions: &'a mut Vec<Name>,
+        lambda_counter: &'a mut usize,
         globals: &'a HashMap<Name, i32>,
     ) -> Self {
         Self {
@@ -274,6 +279,7 @@ impl<'a> FunctionTranslator<'a> {
             next_slot: 0,
             locals_size: 0,
             pending_functions,
+            lambda_counter,
             called_functions: HashMap::new(),
             next_func_idx: 0,
             calls_to_patch: Vec::new(),
@@ -683,7 +689,8 @@ impl<'a> FunctionTranslator<'a> {
                 let lambda_ty = self.expr_type(expr);
                 if let Type::Func(dom, rng) = &*lambda_ty {
                     if let Type::Tuple(param_types) = &**dom {
-                        let id = LAMBDA_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        let id = *self.lambda_counter;
+                        *self.lambda_counter += 1;
                         let lambda_name = Name::new(format!("__lambda_{}", id));
 
                         let lambda_params: Vec<Param> = params
