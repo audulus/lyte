@@ -5,11 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Lyte is a simple programming language designed for writing Audulus nodes. It features:
-- "Dynamic ownership" memory management without GC
 - Function and operator overloading  
 - Generics constrained by "interfaces"
 - Familiar syntax (mix of Rust and Swift)
-- Arena allocation for realtime applications
 - Type inference with Hindley-Milner style checking
 - Cranelift JIT backend
 
