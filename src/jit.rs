@@ -1007,7 +1007,7 @@ impl<'a> FunctionTranslator<'a> {
                 crate::types::Type::Float32 | crate::types::Type::Float64 => {
                     self.builder.ins().fcmp(FloatCC::Equal, dst, src)
                 }
-                _ => todo!(),
+                _ => self.builder.ins().icmp(IntCC::Equal, dst, src),
             }
         }
     }
