@@ -351,6 +351,11 @@ fn returns_via_pointer(ty: crate::TypeID) -> bool {
     ty.is_ptr()
 }
 
+/// Returns true if the array size indicates a slice (unsized array).
+fn is_slice_size(sz: &crate::ArraySize) -> bool {
+    matches!(sz, crate::ArraySize::Known(0))
+}
+
 fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signature {
     let mut sig = module.make_signature();
 
@@ -469,10 +474,16 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_ty = decl.types[*lhs];
                 let lhs_val = self.translate_lvalue(*lhs, decl, decls);
                 let rhs_val = self.translate_expr(*rhs, decl, decls);
-                if let crate::Type::Array(ty, _) = &*lhs_ty {
+                if let crate::Type::Array(ty, sz) = &*lhs_ty {
+                    // For slices, load the data pointer from the fat pointer.
+                    let data_ptr = if is_slice_size(sz) {
+                        self.builder.ins().load(I64, MemFlags::new(), lhs_val, 0)
+                    } else {
+                        lhs_val
+                    };
                     let off = self.builder.ins().imul_imm(rhs_val, ty.size(decls) as i64);
                     let off = self.builder.ins().uextend(I64, off);
-                    self.builder.ins().iadd(lhs_val, off)
+                    self.builder.ins().iadd(data_ptr, off)
                 } else {
                     panic!("subscript expression not on array. should be caught by type checker");
                 }
@@ -545,6 +556,13 @@ impl<'a> FunctionTranslator<'a> {
                         None
                     };
 
+                    // Get the callee parameter types to detect slice params.
+                    let param_types: Vec<crate::TypeID> = if let crate::Type::Tuple(pts) = &*from {
+                        pts.clone()
+                    } else {
+                        vec![]
+                    };
+
                     let call = if is_builtin {
                         // Builtin: evaluate as raw fn_ptr, no globals/closure params.
                         let f = self.translate_expr(*fn_id, decl, decls);
@@ -571,8 +589,18 @@ impl<'a> FunctionTranslator<'a> {
                         if let Some(addr) = output_slot {
                             args.push(addr);
                         }
-                        for arg_id in arg_ids {
-                            args.push(self.translate_expr(*arg_id, decl, decls));
+                        for (i, arg_id) in arg_ids.iter().enumerate() {
+                            let arg_val = self.translate_expr(*arg_id, decl, decls);
+                            // If the callee expects a slice, wrap sized arrays in a fat pointer.
+                            if i < param_types.len() {
+                                if let crate::Type::Array(_, sz) = &*param_types[i] {
+                                    if is_slice_size(sz) {
+                                        args.push(self.wrap_as_slice(arg_val, decl.types[*arg_id], decls));
+                                        continue;
+                                    }
+                                }
+                            }
+                            args.push(arg_val);
                         }
                         let mut sig = fn_sig(&self.module, from, to);
                         sig.params.insert(0, AbiParam::new(I64)); // globals_base
@@ -632,10 +660,16 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.types[*lhs];
-                // Handle array.len - return the compile-time length.
-                if let crate::Type::Array(_, len) = &*lhs_ty {
+                // Handle array.len / slice.len.
+                if let crate::Type::Array(_, sz) = &*lhs_ty {
                     if **name == "len" {
-                        return self.builder.ins().iconst(I32, len.known() as i64);
+                        return if is_slice_size(sz) {
+                            // Slice: load length from fat pointer at offset 8.
+                            let lhs_val = self.translate_expr(*lhs, decl, decls);
+                            self.builder.ins().load(I32, MemFlags::new(), lhs_val, 8)
+                        } else {
+                            self.builder.ins().iconst(I32, sz.known() as i64)
+                        };
                     }
                 }
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
@@ -682,10 +716,16 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_ty = decl.types[*lhs];
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
                 let rhs_val = self.translate_expr(*rhs, decl, decls);
-                if let crate::Type::Array(ty, _) = &*lhs_ty {
+                if let crate::Type::Array(ty, sz) = &*lhs_ty {
+                    // For slices, load the data pointer from the fat pointer.
+                    let data_ptr = if is_slice_size(sz) {
+                        self.builder.ins().load(I64, MemFlags::new(), lhs_val, 0)
+                    } else {
+                        lhs_val
+                    };
                     let off = self.builder.ins().imul_imm(rhs_val, ty.size(decls) as i64);
                     let off = self.builder.ins().uextend(I64, off);
-                    let p = self.builder.ins().iadd(lhs_val, off);
+                    let p = self.builder.ins().iadd(data_ptr, off);
                     let load_ty = decl.types[expr].cranelift_type();
                     self.builder.ins().load(load_ty, MemFlags::new(), p, 0)
                 } else {
@@ -1432,6 +1472,32 @@ impl<'a> FunctionTranslator<'a> {
             self.builder.ins().iadd_imm(base, offset as i64)
         } else {
             panic!("unknown variable in closure capture: {}", name)
+        }
+    }
+
+    /// Wraps a sized array value in a slice fat pointer {data_ptr, len} on the stack.
+    /// If the value is already a slice, returns it as-is.
+    fn wrap_as_slice(&mut self, val: Value, actual_ty: crate::TypeID, _decls: &crate::DeclTable) -> Value {
+        if let crate::Type::Array(_, sz) = &*actual_ty {
+            if is_slice_size(sz) {
+                // Already a slice fat pointer, pass through.
+                val
+            } else {
+                // Sized array: construct fat pointer {data_ptr: I64, len: I32}.
+                let len_val = self.builder.ins().iconst(I32, sz.known() as i64);
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: 12,
+                    align_shift: 0,
+                    key: None,
+                });
+                let fat_addr = self.builder.ins().stack_addr(I64, slot, 0);
+                self.builder.ins().store(MemFlags::new(), val, fat_addr, 0);
+                self.builder.ins().store(MemFlags::new(), len_val, fat_addr, 8);
+                fat_addr
+            }
+        } else {
+            panic!("expected array type for slice parameter");
         }
     }
 

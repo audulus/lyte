@@ -595,12 +595,11 @@ impl Checker {
 
                 self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr]));
 
-                self.eq(
+                self.add_constraint(Constraint::ArrayOf(
                     array_t,
-                    mk_type(Type::Array(t, ArraySize::Known(0))),
+                    t,
                     arena.locs[*array_expr],
-                    "must index into an array",
-                );
+                ));
                 t
             }
             Expr::Array(value, size) => {

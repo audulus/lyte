@@ -1,3 +1,7 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
 
 sum(a: [i32]) -> i32 {
     var s = 0
@@ -8,5 +12,5 @@ sum(a: [i32]) -> i32 {
 }
 
 main {
-    sum([1, 2, 3])
+    assert(sum([1, 2, 3]) == 6)
 }

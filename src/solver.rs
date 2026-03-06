@@ -86,6 +86,10 @@ pub enum Constraint {
 
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
+
+    /// Array element: constrains that the first type is an array with element type equal to the second.
+    /// Unlike Equal with Array(_, Known(0)), this doesn't introduce a wildcard size.
+    ArrayOf(TypeID, TypeID, Loc),
 }
 
 impl Constraint {
@@ -100,6 +104,9 @@ impl Constraint {
             Constraint::Field(struct_ty, _, ft, _) => {
                 struct_ty.solved_inst(inst) && ft.solved_inst(inst)
             }
+            Constraint::ArrayOf(arr, elem, _) => {
+                arr.solved_inst(inst) && elem.solved_inst(inst)
+            }
         }
     }
 
@@ -109,6 +116,7 @@ impl Constraint {
             Constraint::Equal(_, _, loc) => *loc,
             Constraint::Or(_, _, loc) => *loc,
             Constraint::Field(_, _, _, loc) => *loc,
+            Constraint::ArrayOf(_, _, loc) => *loc,
         }
     }
 
@@ -131,6 +139,12 @@ impl Constraint {
                 "Field({:?}, {:?}, {:?}, {:?})",
                 a.subst(inst),
                 name,
+                b.subst(inst),
+                loc
+            ),
+            Constraint::ArrayOf(a, b, loc) => println!(
+                "ArrayOf({:?}, {:?}, {:?})",
+                a.subst(inst),
                 b.subst(inst),
                 loc
             ),
@@ -250,6 +264,26 @@ pub fn iterate_solver(
                         }
                     }
                     _ => (),
+                }
+            }
+            Constraint::ArrayOf(arr_ty, elem_ty, loc) => {
+                let resolved = find(*arr_ty, instance);
+                match &*resolved {
+                    Type::Array(a, _) => {
+                        *constraint = Constraint::Equal(*a, *elem_ty, *loc);
+                    }
+                    Type::Anon(_) => {
+                        // Not yet resolved, wait for more info.
+                    }
+                    _ => {
+                        errors.push(TypeError {
+                            location: *loc,
+                            message: format!(
+                                "expected array type, got {:?}",
+                                resolved.subst(instance)
+                            ),
+                        });
+                    }
                 }
             }
         }
