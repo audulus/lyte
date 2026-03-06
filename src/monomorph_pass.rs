@@ -160,10 +160,21 @@ impl MonomorphPass {
                             let size_args: Vec<i32> = target_fdecl.size_vars.iter()
                                 .map(|sv| size_bindings.get(sv).copied().unwrap_or(0))
                                 .collect();
+                            // Also infer type arguments if the function has type vars.
+                            let type_args = if !target_fdecl.typevars.is_empty() {
+                                let solved_type = fdecl.types[fn_id];
+                                self.infer_type_arguments(&target_fdecl, solved_type, fdecl)?
+                            } else {
+                                vec![]
+                            };
                             let mangled = self.instantiate_function_with_sizes(
-                                fn_name, vec![], size_args, &target_fdecl, decls,
+                                fn_name, type_args, size_args, &target_fdecl, decls,
                             )?;
                             fdecl.arena.exprs[fn_id] = Expr::Id(mangled);
+                            // Update ALL caller types to substitute the resolved size vars.
+                            for ty in fdecl.types.iter_mut() {
+                                *ty = subst_size_vars(*ty, &size_bindings);
+                            }
                             return Ok(());
                         }
                     }
