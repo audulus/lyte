@@ -875,108 +875,147 @@ impl Checker {
 }
 
 /// Verify that no capturing lambda (one with free variables from the enclosing
-/// function) appears directly in a return expression.  Such a closure would
-/// capture stack addresses that become dangling after the function returns.
+/// function) escapes the function, either directly returned or via a variable.
+/// Such a closure would capture stack addresses that dangle after the frame exits.
 fn check_escape_in_func(func_decl: &FuncDecl, errors: &mut Vec<TypeError>) {
     let Some(body) = func_decl.body else { return; };
     let mut scope: HashSet<String> = func_decl.params.iter()
         .map(|p| p.name.to_string())
         .collect();
-    escape_walk(body, &func_decl.arena, &mut scope, false, errors);
+    let mut tainted: HashSet<String> = HashSet::new();
+    escape_walk(body, &func_decl.arena, &mut scope, &mut tainted, errors);
 }
 
-/// Walk `expr`, tracking `scope` (names in the enclosing function) and
-/// `in_return` (whether we are inside a return expression).
+/// Walk `expr` tracking:
+/// - `scope`: all names declared in the enclosing function (used by lambda capture detection)
+/// - `tainted`: names that are bound to a capturing lambda and must not be returned
 fn escape_walk(
     expr: ExprID,
     arena: &ExprArena,
     scope: &mut HashSet<String>,
-    in_return: bool,
+    tainted: &mut HashSet<String>,
     errors: &mut Vec<TypeError>,
 ) {
     match &arena[expr] {
         Expr::Return(e) => {
-            escape_walk(*e, arena, scope, true, errors);
-        }
-        Expr::Lambda { params, body } => {
-            if in_return {
-                let lambda_params: HashSet<String> = params.iter()
-                    .map(|p| p.name.to_string())
-                    .collect();
-                if lambda_has_captures(*body, arena, &lambda_params, scope) {
-                    errors.push(TypeError {
-                        location: arena.locs[expr],
-                        message: "closure with captured variables cannot be returned \
-                                  (captured addresses would dangle after the frame exits)"
-                            .to_string(),
-                    });
-                }
+            // Walk first so any declarations inside `e` update `tainted`.
+            escape_walk(*e, arena, scope, tainted, errors);
+            if expr_is_tainted(*e, arena, scope, tainted) {
+                errors.push(TypeError {
+                    location: arena.locs[*e],
+                    message: "closure with captured variables cannot be returned \
+                              (captured addresses would dangle after the frame exits)"
+                        .to_string(),
+                });
             }
+        }
+        Expr::Lambda { .. } => {
             // Do not recurse into the lambda body — it is a separate scope.
         }
         Expr::Block(exprs) => {
             let saved = scope.clone();
             for e in exprs {
-                escape_walk(*e, arena, scope, in_return, errors);
+                escape_walk(*e, arena, scope, tainted, errors);
             }
             *scope = saved;
         }
         Expr::Let(name, init, _) => {
-            escape_walk(*init, arena, scope, in_return, errors);
+            escape_walk(*init, arena, scope, tainted, errors);
+            if expr_is_tainted(*init, arena, scope, tainted) {
+                tainted.insert(name.to_string());
+            }
             scope.insert(name.to_string());
         }
         Expr::Var(name, init, _) => {
             if let Some(init_id) = init {
-                escape_walk(*init_id, arena, scope, in_return, errors);
+                escape_walk(*init_id, arena, scope, tainted, errors);
+                if expr_is_tainted(*init_id, arena, scope, tainted) {
+                    tainted.insert(name.to_string());
+                }
             }
             scope.insert(name.to_string());
         }
+        Expr::Assign(lhs, rhs) => {
+            escape_walk(*rhs, arena, scope, tainted, errors);
+            if expr_is_tainted(*rhs, arena, scope, tainted) {
+                tainted.insert(lhs.to_string());
+            } else {
+                tainted.remove(&lhs.to_string());
+            }
+        }
         Expr::If(cond, then, else_) => {
-            escape_walk(*cond, arena, scope, in_return, errors);
-            escape_walk(*then, arena, scope, in_return, errors);
+            escape_walk(*cond, arena, scope, tainted, errors);
+            escape_walk(*then, arena, scope, tainted, errors);
             if let Some(e) = else_ {
-                escape_walk(*e, arena, scope, in_return, errors);
+                escape_walk(*e, arena, scope, tainted, errors);
             }
         }
         Expr::While(cond, body) => {
-            escape_walk(*cond, arena, scope, in_return, errors);
-            escape_walk(*body, arena, scope, in_return, errors);
+            escape_walk(*cond, arena, scope, tainted, errors);
+            escape_walk(*body, arena, scope, tainted, errors);
         }
         Expr::For { start, end, body, .. } => {
-            escape_walk(*start, arena, scope, in_return, errors);
-            escape_walk(*end, arena, scope, in_return, errors);
-            escape_walk(*body, arena, scope, in_return, errors);
+            escape_walk(*start, arena, scope, tainted, errors);
+            escape_walk(*end, arena, scope, tainted, errors);
+            escape_walk(*body, arena, scope, tainted, errors);
         }
         Expr::Call(f, args) => {
-            escape_walk(*f, arena, scope, in_return, errors);
+            escape_walk(*f, arena, scope, tainted, errors);
             for a in args {
-                escape_walk(*a, arena, scope, in_return, errors);
+                escape_walk(*a, arena, scope, tainted, errors);
             }
         }
         Expr::Binop(_, lhs, rhs) => {
-            escape_walk(*lhs, arena, scope, in_return, errors);
-            escape_walk(*rhs, arena, scope, in_return, errors);
+            escape_walk(*lhs, arena, scope, tainted, errors);
+            escape_walk(*rhs, arena, scope, tainted, errors);
         }
-        Expr::Unop(_, arg) => escape_walk(*arg, arena, scope, in_return, errors),
+        Expr::Unop(_, arg) => escape_walk(*arg, arena, scope, tainted, errors),
         Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
-            escape_walk(*e, arena, scope, in_return, errors);
+            escape_walk(*e, arena, scope, tainted, errors);
         }
         Expr::ArrayIndex(arr, idx) | Expr::Array(arr, idx) => {
-            escape_walk(*arr, arena, scope, in_return, errors);
-            escape_walk(*idx, arena, scope, in_return, errors);
+            escape_walk(*arr, arena, scope, tainted, errors);
+            escape_walk(*idx, arena, scope, tainted, errors);
         }
         Expr::ArrayLiteral(elems) | Expr::Tuple(elems) => {
             for e in elems {
-                escape_walk(*e, arena, scope, in_return, errors);
+                escape_walk(*e, arena, scope, tainted, errors);
             }
         }
-        Expr::Assign(_, rhs) => escape_walk(*rhs, arena, scope, in_return, errors),
         Expr::Macro(_, args) => {
             for a in args {
-                escape_walk(*a, arena, scope, in_return, errors);
+                escape_walk(*a, arena, scope, tainted, errors);
             }
         }
         _ => {}
+    }
+}
+
+/// Returns true if `expr` might produce a capturing lambda value:
+/// - a lambda literal whose body references names from `scope` beyond its own params
+/// - an identifier in `tainted` (bound to a capturing lambda earlier)
+/// - a block or if/else whose value branch is tainted
+fn expr_is_tainted(
+    expr: ExprID,
+    arena: &ExprArena,
+    scope: &HashSet<String>,
+    tainted: &HashSet<String>,
+) -> bool {
+    match &arena[expr] {
+        Expr::Lambda { params, body } => {
+            let lambda_params: HashSet<String> = params.iter()
+                .map(|p| p.name.to_string())
+                .collect();
+            lambda_has_captures(*body, arena, &lambda_params, scope)
+        }
+        Expr::Id(name) => tainted.contains(&name.to_string()),
+        Expr::Block(exprs) => exprs.last()
+            .map_or(false, |e| expr_is_tainted(*e, arena, scope, tainted)),
+        Expr::If(_, then, else_) => {
+            expr_is_tainted(*then, arena, scope, tainted)
+                || else_.map_or(false, |e| expr_is_tainted(e, arena, scope, tainted))
+        }
+        _ => false,
     }
 }
 

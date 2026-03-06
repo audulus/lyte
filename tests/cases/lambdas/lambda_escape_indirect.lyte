@@ -1,0 +1,11 @@
+// args: -c
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_escape_indirect.lyte:10:12: closure with captured variables cannot be returned (captured addresses would dangle after the frame exits)
+//         return f
+//                ^
+
+get_fn() → void → i32 {
+    var x = 0
+    var f = (| | x)
+    return f
+}
