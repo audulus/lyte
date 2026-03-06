@@ -862,6 +862,12 @@ fn parse_interface(cx: &mut ParseContext) -> Decl {
 
 fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
     Some(match cx.lex.tok.clone() {
+        Token::Fn => {
+            // Function declaration with optional `fn` keyword.
+            cx.next();
+            let name = expect_id(cx);
+            Decl::Func(parse_func_decl(name, cx))
+        }
         Token::Id(name) => {
             // Function declaration.
             cx.next();
@@ -1175,6 +1181,10 @@ mod tests {
                 "enum x { }",
                 "enum x { a, b, c }",
                 "enum x { a,\nb }",
+                "fn f(){}",
+                "fn f(x: i8) { g(x) }",
+                "fn f(x: i8) -> i8 { g(x) }",
+                "fn f<T>() { }",
                 "macro m() { }",
                 "interface x { }",
                 "interface x { f(x: i8) }",

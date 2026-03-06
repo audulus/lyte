@@ -72,6 +72,7 @@ pub enum Token {
     Typevar,
     Interface,
     Where,
+    Fn,
     Underscore,
     Ampersand,
     Endl,
@@ -194,6 +195,7 @@ impl Lexer {
                 "interface" => Token::Interface,
                 "where" => Token::Where,
                 "as" => Token::As,
+                "fn" => Token::Fn,
                 "_" => Token::Underscore,
                 "for" => Token::For,
                 "in" => Token::In,
@@ -479,6 +481,7 @@ mod tests {
         );
         assert_eq!(tokens(".name"), vec![Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
+        assert_eq!(tokens("fn"), vec![Fn]);
         assert_eq!(tokens("arena"), vec![Arena]);
         assert_eq!(tokens("true"), vec![True]);
         assert_eq!(tokens("false"), vec![False]);
