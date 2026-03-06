@@ -250,6 +250,9 @@ struct FunctionTranslator<'a> {
     /// Output pointer register for functions returning pointer types.
     output_ptr: Option<Reg>,
 
+    /// Local slot where the output pointer is saved (survives across calls).
+    output_ptr_slot: Option<u16>,
+
     /// Tracks if a return has been emitted (so we don't emit epilogue).
     has_returned: bool,
 
@@ -287,6 +290,7 @@ impl<'a> FunctionTranslator<'a> {
             lambda_patches: Vec::new(),
             globals,
             output_ptr: None,
+            output_ptr_slot: None,
             has_returned: false,
             save_regs_offset: 0,
         }
@@ -317,6 +321,15 @@ impl<'a> FunctionTranslator<'a> {
             slot: self.save_regs_offset,
         });
 
+        // Save the output pointer to a local slot so it survives across calls.
+        if let Some(out_reg) = self.output_ptr {
+            let slot = self.alloc_local(8);
+            self.output_ptr_slot = Some(slot);
+            let addr = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst: addr, slot });
+            func.emit(Opcode::Store64 { addr, src: out_reg });
+        }
+
         // Save parameters to local slots so they persist across recursive calls.
         // Registers are shared across all call frames, but locals are per-frame.
         // When returning via pointer, r0 is the output pointer so params start at r1.
@@ -343,8 +356,9 @@ impl<'a> FunctionTranslator<'a> {
             if !self.has_returned {
                 // Return the result.
                 if returns_via_pointer(self.decl.ret) {
-                    // Copy result to output pointer.
-                    let output = self.output_ptr.unwrap();
+                    // Reload output pointer from local slot (r0 may have been
+                    // clobbered by subcalls).
+                    let output = self.reload_output_ptr(func);
                     let size = self.decl.ret.size(self.decls) as u32;
                     func.emit(Opcode::MemCopy {
                         dst: output,
@@ -425,6 +439,16 @@ impl<'a> FunctionTranslator<'a> {
         self.next_slot += slots_needed;
         self.locals_size += slots_needed as u32 * 8;
         slot
+    }
+
+    /// Reload the output pointer from its local slot into a fresh register.
+    fn reload_output_ptr(&mut self, func: &mut VMFunction) -> Reg {
+        let slot = self.output_ptr_slot.expect("output_ptr_slot not set");
+        let addr = self.alloc_reg();
+        func.emit(Opcode::LocalAddr { dst: addr, slot });
+        let ptr = self.alloc_reg();
+        func.emit(Opcode::Load64 { dst: ptr, addr });
+        ptr
     }
 
     /// Get the type of an expression.
@@ -628,8 +652,9 @@ impl<'a> FunctionTranslator<'a> {
                 let ret_ty = self.expr_type(*expr_id);
 
                 if returns_via_pointer(ret_ty) {
-                    // Copy result to output pointer.
-                    let output = self.output_ptr.expect("output_ptr not set for pointer return");
+                    // Reload output pointer from local slot (r0 may have been
+                    // clobbered by subcalls).
+                    let output = self.reload_output_ptr(func);
                     let size = ret_ty.size(self.decls) as u32;
                     func.emit(Opcode::MemCopy {
                         dst: output,

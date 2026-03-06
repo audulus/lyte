@@ -1,7 +1,7 @@
-// args: -c
+// args: -r
 // expected stdout:
-// compilation successful
 // assert(true)
+// vm execution successful
 
 interface Compare<A> {
     cmp(lhs: A, rhs: A) -> i32

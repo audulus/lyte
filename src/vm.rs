@@ -437,6 +437,9 @@ pub struct VM {
 
     /// Base pointer for current frame's locals
     locals_base: usize,
+
+    /// Current function name for debug diagnostics
+    debug_func_name: String,
 }
 
 impl Default for VM {
@@ -456,6 +459,7 @@ impl VM {
             ip: 0,
             current_func: 0,
             locals_base: 0,
+            debug_func_name: String::new(),
         }
     }
 
@@ -516,16 +520,54 @@ impl VM {
     /// Get pointer to locals memory
     #[inline(always)]
     fn local_ptr(&self, slot: u16) -> *const u8 {
+        let offset = self.locals_base + (slot as usize) * 8;
+        debug_assert!(offset < self.locals.len(), "local slot {slot} out of bounds (offset {offset}, locals size {})", self.locals.len());
         unsafe {
-            self.locals.as_ptr().add(self.locals_base + (slot as usize) * 8)
+            self.locals.as_ptr().add(offset)
         }
     }
 
     /// Get mutable pointer to locals memory
     #[inline(always)]
     fn local_ptr_mut(&mut self, slot: u16) -> *mut u8 {
+        let offset = self.locals_base + (slot as usize) * 8;
+        debug_assert!(offset < self.locals.len(), "local slot {slot} out of bounds (offset {offset}, locals size {})", self.locals.len());
         unsafe {
-            self.locals.as_mut_ptr().add(self.locals_base + (slot as usize) * 8)
+            self.locals.as_mut_ptr().add(offset)
+        }
+    }
+
+    /// In debug builds, panic if [ptr, ptr+size) is not within locals or globals.
+    #[inline(always)]
+    fn check_ptr(&self, ptr: u64, size: usize) {
+        #[cfg(debug_assertions)]
+        {
+            let start = ptr as usize;
+            let end = start + size;
+
+            let locals_start = self.locals.as_ptr() as usize;
+            let locals_end = locals_start + self.locals.len();
+
+            let globals_start = self.globals.as_ptr() as usize;
+            let globals_end = globals_start + self.globals.len();
+
+            let heap_start = self.heap.as_ptr() as usize;
+            let heap_end = heap_start + self.heap.len();
+
+            let in_locals = start >= locals_start && end <= locals_end;
+            let in_globals = !self.globals.is_empty() && start >= globals_start && end <= globals_end;
+            let in_heap = !self.heap.is_empty() && start >= heap_start && end <= heap_end;
+
+            if !in_locals && !in_globals && !in_heap {
+                let func = &self.debug_func_name;
+                panic!(
+                    "VM: out-of-bounds memory access at {:#x}, size {size} (ip={}, func={func})\n  \
+                     locals: {locals_start:#x}..{locals_end:#x}\n  \
+                     globals: {globals_start:#x}..{globals_end:#x}\n  \
+                     heap: {heap_start:#x}..{heap_end:#x}",
+                    ptr, self.ip - 1,
+                );
+            }
         }
     }
 
@@ -534,6 +576,7 @@ impl VM {
         self.current_func = program.entry;
         self.ip = 0;
         self.locals_base = 0;
+        self.debug_func_name = program.functions[program.entry as usize].name.clone();
 
         // Clear registers
         self.registers = [0; 256];
@@ -780,21 +823,25 @@ impl VM {
 
                 // Memory comparisons (for structs, tuples, arrays)
                 Opcode::MemEq { dst, a, b, size } => {
-                    let pa = self.get_u64(a) as *const u8;
-                    let pb = self.get_u64(b) as *const u8;
+                    let pa = self.get_u64(a);
+                    let pb = self.get_u64(b);
+                    self.check_ptr(pa, size as usize);
+                    self.check_ptr(pb, size as usize);
                     let eq = unsafe {
-                        std::slice::from_raw_parts(pa, size as usize)
-                            == std::slice::from_raw_parts(pb, size as usize)
+                        std::slice::from_raw_parts(pa as *const u8, size as usize)
+                            == std::slice::from_raw_parts(pb as *const u8, size as usize)
                     };
                     self.set_bool(dst, eq);
                 }
 
                 Opcode::MemNe { dst, a, b, size } => {
-                    let pa = self.get_u64(a) as *const u8;
-                    let pb = self.get_u64(b) as *const u8;
+                    let pa = self.get_u64(a);
+                    let pb = self.get_u64(b);
+                    self.check_ptr(pa, size as usize);
+                    self.check_ptr(pb, size as usize);
                     let ne = unsafe {
-                        std::slice::from_raw_parts(pa, size as usize)
-                            != std::slice::from_raw_parts(pb, size as usize)
+                        std::slice::from_raw_parts(pa as *const u8, size as usize)
+                            != std::slice::from_raw_parts(pb as *const u8, size as usize)
                     };
                     self.set_bool(dst, ne);
                 }
@@ -839,53 +886,63 @@ impl VM {
 
                 // Memory operations
                 Opcode::Load8 { dst, addr } => {
-                    let ptr = self.get_u64(addr) as *const u8;
-                    unsafe { self.set_i64(dst, *ptr as i64); }
+                    let ptr = self.get_u64(addr);
+                    self.check_ptr(ptr, 1);
+                    unsafe { self.set_i64(dst, *(ptr as *const u8) as i64); }
                 }
 
                 Opcode::Load32 { dst, addr } => {
-                    let ptr = self.get_u64(addr) as *const i32;
-                    unsafe { self.set_i64(dst, *ptr as i64); }
+                    let ptr = self.get_u64(addr);
+                    self.check_ptr(ptr, 4);
+                    unsafe { self.set_i64(dst, *(ptr as *const i32) as i64); }
                 }
 
                 Opcode::Load64 { dst, addr } => {
-                    let ptr = self.get_u64(addr) as *const i64;
-                    unsafe { self.set_i64(dst, *ptr); }
+                    let ptr = self.get_u64(addr);
+                    self.check_ptr(ptr, 8);
+                    unsafe { self.set_i64(dst, *(ptr as *const i64)); }
                 }
 
                 Opcode::Load32Off { dst, base, offset } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as *const i32;
-                    unsafe { self.set_i64(dst, *ptr as i64); }
+                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                    self.check_ptr(ptr, 4);
+                    unsafe { self.set_i64(dst, *(ptr as *const i32) as i64); }
                 }
 
                 Opcode::Load64Off { dst, base, offset } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as *const i64;
-                    unsafe { self.set_i64(dst, *ptr); }
+                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                    self.check_ptr(ptr, 8);
+                    unsafe { self.set_i64(dst, *(ptr as *const i64)); }
                 }
 
                 Opcode::Store8 { addr, src } => {
-                    let ptr = self.get_u64(addr) as *mut u8;
-                    unsafe { *ptr = self.get_u64(src) as u8; }
+                    let ptr = self.get_u64(addr);
+                    self.check_ptr(ptr, 1);
+                    unsafe { *(ptr as *mut u8) = self.get_u64(src) as u8; }
                 }
 
                 Opcode::Store32 { addr, src } => {
-                    let ptr = self.get_u64(addr) as *mut i32;
-                    unsafe { *ptr = self.get_i64(src) as i32; }
+                    let ptr = self.get_u64(addr);
+                    self.check_ptr(ptr, 4);
+                    unsafe { *(ptr as *mut i32) = self.get_i64(src) as i32; }
                 }
 
                 Opcode::Store64 { addr, src } => {
-                    let ptr = self.get_u64(addr) as *mut i64;
-                    unsafe { *ptr = self.get_i64(src); }
+                    let ptr = self.get_u64(addr);
+                    self.check_ptr(ptr, 8);
+                    unsafe { *(ptr as *mut i64) = self.get_i64(src); }
                 }
 
                 Opcode::Store32Off { base, offset, src } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as *mut i32;
-                    unsafe { *ptr = self.get_i64(src) as i32; }
+                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                    self.check_ptr(ptr, 4);
+                    unsafe { *(ptr as *mut i32) = self.get_i64(src) as i32; }
                 }
 
                 Opcode::Store64Off { base, offset, src } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as *mut i64;
-                    unsafe { *ptr = self.get_i64(src); }
+                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                    self.check_ptr(ptr, 8);
+                    unsafe { *(ptr as *mut i64) = self.get_i64(src); }
                 }
 
                 Opcode::LocalAddr { dst, slot } => {
@@ -922,6 +979,10 @@ impl VM {
                 }
 
                 Opcode::Call { func, args_start, arg_count } => {
+                    debug_assert!((func as usize) < program.functions.len(),
+                        "VM: call to invalid function index {func} (have {} functions)",
+                        program.functions.len());
+
                     // Save current frame
                     let frame = CallFrame {
                         func_idx: self.current_func,
@@ -947,6 +1008,7 @@ impl VM {
                     let new_func = &program.functions[func as usize];
                     self.current_func = func;
                     self.ip = 0;
+                    self.debug_func_name = new_func.name.clone();
 
                     // Ensure we have enough locals space
                     let needed = self.locals_base + new_func.locals_size as usize;
@@ -957,6 +1019,10 @@ impl VM {
 
                 Opcode::CallIndirect { func_reg, args_start, arg_count } => {
                     let func_idx = self.get_u64(func_reg) as FuncIdx;
+
+                    debug_assert!((func_idx as usize) < program.functions.len(),
+                        "VM: indirect call to invalid function index {func_idx} (have {} functions)",
+                        program.functions.len());
 
                     // Save current frame
                     let frame = CallFrame {
@@ -980,6 +1046,7 @@ impl VM {
                     let current_func = &program.functions[self.current_func as usize];
                     self.locals_base += current_func.locals_size as usize;
 
+                    self.debug_func_name = program.functions[func_idx as usize].name.clone();
                     self.current_func = func_idx;
                     self.ip = 0;
                 }
@@ -992,6 +1059,7 @@ impl VM {
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
+                    self.debug_func_name = program.functions[frame.func_idx as usize].name.clone();
                 }
 
                 Opcode::ReturnReg { src } => {
@@ -1005,6 +1073,7 @@ impl VM {
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
+                    self.debug_func_name = program.functions[frame.func_idx as usize].name.clone();
                 }
 
                 Opcode::AllocLocals { size } => {
@@ -1019,17 +1088,20 @@ impl VM {
                 }
 
                 Opcode::MemCopy { dst, src, size } => {
-                    let dst_ptr = self.get_u64(dst) as *mut u8;
-                    let src_ptr = self.get_u64(src) as *const u8;
+                    let dst_ptr = self.get_u64(dst);
+                    let src_ptr = self.get_u64(src);
+                    self.check_ptr(dst_ptr, size as usize);
+                    self.check_ptr(src_ptr, size as usize);
                     unsafe {
-                        std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, size as usize);
+                        std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size as usize);
                     }
                 }
 
                 Opcode::MemZero { dst, size } => {
-                    let ptr = self.get_u64(dst) as *mut u8;
+                    let ptr = self.get_u64(dst);
+                    self.check_ptr(ptr, size as usize);
                     unsafe {
-                        std::ptr::write_bytes(ptr, 0, size as usize);
+                        std::ptr::write_bytes(ptr as *mut u8, 0, size as usize);
                     }
                 }
 
