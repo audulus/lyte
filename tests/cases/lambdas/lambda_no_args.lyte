@@ -1,0 +1,7 @@
+// args: -c
+// expected stdout:
+// compilation successful
+
+main {
+    var f = | | assert(true)
+}
