@@ -147,6 +147,22 @@ impl Compiler {
         self.decls.decls.len() > builtin_decls().len()
     }
 
+    /// Returns info about each global variable: (name, offset, size, type_string).
+    /// The offset and size are in bytes within the globals buffer.
+    pub fn globals_info(&self) -> Vec<(String, usize, usize, String)> {
+        let mut result = Vec::new();
+        let mut offset: usize = 0;
+        for decl in &self.decls.decls {
+            if let Decl::Global { name, ty } = decl {
+                let size = ty.size(&self.decls) as usize;
+                let type_str = ty.pretty_print();
+                result.push((name.to_string(), offset, size, type_str));
+                offset += size;
+            }
+        }
+        result
+    }
+
     pub fn jit(&self) -> Result<(*const u8, usize), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;

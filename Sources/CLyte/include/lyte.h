@@ -46,6 +46,26 @@ size_t lyte_compiler_get_globals_size(const LyteCompiler* compiler);
 /// Returns true on success.
 bool lyte_compile(LyteCompiler* compiler, const char* source, const char* filename);
 
+/// Get the number of global variables. Available after JIT compilation.
+/// Returns 0 if JIT has not been run.
+size_t lyte_compiler_get_globals_count(const LyteCompiler* compiler);
+
+/// Get the name of a global variable by index.
+/// Returns NULL if index is out of bounds.
+const char* lyte_compiler_get_global_name(const LyteCompiler* compiler, size_t index);
+
+/// Get the byte offset of a global variable within the globals buffer.
+/// Returns 0 if index is out of bounds.
+size_t lyte_compiler_get_global_offset(const LyteCompiler* compiler, size_t index);
+
+/// Get the size in bytes of a global variable.
+/// Returns 0 if index is out of bounds.
+size_t lyte_compiler_get_global_size(const LyteCompiler* compiler, size_t index);
+
+/// Get the type of a global variable as a string in lyte syntax (e.g. "f32", "[i32; 4]").
+/// Returns NULL if index is out of bounds.
+const char* lyte_compiler_get_global_type(const LyteCompiler* compiler, size_t index);
+
 #ifdef __cplusplus
 }
 #endif
