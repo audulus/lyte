@@ -5,15 +5,29 @@ use crate::*;
 pub struct MonomorphKey {
     pub name: Name,
     pub type_args: Vec<TypeID>,
+    /// Integer size arguments (from size_vars), in declaration order.
+    pub size_args: Vec<i32>,
 }
 
 impl MonomorphKey {
     pub fn new(name: Name, type_args: Vec<TypeID>) -> Self {
-        Self { name, type_args }
+        Self { name, type_args, size_args: vec![] }
+    }
+
+    pub fn new_with_sizes(name: Name, type_args: Vec<TypeID>, size_args: Vec<i32>) -> Self {
+        Self { name, type_args, size_args }
     }
 
     pub fn mangled_name(&self) -> Name {
-        crate::mangle::mangle_name(self.name, &self.type_args)
+        let base = crate::mangle::mangle_name(self.name, &self.type_args);
+        if self.size_args.is_empty() {
+            base
+        } else {
+            let suffix: String = self.size_args.iter()
+                .map(|n| format!("${}", n))
+                .collect();
+            Name::new(format!("{}{}", base, suffix))
+        }
     }
 }
 

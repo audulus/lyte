@@ -1,9 +1,16 @@
 // args: -c
 // expected stdout:
 // compilation successful
+// assert(true)
 
-f<N>(a: [i32; N]) {
+sum<N>(a: [i32; N]) -> i32 {
+    var s = 0
+    for i in 0 .. N {
+        s = s + a[i]
+    }
+    return s
 }
 
 main {
+    assert(sum([1,2,3]) == 6)
 }

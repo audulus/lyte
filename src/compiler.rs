@@ -11,6 +11,7 @@ fn builtin_decls() -> Vec<Decl> {
         Decl::Func(FuncDecl {
             name: Name::new("assert".into()),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![Param {
                 name: Name::new("cond".into()),
                 ty: Some(mk_type(Type::Bool)),
@@ -27,6 +28,7 @@ fn builtin_decls() -> Vec<Decl> {
         Decl::Func(FuncDecl {
             name: Name::new("print".into()),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![Param {
                 name: Name::new("value".into()),
                 ty: Some(mk_type(Type::Int32)),

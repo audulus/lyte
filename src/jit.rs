@@ -965,6 +965,7 @@ impl<'a> FunctionTranslator<'a> {
                         let lambda_decl = FuncDecl {
                             name: lambda_name,
                             typevars: vec![],
+                            size_vars: vec![],
                             params: lambda_params,
                             body: Some(*body),
                             ret: rng,

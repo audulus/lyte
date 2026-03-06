@@ -42,6 +42,9 @@ pub struct FuncDecl {
     /// Generic type variables.
     pub typevars: Vec<Name>,
 
+    /// Generic integer size variables (used as array sizes).
+    pub size_vars: Vec<Name>,
+
     /// Function parameters.
     pub params: Vec<Param>,
 
@@ -315,6 +318,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("add"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![
                 Param {
                     name: Name::str("a"),
@@ -348,6 +352,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("id"),
             typevars: vec![Name::str("T")],
+            size_vars: vec![],
             params: vec![Param {
                 name: Name::str("x"),
                 ty: Some(mk_type(Type::Var(Name::str("T")))),
@@ -400,6 +405,7 @@ mod tests {
             funcs: vec![FuncDecl {
                 name: Name::str("cmp"),
                 typevars: vec![],
+                size_vars: vec![],
                 params: vec![
                     Param {
                         name: Name::str("lhs"),
@@ -462,6 +468,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("increment"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![Param {
                 name: Name::str("x"),
                 ty: Some(mk_type(Type::Int32)),

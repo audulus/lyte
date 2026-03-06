@@ -702,6 +702,7 @@ impl<'a> FunctionTranslator<'a> {
                         let lambda_decl = FuncDecl {
                             name: lambda_name,
                             typevars: vec![],
+                            size_vars: vec![],
                             params: lambda_params,
                             body: Some(*body),
                             ret: *rng,
@@ -1737,6 +1738,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("main"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![],
             body: Some(body_id),
             ret: ret_ty,
@@ -1758,6 +1760,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("main"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![],
             body: Some(expr),
             ret: mk_type(Type::Int32),
@@ -1789,6 +1792,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("main"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![],
             body: Some(add),
             ret: int32,
@@ -1820,6 +1824,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("main"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![],
             body: Some(mul),
             ret: f32_ty,
@@ -1856,6 +1861,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("main"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![],
             body: Some(if_expr),
             ret: int32,
@@ -1894,6 +1900,7 @@ mod tests {
         let func = FuncDecl {
             name: Name::str("main"),
             typevars: vec![],
+            size_vars: vec![],
             params: vec![],
             body: Some(block),
             ret: int32,

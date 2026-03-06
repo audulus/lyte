@@ -142,8 +142,34 @@ impl MonomorphPass {
                     self.process_expr(*arg_id, fdecl, decls)?;
                 }
 
-                // Process the function expression (which handles Id rewriting)
                 let fn_id = *fn_id;
+
+                // Check if this is a call to a size-var generic function.
+                // We handle it here because we need the solved argument types.
+                if let Expr::Id(fn_name) = fdecl.arena[fn_id].clone() {
+                    let fn_decls = decls.find(fn_name);
+                    let size_var_func = fn_decls.iter().find_map(|d| {
+                        if let Decl::Func(f) = d {
+                            if !f.size_vars.is_empty() { Some(f.clone()) } else { None }
+                        } else { None }
+                    });
+                    if let Some(target_fdecl) = size_var_func {
+                        // Infer size bindings from argument types vs generic param types.
+                        let size_bindings = infer_size_bindings(&target_fdecl, &arg_ids, fdecl);
+                        if !size_bindings.is_empty() {
+                            let size_args: Vec<i32> = target_fdecl.size_vars.iter()
+                                .map(|sv| size_bindings.get(sv).copied().unwrap_or(0))
+                                .collect();
+                            let mangled = self.instantiate_function_with_sizes(
+                                fn_name, vec![], size_args, &target_fdecl, decls,
+                            )?;
+                            fdecl.arena.exprs[fn_id] = Expr::Id(mangled);
+                            return Ok(());
+                        }
+                    }
+                }
+
+                // Process the function expression (which handles Id rewriting for type-var generics)
                 self.process_expr(fn_id, fdecl, decls)?;
             }
             Expr::Binop(_, lhs, rhs) => {
@@ -192,13 +218,38 @@ impl MonomorphPass {
             Expr::Lambda { body, .. } => {
                 self.process_expr(*body, fdecl, decls)?;
             }
-            // Leaf expressions (note: Id is handled separately above)
+            Expr::Return(inner) => {
+                self.process_expr(*inner, fdecl, decls)?;
+            }
+            Expr::For { start, end, body, .. } => {
+                let (start, end, body) = (*start, *end, *body);
+                self.process_expr(start, fdecl, decls)?;
+                self.process_expr(end, fdecl, decls)?;
+                self.process_expr(body, fdecl, decls)?;
+            }
+            Expr::Assign(_, rhs) => {
+                self.process_expr(*rhs, fdecl, decls)?;
+            }
+            Expr::AsTy(inner, _) => {
+                self.process_expr(*inner, fdecl, decls)?;
+            }
+            Expr::Tuple(elems) => {
+                for e in elems.clone() {
+                    self.process_expr(e, fdecl, decls)?;
+                }
+            }
+            Expr::Arena(inner) => {
+                self.process_expr(*inner, fdecl, decls)?;
+            }
+            Expr::Array(val, sz) => {
+                let (val, sz) = (*val, *sz);
+                self.process_expr(val, fdecl, decls)?;
+                self.process_expr(sz, fdecl, decls)?;
+            }
+            // True leaves
             Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) |
             Expr::String(_) | Expr::Char(_) | Expr::True | Expr::False |
-            Expr::Return(_) | Expr::Enum(_) | Expr::Error | Expr::Cast |
-            Expr::Tuple(_) | Expr::Arena(_) | Expr::Array(_, _) |
-            Expr::AsTy(_, _) | Expr::Assign(_, _) | Expr::Macro(_, _) |
-            Expr::For { .. } => {}
+            Expr::Enum(_) | Expr::Error | Expr::Cast | Expr::Macro(_, _) => {}
         }
         Ok(())
     }
@@ -254,7 +305,7 @@ impl MonomorphPass {
         }
     }
 
-    /// Create a specialized version of a generic function
+    /// Create a specialized version of a generic function (type vars only).
     fn instantiate_function(
         &mut self,
         name: Name,
@@ -262,7 +313,19 @@ impl MonomorphPass {
         generic_fdecl: &FuncDecl,
         decls: &DeclTable,
     ) -> Result<Name, String> {
-        let key = MonomorphKey::new(name, type_args.clone());
+        self.instantiate_function_with_sizes(name, type_args, vec![], generic_fdecl, decls)
+    }
+
+    /// Create a specialized version of a generic function with both type and size args.
+    fn instantiate_function_with_sizes(
+        &mut self,
+        name: Name,
+        type_args: Vec<TypeID>,
+        size_args: Vec<i32>,
+        generic_fdecl: &FuncDecl,
+        decls: &DeclTable,
+    ) -> Result<Name, String> {
+        let key = MonomorphKey::new_with_sizes(name, type_args.clone(), size_args.clone());
 
         // Check if already instantiated
         if let Some(mangled) = self.instantiations.get(&key) {
@@ -283,24 +346,36 @@ impl MonomorphPass {
             instance.insert(type_var, *type_arg);
         }
 
+        // Create size substitution map: Name -> i32
+        let size_bindings: HashMap<Name, i32> = generic_fdecl.size_vars.iter()
+            .zip(size_args.iter())
+            .map(|(sv, &n)| (*sv, n))
+            .collect();
+
         // Clone and specialize the function declaration
         let mut specialized = generic_fdecl.clone();
         specialized.name = mangled_name;
-        specialized.typevars = Vec::new(); // No longer generic
+        specialized.typevars = Vec::new();
+        specialized.size_vars = Vec::new(); // No longer generic
 
-        // Substitute types in return type
-        specialized.ret = specialized.ret.subst(&instance);
+        // Substitute types in return type (type vars + size vars in array sizes)
+        specialized.ret = subst_size_vars(specialized.ret.subst(&instance), &size_bindings);
 
         // Substitute types in parameters
         for param in &mut specialized.params {
             if let Some(ref mut ty) = param.ty {
-                *ty = ty.subst(&instance);
+                *ty = subst_size_vars(ty.subst(&instance), &size_bindings);
             }
         }
 
         // Substitute types in the body's type map
         for ty in specialized.types.iter_mut() {
-            *ty = ty.subst(&instance);
+            *ty = subst_size_vars(ty.subst(&instance), &size_bindings);
+        }
+
+        // Substitute size vars in the body expressions (e.g. Expr::Id("N") → Expr::Int(3))
+        if !size_bindings.is_empty() {
+            substitute_size_var_exprs(&mut specialized.arena, &size_bindings);
         }
 
         // Record the instantiation
@@ -333,6 +408,72 @@ impl MonomorphPass {
     }
 }
 
+/// Substitute `ArraySize::Var(N)` → `Known(n)` in a type using the size bindings.
+fn subst_size_vars(ty: TypeID, bindings: &HashMap<Name, i32>) -> TypeID {
+    match &*ty {
+        Type::Array(elem, ArraySize::Var(name)) => {
+            let elem2 = subst_size_vars(*elem, bindings);
+            let size = bindings.get(name).copied()
+                .map(ArraySize::Known)
+                .unwrap_or_else(|| ArraySize::Var(*name));
+            mk_type(Type::Array(elem2, size))
+        }
+        Type::Array(elem, sz) => mk_type(Type::Array(subst_size_vars(*elem, bindings), sz.clone())),
+        Type::Tuple(vs) => mk_type(Type::Tuple(vs.iter().map(|t| subst_size_vars(*t, bindings)).collect())),
+        Type::Func(a, b) => mk_type(Type::Func(subst_size_vars(*a, bindings), subst_size_vars(*b, bindings))),
+        Type::Name(n, ps) => mk_type(Type::Name(*n, ps.iter().map(|t| subst_size_vars(*t, bindings)).collect())),
+        _ => ty,
+    }
+}
+
+/// Replace `Expr::Id(N)` with `Expr::Int(n)` for each size var binding, across all arena slots.
+fn substitute_size_var_exprs(arena: &mut ExprArena, bindings: &HashMap<Name, i32>) {
+    for slot in arena.exprs.iter_mut() {
+        if let Expr::Id(name) = slot {
+            if let Some(&val) = bindings.get(name) {
+                *slot = Expr::Int(val as i64);
+            }
+        }
+    }
+}
+
+/// Walk a type pair (generic param type vs concrete arg type) to extract size var bindings.
+fn infer_size_bindings_pair(generic: TypeID, concrete: TypeID, out: &mut HashMap<Name, i32>) {
+    match (&*generic, &*concrete) {
+        (Type::Array(ge, ArraySize::Var(name)), Type::Array(ce, ArraySize::Known(n))) if *n != 0 => {
+            out.insert(*name, *n);
+            infer_size_bindings_pair(*ge, *ce, out);
+        }
+        (Type::Array(ge, _), Type::Array(ce, _)) => infer_size_bindings_pair(*ge, *ce, out),
+        (Type::Tuple(gs), Type::Tuple(cs)) => {
+            for (g, c) in gs.iter().zip(cs.iter()) {
+                infer_size_bindings_pair(*g, *c, out);
+            }
+        }
+        (Type::Func(ga, gb), Type::Func(ca, cb)) => {
+            infer_size_bindings_pair(*ga, *ca, out);
+            infer_size_bindings_pair(*gb, *cb, out);
+        }
+        _ => {}
+    }
+}
+
+/// Infer size var bindings for a call to `target` given the solved types of the argument expressions.
+fn infer_size_bindings(
+    target: &FuncDecl,
+    arg_ids: &[ExprID],
+    caller: &FuncDecl,
+) -> HashMap<Name, i32> {
+    let mut out = HashMap::new();
+    for (param, &arg_id) in target.params.iter().zip(arg_ids.iter()) {
+        if let Some(param_ty) = param.ty {
+            let concrete_ty = caller.types[arg_id];
+            infer_size_bindings_pair(param_ty, concrete_ty, &mut out);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +485,7 @@ mod tests {
         FuncDecl {
             name: Name::str(name),
             typevars: typevars.iter().map(|s| Name::str(s)).collect(),
+            size_vars: vec![],
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Void),
@@ -534,6 +676,7 @@ mod tests {
         let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
+            size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Void),
@@ -561,6 +704,7 @@ mod tests {
         let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
+            size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Void),
@@ -588,6 +732,7 @@ mod tests {
         let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
+            size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Void),
@@ -848,6 +993,7 @@ mod tests {
         let mut fdecl = FuncDecl {
             name: Name::str("test"),
             typevars: Vec::new(),
+            size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Void),
@@ -874,6 +1020,7 @@ mod tests {
         let entry_func = FuncDecl {
             name: Name::str("main"),
             typevars: Vec::new(),
+            size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: mk_type(Type::Int32),
@@ -908,6 +1055,7 @@ mod tests {
         let id_func = FuncDecl {
             name: Name::str("id"),
             typevars: vec![Name::str("T")],
+            size_vars: vec![],
             params: vec![Param {
                 name: Name::str("x"),
                 ty: Some(t_var),
@@ -934,6 +1082,7 @@ mod tests {
         let main_func = FuncDecl {
             name: Name::str("main"),
             typevars: Vec::new(),
+            size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
             ret: i32_type,

@@ -727,6 +727,15 @@ impl Checker {
                 });
             }
 
+            // Size variables are available as i32 values in the body.
+            for &sv in &func_decl.size_vars {
+                self.vars.push(Var {
+                    name: sv,
+                    ty: mk_type(Type::Int32),
+                    mutable: false,
+                });
+            }
+
             // Add interface functions to available functions.
             for constraint in &func_decl.constraints {
                 if let Some(Decl::Interface(interface)) =

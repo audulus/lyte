@@ -772,20 +772,40 @@ fn token_in(tok: &Token, set: &[Token]) -> bool {
     set.iter().any(|x| x == tok)
 }
 
+/// Collect all size-variable names from a type by scanning for ArraySize::Var.
+fn collect_size_vars_in_type(ty: TypeID, out: &mut Vec<Name>) {
+    match &*ty {
+        Type::Array(elem, ArraySize::Var(name)) => {
+            if !out.contains(name) {
+                out.push(*name);
+            }
+            collect_size_vars_in_type(*elem, out);
+        }
+        Type::Array(elem, _) => collect_size_vars_in_type(*elem, out),
+        Type::Tuple(vs) => vs.iter().for_each(|t| collect_size_vars_in_type(*t, out)),
+        Type::Func(a, b) => {
+            collect_size_vars_in_type(*a, out);
+            collect_size_vars_in_type(*b, out);
+        }
+        Type::Name(_, ps) => ps.iter().for_each(|t| collect_size_vars_in_type(*t, out)),
+        _ => {}
+    }
+}
+
 fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
     let mut params = vec![];
-    let mut typevars = vec![];
+    let mut all_vars = vec![];
     let mut constraints = vec![];
     let loc = cx.lex.loc;
     let mut arena = ExprArena::new();
 
     if cx.lex.tok == Token::Less {
-        typevars = parse_typevar_list(cx);
+        all_vars = parse_typevar_list(cx);
     }
 
     if cx.lex.tok == Token::Lparen {
         expect(Token::Lparen, cx);
-        params = parse_paramlist(&typevars, cx);
+        params = parse_paramlist(&all_vars, cx);
         expect(Token::Rparen, cx);
     }
 
@@ -794,7 +814,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
     let mut ret = mk_type(Type::Void);
     if cx.lex.tok == Token::Arrow {
         cx.next();
-        ret = parse_type(&typevars, cx);
+        ret = parse_type(&all_vars, cx);
     }
 
     skip_newlines(cx.lex);
@@ -812,9 +832,19 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
         }
     }
 
+    // Separate size vars (used as array sizes) from type vars.
+    let mut size_vars: Vec<Name> = vec![];
+    for param in &params {
+        if let Some(ty) = param.ty {
+            collect_size_vars_in_type(ty, &mut size_vars);
+        }
+    }
+    collect_size_vars_in_type(ret, &mut size_vars);
+    let typevars: Vec<Name> = all_vars.iter().filter(|n| !size_vars.contains(n)).cloned().collect();
+
     let mut body = None;
     if cx.lex.tok == Token::Lbrace {
-        body = Some(parse_block(&mut arena, &typevars, cx));
+        body = Some(parse_block(&mut arena, &all_vars, cx));
     }
 
     skip_newlines(cx.lex);
@@ -822,6 +852,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
     FuncDecl {
         name,
         typevars,
+        size_vars,
         params,
         body,
         ret,
