@@ -1,0 +1,16 @@
+// args: -c
+// expected stdout:
+// compilation successful
+
+call(f: i32 → i32) {
+    f(0)
+}
+
+call_void(f: void → void) {
+    f()
+}
+
+main {
+    // var x = 0
+    // f(|| x+=1 )
+}

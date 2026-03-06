@@ -161,8 +161,10 @@ fn parse_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
         cx.next();
         let rhs = parse_basic_type(typevars, cx);
 
-        // Ensure we're always calling with a tuple.
-        if let Type::Tuple(_) = *lhs {
+        // Ensure we're always calling with a tuple; void means no args (empty tuple).
+        if let Type::Void = *lhs {
+            lhs = mk_type(Type::Func(mk_type(Type::Tuple(vec![])), rhs));
+        } else if let Type::Tuple(_) = *lhs {
             lhs = mk_type(Type::Func(lhs, rhs));
         } else {
             let args = mk_type(Type::Tuple(vec![lhs]));
