@@ -1,0 +1,14 @@
+// args: -c
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_type_error.lyte:13:5: no solution for Func(Tuple([Func(Tuple([]), Void)]), Void) == Func(Tuple([Func(Tuple([]), Int32)]), Void)
+//         call_void(| | x = 1 )
+//         ^
+
+call_void(f: void → void) {
+    f()
+}
+
+main {
+    var x = 0
+    call_void(| | x = 1 )
+}

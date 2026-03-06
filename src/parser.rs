@@ -405,6 +405,7 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
     loop {
         match cx.lex.tok {
             Token::Lparen => {
+                let call_loc = arena.locs[e];
                 cx.next();
                 let args = if cx.lex.tok != Token::Rparen {
                     let args = parse_exprlist(arena, typevars, cx);
@@ -414,7 +415,7 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                     cx.next();
                     vec![]
                 };
-                e = arena.add(Expr::Call(e, args), cx.lex.loc);
+                e = arena.add(Expr::Call(e, args), call_loc);
             }
             Token::Colon => {
                 cx.next();
