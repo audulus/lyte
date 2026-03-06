@@ -10,6 +10,9 @@ use crate::types::*;
 use crate::vm::*;
 use crate::DeclTable;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static LAMBDA_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// A call that needs to be patched with the correct function index.
 #[derive(Clone, Debug)]
@@ -140,13 +143,35 @@ impl VMCodegen {
         self.func_indices.insert(decl.name, idx);
         self.compiled_functions.insert(decl.name);
 
-        // Collect pending calls from the translator.
-        for call in translator.calls_to_patch {
+        // Extract data from translator before it's dropped (it borrows self.pending_functions).
+        let calls_to_patch = std::mem::take(&mut translator.calls_to_patch);
+        let pending_lambdas = std::mem::take(&mut translator.pending_lambdas);
+        let lambda_patches = std::mem::take(&mut translator.lambda_patches);
+        drop(translator);
+
+        // Collect pending calls.
+        for call in calls_to_patch {
             self.pending_calls.push(PendingCall {
                 func_idx: idx,
                 instr_idx: call.instr_idx,
                 callee: call.callee,
             });
+        }
+
+        // Compile lambda functions and patch their indices into the parent function.
+        for lambda_decl in pending_lambdas {
+            let lambda_name = lambda_decl.name;
+            let lambda_idx = self.compile_function(&lambda_decl, decls)?;
+            // Patch every LoadImm placeholder for this lambda.
+            for &(instr_idx, patch_name) in &lambda_patches {
+                if patch_name == lambda_name {
+                    if let Opcode::LoadImm { ref mut value, .. } =
+                        self.program.functions[idx as usize].code[instr_idx]
+                    {
+                        *value = lambda_idx as i64;
+                    }
+                }
+            }
         }
 
         Ok(idx)
@@ -209,6 +234,12 @@ struct FunctionTranslator<'a> {
     /// Calls that need patching.
     calls_to_patch: Vec<CallToPatch>,
 
+    /// Lambda FuncDecls extracted from this function body, to be compiled afterward.
+    pending_lambdas: Vec<FuncDecl>,
+
+    /// LoadImm instructions that need to be patched with lambda function indices.
+    lambda_patches: Vec<(usize, Name)>,
+
     /// Global variable offsets.
     globals: &'a HashMap<Name, i32>,
 
@@ -246,6 +277,8 @@ impl<'a> FunctionTranslator<'a> {
             called_functions: HashMap::new(),
             next_func_idx: 0,
             calls_to_patch: Vec::new(),
+            pending_lambdas: Vec::new(),
+            lambda_patches: Vec::new(),
             globals,
             output_ptr: None,
             has_returned: false,
@@ -646,6 +679,46 @@ impl<'a> FunctionTranslator<'a> {
                 value_reg
             }
 
+            Expr::Lambda { params, body } => {
+                let lambda_ty = self.expr_type(expr);
+                if let Type::Func(dom, rng) = &*lambda_ty {
+                    if let Type::Tuple(param_types) = &**dom {
+                        let id = LAMBDA_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        let lambda_name = Name::new(format!("__lambda_{}", id));
+
+                        let lambda_params: Vec<Param> = params
+                            .iter()
+                            .zip(param_types.iter())
+                            .map(|(p, ty)| Param { name: p.name, ty: Some(*ty) })
+                            .collect();
+
+                        let lambda_decl = FuncDecl {
+                            name: lambda_name,
+                            typevars: vec![],
+                            params: lambda_params,
+                            body: Some(*body),
+                            ret: *rng,
+                            constraints: vec![],
+                            loc: self.decl.loc,
+                            arena: self.decl.arena.clone(),
+                            types: self.decl.types.clone(),
+                        };
+
+                        self.pending_lambdas.push(lambda_decl);
+
+                        // Emit a placeholder; patched with the actual FuncIdx after compilation.
+                        let dst = self.alloc_reg();
+                        let instr_idx = func.emit(Opcode::LoadImm { dst, value: 0 });
+                        self.lambda_patches.push((instr_idx, lambda_name));
+                        dst
+                    } else {
+                        panic!("lambda domain should be a tuple type");
+                    }
+                } else {
+                    panic!("lambda expression should have function type");
+                }
+            }
+
             _ => {
                 // Unimplemented expression - return 0.
                 let dst = self.alloc_reg();
@@ -994,6 +1067,40 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
+        // If fn_id is a local variable (lambda or function pointer), use CallIndirect.
+        let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
+            self.variables.contains_key(name)
+        } else {
+            false
+        };
+
+        if is_local_var {
+            let fn_reg = self.translate_expr(fn_id, func);
+
+            let mut arg_values = Vec::new();
+            for arg_id in arg_ids {
+                arg_values.push(self.translate_expr(*arg_id, func));
+            }
+
+            let args_start = self.next_reg;
+            for (i, &arg_reg) in arg_values.iter().enumerate() {
+                let target = args_start + i as u8;
+                let _ = self.alloc_reg();
+                if arg_reg != target {
+                    func.emit(Opcode::Move { dst: target, src: arg_reg });
+                }
+            }
+
+            func.emit(Opcode::CallIndirect {
+                func_reg: fn_reg,
+                args_start,
+                arg_count: arg_ids.len() as u8,
+            });
+            let result_reg = self.alloc_reg();
+            func.emit(Opcode::Move { dst: result_reg, src: 0 });
+            return result_reg;
+        }
+
         // Special handling for built-in functions.
         if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
             if **name == "print" {
@@ -1109,13 +1216,21 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(Opcode::Move { dst: result_reg, src: 0 });
             result_reg
         } else {
-            // Indirect call.
+            // Indirect call via expression (e.g. lambda literal in call position).
             let fn_reg = self.translate_expr(fn_id, func);
 
-            // Evaluate arguments.
-            let args_start = self.next_reg;
+            let mut arg_values = Vec::new();
             for arg_id in arg_ids {
-                self.translate_expr(*arg_id, func);
+                arg_values.push(self.translate_expr(*arg_id, func));
+            }
+
+            let args_start = self.next_reg;
+            for (i, &arg_reg) in arg_values.iter().enumerate() {
+                let target = args_start + i as u8;
+                let _ = self.alloc_reg();
+                if arg_reg != target {
+                    func.emit(Opcode::Move { dst: target, src: arg_reg });
+                }
             }
 
             func.emit(Opcode::CallIndirect {
@@ -1124,7 +1239,6 @@ impl<'a> FunctionTranslator<'a> {
                 arg_count: arg_ids.len() as u8,
             });
 
-            // Move result to a fresh register.
             let result_reg = self.alloc_reg();
             func.emit(Opcode::Move { dst: result_reg, src: 0 });
             result_reg
