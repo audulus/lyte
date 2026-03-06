@@ -1,6 +1,7 @@
 // args: -c
 // expected stdout:
 // compilation successful
+// assert(true)
 
 call(f: i32 → i32) {
     f(0)
@@ -11,6 +12,6 @@ call_void(f: void → void) {
 }
 
 main {
-    // var x = 0
-    // f(|| x+=1 )
+    var x = 0
+    call_void(| | assert(true) )
 }
