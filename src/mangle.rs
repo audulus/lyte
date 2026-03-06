@@ -68,6 +68,10 @@ fn type_to_string(ty: TypeID) -> String {
             format!("T{}", name)
         }
 
+        Type::Slice(elem_ty) => {
+            format!("[{}]", type_to_string(*elem_ty))
+        }
+
         Type::Anon(idx) => {
             format!("#{}", idx)
         }

@@ -131,7 +131,7 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
                 }
             } else {
                 expect(Token::Rbracket, cx);
-                Type::Array(r, ArraySize::Known(0))
+                Type::Slice(r)
             }
         }
         Token::Id(name) => {
@@ -1045,12 +1045,12 @@ mod tests {
         test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
         test_type("typevar T", typevar("T"));
-        test_type("[i32]", mk_type(Type::Array(int32, ArraySize::Known(0))));
+        test_type("[i32]", mk_type(Type::Slice(int32)));
         test_type("[i32; 4]", mk_type(Type::Array(int32, ArraySize::Known(4))));
         test_type("i8 -> i8", func);
         test_type("(i32)", int32);
         test_type("(i8 -> i8)", func);
-        test_type("[i8 -> i8]", mk_type(Type::Array(func, ArraySize::Known(0))));
+        test_type("[i8 -> i8]", mk_type(Type::Slice(func)));
     }
 
     fn parse_fn<T: std::fmt::Debug>(

@@ -87,8 +87,7 @@ pub enum Constraint {
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
 
-    /// Array element: constrains that the first type is an array with element type equal to the second.
-    /// Unlike Equal with Array(_, Known(0)), this doesn't introduce a wildcard size.
+    /// Array element: constrains that the first type is an array (or slice) with element type equal to the second.
     ArrayOf(TypeID, TypeID, Loc),
 }
 
@@ -253,7 +252,7 @@ pub fn iterate_solver(
                             });
                         }
                     }
-                    Type::Array(_, _) => {
+                    Type::Array(_, _) | Type::Slice(_) => {
                         if *field_name == Name::new("len".into()) {
                             *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc);
                         } else {
@@ -269,7 +268,7 @@ pub fn iterate_solver(
             Constraint::ArrayOf(arr_ty, elem_ty, loc) => {
                 let resolved = find(*arr_ty, instance);
                 match &*resolved {
-                    Type::Array(a, _) => {
+                    Type::Array(a, _) | Type::Slice(a) => {
                         *constraint = Constraint::Equal(*a, *elem_ty, *loc);
                     }
                     Type::Anon(_) => {

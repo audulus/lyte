@@ -67,6 +67,10 @@ pub enum Type {
     /// Array of fixed size.
     Array(TypeID, ArraySize),
 
+    /// Slice: a reference to an array, represented as a fat pointer {data_ptr, len}.
+    /// Only valid as a function parameter type.
+    Slice(TypeID),
+
     /// A named type which may include type parameters.
     Name(Name, Vec<TypeID>),
 }
@@ -90,6 +94,7 @@ impl TypeID {
                 mk_type(Type::Tuple(vv))
             }
             Type::Array(a, sz) => mk_type(Type::Array(a.fresh_aux(index, inst), sz.clone())),
+            Type::Slice(a) => mk_type(Type::Slice(a.fresh_aux(index, inst))),
             Type::Var(_) => *inst.entry(self).or_insert_with(|| {
                 let t = mk_type(Type::Anon(*index));
                 *index += 1;
@@ -126,6 +131,7 @@ impl TypeID {
             Type::Tuple(v) => mk_type(Type::Tuple(v.iter().map(|t| t.subst(inst)).collect())),
             Type::Func(a, b) => mk_type(Type::Func(a.subst(inst), b.subst(inst))),
             Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), n.clone())),
+            Type::Slice(a) => mk_type(Type::Slice(a.subst(inst))),
             Type::Anon(_) => find(t, inst),
             Type::Name(name, vars) => mk_type(Type::Name(
                 *name,
@@ -140,7 +146,7 @@ impl TypeID {
         match &*self {
             Type::Tuple(v) => v.iter().all(|t| t.solved()),
             Type::Func(a, b) => a.solved() && b.solved(),
-            Type::Array(a, _) => a.solved(),
+            Type::Array(a, _) | Type::Slice(a) => a.solved(),
             Type::Var(_) => true,
             Type::Anon(_) => false,
             _ => true,
@@ -153,7 +159,7 @@ impl TypeID {
         match &*tt {
             Type::Tuple(v) => v.iter().all(|t| t.solved_inst(inst)),
             Type::Func(a, b) => a.solved_inst(inst) && b.solved_inst(inst),
-            Type::Array(a, _) => a.solved_inst(inst),
+            Type::Array(a, _) | Type::Slice(a) => a.solved_inst(inst),
             Type::Var(_) => true,
             Type::Anon(_) => false,
             _ => true,
@@ -167,6 +173,7 @@ impl TypeID {
                 v.iter().for_each(|t| t.typevars(f));
             }
             Type::Array(a, _sz) => a.typevars(f),
+            Type::Slice(a) => a.typevars(f),
             Type::Func(dom, rng) => {
                 dom.typevars(f);
                 rng.typevars(f);
@@ -204,6 +211,7 @@ impl TypeID {
                 }
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),
+            Type::Slice(_) => 12, // fat pointer: data_ptr (8) + len (4)
             Type::Func(_, _) => 8,
             Type::Anon(i) => panic!("asked for size of anonymous type variable {}", i),
             Type::Var(name) => panic!("asked for size of type variable {}", name),
@@ -248,7 +256,7 @@ impl TypeID {
             Type::Func(dom, rng) => {
                 format!("{} → {}", dom.pretty_print(), rng.pretty_print())
             }
-            Type::Array(elem, ArraySize::Known(0)) => format!("[{}]", elem.pretty_print()),
+            Type::Slice(elem) => format!("[{}]", elem.pretty_print()),
             Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),
             Type::Name(name, params) => {
                 if params.is_empty() {
@@ -386,13 +394,15 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                 }
             }
             (Type::Array(a, sa), Type::Array(b, sb)) => {
-                // Size 0 means "unknown size" ([T] without a bound), which unifies with any size.
-                // Size variables also unify with any size.
                 let sizes_ok = match (sa, sb) {
                     (ArraySize::Var(_), _) | (_, ArraySize::Var(_)) => true,
-                    (ArraySize::Known(a), ArraySize::Known(b)) => *a == *b || *a == 0 || *b == 0,
+                    (ArraySize::Known(a), ArraySize::Known(b)) => *a == *b,
                 };
                 sizes_ok && unify(*a, *b, inst)
+            }
+            (Type::Slice(a), Type::Slice(b)) => unify(*a, *b, inst),
+            (Type::Slice(a), Type::Array(b, _)) | (Type::Array(b, _), Type::Slice(a)) => {
+                unify(*a, *b, inst)
             }
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             _ => false,
@@ -511,8 +521,8 @@ mod tests {
         {
             let mut inst = Instance::new();
             assert!(unify(
-                mk_type(Type::Array(var, ArraySize::Known(0))),
-                mk_type(Type::Array(var2, ArraySize::Known(0))),
+                mk_type(Type::Slice(var)),
+                mk_type(Type::Slice(var2)),
                 &mut inst
             ));
         }

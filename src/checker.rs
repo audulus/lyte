@@ -60,7 +60,7 @@ pub struct Checker {
 /// For function types, only the return type is checked (slice parameters are fine).
 fn type_contains_bad_slice(ty: TypeID) -> bool {
     match &*ty {
-        Type::Array(_, ArraySize::Known(0)) => true,
+        Type::Slice(_) => true,
         Type::Array(elem, _) => type_contains_bad_slice(*elem),
         Type::Tuple(types) => types.iter().any(|t| type_contains_bad_slice(*t)),
         Type::Func(_, ret) => type_contains_bad_slice(*ret),
