@@ -1,5 +1,5 @@
 // expected stdout:
-// ❌ ../tests/cases/bad_assign.lyte:8:6: no solution for Int32 == Float32
+// ❌ ../tests/cases/bad_assign.lyte:8:6: no solution for i32 == f32
 //        x = 42.0
 //          ^
 

@@ -285,6 +285,12 @@ impl Deref for TypeID {
     }
 }
 
+impl fmt::Display for TypeID {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pretty_print())
+    }
+}
+
 impl fmt::Debug for TypeID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", *self.0)
@@ -458,7 +464,7 @@ impl Interface {
                 errors.push(TypeError {
                     location: loc,
                     message: format!(
-                        "function {:?} for interface {:?} is required",
+                        "function {} for interface {} is required",
                         func.name, self.name
                     ),
                 });

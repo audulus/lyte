@@ -202,7 +202,7 @@ impl Checker {
                     func(argt, r),
                     ft,
                     arena.locs[id],
-                    &format!("no match for unary negation on {:?}", argt),
+                    &format!("no match for unary negation on {}", argt),
                 );
 
                 r
@@ -238,7 +238,7 @@ impl Checker {
                 bt,
                 arena.locs[id],
                 &format!(
-                    "equality operator requres equal types, got {:?} and {:?}",
+                    "equality operator requres equal types, got {} and {}",
                     at, bt
                 ),
             );
@@ -257,7 +257,7 @@ impl Checker {
                 bt,
                 arena.locs[id],
                 &format!(
-                    "assignment operator requres equal types, got {:?} and {:?}",
+                    "assignment operator requres equal types, got {} and {}",
                     at, bt
                 ),
             );
@@ -294,7 +294,7 @@ impl Checker {
                 func(tuple(vec![at, bt]), r),
                 ft,
                 arena.locs[id],
-                &format!("no match for arithemtic between {:?} and {:?}", at, bt),
+                &format!("no match for arithemtic between {} and {}", at, bt),
             );
 
             r
@@ -318,7 +318,7 @@ impl Checker {
                 func(tuple(vec![at, bt]), b),
                 ft,
                 arena.locs[id],
-                &format!("no match for relational between {:?} and {:?}", at, bt),
+                &format!("no match for relational between {} and {}", at, bt),
             );
 
             b
@@ -369,7 +369,7 @@ impl Checker {
                     if alts.is_empty() {
                         self.errors.push(TypeError {
                             location: arena.locs[id],
-                            message: format!("undeclared identifier: {:?}", *name),
+                            message: format!("undeclared identifier: {}", *name),
                         });
                     }
 
@@ -398,7 +398,7 @@ impl Checker {
                     func(et, *ty),
                     ft,
                     arena.locs[id],
-                    &format!("no match for cast between {:?} and {:?}", et, ty),
+                    &format!("no match for cast between {} and {}", et, ty),
                 );
 
                 *ty
@@ -452,7 +452,7 @@ impl Checker {
                 if !found {
                     self.errors.push(TypeError {
                         location: arena.locs[id],
-                        message: format!("unknown macro: {:?}", *name),
+                        message: format!("unknown macro: {}", *name),
                     });
                 }
 

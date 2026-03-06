@@ -1,5 +1,5 @@
 // expected stdout:
-// ❌ ../tests/cases/generics/bad_generic.lyte:7:7: no solution for Var("T") == Int32
+// ❌ ../tests/cases/generics/bad_generic.lyte:7:7: no solution for T == i32
 //         t == 0
 //           ^
 

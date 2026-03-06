@@ -164,7 +164,7 @@ pub fn iterate_solver(
                     errors.push(TypeError {
                         location: *loc,
                         message: format!(
-                            "no solution for {:?} == {:?}",
+                            "no solution for {} == {}",
                             a.subst(instance),
                             b.subst(instance)
                         ),
@@ -183,12 +183,13 @@ pub fn iterate_solver(
 
                 // Nothing works!
                 if alts.is_empty() {
+                    let alt_strs: Vec<_> = alts_clone.iter().map(|a| format!("{}", a.ty)).collect();
                     errors.push(TypeError {
                         location: *loc,
                         message: format!(
-                            "no solution for {:?} is one of {:?}",
+                            "no solution for {} is one of [{}]",
                             t.subst(instance),
-                            alts_clone
+                            alt_strs.join(", ")
                         ),
                     });
                 }
@@ -212,7 +213,7 @@ pub fn iterate_solver(
                         errors.push(TypeError {
                             location: *loc,
                             message: format!(
-                                "no solution for {:?} == {:?}",
+                                "no solution for {} == {}",
                                 t.subst(instance),
                                 alts[0].ty.subst(instance)
                             ),
@@ -242,13 +243,13 @@ pub fn iterate_solver(
                             } else {
                                 errors.push(TypeError {
                                     location: *loc,
-                                    message: format!("no such field: {:?}", field_name),
+                                    message: format!("no such field: {}", field_name),
                                 });
                             }
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
-                                message: format!("{:?} does not refer to a struct", struct_name),
+                                message: format!("{} does not refer to a struct", struct_name),
                             });
                         }
                     }
@@ -258,7 +259,7 @@ pub fn iterate_solver(
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
-                                message: format!("array only has len field, not {:?}", field_name),
+                                message: format!("array only has len field, not {}", field_name),
                             });
                         }
                     }
@@ -278,7 +279,7 @@ pub fn iterate_solver(
                         errors.push(TypeError {
                             location: *loc,
                             message: format!(
-                                "expected array type, got {:?}",
+                                "expected array type, got {}",
                                 resolved.subst(instance)
                             ),
                         });
