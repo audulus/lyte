@@ -47,7 +47,7 @@ fn type_to_string(ty: TypeID) -> String {
 
         Type::Array(elem_ty, size) => {
             format!("[{};{}]", type_to_string(*elem_ty), size)
-        }
+        }  // Display impl handles both Known and Var
 
         Type::Func(from, to) => {
             format!("fn({})_{}", type_to_string(*from), type_to_string(*to))
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn test_mangle_array_type() {
         let name = Name::new("process".into());
-        let type_args = vec![mk_type(Type::Array(mk_type(Type::Float32), 10))];
+        let type_args = vec![mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(10)))];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(mangled, Name::new("process$[f32;10]".into()));
     }
@@ -211,7 +211,7 @@ mod tests {
             func_ty,
             mk_type(Type::Float32),
         ]));
-        let array_ty = mk_type(Type::Array(tuple_ty, 5));
+        let array_ty = mk_type(Type::Array(tuple_ty, ArraySize::Known(5)));
         let type_args = vec![array_ty];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(

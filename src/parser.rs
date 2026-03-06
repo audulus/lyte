@@ -115,14 +115,23 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
                 if let Token::Integer(n) = cx.lex.tok {
                     cx.next();
                     expect(Token::Rbracket, cx);
-                    Type::Array(r, n as i32)
+                    Type::Array(r, ArraySize::Known(n as i32))
+                } else if let Token::Id(name) = cx.lex.tok {
+                    if typevars.contains(&name) {
+                        cx.next();
+                        expect(Token::Rbracket, cx);
+                        Type::Array(r, ArraySize::Var(name))
+                    } else {
+                        cx.err(format!("Expected integer array size or size parameter, got {}", name));
+                        Type::Array(r, ArraySize::Known(0))
+                    }
                 } else {
                     cx.err(String::from("Expected integer array size"));
-                    Type::Array(r, 0)
+                    Type::Array(r, ArraySize::Known(0))
                 }
             } else {
                 expect(Token::Rbracket, cx);
-                Type::Array(r, 0)
+                Type::Array(r, ArraySize::Known(0))
             }
         }
         Token::Id(name) => {
@@ -1005,12 +1014,12 @@ mod tests {
         test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
         test_type("typevar T", typevar("T"));
-        test_type("[i32]", mk_type(Type::Array(int32, 0)));
-        test_type("[i32; 4]", mk_type(Type::Array(int32, 4)));
+        test_type("[i32]", mk_type(Type::Array(int32, ArraySize::Known(0))));
+        test_type("[i32; 4]", mk_type(Type::Array(int32, ArraySize::Known(4))));
         test_type("i8 -> i8", func);
         test_type("(i32)", int32);
         test_type("(i8 -> i8)", func);
-        test_type("[i8 -> i8]", mk_type(Type::Array(func, 0)));
+        test_type("[i8 -> i8]", mk_type(Type::Array(func, ArraySize::Known(0))));
     }
 
     fn parse_fn<T: std::fmt::Debug>(

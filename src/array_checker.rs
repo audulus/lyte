@@ -220,13 +220,16 @@ impl ArrayChecker {
                     });
                 }
 
-                if let Type::Array(_, n) = *lhs_ty {
-                    if rhs_r.max >= n.into() {
-                        self.errors.push(ArrayError {
-                            location: decl.arena.locs[expr],
-                            message: format!("couldn't prove index is less than array length"),
-                        });
+                if let Type::Array(_, ref n) = *lhs_ty {
+                    if let ArraySize::Known(n) = n {
+                        if rhs_r.max >= (*n).into() {
+                            self.errors.push(ArrayError {
+                                location: decl.arena.locs[expr],
+                                message: format!("couldn't prove index is less than array length"),
+                            });
+                        }
                     }
+                    // Size variables can't be checked statically.
                 } else {
                     panic!("lhs of index expression isn't an array. Should be caught by the type checker.")
                 }

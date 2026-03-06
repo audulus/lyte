@@ -333,7 +333,7 @@ impl Checker {
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
                 let int8 = mk_type(Type::Int8);
-                mk_type(Type::Array(int8, s.bytes().len() as i32))
+                mk_type(Type::Array(int8, ArraySize::Known(s.bytes().len() as i32)))
             }
             Expr::Id(name) => {
                 // Local variables will override all declarations.
@@ -552,7 +552,7 @@ impl Checker {
                     self.constraints
                         .push(Constraint::Equal(t, elem_t, arena.locs[*e]));
                 }
-                mk_type(Type::Array(t, exprs.len() as i32))
+                mk_type(Type::Array(t, ArraySize::Known(exprs.len() as i32)))
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 let t = self.fresh();
@@ -583,7 +583,7 @@ impl Checker {
 
                 self.eq(
                     array_t,
-                    mk_type(Type::Array(t, 0)),
+                    mk_type(Type::Array(t, ArraySize::Known(0))),
                     arena.locs[*array_expr],
                     "must index into an array",
                 );
@@ -600,7 +600,7 @@ impl Checker {
                     "array size must be an i32",
                 );
 
-                mk_type(Type::Array(value_t, 0))
+                mk_type(Type::Array(value_t, ArraySize::Known(0)))
             }
             Expr::While(cond, body) => {
                 let cond_t = self.check_expr(*cond, arena, decls);

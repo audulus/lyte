@@ -200,10 +200,10 @@ mod tests {
 
     #[test]
     fn test_complexity_array() {
-        let i32_array = mk_type(Type::Array(mk_type(Type::Int32), 10));
+        let i32_array = mk_type(Type::Array(mk_type(Type::Int32), ArraySize::Known(10)));
         assert_eq!(type_complexity(i32_array), 1);
 
-        let nested_array = mk_type(Type::Array(i32_array, 5));
+        let nested_array = mk_type(Type::Array(i32_array, ArraySize::Known(5)));
         assert_eq!(type_complexity(nested_array), 2);
     }
 

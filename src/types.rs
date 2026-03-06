@@ -4,6 +4,43 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
 
+/// The size of an array: either a known integer or a generic size parameter.
+#[derive(Clone, Hash, Eq, PartialEq)]
+pub enum ArraySize {
+    /// Concrete size. 0 means unknown/unspecified (unifies with any size).
+    Known(i32),
+    /// Size variable from a generic parameter (e.g. `N` in `f<N>`).
+    Var(Name),
+}
+
+impl ArraySize {
+    /// Returns the concrete size, panicking if this is a size variable.
+    pub fn known(&self) -> i32 {
+        match self {
+            ArraySize::Known(n) => *n,
+            ArraySize::Var(name) => panic!("size variable {} is not concrete", name),
+        }
+    }
+}
+
+impl std::fmt::Display for ArraySize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArraySize::Known(n) => write!(f, "{}", n),
+            ArraySize::Var(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+impl std::fmt::Debug for ArraySize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArraySize::Known(n) => write!(f, "{}", n),
+            ArraySize::Var(name) => write!(f, "{}", name),
+        }
+    }
+}
+
 /// The kind of type. Usually we're passing
 /// around TypeIDs.
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -28,7 +65,7 @@ pub enum Type {
     Func(TypeID, TypeID),
 
     /// Array of fixed size.
-    Array(TypeID, i32),
+    Array(TypeID, ArraySize),
 
     /// A named type which may include type parameters.
     Name(Name, Vec<TypeID>),
@@ -52,7 +89,7 @@ impl TypeID {
                 let vv = v.iter().map(|t| t.fresh_aux(index, inst)).collect();
                 mk_type(Type::Tuple(vv))
             }
-            Type::Array(a, sz) => mk_type(Type::Array(a.fresh_aux(index, inst), *sz)),
+            Type::Array(a, sz) => mk_type(Type::Array(a.fresh_aux(index, inst), sz.clone())),
             Type::Var(_) => *inst.entry(self).or_insert_with(|| {
                 let t = mk_type(Type::Anon(*index));
                 *index += 1;
@@ -88,7 +125,7 @@ impl TypeID {
         match &*t {
             Type::Tuple(v) => mk_type(Type::Tuple(v.iter().map(|t| t.subst(inst)).collect())),
             Type::Func(a, b) => mk_type(Type::Func(a.subst(inst), b.subst(inst))),
-            Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), *n)),
+            Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), n.clone())),
             Type::Anon(_) => find(t, inst),
             Type::Name(name, vars) => mk_type(Type::Name(
                 *name,
@@ -166,7 +203,7 @@ impl TypeID {
                     panic!()
                 }
             }
-            Type::Array(ty, sz) => ty.size(decls) * (*sz),
+            Type::Array(ty, sz) => ty.size(decls) * sz.known(),
             Type::Func(_, _) => 8,
             Type::Anon(i) => panic!("asked for size of anonymous type variable {}", i),
             Type::Var(name) => panic!("asked for size of type variable {}", name),
@@ -211,7 +248,7 @@ impl TypeID {
             Type::Func(dom, rng) => {
                 format!("{} → {}", dom.pretty_print(), rng.pretty_print())
             }
-            Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),
+            Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),  // Display impl handles both Known and Var
             Type::Name(name, params) => {
                 if params.is_empty() {
                     name.to_string()
@@ -349,7 +386,12 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
             }
             (Type::Array(a, sa), Type::Array(b, sb)) => {
                 // Size 0 means "unknown size" ([T] without a bound), which unifies with any size.
-                (*sa == *sb || *sa == 0 || *sb == 0) && unify(*a, *b, inst)
+                // Size variables also unify with any size.
+                let sizes_ok = match (sa, sb) {
+                    (ArraySize::Var(_), _) | (_, ArraySize::Var(_)) => true,
+                    (ArraySize::Known(a), ArraySize::Known(b)) => *a == *b || *a == 0 || *b == 0,
+                };
+                sizes_ok && unify(*a, *b, inst)
             }
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             _ => false,
@@ -468,8 +510,8 @@ mod tests {
         {
             let mut inst = Instance::new();
             assert!(unify(
-                mk_type(Type::Array(var, 0)),
-                mk_type(Type::Array(var2, 0)),
+                mk_type(Type::Array(var, ArraySize::Known(0))),
+                mk_type(Type::Array(var2, ArraySize::Known(0))),
                 &mut inst
             ));
         }
@@ -495,7 +537,7 @@ mod tests {
     fn test_fresh() {
         let t = mk_type(Type::Name(Name::new("MyType".into()), vec![typevar("T")]));
 
-        let mut i = 0;
+        let mut i = 0usize;
         let tt = t.fresh(&mut i);
 
         if let Type::Name(name, params) = &*tt {
@@ -534,10 +576,10 @@ mod tests {
 
     #[test]
     fn test_pretty_print_array() {
-        let arr_ty = mk_type(Type::Array(mk_type(Type::Int32), 10));
+        let arr_ty = mk_type(Type::Array(mk_type(Type::Int32), ArraySize::Known(10)));
         assert_eq!(arr_ty.pretty_print(), "[i32; 10]");
 
-        let nested = mk_type(Type::Array(mk_type(Type::Array(mk_type(Type::Float32), 5)), 3));
+        let nested = mk_type(Type::Array(mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(5))), ArraySize::Known(3)));
         assert_eq!(nested.pretty_print(), "[[f32; 5]; 3]");
     }
 

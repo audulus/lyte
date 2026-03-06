@@ -635,7 +635,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Handle array.len - return the compile-time length.
                 if let crate::Type::Array(_, len) = &*lhs_ty {
                     if **name == "len" {
-                        return self.builder.ins().iconst(I32, *len as i64);
+                        return self.builder.ins().iconst(I32, len.known() as i64);
                     }
                 }
                 let lhs_val = self.translate_expr(*lhs, decl, decls);

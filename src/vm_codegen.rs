@@ -1400,7 +1400,7 @@ impl<'a> FunctionTranslator<'a> {
         if let Type::Array(_, len) = &*lhs_ty {
             if *name == "len" {
                 let dst = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst, value: *len as i64 });
+                func.emit(Opcode::LoadImm { dst, value: len.known() as i64 });
                 return dst;
             }
         }

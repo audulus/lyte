@@ -499,7 +499,7 @@ mod tests {
         let pass = MonomorphPass::new();
         let mut result = Vec::new();
 
-        let array_ty = mk_type(Type::Array(mk_type(Type::Float32), 10));
+        let array_ty = mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(10)));
 
         pass.collect_concrete_types(array_ty, &mut result);
         assert_eq!(result.len(), 1);
@@ -697,7 +697,7 @@ mod tests {
         // Create a generic function that works with nested types
         let mut generic_func = mk_simple_func("process", vec!["T"]);
         let t_var = typevar("T");
-        let array_of_t = mk_type(Type::Array(t_var, 10));
+        let array_of_t = mk_type(Type::Array(t_var, ArraySize::Known(10)));
         generic_func.params = vec![Param {
             name: Name::str("arr"),
             ty: Some(array_of_t),
@@ -721,7 +721,7 @@ mod tests {
             assert_eq!(fdecl.params.len(), 1);
             if let Type::Array(elem_ty, size) = &*fdecl.params[0].ty.unwrap() {
                 assert_eq!(**elem_ty, Type::Int32);
-                assert_eq!(*size, 10);
+                assert_eq!(*size, ArraySize::Known(10));
             } else {
                 panic!("Expected array type");
             }

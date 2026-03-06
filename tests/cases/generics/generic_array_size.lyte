@@ -1,0 +1,9 @@
+// args: -c
+// expected stdout:
+// compilation successful
+
+f<N>(a: [i32; N]) {
+}
+
+main {
+}
