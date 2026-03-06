@@ -1100,7 +1100,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fadd(lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Minus => {
@@ -1115,7 +1115,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fsub(lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Mult => {
@@ -1129,7 +1129,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fmul(lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Div => {
@@ -1143,7 +1143,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fdiv(lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Assign => {
@@ -1193,7 +1193,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Greater => {
@@ -1211,7 +1211,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Leq => {
@@ -1229,7 +1229,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::LessThanOrEqual, lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::Geq => {
@@ -1247,7 +1247,7 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::GreaterThanOrEqual, lhs, rhs)
                     }
-                    _ => todo!(),
+                    _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
             Binop::And => {
