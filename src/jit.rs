@@ -15,10 +15,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
 use core::panic;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::vec;
-
-static LAMBDA_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// The basic JIT class.
 pub struct JIT {
@@ -44,6 +41,9 @@ pub struct JIT {
     globals_size: usize,
 
     pub print_ir: bool,
+
+    /// Counter for generating unique lambda names.
+    lambda_counter: usize,
 }
 
 impl Default for JIT {
@@ -75,6 +75,7 @@ impl Default for JIT {
             globals: HashMap::new(),
             globals_size: 0,
             print_ir: false,
+            lambda_counter: 0,
         }
     }
 }
@@ -233,7 +234,7 @@ impl JIT {
             None
         };
 
-        let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base, output_ptr);
+        let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base, output_ptr, &mut self.lambda_counter);
 
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
@@ -377,6 +378,9 @@ struct FunctionTranslator<'a> {
     /// Base pointer for globals (passed as first param to main).
     globals_base: Option<Value>,
 
+    /// Counter for generating unique lambda names.
+    lambda_counter: &'a mut usize,
+
     /// Output pointer for functions returning via pointer (arrays, structs, tuples).
     output_ptr: Option<Value>,
 }
@@ -388,6 +392,7 @@ impl<'a> FunctionTranslator<'a> {
         globals: &'a HashMap<Name, i32>,
         globals_base: Option<Value>,
         output_ptr: Option<Value>,
+        lambda_counter: &'a mut usize,
     ) -> Self {
         Self {
             builder,
@@ -401,6 +406,7 @@ impl<'a> FunctionTranslator<'a> {
             globals,
             globals_base,
             output_ptr,
+            lambda_counter,
         }
     }
 
@@ -877,7 +883,8 @@ impl<'a> FunctionTranslator<'a> {
                 let lambda_ty = decl.types[expr];
                 if let crate::Type::Func(dom, rng) = *lambda_ty {
                     if let crate::Type::Tuple(param_types) = &*dom {
-                        let id = LAMBDA_COUNTER.fetch_add(1, Ordering::SeqCst);
+                        let id = *self.lambda_counter;
+                        *self.lambda_counter += 1;
                         let lambda_name = Name::new(format!("__lambda_{}", id));
 
                         let lambda_params: Vec<Param> = params.iter().zip(param_types.iter())
