@@ -54,6 +54,48 @@ pub struct Checker {
     pub errors: Vec<TypeError>,
 }
 
+/// Returns true if `ty` would be infinite in size due to a recursive struct definition.
+///
+/// `visiting` is the set of struct names currently on the DFS stack. Seed it with the
+/// name of the struct being checked so that any path back to it is detected as a cycle.
+fn type_is_recursive(ty: TypeID, decls: &DeclTable, visiting: &mut HashSet<Name>) -> bool {
+    match &*ty {
+        Type::Name(name, type_args) => {
+            if visiting.contains(name) {
+                return true;
+            }
+            // Only structs can contribute to infinite size; enums etc. are skipped.
+            let struct_info: Option<(Vec<Name>, Vec<Field>)> =
+                decls.find(*name).iter().find_map(|d| {
+                    if let Decl::Struct(s) = d {
+                        Some((s.typevars.clone(), s.fields.clone()))
+                    } else {
+                        None
+                    }
+                });
+            if let Some((typevars, fields)) = struct_info {
+                // Substitute generic parameters so we follow the concrete field types.
+                let inst: Instance = typevars
+                    .iter()
+                    .zip(type_args.iter())
+                    .map(|(tv, t)| (mk_type(Type::Var(*tv)), *t))
+                    .collect();
+                visiting.insert(*name);
+                let recursive = fields
+                    .iter()
+                    .any(|f| type_is_recursive(f.ty.subst(&inst), decls, visiting));
+                visiting.remove(name);
+                recursive
+            } else {
+                false
+            }
+        }
+        Type::Array(elem, _) => type_is_recursive(*elem, decls, visiting),
+        Type::Tuple(types) => types.iter().any(|t| type_is_recursive(*t, decls, visiting)),
+        _ => false,
+    }
+}
+
 impl Default for Checker {
     fn default() -> Self {
         Self::new()
@@ -745,7 +787,7 @@ impl Checker {
         }
     }
 
-    fn check_struct_decl(&mut self, st: &StructDecl) {
+    fn check_struct_decl(&mut self, st: &StructDecl, decls: &DeclTable) {
         let mut names = HashSet::new();
 
         for field in &st.fields {
@@ -767,6 +809,19 @@ impl Checker {
                 }
             })
         }
+
+        // Disallow recursive struct definitions (they would be unbounded in size).
+        let mut visiting = HashSet::new();
+        visiting.insert(st.name);
+        for field in &st.fields {
+            if type_is_recursive(field.ty, decls, &mut visiting) {
+                self.errors.push(TypeError {
+                    location: field.loc,
+                    message: format!("struct '{}' is recursive", st.name),
+                });
+                break;
+            }
+        }
     }
 
     fn check_interface(&mut self, _name: Name, funcs: &[FuncDecl]) {
@@ -785,7 +840,7 @@ impl Checker {
             Decl::Func(func_decl) => self.check_fn_decl(func_decl, decls),
             Decl::Macro(func_decl) => self.check_fn_decl(func_decl, decls),
             Decl::Interface(Interface { name, funcs, .. }) => self.check_interface(*name, funcs),
-            Decl::Struct(struct_decl) => self.check_struct_decl(struct_decl),
+            Decl::Struct(struct_decl) => self.check_struct_decl(struct_decl, decls),
             _ => (),
         }
     }
@@ -832,6 +887,39 @@ mod tests {
         }
 
         result
+    }
+
+    #[test]
+    pub fn test_recursive_struct_direct() {
+        // struct A { x: A } — direct self-reference
+        let s = "struct A { x: A }";
+        let errors = check(s);
+        assert!(!errors.is_empty(), "expected an error for recursive struct");
+        assert!(errors[0].message.contains("recursive"));
+    }
+
+    #[test]
+    pub fn test_recursive_struct_indirect() {
+        // struct A { b: B }  struct B { a: A } — mutual recursion
+        let s = "struct A { b: B }\nstruct B { a: A }";
+        let errors = check(s);
+        assert!(!errors.is_empty(), "expected an error for mutually recursive structs");
+    }
+
+    #[test]
+    pub fn test_non_recursive_struct() {
+        // struct Point { x: i32, y: i32 } — not recursive
+        let s = "struct Point { x: i32, y: i32 }";
+        let errors = check(s);
+        assert!(errors.is_empty(), "expected no errors for non-recursive struct");
+    }
+
+    #[test]
+    pub fn test_non_recursive_struct_field() {
+        // struct A { b: B }  struct B { x: i32 } — not recursive
+        let s = "struct A { b: B }\nstruct B { x: i32 }";
+        let errors = check(s);
+        assert!(errors.is_empty(), "expected no errors for non-recursive struct chain");
     }
 
     #[test]

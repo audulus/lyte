@@ -1,0 +1,8 @@
+// expected stdout:
+// ❌ ../tests/cases/structs/recursive_struct_direct.lyte:7:5: struct 'A' is recursive
+//         x: A
+//         ^
+
+struct A {
+    x: A
+}
