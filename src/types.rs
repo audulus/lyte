@@ -248,7 +248,8 @@ impl TypeID {
             Type::Func(dom, rng) => {
                 format!("{} → {}", dom.pretty_print(), rng.pretty_print())
             }
-            Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),  // Display impl handles both Known and Var
+            Type::Array(elem, ArraySize::Known(0)) => format!("[{}]", elem.pretty_print()),
+            Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),
             Type::Name(name, params) => {
                 if params.is_empty() {
                     name.to_string()

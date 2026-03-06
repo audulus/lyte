@@ -2,7 +2,7 @@
 
 
 struct Person {
-    name: [i8],
+    name: [i8; 16],
     age: i32
 }
 

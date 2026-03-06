@@ -1,0 +1,12 @@
+
+sum(a: [i32]) -> i32 {
+    var s = 0
+    for i in 0 .. a.len {
+        s = s + a[i]
+    }
+    s
+}
+
+main {
+    sum([1, 2, 3])
+}

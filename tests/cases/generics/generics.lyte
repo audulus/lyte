@@ -1,9 +1,9 @@
 
 
 
-map<T0, T1>(a: [T0], f: T0 → T1) → [T1] {
+map<T0, T1, N>(a: [T0; N], f: T0 → T1) → [T1; N] {
    var i = 0
-   var b: [T1]
+   var b: [T1; N]
    while i < a.len {
        b[i] = f(a[i])
        i = i + 1

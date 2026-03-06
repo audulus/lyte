@@ -3,7 +3,7 @@ interface Compare<A> {
     cmp(lhs: A, rhs: A) -> i32
 }
 
-sort<T>(array: [T]) -> [T] where Compare<T> {
+sort<T, N>(array: [T; N]) -> [T; N] where Compare<T> {
     // We aren't actually doing any sorting, just need
     // to verify that calling the function type checks.
     cmp(array[0], array[1])
