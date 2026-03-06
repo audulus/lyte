@@ -142,8 +142,10 @@ impl TypeID {
     /// Returns the size of a type in bytes.
     pub fn size(self, decls: &DeclTable) -> i32 {
         match &*self {
+            Type::Void => 0,
             Type::Bool => 1,
             Type::Int8 => 4,
+            Type::UInt8 => 4,
             Type::Int32 => 4,
             Type::UInt32 => 4,
             Type::Float32 => 4,
@@ -167,7 +169,7 @@ impl TypeID {
             Type::Array(ty, sz) => ty.size(decls) * (*sz),
             Type::Func(_, _) => 8,
             Type::Anon(i) => panic!("asked for size of anonymous type variable {}", i),
-            _ => todo!(),
+            Type::Var(name) => panic!("asked for size of type variable {}", name),
         }
     }
 
