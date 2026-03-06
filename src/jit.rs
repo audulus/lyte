@@ -949,13 +949,14 @@ impl<'a> FunctionTranslator<'a> {
     ) {
         if t.is_ptr() {
             let size = t.size(decls) as u64;
+            let align = if size >= 4 { 4u8 } else { 1u8 };
             self.builder.emit_small_memory_copy(
                 self.module.isa().frontend_config(),
                 dst,
                 src,
                 size,
-                4,
-                4,
+                align,
+                align,
                 true,
                 MemFlags::trusted(),
             );
@@ -987,7 +988,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Value {
         if t.is_ptr() {
             let size = t.size(decls) as u64;
-            let align = std::num::NonZeroU8::new(4).unwrap();
+            let align = std::num::NonZeroU8::new(if size >= 4 { 4 } else { 1 }).unwrap();
             self.builder.emit_small_memory_compare(
                 self.module.isa().frontend_config(),
                 IntCC::Equal,

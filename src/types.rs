@@ -144,8 +144,8 @@ impl TypeID {
         match &*self {
             Type::Void => 0,
             Type::Bool => 1,
-            Type::Int8 => 4,
-            Type::UInt8 => 4,
+            Type::Int8 => 1,
+            Type::UInt8 => 1,
             Type::Int32 => 4,
             Type::UInt32 => 4,
             Type::Float32 => 4,
