@@ -307,10 +307,7 @@ impl crate::Type {
             crate::Type::Tuple(_) => I64,
 
             crate::Type::Anon(_) => panic!("anonymous type should have been solved for!"),
-            _ => {
-                println!("cranelift_type for {:?} is not yet implemented", self);
-                todo!()
-            }
+            crate::Type::Var(_) => panic!("type variable should not be seen by codegen!"),
         }
     }
 
