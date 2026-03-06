@@ -11,6 +11,10 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "lyte"
+crate-type = ["lib", "staticlib", "cdylib"]
+
 [dependencies]
 internment = "0.8.6"
 superslice = "1"

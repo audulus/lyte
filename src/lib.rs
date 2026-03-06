@@ -47,3 +47,5 @@ pub use monomorph_pass::*;
 pub mod vm;
 
 pub mod vm_codegen;
+
+pub mod ffi;
