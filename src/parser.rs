@@ -820,6 +820,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
         loc,
         arena,
         types: vec![],
+        closure_vars: vec![],
     }
 }
 

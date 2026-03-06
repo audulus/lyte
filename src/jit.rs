@@ -128,6 +128,8 @@ impl JIT {
 
         // Add globals base pointer as first parameter to all functions.
         self.ctx.func.signature.params.insert(0, AbiParam::new(I64));
+        // Add closure pointer as second parameter (null for non-closures).
+        self.ctx.func.signature.params.insert(1, AbiParam::new(I64));
 
         // Declare the function first, before generating its body.
         // This ensures that any functions called within the body get
@@ -225,7 +227,17 @@ impl JIT {
             None
         };
 
-        // If return type is a pointer type, first param (after globals) is output pointer.
+        // Second block param (for user functions) is the closure pointer.
+        // It points to a contiguous array of i64 slots, one per closure_var.
+        let closure_ptr = if has_globals {
+            let ptr = block_params[param_idx];
+            param_idx += 1;
+            Some(ptr)
+        } else {
+            None
+        };
+
+        // If return type is a pointer type, first param (after globals+closure) is output pointer.
         let output_ptr = if returns_via_pointer(decl.ret) {
             let ptr = block_params[param_idx];
             param_idx += 1;
@@ -235,6 +247,19 @@ impl JIT {
         };
 
         let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base, output_ptr, &mut self.lambda_counter);
+
+        // Set up captured variables from the closure pointer.
+        if let Some(closure_ptr_val) = closure_ptr {
+            for (i, cv) in decl.closure_vars.iter().enumerate() {
+                // Each slot in the closure struct holds a pointer to the captured variable's storage.
+                let var_ptr = trans.builder.ins().load(
+                    I64, MemFlags::new(), closure_ptr_val, (i * 8) as i32,
+                );
+                let var = trans.declare_variable(&cv.name.to_string(), I64);
+                trans.builder.def_var(var, var_ptr);
+                // NOT added to let_bindings → acts as a var binding (accessed through the pointer).
+            }
+        }
 
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
@@ -496,23 +521,15 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Unop(op, arg_id) => self.translate_unop(*op, *arg_id, decl, decls),
             Expr::Call(fn_id, arg_ids) => {
-                let f = self.translate_expr(*fn_id, decl, decls);
+                // Determine if this is a builtin (assert/print) which has a raw fn_ptr
+                // and no globals/closure parameters, vs a user function with a fat pointer.
+                let is_builtin = if let Expr::Id(name) = &decl.arena[*fn_id] {
+                    *name == Name::str("assert") || *name == Name::str("print")
+                } else {
+                    false
+                };
 
                 if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
-                    let mut args = vec![];
-
-                    // Pass globals pointer as first argument to all user-defined functions.
-                    // Check if this is a user-defined function (not a builtin like assert/print).
-                    let is_user_func = if let Expr::Id(name) = &decl.arena[*fn_id] {
-                        *name != Name::str("assert") && *name != Name::str("print")
-                    } else {
-                        true // Assume indirect calls are to user functions
-                    };
-
-                    if is_user_func {
-                        args.push(self.globals_base.expect("globals_base not set"));
-                    }
-
                     // If return type is pointer, allocate stack space and pass as first arg.
                     let output_slot = if returns_via_pointer(to) {
                         let size = to.size(decls) as u32;
@@ -523,26 +540,48 @@ impl<'a> FunctionTranslator<'a> {
                             key: None,
                         });
                         let addr = self.builder.ins().stack_addr(I64, slot, 0);
-                        args.push(addr);
                         Some(addr)
                     } else {
                         None
                     };
 
-                    for arg_id in arg_ids {
-                        args.push(self.translate_expr(*arg_id, decl, decls))
-                    }
+                    let call = if is_builtin {
+                        // Builtin: evaluate as raw fn_ptr, no globals/closure params.
+                        let f = self.translate_expr(*fn_id, decl, decls);
+                        let mut args = vec![];
+                        if let Some(addr) = output_slot {
+                            args.push(addr);
+                        }
+                        for arg_id in arg_ids {
+                            args.push(self.translate_expr(*arg_id, decl, decls));
+                        }
+                        let sig = fn_sig(&self.module, from, to);
+                        let sref = self.builder.import_signature(sig);
+                        self.builder.ins().call_indirect(sref, f, &args)
+                    } else {
+                        // User function: evaluate callee as a fat pointer {fn_ptr, closure_ptr}.
+                        let fat_ptr = self.translate_expr(*fn_id, decl, decls);
+                        let fn_ptr = self.builder.ins().load(I64, MemFlags::new(), fat_ptr, 0);
+                        let closure_ptr = self.builder.ins().load(I64, MemFlags::new(), fat_ptr, 8);
 
-                    let mut sig = fn_sig(&self.module, from, to);
-                    // Add globals pointer parameter for user-defined functions.
-                    if is_user_func {
-                        sig.params.insert(0, AbiParam::new(I64));
-                    }
-                    let sref = self.builder.import_signature(sig);
-                    let call = self.builder.ins().call_indirect(sref, f, &args);
+                        let mut args = vec![
+                            self.globals_base.expect("globals_base not set"),
+                            closure_ptr,
+                        ];
+                        if let Some(addr) = output_slot {
+                            args.push(addr);
+                        }
+                        for arg_id in arg_ids {
+                            args.push(self.translate_expr(*arg_id, decl, decls));
+                        }
+                        let mut sig = fn_sig(&self.module, from, to);
+                        sig.params.insert(0, AbiParam::new(I64)); // globals_base
+                        sig.params.insert(1, AbiParam::new(I64)); // closure_ptr
+                        let sref = self.builder.import_signature(sig);
+                        self.builder.ins().call_indirect(sref, fn_ptr, &args)
+                    };
 
                     if let Some(addr) = output_slot {
-                        // Return the address of the output buffer.
                         addr
                     } else if let Some(result) = self.builder.inst_results(call).first() {
                         *result
@@ -889,6 +928,40 @@ impl<'a> FunctionTranslator<'a> {
                             .map(|(p, ty)| Param { name: p.name, ty: Some(*ty) })
                             .collect();
 
+                        // Compute free variables captured from the enclosing scope.
+                        let param_names: std::collections::HashSet<String> = params.iter()
+                            .map(|p| p.name.to_string())
+                            .collect();
+                        let free_vars = collect_free_var_names(
+                            *body, &decl.arena, &param_names, &self.variables, &decl.types,
+                        );
+
+                        // Allocate a closure struct on the stack; each slot holds the address
+                        // of one captured variable's storage.
+                        let closure_ptr_val = if !free_vars.is_empty() {
+                            let size = (free_vars.len() * 8) as u32;
+                            let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                                kind: StackSlotKind::ExplicitSlot,
+                                size,
+                                align_shift: 0,
+                                key: None,
+                            });
+                            let closure_addr = self.builder.ins().stack_addr(I64, slot, 0);
+                            for (i, (name, ty)) in free_vars.iter().enumerate() {
+                                let var_ptr = self.get_var_address(name, *ty, decls);
+                                self.builder.ins().store(
+                                    MemFlags::new(), var_ptr, closure_addr, (i * 8) as i32,
+                                );
+                            }
+                            closure_addr
+                        } else {
+                            self.builder.ins().iconst(I64, 0)
+                        };
+
+                        let closure_vars: Vec<ClosureVar> = free_vars.iter()
+                            .map(|(name, ty)| ClosureVar { name: Name::new(name.clone()), ty: *ty })
+                            .collect();
+
                         let lambda_decl = FuncDecl {
                             name: lambda_name,
                             typevars: vec![],
@@ -899,17 +972,31 @@ impl<'a> FunctionTranslator<'a> {
                             loc: decl.loc,
                             arena: decl.arena.clone(),
                             types: decl.types.clone(),
+                            closure_vars,
                         };
 
                         self.pending_lambdas.push(lambda_decl);
 
                         let mut sig = fn_sig(&self.module, dom, rng);
-                        sig.params.insert(0, AbiParam::new(I64));
+                        sig.params.insert(0, AbiParam::new(I64)); // globals_base
+                        sig.params.insert(1, AbiParam::new(I64)); // closure_ptr
                         let callee = self.module
                             .declare_function(&*lambda_name, Linkage::Export, &sig)
                             .expect("problem declaring lambda");
                         let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-                        self.builder.ins().func_addr(I64, local_callee)
+                        let fn_ptr = self.builder.ins().func_addr(I64, local_callee);
+
+                        // Build a fat pointer pair {fn_ptr, closure_ptr} on the stack.
+                        let pair_slot = self.builder.create_sized_stack_slot(StackSlotData {
+                            kind: StackSlotKind::ExplicitSlot,
+                            size: 16,
+                            align_shift: 0,
+                            key: None,
+                        });
+                        let pair_addr = self.builder.ins().stack_addr(I64, pair_slot, 0);
+                        self.builder.ins().store(MemFlags::new(), fn_ptr, pair_addr, 0);
+                        self.builder.ins().store(MemFlags::new(), closure_ptr_val, pair_addr, 8);
+                        pair_addr
                     } else {
                         panic!("lambda domain should be a tuple type");
                     }
@@ -1287,8 +1374,9 @@ impl<'a> FunctionTranslator<'a> {
 
         if let crate::Type::Func(dom, rng) = ty {
             let mut sig = fn_sig(&self.module, *dom, *rng);
-            // Add globals pointer as first parameter for user-defined functions.
+            // Add globals and closure pointers as first two parameters.
             sig.params.insert(0, AbiParam::new(I64));
+            sig.params.insert(1, AbiParam::new(I64));
             let callee = self
                 .module
                 .declare_function(&name, Linkage::Import, &sig)
@@ -1297,9 +1385,52 @@ impl<'a> FunctionTranslator<'a> {
 
             self.called_functions.insert(*name);
 
-            self.builder.ins().func_addr(I64, local_callee)
+            let fn_ptr = self.builder.ins().func_addr(I64, local_callee);
+
+            // Wrap in a fat pointer pair {fn_ptr, null_closure} on the stack.
+            let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                kind: StackSlotKind::ExplicitSlot,
+                size: 16,
+                align_shift: 0,
+                key: None,
+            });
+            let pair_addr = self.builder.ins().stack_addr(I64, slot, 0);
+            let null = self.builder.ins().iconst(I64, 0);
+            self.builder.ins().store(MemFlags::new(), fn_ptr, pair_addr, 0);
+            self.builder.ins().store(MemFlags::new(), null, pair_addr, 8);
+            pair_addr
         } else {
             panic!("expected function type. got {:?}", ty);
+        }
+    }
+
+    /// Returns the address of a variable's storage for use in a closure struct.
+    /// For var bindings the variable already holds a pointer; for let bindings
+    /// a fresh stack slot is allocated and the value is copied into it.
+    fn get_var_address(&mut self, name: &str, ty: crate::TypeID, decls: &crate::DeclTable) -> Value {
+        if let Some(&var) = self.variables.get(name) {
+            if self.let_bindings.contains(name) {
+                // let binding: allocate a slot, copy the value in, capture the slot address.
+                let val = self.builder.use_var(var);
+                let sz = ty.size(decls) as u32;
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: sz,
+                    align_shift: 0,
+                    key: None,
+                });
+                let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                self.builder.ins().store(MemFlags::new(), val, addr, 0);
+                addr
+            } else {
+                // var binding: variable holds a pointer to the stack slot directly.
+                self.builder.use_var(var)
+            }
+        } else if let Some(&offset) = self.globals.get(&Name::new(name.to_string())) {
+            let base = self.globals_base.expect("globals_base not set");
+            self.builder.ins().iadd_imm(base, offset as i64)
+        } else {
+            panic!("unknown variable in closure capture: {}", name)
         }
     }
 
@@ -1312,6 +1443,139 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             *self.variables.get(name).unwrap()
         }
+    }
+}
+
+/// Collect the names (and their types) of free variables referenced in `body`
+/// that are present in `local_vars` but not in `exclude` (the lambda's own params).
+/// Returns each name at most once.
+fn collect_free_var_names(
+    body: crate::ExprID,
+    arena: &crate::ExprArena,
+    exclude: &std::collections::HashSet<String>,
+    local_vars: &HashMap<String, Variable>,
+    types: &[crate::TypeID],
+) -> Vec<(String, crate::TypeID)> {
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_free_vars_rec(body, arena, exclude, local_vars, types, &mut result, &mut seen);
+    result
+}
+
+fn collect_free_vars_rec(
+    expr: crate::ExprID,
+    arena: &crate::ExprArena,
+    exclude: &std::collections::HashSet<String>,
+    local_vars: &HashMap<String, Variable>,
+    types: &[crate::TypeID],
+    result: &mut Vec<(String, crate::TypeID)>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match &arena[expr] {
+        Expr::Id(name) => {
+            let s = name.to_string();
+            if local_vars.contains_key(&s) && !exclude.contains(&s) && !seen.contains(&s) {
+                result.push((s.clone(), types[expr]));
+                seen.insert(s);
+            }
+        }
+        Expr::Assign(name, rhs) => {
+            let s = name.to_string();
+            if local_vars.contains_key(&s) && !exclude.contains(&s) && !seen.contains(&s) {
+                result.push((s.clone(), types[expr]));
+                seen.insert(s);
+            }
+            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Call(fn_id, args) => {
+            collect_free_vars_rec(*fn_id, arena, exclude, local_vars, types, result, seen);
+            for a in args {
+                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Binop(_, lhs, rhs) => {
+            collect_free_vars_rec(*lhs, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Unop(_, arg) => {
+            collect_free_vars_rec(*arg, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Let(_, init, _) => {
+            collect_free_vars_rec(*init, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Var(_, init, _) => {
+            if let Some(init_id) = init {
+                collect_free_vars_rec(*init_id, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::If(cond, then, else_) => {
+            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*then, arena, exclude, local_vars, types, result, seen);
+            if let Some(e) = else_ {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::While(cond, body) => {
+            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::For { start, end, body, .. } => {
+            collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Return(e) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Field(e, _) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::ArrayIndex(arr, idx) => {
+            collect_free_vars_rec(*arr, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*idx, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::ArrayLiteral(elems) => {
+            for e in elems {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::AsTy(e, _) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Arena(e) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Array(ty_expr, size_expr) => {
+            collect_free_vars_rec(*ty_expr, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*size_expr, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Lambda { params, body } => {
+            // Nested lambda: add its params to the exclusion set.
+            let mut inner_exclude = exclude.clone();
+            for p in params {
+                inner_exclude.insert(p.name.to_string());
+            }
+            collect_free_vars_rec(*body, arena, &inner_exclude, local_vars, types, result, seen);
+        }
+        Expr::Macro(_, args) => {
+            for a in args {
+                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        // Terminal expressions — no sub-expressions.
+        Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) | Expr::String(_)
+        | Expr::Char(_) | Expr::True | Expr::False | Expr::Cast
+        | Expr::Enum(_) | Expr::Error => {}
     }
 }
 

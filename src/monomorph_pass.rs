@@ -351,6 +351,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Int32)],
             loc: test_loc(),
+            closure_vars: vec![],
         }
     }
 
@@ -540,6 +541,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Void); 3],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         let result = pass.process_expr(block, &mut fdecl, &decls);
@@ -566,6 +568,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Int32); 3],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         let result = pass.process_expr(binop, &mut fdecl, &decls);
@@ -592,6 +595,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Int32); 3],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         let result = pass.process_expr(array, &mut fdecl, &decls);
@@ -851,6 +855,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Bool), mk_type(Type::Int32), mk_type(Type::Int32), mk_type(Type::Int32)],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         let result = pass.process_expr(if_expr, &mut fdecl, &decls);
@@ -876,6 +881,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Int32)],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![Decl::Func(entry_func)]);
@@ -912,6 +918,7 @@ mod tests {
             arena: id_arena,
             types: vec![t_var],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         // Create entry point function that calls id(42)
@@ -934,6 +941,7 @@ mod tests {
             arena: main_arena,
             types: vec![i32_type, func_type, i32_type],
             loc: test_loc(),
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![

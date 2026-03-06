@@ -21,6 +21,17 @@ pub struct InterfaceConstraint {
     pub typevars: Vec<Name>,
 }
 
+/// A variable captured by a closure.
+///
+/// Closures always capture by address: the closure struct stores a pointer to
+/// the variable's stack slot.  For `var` bindings the slot already exists; for
+/// `let` bindings the JIT allocates a fresh slot and copies the value there.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct ClosureVar {
+    pub name: Name,
+    pub ty: TypeID,
+}
+
 /// Function declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FuncDecl {
@@ -51,6 +62,13 @@ pub struct FuncDecl {
 
     /// Solved types from the type checker.
     pub types: Vec<TypeID>,
+
+    /// Variables captured from the enclosing scope (non-empty for closures).
+    ///
+    /// At runtime the JIT passes a `closure_ptr` pointing to a contiguous
+    /// array of `i64` slots, one per entry here.  Each slot holds the address
+    /// of the captured variable's storage.
+    pub closure_vars: Vec<ClosureVar>,
 }
 
 impl FuncDecl {
@@ -313,6 +331,7 @@ mod tests {
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
+            closure_vars: vec![],
         };
 
         let decl = Decl::Func(func);
@@ -339,6 +358,7 @@ mod tests {
             loc: test_loc(),
             arena,
             types: vec![],
+            closure_vars: vec![],
         };
 
         let decl = Decl::Func(func);
@@ -396,6 +416,7 @@ mod tests {
                 loc: test_loc(),
                 arena: ExprArena::new(),
                 types: vec![],
+                closure_vars: vec![],
             }],
             loc: test_loc(),
         };
@@ -451,6 +472,7 @@ mod tests {
             loc: test_loc(),
             arena,
             types: vec![],
+            closure_vars: vec![],
         };
 
         let decl = Decl::Func(func);

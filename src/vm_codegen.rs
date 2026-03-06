@@ -709,6 +709,7 @@ impl<'a> FunctionTranslator<'a> {
                             loc: self.decl.loc,
                             arena: self.decl.arena.clone(),
                             types: self.decl.types.clone(),
+                            closure_vars: vec![],
                         };
 
                         self.pending_lambdas.push(lambda_decl);
@@ -1743,6 +1744,7 @@ mod tests {
             loc: crate::test_loc(),
             arena,
             types: vec![ret_ty], // Simplified - just use return type.
+            closure_vars: vec![],
         };
 
         DeclTable::new(vec![Decl::Func(func)])
@@ -1763,6 +1765,7 @@ mod tests {
             loc: crate::test_loc(),
             arena,
             types: vec![mk_type(Type::Int32)],
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -1793,6 +1796,7 @@ mod tests {
             loc: crate::test_loc(),
             arena,
             types: vec![int32, int32, int32],
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -1823,6 +1827,7 @@ mod tests {
             loc: crate::test_loc(),
             arena,
             types: vec![f32_ty, f32_ty, f32_ty],
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -1858,6 +1863,7 @@ mod tests {
             loc: crate::test_loc(),
             arena,
             types: vec![bool_ty, int32, int32, int32],
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -1895,6 +1901,7 @@ mod tests {
             loc: crate::test_loc(),
             arena,
             types: vec![bool_ty, int32, int32, int32, int32],
+            closure_vars: vec![],
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);

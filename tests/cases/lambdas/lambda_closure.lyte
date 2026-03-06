@@ -3,15 +3,12 @@
 // compilation successful
 // assert(true)
 
-call(f: i32 → i32) {
-    f(0)
-}
-
-call_void(f: void → void) {
+call(f: void → i32) {
     f()
 }
 
 main {
     var x = 0
-    call_void(| | assert(true) )
+    call(| | x = 1 )
+    assert(x == 1)
 }

@@ -848,6 +848,10 @@ impl Checker {
     pub fn check(&mut self, decls: &DeclTable) {
         for decl in &decls.decls {
             self._check_decl(decl, decls);
+            // After type-checking each function, verify closures don't escape.
+            if let Decl::Func(fd) | Decl::Macro(fd) = decl {
+                check_escape_in_func(fd, &mut self.errors);
+            }
         }
     }
 
@@ -864,6 +868,182 @@ impl Checker {
         for err in &self.errors {
             print_error_with_context(err.location, &err.message);
         }
+    }
+}
+
+/// Verify that no capturing lambda (one with free variables from the enclosing
+/// function) appears directly in a return expression.  Such a closure would
+/// capture stack addresses that become dangling after the function returns.
+fn check_escape_in_func(func_decl: &FuncDecl, errors: &mut Vec<TypeError>) {
+    let Some(body) = func_decl.body else { return; };
+    let mut scope: HashSet<String> = func_decl.params.iter()
+        .map(|p| p.name.to_string())
+        .collect();
+    escape_walk(body, &func_decl.arena, &mut scope, false, errors);
+}
+
+/// Walk `expr`, tracking `scope` (names in the enclosing function) and
+/// `in_return` (whether we are inside a return expression).
+fn escape_walk(
+    expr: ExprID,
+    arena: &ExprArena,
+    scope: &mut HashSet<String>,
+    in_return: bool,
+    errors: &mut Vec<TypeError>,
+) {
+    match &arena[expr] {
+        Expr::Return(e) => {
+            escape_walk(*e, arena, scope, true, errors);
+        }
+        Expr::Lambda { params, body } => {
+            if in_return {
+                let lambda_params: HashSet<String> = params.iter()
+                    .map(|p| p.name.to_string())
+                    .collect();
+                if lambda_has_captures(*body, arena, &lambda_params, scope) {
+                    errors.push(TypeError {
+                        location: arena.locs[expr],
+                        message: "closure with captured variables cannot be returned \
+                                  (captured addresses would dangle after the frame exits)"
+                            .to_string(),
+                    });
+                }
+            }
+            // Do not recurse into the lambda body — it is a separate scope.
+        }
+        Expr::Block(exprs) => {
+            let saved = scope.clone();
+            for e in exprs {
+                escape_walk(*e, arena, scope, in_return, errors);
+            }
+            *scope = saved;
+        }
+        Expr::Let(name, init, _) => {
+            escape_walk(*init, arena, scope, in_return, errors);
+            scope.insert(name.to_string());
+        }
+        Expr::Var(name, init, _) => {
+            if let Some(init_id) = init {
+                escape_walk(*init_id, arena, scope, in_return, errors);
+            }
+            scope.insert(name.to_string());
+        }
+        Expr::If(cond, then, else_) => {
+            escape_walk(*cond, arena, scope, in_return, errors);
+            escape_walk(*then, arena, scope, in_return, errors);
+            if let Some(e) = else_ {
+                escape_walk(*e, arena, scope, in_return, errors);
+            }
+        }
+        Expr::While(cond, body) => {
+            escape_walk(*cond, arena, scope, in_return, errors);
+            escape_walk(*body, arena, scope, in_return, errors);
+        }
+        Expr::For { start, end, body, .. } => {
+            escape_walk(*start, arena, scope, in_return, errors);
+            escape_walk(*end, arena, scope, in_return, errors);
+            escape_walk(*body, arena, scope, in_return, errors);
+        }
+        Expr::Call(f, args) => {
+            escape_walk(*f, arena, scope, in_return, errors);
+            for a in args {
+                escape_walk(*a, arena, scope, in_return, errors);
+            }
+        }
+        Expr::Binop(_, lhs, rhs) => {
+            escape_walk(*lhs, arena, scope, in_return, errors);
+            escape_walk(*rhs, arena, scope, in_return, errors);
+        }
+        Expr::Unop(_, arg) => escape_walk(*arg, arena, scope, in_return, errors),
+        Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
+            escape_walk(*e, arena, scope, in_return, errors);
+        }
+        Expr::ArrayIndex(arr, idx) | Expr::Array(arr, idx) => {
+            escape_walk(*arr, arena, scope, in_return, errors);
+            escape_walk(*idx, arena, scope, in_return, errors);
+        }
+        Expr::ArrayLiteral(elems) | Expr::Tuple(elems) => {
+            for e in elems {
+                escape_walk(*e, arena, scope, in_return, errors);
+            }
+        }
+        Expr::Assign(_, rhs) => escape_walk(*rhs, arena, scope, in_return, errors),
+        Expr::Macro(_, args) => {
+            for a in args {
+                escape_walk(*a, arena, scope, in_return, errors);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Returns true if `body` (the lambda body) references any name that is in
+/// `outer_scope` but not in `lambda_params`.
+fn lambda_has_captures(
+    body: ExprID,
+    arena: &ExprArena,
+    lambda_params: &HashSet<String>,
+    outer_scope: &HashSet<String>,
+) -> bool {
+    match &arena[body] {
+        Expr::Id(name) => {
+            let s = name.to_string();
+            outer_scope.contains(&s) && !lambda_params.contains(&s)
+        }
+        Expr::Assign(name, rhs) => {
+            let s = name.to_string();
+            (outer_scope.contains(&s) && !lambda_params.contains(&s))
+                || lambda_has_captures(*rhs, arena, lambda_params, outer_scope)
+        }
+        Expr::Binop(_, lhs, rhs) => {
+            lambda_has_captures(*lhs, arena, lambda_params, outer_scope)
+                || lambda_has_captures(*rhs, arena, lambda_params, outer_scope)
+        }
+        Expr::Unop(_, arg) => lambda_has_captures(*arg, arena, lambda_params, outer_scope),
+        Expr::Call(f, args) => {
+            lambda_has_captures(*f, arena, lambda_params, outer_scope)
+                || args.iter().any(|a| lambda_has_captures(*a, arena, lambda_params, outer_scope))
+        }
+        Expr::Block(exprs) => {
+            exprs.iter().any(|e| lambda_has_captures(*e, arena, lambda_params, outer_scope))
+        }
+        Expr::If(cond, then, else_) => {
+            lambda_has_captures(*cond, arena, lambda_params, outer_scope)
+                || lambda_has_captures(*then, arena, lambda_params, outer_scope)
+                || else_.map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
+                       .unwrap_or(false)
+        }
+        Expr::Return(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
+            lambda_has_captures(*e, arena, lambda_params, outer_scope)
+        }
+        Expr::While(cond, body) | Expr::ArrayIndex(cond, body) | Expr::Array(cond, body) => {
+            lambda_has_captures(*cond, arena, lambda_params, outer_scope)
+                || lambda_has_captures(*body, arena, lambda_params, outer_scope)
+        }
+        Expr::For { start, end, body, .. } => {
+            lambda_has_captures(*start, arena, lambda_params, outer_scope)
+                || lambda_has_captures(*end, arena, lambda_params, outer_scope)
+                || lambda_has_captures(*body, arena, lambda_params, outer_scope)
+        }
+        Expr::Let(_, init, _) => lambda_has_captures(*init, arena, lambda_params, outer_scope),
+        Expr::Var(_, init, _) => init
+            .map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
+            .unwrap_or(false),
+        Expr::ArrayLiteral(elems) | Expr::Tuple(elems) => elems
+            .iter()
+            .any(|e| lambda_has_captures(*e, arena, lambda_params, outer_scope)),
+        Expr::Macro(_, args) => args
+            .iter()
+            .any(|a| lambda_has_captures(*a, arena, lambda_params, outer_scope)),
+        Expr::Lambda { params, body } => {
+            // Nested lambda: extend lambda_params with nested params.
+            let mut inner_params = lambda_params.clone();
+            for p in params {
+                inner_params.insert(p.name.to_string());
+            }
+            lambda_has_captures(*body, arena, &inner_params, outer_scope)
+        }
+        _ => false,
     }
 }
 

@@ -21,6 +21,7 @@ fn builtin_decls() -> Vec<Decl> {
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
+            closure_vars: vec![],
         }),
         // print(value: i32) → void
         Decl::Func(FuncDecl {
@@ -36,6 +37,7 @@ fn builtin_decls() -> Vec<Decl> {
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
+            closure_vars: vec![],
         }),
     ]
 }
