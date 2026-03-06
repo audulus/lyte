@@ -453,8 +453,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             _ => {
-                println!("unimplemented expression: {:?}", &decl.arena[expr]);
-                todo!();
+                // For other expressions (e.g. type ascription), evaluate and
+                // treat the result as an address.
+                self.translate_expr(expr, decl, decls)
             }
         }
     }
