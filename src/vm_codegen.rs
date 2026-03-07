@@ -773,6 +773,12 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
+            Expr::Char(c) => {
+                let dst = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst, value: *c as i64 });
+                dst
+            }
+
             Expr::Enum(case_name) => {
                 let index = if let crate::Type::Name(enum_name, _) = &*self.decl.types[expr] {
                     let enum_decls = self.decls.find(*enum_name);
