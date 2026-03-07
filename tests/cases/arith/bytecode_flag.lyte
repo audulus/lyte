@@ -1,7 +1,7 @@
 
 // args: --bytecode
 // expected stdout:
-// fn main (params: 0, locals: 24 bytes):
+// fn main (params: 0, locals: 2056 bytes):
 //      0: SaveRegs { start_reg: 0, count: 3, slot: 0 }
 //      1: LocalAddr { dst: 0, slot: 256 }
 //      2: LoadImm { dst: 1, value: 42 }

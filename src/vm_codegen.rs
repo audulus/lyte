@@ -414,8 +414,11 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
-        // Adjust locals_size to account for saved registers.
-        self.locals_size = self.save_regs_offset + (reg_count as u32) * 8;
+        // Adjust locals_size: must cover both the (possibly shrunk) save area
+        // AND any variable slots allocated after it.
+        let save_area_end = self.save_regs_offset + (reg_count as u32) * 8;
+        let var_area_end = self.next_slot as u32 * 8;
+        self.locals_size = std::cmp::max(save_area_end, var_area_end);
 
         // Set function metadata.
         func.locals_size = self.locals_size;
