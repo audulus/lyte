@@ -2,7 +2,7 @@
 
 
 main {
-    var a: [[i8]]
+    var a: [[i8;4]; 4]
     a[0][0] = 'x'
     assert(a[0][0] == 'x')
 
