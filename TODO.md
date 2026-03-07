@@ -49,7 +49,7 @@
 
 ## Test Coverage
 
-- [ ] String literals (0 tests)
+- [x] String literals
 - [x] Macro VM tests (`macro_vm.lyte`)
 - [ ] Error recovery tests
 - [ ] Boundary condition tests (large arrays, deeply nested types)
