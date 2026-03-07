@@ -1,26 +1,12 @@
 // args: -c
 // expected stdout:
 // compilation successful
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
+// hithere
 
 main {
     // set up "hi" followed by nulls using strcpy
     var dst = "          "
     strcpy(dst, "hi")
     strcat(dst, "there")
-    assert(dst[0] == 'h')
-    assert(dst[1] == 'i')
-    assert(dst[2] == 't')
-    assert(dst[3] == 'h')
-    assert(dst[4] == 'e')
-    assert(dst[5] == 'r')
-    assert(dst[6] == 'e')
-    assert(dst[7] == 0 as i8)
+    println(dst)
 }
