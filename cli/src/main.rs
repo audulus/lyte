@@ -12,6 +12,9 @@ struct Args {
     #[clap(long)]
     ir: bool,
 
+    #[clap(long)]
+    bytecode: bool,
+
     #[clap(short)]
     c: bool,
 
@@ -50,6 +53,7 @@ fn main() {
     }
 
     compiler.print_ir = args.ir;
+    compiler.print_bytecode = args.bytecode;
 
     // Only specialize when compiling or running - specialize requires a main function
     if args.c || args.r {
