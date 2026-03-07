@@ -22,6 +22,10 @@ be stored as indices into function tables (each table would be all functions of 
 
 To avoid having to use generics for closures, we can compute a max closure size for each function signature by analyzing the whole program.
 
+## Escape Analysis
+
+We use a simple escape anlysis to prevent returning functions with closures (src/checker.rs)
+
 ## References
 
 [Exponential time complexity in the Swift type checker](https://www.cocoawithlove.com/blog/2016/07/12/type-checker-issues.html)
