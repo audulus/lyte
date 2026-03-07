@@ -21,7 +21,7 @@
 
 ## Backend Parity (JIT vs VM)
 
-- [ ] Audit all `Expr` variants handled in JIT but missing from VM
+- [x] Audit all `Expr` variants handled in JIT but missing from VM
 - [x] Macro support in VM (see above)
 - [ ] Verify character literal support in VM codegen
 
