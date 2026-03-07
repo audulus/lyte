@@ -138,14 +138,22 @@ impl Compiler {
             decls.append(&mut tree.decls.clone());
         }
 
-        // Collect macros for expansion.
-        let macros: HashMap<Name, FuncDecl> = decls.iter().filter_map(|d| {
+        // Collect macros for expansion, rejecting duplicates.
+        let mut macros: HashMap<Name, FuncDecl> = HashMap::new();
+        let mut has_errors = false;
+        for d in &decls {
             if let Decl::Macro(m) = d {
-                Some((m.name, m.clone()))
-            } else {
-                None
+                if macros.contains_key(&m.name) {
+                    print_error_with_context(m.loc, &format!("duplicate macro: {}", m.name));
+                    has_errors = true;
+                } else {
+                    macros.insert(m.name, m.clone());
+                }
             }
-        }).collect();
+        }
+        if has_errors {
+            return false;
+        }
 
         // Expand macros in all function bodies.
         for decl in &mut decls {

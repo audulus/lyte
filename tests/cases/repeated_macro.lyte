@@ -1,0 +1,17 @@
+// expected stdout:
+// ❌ ../tests/cases/repeated_macro.lyte:10:10: duplicate macro: foo
+//     macro foo(x) {
+//              ^
+
+macro foo(x) {
+    x = x + 1
+}
+
+macro foo(x) {
+    x = x + 2
+}
+
+main {
+    var a = 1
+    @foo(a)
+}
