@@ -18,14 +18,14 @@
 - [ ] Add test cases
 
 ### Macros
-- [ ] Implement macro support in VM backend (only works in JIT currently)
-- [ ] Add VM macro test cases (`macro_vm.lyte`)
+- [x] Implement macro support in VM backend (macros expand before codegen, works in both backends)
+- [x] Add VM macro test cases (`macro_vm.lyte`)
 - [ ] Consider overloaded macros (`checker.rs:443` — `XXX: overloaded macros?`)
 
 ## Backend Parity (JIT vs VM)
 
 - [ ] Audit all `Expr` variants handled in JIT but missing from VM
-- [ ] Macro support in VM (see above)
+- [x] Macro support in VM (see above)
 - [ ] Verify character literal support in VM codegen
 
 ## Error Handling
@@ -54,7 +54,7 @@
 ## Test Coverage
 
 - [ ] String literals (0 tests)
-- [ ] Macro VM tests (no `*_vm.lyte` variants)
+- [x] Macro VM tests (`macro_vm.lyte`)
 - [ ] Error recovery tests
 - [ ] Boundary condition tests (large arrays, deeply nested types)
 

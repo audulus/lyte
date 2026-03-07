@@ -1,0 +1,37 @@
+// args: -r
+// expected stdout:
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+// A macro will be substituted into the call site
+// instead of called.
+macro swap(x, y) {
+    let tmp = x
+    x = y
+    y = tmp
+}
+
+macro inc(x) {
+    x = x + 1
+}
+
+main {
+    var a = 1
+    var b = 2
+    @swap(a, b)
+    assert(a == 2)
+    assert(b == 1)
+
+    var c = 10
+    @inc(c)
+    assert(c == 11)
+
+    // Swap back
+    @swap(a, b)
+    assert(a == 1)
+    assert(b == 2)
+}
