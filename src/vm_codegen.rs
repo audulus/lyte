@@ -693,6 +693,21 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::ArrayLiteral(elements) => self.translate_array_literal(elements, expr, func),
 
+            Expr::String(s) => {
+                let bytes = s.as_bytes();
+                let total_size = bytes.len() as u32;
+                let slot = self.alloc_local(total_size);
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                let int8_ty = mk_type(Type::Int8);
+                for (i, &b) in bytes.iter().enumerate() {
+                    let val_reg = self.alloc_reg();
+                    func.emit(Opcode::LoadImm { dst: val_reg, value: b as i64 });
+                    self.emit_store_offset(&int8_ty, addr_reg, i as i32, val_reg, func);
+                }
+                addr_reg
+            }
+
             Expr::Tuple(elements) => self.translate_tuple(elements, expr, func),
 
             Expr::AsTy(expr_id, target_ty) => {
@@ -1839,6 +1854,9 @@ impl<'a> FunctionTranslator<'a> {
         func: &mut VMFunction,
     ) {
         match &**ty {
+            Type::Bool | Type::Int8 | Type::UInt8 => {
+                func.emit(Opcode::Store8Off { base, offset, src });
+            }
             Type::Int32 | Type::UInt32 | Type::Float32 => {
                 func.emit(Opcode::Store32Off { base, offset, src });
             }

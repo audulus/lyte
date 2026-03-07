@@ -1,0 +1,8 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// hello world
+
+main {
+    println("hello world")
+}

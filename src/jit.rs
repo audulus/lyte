@@ -1147,6 +1147,12 @@ impl<'a> FunctionTranslator<'a> {
                     (crate::Type::Float64, crate::Type::Float32) => {
                         self.builder.ins().fdemote(F32, val)
                     }
+                    (crate::Type::Int8, crate::Type::Int32) => {
+                        self.builder.ins().sextend(I32, val)
+                    }
+                    (crate::Type::Int32, crate::Type::Int8) => {
+                        self.builder.ins().ireduce(I8, val)
+                    }
                     _ => val,
                 }
             }
@@ -1190,6 +1196,22 @@ impl<'a> FunctionTranslator<'a> {
                 addr
             }
             Expr::Arena(block_id) => self.translate_expr(*block_id, decl, decls),
+            Expr::String(s) => {
+                let bytes = s.as_bytes();
+                let total_size = bytes.len() as u32;
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: total_size,
+                    align_shift: 0,
+                    key: None,
+                });
+                let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                for (i, &b) in bytes.iter().enumerate() {
+                    let val = self.builder.ins().iconst(I8, b as i64);
+                    self.builder.ins().stack_store(val, slot, i as i32);
+                }
+                addr
+            }
             _ => {
                 panic!("unimplemented expression: {:?}", &decl.arena[expr]);
             }

@@ -240,6 +240,9 @@ pub enum Opcode {
     /// Store 64-bit value to memory
     Store64 { addr: Reg, src: Reg },
 
+    /// Store 8-bit with offset: mem[base + offset] = src
+    Store8Off { base: Reg, offset: i32, src: Reg },
+
     /// Store with offset: mem[base + offset] = src
     Store32Off { base: Reg, offset: i32, src: Reg },
 
@@ -939,6 +942,12 @@ impl VM {
                     let ptr = self.get_u64(addr);
                     self.check_ptr(ptr, 8);
                     unsafe { *(ptr as *mut i64) = self.get_i64(src); }
+                }
+
+                Opcode::Store8Off { base, offset, src } => {
+                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                    self.check_ptr(ptr, 1);
+                    unsafe { *(ptr as *mut u8) = self.get_u64(src) as u8; }
                 }
 
                 Opcode::Store32Off { base, offset, src } => {
