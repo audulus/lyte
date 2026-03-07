@@ -544,4 +544,65 @@ mod tests {
         jit(code);
         run(code);
     }
+
+    #[test]
+    fn test_enum_basic() {
+        let code = r#"
+            enum Color { Red, Green, Blue }
+
+            main {
+                var c: Color
+                c = .Red
+                assert(c == .Red)
+                c = .Blue
+                assert(c == .Blue)
+                assert(c != .Red)
+            }
+        "#;
+
+        jit(code);
+        run(code);
+    }
+
+    #[test]
+    fn test_enum_func() {
+        let code = r#"
+            enum Direction { Up, Down, Left, Right }
+
+            is_vertical(d: Direction) → bool {
+                (d == .Up) || (d == .Down)
+            }
+
+            main {
+                assert(is_vertical(.Up))
+                assert(!is_vertical(.Left))
+            }
+        "#;
+
+        jit(code);
+        run(code);
+    }
+
+    #[test]
+    fn test_enum_in_struct() {
+        let code = r#"
+            enum Status { Active, Inactive }
+
+            struct Item {
+                value: i32,
+                status: Status
+            }
+
+            main {
+                var item: Item
+                item.value = 42
+                item.status = .Active
+                assert(item.status == .Active)
+                assert(item.value == 42)
+            }
+        "#;
+
+        jit(code);
+        run(code);
+    }
 }

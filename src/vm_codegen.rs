@@ -753,6 +753,28 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
+            Expr::Enum(case_name) => {
+                let index = if let crate::Type::Name(enum_name, _) = &*self.decl.types[expr] {
+                    let enum_decls = self.decls.find(*enum_name);
+                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls.iter().find(|d| matches!(d, crate::Decl::Enum { .. })) {
+                        cases.iter().position(|c| c == case_name).unwrap_or(0) as i64
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                // Enums are pointer types (Type::Name). Allocate a local
+                // slot for the i32 discriminant and return its address.
+                let slot = self.alloc_local(4);
+                let addr = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: addr, slot });
+                let val = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst: val, value: index });
+                func.emit(Opcode::Store32 { addr, src: val });
+                addr
+            }
+
             _ => {
                 // Unimplemented expression - return 0.
                 let dst = self.alloc_reg();

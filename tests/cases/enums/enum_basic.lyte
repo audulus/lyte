@@ -1,0 +1,18 @@
+
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+enum Color { Red, Green, Blue }
+
+main {
+    var c: Color
+    c = .Red
+    assert(c == .Red)
+    c = .Blue
+    assert(c == .Blue)
+    assert(c != .Red)
+}

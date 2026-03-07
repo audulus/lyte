@@ -197,17 +197,19 @@ impl TypeID {
             Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
             Type::Name(name, vars) => {
                 let decl = decls.find(*name);
-                // Must be a unique struct decl.
+                // Must be a unique struct or enum decl.
                 if decl.len() != 1 {
-                    panic!("expected exactly one struct decl for type {}", name);
+                    panic!("expected exactly one struct/enum decl for type {}", name);
                 }
-                if let Decl::Struct(sdecl) = &decl[0] {
-                    let inst: Instance = sdecl.typevars.iter().zip(vars.iter())
-                        .map(|(tv, ty)| (mk_type(Type::Var(*tv)), *ty))
-                        .collect();
-                    sdecl.fields.iter().map(|field| field.ty.subst(&inst).size(decls)).sum()
-                } else {
-                    panic!()
+                match &decl[0] {
+                    Decl::Struct(sdecl) => {
+                        let inst: Instance = sdecl.typevars.iter().zip(vars.iter())
+                            .map(|(tv, ty)| (mk_type(Type::Var(*tv)), *ty))
+                            .collect();
+                        sdecl.fields.iter().map(|field| field.ty.subst(&inst).size(decls)).sum()
+                    }
+                    Decl::Enum { .. } => 4, // i32 discriminant
+                    _ => panic!()
                 }
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),

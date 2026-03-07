@@ -1,0 +1,21 @@
+
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+enum Status { Active, Inactive }
+
+struct Item {
+    value: i32,
+    status: Status
+}
+
+main {
+    var item: Item
+    item.value = 42
+    item.status = .Active
+    assert(item.status == .Active)
+    assert(item.value == 42)
+}

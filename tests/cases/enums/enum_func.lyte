@@ -1,0 +1,17 @@
+
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+enum Direction { Up, Down, Left, Right }
+
+is_vertical(d: Direction) -> bool {
+    (d == .Up) || (d == .Down)
+}
+
+main {
+    assert(is_vertical(.Up))
+    assert(!is_vertical(.Left))
+}

@@ -51,7 +51,8 @@ impl DeclTable {
     pub fn find_enum(&self, name: Name, f: &mut impl FnMut(Name)) {
         let range = self.enum_cases.equal_range_by(|x| x.0.cmp(&name));
         for i in range {
-            if let Decl::Enum { name, .. } = self.decls[i] {
+            let decl_idx = self.enum_cases[i].1;
+            if let Decl::Enum { name, .. } = self.decls[decl_idx] {
                 f(name)
             }
         }

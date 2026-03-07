@@ -1166,17 +1166,28 @@ impl<'a> FunctionTranslator<'a> {
                 value
             }
             Expr::Enum(case_name) => {
-                if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
+                let index = if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
                     let enum_decls = decls.find(*enum_name);
                     if let Some(crate::Decl::Enum { cases, .. }) = enum_decls.iter().find(|d| matches!(d, crate::Decl::Enum { .. })) {
-                        let index = cases.iter().position(|c| c == case_name).unwrap_or(0);
-                        self.builder.ins().iconst(I32, index as i64)
+                        cases.iter().position(|c| c == case_name).unwrap_or(0) as i64
                     } else {
-                        self.builder.ins().iconst(I32, 0)
+                        0
                     }
                 } else {
-                    self.builder.ins().iconst(I32, 0)
-                }
+                    0
+                };
+                // Enums are Type::Name, which is a pointer type. Allocate a
+                // stack slot for the i32 discriminant and return its address.
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: 4,
+                    align_shift: 0,
+                    key: None,
+                });
+                let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                let val = self.builder.ins().iconst(I32, index);
+                self.builder.ins().store(MemFlags::trusted(), val, addr, 0);
+                addr
             }
             Expr::Arena(block_id) => self.translate_expr(*block_id, decl, decls),
             _ => {
