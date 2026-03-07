@@ -51,6 +51,10 @@ fn main() {
         }
     }
 
+    if args.ast {
+        compiler.print_ast();
+    }
+
     if !compiler.check() {
         std::process::exit(1);
     }
