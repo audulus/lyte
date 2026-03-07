@@ -1,5 +1,11 @@
 // expected stdout:
-// ❌ ../tests/cases/arrays/slice_index_check.lyte:9:16: couldn't prove index is less than slice length
+// ❌ ../tests/cases/arrays/slice_index_check.lyte:21:11: couldn't prove index is >= 0
+//         s[-1] = 0
+//               ^
+// ❌ ../tests/cases/arrays/slice_index_check.lyte:21:11: couldn't prove index is less than slice length
+//         s[-1] = 0
+//               ^
+// ❌ ../tests/cases/arrays/slice_index_check.lyte:15:16: couldn't prove index is less than slice length
 //             dst[i] = src[i]
 //                    ^
 
@@ -8,4 +14,9 @@ strcpy(dst: [i8], src: [i8]) {
     for i in 0 .. src.len {
         dst[i] = src[i]
     }
+}
+
+// Should get an error for negative index
+neg_index(s: [i32]) {
+    s[-1] = 0
 }
