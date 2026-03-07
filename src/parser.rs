@@ -113,6 +113,9 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             if cx.lex.tok == Token::Semi {
                 cx.next();
                 if let Token::Integer(n) = cx.lex.tok {
+                    if n == 0 {
+                        cx.err(String::from("array size must be greater than 0"));
+                    }
                     cx.next();
                     expect(Token::Rbracket, cx);
                     Type::Array(r, ArraySize::Known(n as i32))

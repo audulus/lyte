@@ -1,0 +1,8 @@
+// expected stdout:
+// ❌ ../tests/cases/slices/empty_string.lyte:7:13: empty string literals are not allowed
+//         var s = ""
+//                 ^
+
+main {
+    var s = ""
+}

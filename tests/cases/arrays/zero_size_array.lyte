@@ -1,0 +1,6 @@
+// expected stdout:
+// ../tests/cases/arrays/zero_size_array.lyte:5: array size must be greater than 0
+
+main {
+    var x: [i32; 0]
+}

@@ -346,8 +346,15 @@ impl Checker {
             Expr::Real(_) => mk_type(Type::Float32),
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
+                let len = s.bytes().len();
+                if len == 0 {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: "empty string literals are not allowed".to_string(),
+                    });
+                }
                 let int8 = mk_type(Type::Int8);
-                mk_type(Type::Array(int8, ArraySize::Known(s.bytes().len() as i32)))
+                mk_type(Type::Array(int8, ArraySize::Known(len as i32)))
             }
             Expr::Id(name) => {
                 // Local variables will override all declarations.
@@ -560,6 +567,12 @@ impl Checker {
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
             Expr::Return(expr) => self.check_expr(*expr, arena, decls),
             Expr::ArrayLiteral(exprs) => {
+                if exprs.is_empty() {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: "empty array literals are not allowed".to_string(),
+                    });
+                }
                 let t = self.fresh();
                 for e in exprs {
                     let elem_t = self.check_expr(*e, arena, decls);
