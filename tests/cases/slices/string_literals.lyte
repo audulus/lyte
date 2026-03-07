@@ -1,0 +1,48 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// hello world
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// hello world
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // basic string printing
+    println("hello world")
+
+    // string indexing
+    var s = "abc"
+    assert(s[0] == 'a')
+    assert(s[1] == 'b')
+    assert(s[2] == 'c')
+
+    // string equality
+    var a = "hello"
+    var b = "hello"
+    assert(a == b)
+
+    // string inequality
+    var c = "world"
+    assert(a != c)
+
+    // string mutation via index
+    var m = "cat"
+    m[0] = 'd'
+    assert(m[0] == 'd')
+    assert(m == "dat")
+}
