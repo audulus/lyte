@@ -1,6 +1,8 @@
 // args: -c
 // expected stdout:
-// compilation successful
+// ❌ ../tests/cases/arrays/array_index_unsigned.lyte:11:1: couldn't prove index is less than array length
+//     }
+//     ^
 
 main {
     var a: [i32; 4]

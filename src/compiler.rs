@@ -168,6 +168,14 @@ impl Compiler {
             }
         }
 
+        // Static array bounds checking.
+        let mut array_checker = ArrayChecker::new();
+        array_checker.check(&self.decls);
+        array_checker.print_errors();
+        if !array_checker.errors.is_empty() {
+            return false;
+        }
+
         true
     }
 

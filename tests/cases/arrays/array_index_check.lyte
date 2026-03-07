@@ -1,0 +1,9 @@
+// expected stdout:
+// ❌ ../tests/cases/arrays/array_index_check.lyte:8:21: couldn't prove index is less than array length
+//         assert(array[1] == 0)
+//                         ^
+
+main {
+    var array: [i32; 1]
+    assert(array[1] == 0)
+}

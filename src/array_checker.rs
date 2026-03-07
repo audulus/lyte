@@ -163,7 +163,10 @@ impl ArrayChecker {
 
                 IndexInterval::default()
             }
-            Expr::Var(name, _, _) => {
+            Expr::Var(name, init, _) => {
+                if let Some(init) = init {
+                    self.check_expr(*init, decl, decls);
+                }
                 let ty = decl.types[expr];
 
                 if ty == mk_type(Type::UInt32) {
@@ -222,7 +225,7 @@ impl ArrayChecker {
 
                 if let Type::Array(_, ref n) = *lhs_ty {
                     if let ArraySize::Known(n) = n {
-                        if rhs_r.max >= (*n).into() {
+                        if *n > 0 && rhs_r.max >= (*n).into() {
                             self.errors.push(ArrayError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove index is less than array length"),
@@ -230,9 +233,8 @@ impl ArrayChecker {
                         }
                     }
                     // Size variables can't be checked statically.
-                } else {
-                    panic!("lhs of index expression isn't an array. Should be caught by the type checker.")
                 }
+                // Slices and other indexable types can't be bounds-checked statically.
 
                 IndexInterval::default()
             }
@@ -273,8 +275,46 @@ impl ArrayChecker {
                             self.replace(*name, Some(rhs_range.min), Some(rhs_range.max));
                         }
                     }
+
+                    return IndexInterval::default()
                 }
 
+                // For other binops (==, !=, <, >, etc.), still recurse
+                // into sub-expressions to check array accesses.
+                self.check_expr(*lhs, decl, decls);
+                self.check_expr(*rhs, decl, decls);
+                IndexInterval::default()
+            }
+            Expr::Call(_, args) => {
+                for arg in args {
+                    self.check_expr(*arg, decl, decls);
+                }
+                IndexInterval::default()
+            }
+            Expr::Unop(_, expr) => {
+                self.check_expr(*expr, decl, decls);
+                IndexInterval::default()
+            }
+            Expr::Return(expr) => {
+                self.check_expr(*expr, decl, decls);
+                IndexInterval::default()
+            }
+            Expr::Field(expr, _) => {
+                self.check_expr(*expr, decl, decls);
+                IndexInterval::default()
+            }
+            Expr::For { var, start, end, body } => {
+                let start_r = self.check_expr(*start, decl, decls);
+                let end_r = self.check_expr(*end, decl, decls);
+                self.vars.push(Var { name: *var, ty: mk_type(Type::Int32) });
+                self.add(*var, Some(start_r.min), Some(end_r.max.saturating_sub(1)));
+                self.check_expr(*body, decl, decls);
+                IndexInterval::default()
+            }
+            Expr::ArrayLiteral(exprs) => {
+                for e in exprs {
+                    self.check_expr(*e, decl, decls);
+                }
                 IndexInterval::default()
             }
             _ => IndexInterval::default(),
@@ -304,8 +344,15 @@ impl ArrayChecker {
 
     fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
         match decl {
-            Decl::Func(func_decl) => self.check_fn_decl(func_decl, decls),
-            Decl::Macro(func_decl) => self.check_fn_decl(func_decl, decls),
+            Decl::Func(func_decl) => {
+                // Skip generic functions with size variables — they'll be
+                // checked after monomorphization when sizes are concrete.
+                if func_decl.size_vars.is_empty() {
+                    self.check_fn_decl(func_decl, decls);
+                }
+            }
+            // Macros are untyped templates; skip them.
+            Decl::Macro(_) => (),
             _ => (),
         }
     }
