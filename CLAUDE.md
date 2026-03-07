@@ -79,11 +79,30 @@ The compiler is structured as a multi-pass system:
 - Safe memory transmutation by restricting type system
 - Unboxed function closures with computed max closure sizes
 
-### Test Structure
-Tests are organized in `tests/cases/` by feature:
+### Test Structure (Golden Tests)
+Tests use the `goldentests` crate (v1.4.1). The test runner is in `cli/tests/cli.rs` and invokes the `../target/debug/lyte` binary against all `.lyte` files in `tests/cases/`. You must `cargo build` before running tests since the binary is invoked directly.
+
+Each test file uses comment directives:
+- `// args: <flags>` — CLI args (e.g., `-c` to compile, `-r` for VM)
+- `// expected stdout:` — followed by `// <line>` lines for expected output
+- Omit `args:` for error tests (binary runs with just the file path)
+
+Example passing test:
+```
+// args: -c
+// expected stdout:
+// compilation successful
+```
+
+Test cases are organized in `tests/cases/` by feature:
 - `arith/` - Arithmetic operations
 - `arrays/` - Array operations and bounds checking
+- `enums/` - Enum types
 - `generics/` - Generic types and constraints
+- `globals/` - Global variables
+- `lambdas/` - Lambda expressions and closures
+- `loops/` - While and for loops
+- `slices/` - Slice operations
 - `structs/` - Structure definitions and usage
 
 ### Workspace Structure
