@@ -60,7 +60,7 @@ cargo fuzz run parser
 The compiler is structured as a multi-pass system:
 
 ### Core Components
-- **Lexer** (`src/lexer.rs`) - Tokenizes input using pest grammar (`src/lyte.pest`)
+- **Lexer** (`src/lexer.rs`) - Tokenizes input
 - **Parser** (`src/parser.rs`) - Builds AST from tokens
 - **Type Checker** (`src/checker.rs`) - Performs type inference and constraint solving
 - **Array Checker** (`src/array_checker.rs`) - Static bounds checking for arrays
@@ -93,7 +93,7 @@ Tests are organized in `tests/cases/` by feature:
 
 ## Language Features
 
-The language grammar is defined in `src/lyte.pest` using Pest parser. Key language constructs:
+Key language constructs:
 - Functions with optional type annotations
 - Structs and enums
 - Arrays with static bounds checking
