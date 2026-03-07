@@ -53,10 +53,9 @@ fn main() {
     }
 
     compiler.print_ir = args.ir;
-    compiler.print_bytecode = args.bytecode;
 
     // Only specialize when compiling or running - specialize requires a main function
-    if args.c || args.r {
+    if args.c || args.r || args.bytecode {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             std::process::exit(1);
@@ -65,6 +64,20 @@ fn main() {
         if !compiler.specialize() {
             eprintln!("Monomorphization failed");
             std::process::exit(1);
+        }
+
+        if args.bytecode {
+            match compiler.compile_vm() {
+                Ok(program) => {
+                    for func in &program.functions {
+                        print!("{}", func);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("VM compilation error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
 
         if args.c {

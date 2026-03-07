@@ -79,14 +79,13 @@ pub struct Compiler {
     ast: Vec<Tree>,
     decls: DeclTable,
     pub print_ir: bool,
-    pub print_bytecode: bool,
     /// Number of AST trees that belong to the stdlib (parsed in new()).
     stdlib_trees: usize,
 }
 
 impl Compiler {
     pub fn new() -> Self {
-        let mut c = Self { ast: Vec::new(), decls: DeclTable::new(vec![]), print_ir: false, print_bytecode: false, stdlib_trees: 0 };
+        let mut c = Self { ast: Vec::new(), decls: DeclTable::new(vec![]), print_ir: false, stdlib_trees: 0 };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
         c
@@ -266,11 +265,6 @@ impl Compiler {
     /// Run the code using the VM interpreter.
     pub fn run_vm(&mut self) -> Result<i64, String> {
         let program = self.compile_vm()?;
-        if self.print_bytecode {
-            for func in &program.functions {
-                print!("{}", func);
-            }
-        }
         let mut vm = VM::new();
         Ok(vm.run(&program))
     }

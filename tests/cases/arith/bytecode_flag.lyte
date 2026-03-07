@@ -1,5 +1,5 @@
 
-// args: -r --bytecode
+// args: --bytecode
 // expected stdout:
 // fn main (params: 0, locals: 24 bytes):
 //      0: SaveRegs { start_reg: 0, count: 3, slot: 0 }
@@ -11,7 +11,6 @@
 //      6: Move { dst: 0, src: 2 }
 //      7: RestoreRegs { start_reg: 1, count: 2, slot: 8 }
 //      8: Return
-// vm execution successful
 
 main {
     var x = 42
