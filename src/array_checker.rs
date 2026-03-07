@@ -13,6 +13,13 @@ struct IndexConstraint {
     pub max: Option<i64>,
 }
 
+/// Records that variable `index` has been proven < `array.len`.
+#[derive(Clone, Debug)]
+struct LenBound {
+    pub index: Name,
+    pub array: Name,
+}
+
 /// Local variable declaration.
 #[derive(Copy, Clone, Debug)]
 struct Var {
@@ -64,6 +71,9 @@ pub struct ArrayChecker {
     /// Constraints we know about each var.
     constraints: Vec<IndexConstraint>,
 
+    /// Symbolic length bounds: records that `index < array.len`.
+    len_bounds: Vec<LenBound>,
+
     pub errors: Vec<ArrayError>,
 }
 
@@ -72,6 +82,7 @@ impl ArrayChecker {
         Self {
             vars: vec![],
             constraints: vec![],
+            len_bounds: vec![],
             errors: vec![],
         }
     }
@@ -126,6 +137,17 @@ impl ArrayChecker {
                     if let Some(c) = self.find(*max_name) {
                         if let Some(max) = c.max {
                             self.add(*name, None, Some(max));
+                        }
+                    }
+                }
+                // match i < array.len — record symbolic length bound
+                if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+                    if field_name.as_str() == "len" {
+                        if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                            self.len_bounds.push(LenBound {
+                                index: *name,
+                                array: *array_name,
+                            });
                         }
                     }
                 }
@@ -191,6 +213,7 @@ impl ArrayChecker {
             }
             Expr::If(cond, then_expr, else_expr) => {
                 let initial_constraint_count = self.constraints.len();
+                let initial_len_bound_count = self.len_bounds.len();
 
                 self.match_expr(*cond, decl, decls);
 
@@ -205,6 +228,7 @@ impl ArrayChecker {
                 while self.constraints.len() > initial_constraint_count {
                     self.constraints.pop();
                 }
+                self.len_bounds.truncate(initial_len_bound_count);
 
                 r
             }
@@ -213,6 +237,7 @@ impl ArrayChecker {
                     panic!("no type found for array index expression");
                 }
 
+                self.check_expr(*array_expr, decl, decls);
                 let lhs_ty = decl.types[*array_expr];
                 let rhs_r = self.check_expr(*index_expr, decl, decls);
 
@@ -233,17 +258,42 @@ impl ArrayChecker {
                         }
                     }
                     // Size variables can't be checked statically.
+                } else if let Type::Slice(_) = *lhs_ty {
+                    // For slices, check if the index has been proven < slice.len.
+                    let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
+                        Some(*name)
+                    } else {
+                        None
+                    };
+                    let index_name = if let Expr::Id(name) = &decl.arena[*index_expr] {
+                        Some(*name)
+                    } else {
+                        None
+                    };
+                    let has_len_bound = match (index_name, array_name) {
+                        (Some(idx), Some(arr)) => {
+                            self.len_bounds.iter().any(|b| b.index == idx && b.array == arr)
+                        }
+                        _ => false,
+                    };
+                    if !has_len_bound {
+                        self.errors.push(ArrayError {
+                            location: decl.arena.locs[expr],
+                            message: format!("couldn't prove index is less than slice length"),
+                        });
+                    }
                 }
-                // Slices and other indexable types can't be bounds-checked statically.
 
                 IndexInterval::default()
             }
             Expr::While(cond, body) => {
                 let saved_constraints = self.constraints.clone();
+                let saved_len_bounds = self.len_bounds.clone();
                 self.match_expr(*cond, decl, decls);
 
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints;
+                self.len_bounds = saved_len_bounds;
 
                 IndexInterval::default()
             }
@@ -268,6 +318,7 @@ impl ArrayChecker {
                 }
 
                 if *op == Binop::Assign {
+                    self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
 
                     if rhs_range != IndexInterval::default() {
@@ -308,6 +359,17 @@ impl ArrayChecker {
                 let end_r = self.check_expr(*end, decl, decls);
                 self.vars.push(Var { name: *var, ty: mk_type(Type::Int32) });
                 self.add(*var, Some(start_r.min), Some(end_r.max.saturating_sub(1)));
+                // for i in 0 .. arr.len — record that i < arr.len
+                if let Expr::Field(arr_expr, field_name) = &decl.arena[*end] {
+                    if field_name.as_str() == "len" {
+                        if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                            self.len_bounds.push(LenBound {
+                                index: *var,
+                                array: *array_name,
+                            });
+                        }
+                    }
+                }
                 self.check_expr(*body, decl, decls);
                 IndexInterval::default()
             }
@@ -339,6 +401,7 @@ impl ArrayChecker {
 
             self.vars.clear();
             self.constraints.clear();
+            self.len_bounds.clear();
         }
     }
 
@@ -557,5 +620,61 @@ mod tests {
 
         let errors = check(s);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_slice_unbounded() {
+        let s = "
+        f(s: [i32]) {
+            s[0]
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_slice_if_bounded() {
+        let s = "
+        f(s: [i32]) {
+            var i = 0
+            if i >= 0 && i < s.len {
+                s[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_slice_for_bounded() {
+        let s = "
+        f(s: [i32]) {
+            for i in 0 .. s.len {
+                s[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_slice_wrong_len_bound() {
+        // i is bounded by a.len, not b.len
+        let s = "
+        f(a: [i32], b: [i32]) {
+            for i in 0 .. a.len {
+                b[i]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
     }
 }

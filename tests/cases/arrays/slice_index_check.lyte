@@ -1,0 +1,11 @@
+// expected stdout:
+// ❌ ../tests/cases/arrays/slice_index_check.lyte:9:16: couldn't prove index is less than slice length
+//             dst[i] = src[i]
+//                    ^
+
+// Should get an error that i couldn't be proven to be less than dst.len
+strcpy(dst: [i8], src: [i8]) {
+    for i in 0 .. src.len {
+        dst[i] = src[i]
+    }
+}
