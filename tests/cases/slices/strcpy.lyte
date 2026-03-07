@@ -9,18 +9,18 @@
 // assert(true)
 
 main {
-    var dst = [0 as i8, 0 as i8, 0 as i8, 0 as i8, 0 as i8]
-    var src = [104 as i8, 101 as i8, 108 as i8, 108 as i8, 111 as i8]
+    var dst = "     "
+    var src = "hello"
     strcpy(dst, src)
-    assert(dst[0] == 104 as i8)
-    assert(dst[4] == 111 as i8)
+    assert(dst[0] == 'h')
+    assert(dst[4] == 'o')
 
     // shorter src: copied values and zero-filled remainder
-    var dst2 = [1 as i8, 1 as i8, 1 as i8, 1 as i8]
-    var src2 = [65 as i8, 66 as i8]
+    var dst2 = "xxxx"
+    var src2 = "AB"
     strcpy(dst2, src2)
-    assert(dst2[0] == 65 as i8)
-    assert(dst2[1] == 66 as i8)
+    assert(dst2[0] == 'A')
+    assert(dst2[1] == 'B')
     assert(dst2[2] == 0 as i8)
     assert(dst2[3] == 0 as i8)
 }
