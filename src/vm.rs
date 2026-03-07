@@ -1145,6 +1145,17 @@ impl VM {
         }
     }
 
+    /// Get a mutable pointer to the globals buffer.
+    /// Only valid after `run` has been called.
+    pub fn globals_ptr(&mut self) -> *mut u8 {
+        self.globals.as_mut_ptr()
+    }
+
+    /// Get the size of the globals buffer in bytes.
+    pub fn globals_size(&self) -> usize {
+        self.globals.len()
+    }
+
     /// Run the program and return f32 result
     pub fn run_f32(&mut self, program: &VMProgram) -> f32 {
         self.run(program);

@@ -66,6 +66,31 @@ size_t lyte_compiler_get_global_size(const LyteCompiler* compiler, size_t index)
 /// Returns NULL if index is out of bounds.
 const char* lyte_compiler_get_global_type(const LyteCompiler* compiler, size_t index);
 
+// ============ VM API ============
+
+/// Compile to VM bytecode. Returns true on success.
+/// Must call parse, check, and specialize first.
+bool lyte_compiler_compile_vm(LyteCompiler* compiler);
+
+/// Run the VM program. Returns true on success.
+/// Must call lyte_compiler_compile_vm first.
+/// After running, globals can be read via lyte_compiler_get_vm_globals_ptr.
+bool lyte_compiler_run_vm(LyteCompiler* compiler);
+
+/// Get a pointer to the VM's globals buffer.
+/// Returns NULL if the VM has not been run.
+/// The pointer is valid until the next call to lyte_compiler_run_vm
+/// or lyte_compiler_free.
+uint8_t* lyte_compiler_get_vm_globals_ptr(LyteCompiler* compiler);
+
+/// Get the size in bytes of the VM globals buffer.
+/// Returns 0 if no VM program has been compiled.
+size_t lyte_compiler_get_vm_globals_size(const LyteCompiler* compiler);
+
+/// Convenience: parse, check, specialize, and compile to VM in one call.
+/// Returns true on success.
+bool lyte_compile_vm(LyteCompiler* compiler, const char* source, const char* filename);
+
 #ifdef __cplusplus
 }
 #endif

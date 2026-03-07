@@ -3,6 +3,7 @@ use std::os::raw::c_char;
 use std::ptr;
 
 use crate::compiler::Compiler;
+use crate::vm::{VM, VMProgram};
 
 /// Info about a single global variable, with pre-computed C strings.
 struct GlobalInfo {
@@ -18,8 +19,12 @@ pub struct LyteCompiler {
     last_error: Option<CString>,
     /// JIT result: code pointer and globals size.
     jit_result: Option<(*const u8, usize)>,
-    /// Cached global variable info (populated after JIT).
+    /// Cached global variable info (populated after JIT or VM compile).
     globals: Vec<GlobalInfo>,
+    /// VM program (populated after VM compile).
+    vm_program: Option<VMProgram>,
+    /// VM instance (populated after VM run).
+    vm: Option<VM>,
 }
 
 impl LyteCompiler {
@@ -36,6 +41,8 @@ pub extern "C" fn lyte_compiler_new() -> *mut LyteCompiler {
         last_error: None,
         jit_result: None,
         globals: Vec::new(),
+        vm_program: None,
+        vm: None,
     }))
 }
 
@@ -267,4 +274,109 @@ pub unsafe extern "C" fn lyte_compiler_get_global_type(
         Some(info) => info.ty.as_ptr(),
         None => ptr::null(),
     }
+}
+
+// ============ VM API ============
+
+/// Compile to VM bytecode. Returns true on success.
+/// Must call parse, check, and specialize first.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_compile_vm(ptr: *mut LyteCompiler) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let c = &mut *ptr;
+    c.last_error = None;
+    c.vm_program = None;
+    c.vm = None;
+    c.globals.clear();
+    match c.compiler.compile_vm() {
+        Ok(program) => {
+            c.globals = c.compiler.globals_info()
+                .into_iter()
+                .map(|(name, offset, size, ty)| GlobalInfo {
+                    name: CString::new(name).unwrap_or_default(),
+                    offset,
+                    size,
+                    ty: CString::new(ty).unwrap_or_default(),
+                })
+                .collect();
+            c.vm_program = Some(program);
+            true
+        }
+        Err(msg) => {
+            c.set_error(&msg);
+            false
+        }
+    }
+}
+
+/// Run the VM program. Returns true on success.
+/// Must call lyte_compiler_compile_vm first.
+/// After running, globals can be read via lyte_compiler_get_vm_globals_ptr.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_run_vm(ptr: *mut LyteCompiler) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let c = &mut *ptr;
+    c.last_error = None;
+    match &c.vm_program {
+        Some(program) => {
+            let mut vm = VM::new();
+            vm.run(program);
+            c.vm = Some(vm);
+            true
+        }
+        None => {
+            c.set_error("no VM program compiled");
+            false
+        }
+    }
+}
+
+/// Get a pointer to the VM's globals buffer.
+/// Returns NULL if the VM has not been run.
+/// The pointer is valid until the next call to lyte_compiler_run_vm
+/// or lyte_compiler_free.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_get_vm_globals_ptr(
+    ptr: *mut LyteCompiler,
+) -> *mut u8 {
+    if ptr.is_null() {
+        return ptr::null_mut();
+    }
+    match &mut (*ptr).vm {
+        Some(vm) => vm.globals_ptr(),
+        None => ptr::null_mut(),
+    }
+}
+
+/// Get the size in bytes of the VM globals buffer.
+/// Returns 0 if no VM program has been compiled.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_get_vm_globals_size(
+    ptr: *const LyteCompiler,
+) -> usize {
+    if ptr.is_null() {
+        return 0;
+    }
+    match &(*ptr).vm_program {
+        Some(program) => program.globals_size,
+        None => 0,
+    }
+}
+
+/// Convenience: parse, check, specialize, and compile to VM in one call.
+/// Returns true on success.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compile_vm(
+    ptr: *mut LyteCompiler,
+    source: *const c_char,
+    filename: *const c_char,
+) -> bool {
+    lyte_compiler_parse(ptr, source, filename)
+        && lyte_compiler_check(ptr)
+        && lyte_compiler_specialize(ptr)
+        && lyte_compiler_compile_vm(ptr)
 }
