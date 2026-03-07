@@ -10,8 +10,7 @@
 
 
 main {
-    var x = 2+2
-    assert(x == 4)
+    assert(2+2 == 4)
     assert(2*3 == 6)
     assert(10-3 == 7)
     assert(10/2 == 5)
