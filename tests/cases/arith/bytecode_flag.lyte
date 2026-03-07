@@ -1,15 +1,15 @@
 
 // args: --bytecode
 // expected stdout:
-// fn main (params: 0, locals: 2056 bytes):
-//      0: SaveRegs { start_reg: 0, count: 3, slot: 0 }
-//      1: LocalAddr { dst: 0, slot: 256 }
+// fn main (params: 0, locals: 32 bytes):
+//      0: SaveRegs { start_reg: 0, count: 3, slot: 8 }
+//      1: LocalAddr { dst: 0, slot: 0 }
 //      2: LoadImm { dst: 1, value: 42 }
-//      3: LocalAddr { dst: 0, slot: 256 }
+//      3: LocalAddr { dst: 0, slot: 0 }
 //      4: Store32 { addr: 0, src: 1 }
 //      5: LoadImm { dst: 2, value: 0 }
 //      6: Move { dst: 0, src: 2 }
-//      7: RestoreRegs { start_reg: 1, count: 2, slot: 8 }
+//      7: RestoreRegs { start_reg: 1, count: 2, slot: 16 }
 //      8: Return
 
 main {

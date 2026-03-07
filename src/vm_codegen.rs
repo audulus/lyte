@@ -310,15 +310,14 @@ impl<'a> FunctionTranslator<'a> {
             self.alloc_reg();
         }
 
-        // Reserve space for saving registers. We'll patch this after translation
-        // when we know how many registers are used.
-        // Reserve 256 * 8 = 2048 bytes maximum, but we'll only use what we need.
-        let save_regs_slot = self.alloc_local(256 * 8);
-        self.save_regs_offset = (save_regs_slot as u32) * 8; // Convert slot to byte offset
+        // Emit SaveRegs with placeholders. Both count and slot will be patched
+        // after translation when we know how many registers are used.
+        // The save area is placed after all local variable slots to avoid
+        // over-reserving space.
         func.emit(Opcode::SaveRegs {
             start_reg: 0,
             count: 0, // Placeholder - will be patched
-            slot: self.save_regs_offset,
+            slot: 0,  // Placeholder - will be patched
         });
 
         // Save the output pointer to a local slot so it survives across calls.
@@ -395,30 +394,30 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(Opcode::Return);
         }
 
-        // Patch SaveRegs/RestoreRegs instructions with actual register count.
+        // Now that translation is complete, place the save area after all variable
+        // slots and patch SaveRegs/RestoreRegs with the actual count and offset.
         let reg_count = self.next_reg;
+        self.save_regs_offset = self.next_slot as u32 * 8;
+        self.locals_size = self.save_regs_offset + (reg_count as u32) * 8;
+
         for op in &mut func.code {
             match op {
-                Opcode::SaveRegs { count, .. } => {
+                Opcode::SaveRegs { count, slot, .. } => {
                     *count = reg_count;
+                    *slot = self.save_regs_offset;
                 }
-                Opcode::RestoreRegs { start_reg, count, .. } => {
-                    // If start_reg is 1, we're skipping r0 (for returns with value)
+                Opcode::RestoreRegs { start_reg, count, slot, .. } => {
                     if *start_reg == 1 {
                         *count = if reg_count > 1 { reg_count - 1 } else { 0 };
+                        *slot = self.save_regs_offset + 8;
                     } else {
                         *count = reg_count;
+                        *slot = self.save_regs_offset;
                     }
                 }
                 _ => {}
             }
         }
-
-        // Adjust locals_size: must cover both the (possibly shrunk) save area
-        // AND any variable slots allocated after it.
-        let save_area_end = self.save_regs_offset + (reg_count as u32) * 8;
-        let var_area_end = self.next_slot as u32 * 8;
-        self.locals_size = std::cmp::max(save_area_end, var_area_end);
 
         // Set function metadata.
         func.locals_size = self.locals_size;
