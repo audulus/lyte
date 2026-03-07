@@ -5,14 +5,13 @@ let package = Package(
     name: "Lyte",
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [
-        // .dynamic so we don't run out of exception personality functions
-        .library(name: "Lyte", type: .dynamic, targets: ["Lyte"]),
+        .library(name: "Lyte", targets: ["Lyte"]),
     ],
     targets: [
         .binaryTarget(
             name: "CLyte",
-            url: "https://github.com/audulus/lyte/releases/download/0.2/CLyte.xcframework.zip",
-            checksum: "0bb87b31eb8c6feff3dfa78fd5a9fa8556627650d8aeaf776d4a7d43cff93353"
+            url: "https://github.com/audulus/lyte/releases/download/0.3/CLyte.xcframework.zip",
+            checksum: "1a758463b925f71b6bad3f9bfa0538e4996f5adcead09e06400982cfdb74e490"
         ),
         .target(
             name: "Lyte",
