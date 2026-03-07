@@ -73,15 +73,22 @@ pub struct Tree {
     pub errors: Vec<ParseError>,
 }
 
+const STDLIB: &str = include_str!("../stdlib.lyte");
+
 pub struct Compiler {
     ast: Vec<Tree>,
     decls: DeclTable,
     pub print_ir: bool,
+    /// Number of AST trees that belong to the stdlib (parsed in new()).
+    stdlib_trees: usize,
 }
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { ast: Vec::new(), decls: DeclTable::new(vec![]), print_ir: false }
+        let mut c = Self { ast: Vec::new(), decls: DeclTable::new(vec![]), print_ir: false, stdlib_trees: 0 };
+        c.parse(STDLIB, "<stdlib>");
+        c.stdlib_trees = c.ast.len();
+        c
     }
 
     pub fn parse_file(&mut self, path: &str) {
@@ -176,8 +183,9 @@ impl Compiler {
     }
 
     pub fn has_decls(&self) -> bool {
-        // Check if there are any user declarations beyond the built-ins
-        self.decls.decls.len() > builtin_decls().len()
+        // Check if there are any user declarations beyond the built-ins and stdlib
+        let stdlib_decl_count: usize = self.ast.iter().take(self.stdlib_trees).map(|t| t.decls.len()).sum();
+        self.decls.decls.len() > builtin_decls().len() + stdlib_decl_count
     }
 
     /// Returns info about each global variable: (name, offset, size, type_string).

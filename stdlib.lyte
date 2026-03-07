@@ -1,0 +1,8 @@
+// Lyte standard library
+
+println(s: [i8]) {
+    for i in 0 .. s.len {
+        putc(s[i] as i32)
+    }
+    putc(10)
+}
