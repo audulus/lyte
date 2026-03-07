@@ -513,7 +513,12 @@ impl<'a> FunctionTranslator<'a> {
                 // Check if it's a local variable.
                 if let Some(&reg) = self.variables.get(name) {
                     // For pointer types (structs, arrays), return the address.
+                    // Re-emit LocalAddr to ensure the register is correct even
+                    // after calls that may have clobbered it.
                     if self.is_ptr_type(&ty) {
+                        if let Some(&slot) = self.local_slots.get(name) {
+                            func.emit(Opcode::LocalAddr { dst: reg, slot });
+                        }
                         reg
                     } else if let Some(&slot) = self.local_slots.get(name) {
                         // Load from local slot.
