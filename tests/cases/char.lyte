@@ -1,0 +1,44 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// A
+// assert(true)
+// assert(true)
+// assert(true)
+// H
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// A
+// assert(true)
+// assert(true)
+// assert(true)
+// H
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    var x = 'A'
+    assert(x == 'A')
+    putc(x as i32)
+    putc(10)
+
+    var buf = "hello"
+    assert(buf[0] == 'h')
+    assert(buf[1] == 'e')
+
+    buf[0] = 'H'
+    assert(buf[0] == 'H')
+    putc(buf[0] as i32)
+    putc(10)
+
+    assert('0' == 48 as i8)
+    assert('\n' == 10 as i8)
+    assert('\\' == 92 as i8)
+}
