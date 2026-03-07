@@ -543,6 +543,7 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
         Token::Lbracket => parse_array_literal(arena, typevars, cx),
         Token::At => {
             // macro invocations
+            let loc = cx.lex.loc;
             cx.next();
 
             let name = expect_id(cx);
@@ -552,7 +553,7 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             expect(Token::Rparen, cx);
 
             let e = Expr::Macro(name, params);
-            arena.add(e, cx.lex.loc)
+            arena.add(e, loc)
         }
         _ => {
             cx.next();
