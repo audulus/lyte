@@ -10,6 +10,7 @@ Lyte is a simple programming language designed for writing Audulus nodes. It fea
 - Familiar syntax (mix of Rust and Swift)
 - Type inference with Hindley-Milner style checking
 - Cranelift JIT backend
+- VM backend for environments where JIT isn't allowed (iOS)
 
 ## Development Commands
 
@@ -66,6 +67,7 @@ The compiler is structured as a multi-pass system:
 - **Array Checker** (`src/array_checker.rs`) - Static bounds checking for arrays
 - **Compiler** (`src/compiler.rs`) - Orchestrates compilation pipeline
 - **JIT** (`src/jit.rs`) - Cranelift-based code generation and execution
+- **VM** ('src/vm.rs' and 'src/vm_codegen') - Virtual machine for iOS and code generation
 
 ### Type System
 - **Types** (`src/types.rs`) - Type representations and utilities
