@@ -1,0 +1,7 @@
+// expected stdout:
+// ❌ ../tests/cases/checker/empty_array_literal.lyte:6:13: empty array literals are not allowed
+//         var x = []
+//                 ^
+f {
+    var x = []
+}

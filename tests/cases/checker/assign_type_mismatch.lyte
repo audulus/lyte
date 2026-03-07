@@ -1,0 +1,8 @@
+// expected stdout:
+// ❌ ../tests/cases/checker/assign_type_mismatch.lyte:7:7: no solution for f32 == bool
+//         x = true
+//           ^
+f {
+    var x: f32
+    x = true
+}

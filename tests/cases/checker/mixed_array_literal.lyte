@@ -1,0 +1,7 @@
+// expected stdout:
+// ❌ ../tests/cases/checker/mixed_array_literal.lyte:6:17: no solution for i32 == f32
+//         var x = [1, 2.0]
+//                     ^
+f {
+    var x = [1, 2.0]
+}

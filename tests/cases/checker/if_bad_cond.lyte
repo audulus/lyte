@@ -1,0 +1,7 @@
+// expected stdout:
+// ❌ ../tests/cases/checker/if_bad_cond.lyte:6:8: no solution for i32 == bool
+//         if 42 { }
+//            ^
+f {
+    if 42 { }
+}

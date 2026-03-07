@@ -1,0 +1,10 @@
+// expected stdout:
+// ❌ ../tests/cases/checker/for_bad_range.lyte:9:14: no solution for f32 == i32
+//         for i in 1.0 .. 10.0 { }
+//                  ^
+// ❌ ../tests/cases/checker/for_bad_range.lyte:9:14: no solution for f32 == i32
+//         for i in 1.0 .. 10.0 { }
+//                  ^
+f {
+    for i in 1.0 .. 10.0 { }
+}

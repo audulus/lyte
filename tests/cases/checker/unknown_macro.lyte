@@ -1,0 +1,7 @@
+// expected stdout:
+// ❌ ../tests/cases/checker/unknown_macro.lyte:7:1: unknown macro: unknown
+//     }
+//     ^
+f {
+    @unknown(1)
+}
