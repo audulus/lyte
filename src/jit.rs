@@ -593,7 +593,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Determine if this is a builtin (assert/print) which has a raw fn_ptr
                 // and no globals/closure parameters, vs a user function with a fat pointer.
                 let is_builtin = if let Expr::Id(name) = &decl.arena[*fn_id] {
-                    *name == Name::str("assert") || *name == Name::str("print")
+                    *name == Name::str("assert") || *name == Name::str("print") || *name == Name::str("putc")
                 } else {
                     false
                 };
@@ -1491,6 +1491,10 @@ impl<'a> FunctionTranslator<'a> {
             return self.builder.ins().iconst(I64, lyte_print_i32 as i64);
         }
 
+        if *name == Name::str("putc") {
+            return self.builder.ins().iconst(I64, lyte_putc as i64);
+        }
+
         if let crate::Type::Func(dom, rng) = ty {
             let mut sig = fn_sig(&self.module, *dom, *rng);
             // Add globals and closure pointers as first two parameters.
@@ -1733,6 +1737,12 @@ extern "C" fn lyte_assert(val: i8) {
 
 extern "C" fn lyte_print_i32(val: i32) {
     println!("{}", val);
+}
+
+extern "C" fn lyte_putc(val: i32) {
+    if let Some(c) = char::from_u32(val as u32) {
+        print!("{}", c);
+    }
 }
 
 extern "C" fn lyte_print_i64(val: i64) {

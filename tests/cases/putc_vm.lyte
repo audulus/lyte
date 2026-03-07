@@ -1,0 +1,10 @@
+// args: -r
+// expected stdout:
+// Hi
+// vm execution successful
+
+main {
+    putc(72)
+    putc(105)
+    putc(10)
+}

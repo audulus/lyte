@@ -42,6 +42,23 @@ fn builtin_decls() -> Vec<Decl> {
             types: vec![],
             closure_vars: vec![],
         }),
+        // putc(c: i32) → void
+        Decl::Func(FuncDecl {
+            name: Name::new("putc".into()),
+            typevars: vec![],
+            size_vars: vec![],
+            params: vec![Param {
+                name: Name::new("c".into()),
+                ty: Some(mk_type(Type::Int32)),
+            }],
+            body: None,
+            ret: mk_type(Type::Void),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+            closure_vars: vec![],
+        }),
     ]
 }
 

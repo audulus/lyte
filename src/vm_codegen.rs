@@ -1200,6 +1200,16 @@ impl<'a> FunctionTranslator<'a> {
                 return dst;
             }
 
+            if **name == "putc" {
+                if let Some(&arg_id) = arg_ids.first() {
+                    let arg = self.translate_expr(arg_id, func);
+                    func.emit(Opcode::Putc { src: arg });
+                }
+                let dst = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst, value: 0 });
+                return dst;
+            }
+
             // Get the return type of the call expression.
             let ret_ty = self.expr_type(call_expr);
             let returns_ptr = returns_via_pointer(ret_ty);

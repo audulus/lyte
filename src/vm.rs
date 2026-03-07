@@ -311,6 +311,9 @@ pub enum Opcode {
 
     /// Assert value is non-zero
     Assert { src: Reg },
+
+    /// Print a character
+    Putc { src: Reg },
 }
 
 /// A compiled function for the VM
@@ -1160,6 +1163,13 @@ impl VM {
                         panic!("Assertion failed at {}:{}",
                             program.functions[self.current_func as usize].name,
                             self.ip - 1);
+                    }
+                }
+
+                Opcode::Putc { src } => {
+                    let val = self.get_i64(src) as u32;
+                    if let Some(c) = char::from_u32(val) {
+                        print!("{}", c);
                     }
                 }
             }
