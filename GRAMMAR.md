@@ -165,11 +165,11 @@ caselist     = id { "," id } ;
 | Precedence | Operators          | Associativity |
 |------------|--------------------|---------------|
 | 1          | `=`                | Left          |
-| 2          | `==` `!=`          | Left          |
-| 3          | `\|\|` `&&`        | Left          |
+| 2          | `\|\|` `&&`        | Left          |
+| 3          | `==` `!=`          | Left          |
 | 4          | `<` `>` `<=` `>=`  | Left          |
 | 5          | `+` `-`            | Left          |
-| 6          | `*` `/`            | Left          |
+| 6          | `*` `/` `%`        | Left          |
 | 7          | `^`                | Left          |
 | 8          | `-` `+` `!` (unary)| Right (prefix)|
 | 9          | `()` `[]` `.` `:` `as` | Left (postfix) |

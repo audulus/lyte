@@ -1,0 +1,45 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // zero
+    var buf = "    "
+    itoa(buf, 0)
+    assert(buf[0] == '0')
+    assert(buf[1] == 0 as i8)
+
+    // positive single digit
+    var buf2 = "    "
+    itoa(buf2, 7)
+    assert(buf2[0] == '7')
+    assert(buf2[1] == 0 as i8)
+
+    // positive multi digit
+    var buf3 = "      "
+    itoa(buf3, 123)
+    assert(buf3[0] == '1')
+    assert(buf3[1] == '2')
+    assert(buf3[2] == '3')
+    assert(buf3[3] == 0 as i8)
+
+    // negative
+    var buf4 = "      "
+    itoa(buf4, -42)
+    assert(buf4[0] == '-')
+    assert(buf4[1] == '4')
+    assert(buf4[2] == '2')
+    assert(buf4[3] == 0 as i8)
+}

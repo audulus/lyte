@@ -283,24 +283,9 @@ fn parse_expr(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
 }
 
 fn parse_assign(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
-    let mut lhs = parse_eq(arena, typevars, cx);
-
-    while cx.lex.tok == Token::Assign {
-        let t = cx.lex.tok.clone();
-        let loc = cx.lex.loc;
-        cx.next();
-        let rhs = parse_eq(arena, typevars, cx);
-
-        lhs = arena.add(binop(&t, lhs, rhs), loc)
-    }
-
-    lhs
-}
-
-fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_logic(arena, typevars, cx);
 
-    while cx.lex.tok == Token::Equal || cx.lex.tok == Token::NotEqual {
+    while cx.lex.tok == Token::Assign {
         let t = cx.lex.tok.clone();
         let loc = cx.lex.loc;
         cx.next();
@@ -313,9 +298,24 @@ fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> 
 }
 
 fn parse_logic(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
-    let mut lhs = parse_rel(arena, typevars, cx);
+    let mut lhs = parse_eq(arena, typevars, cx);
 
     while cx.lex.tok == Token::Or || cx.lex.tok == Token::And {
+        let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
+        cx.next();
+        let rhs = parse_eq(arena, typevars, cx);
+
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
+    }
+
+    lhs
+}
+
+fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    let mut lhs = parse_rel(arena, typevars, cx);
+
+    while cx.lex.tok == Token::Equal || cx.lex.tok == Token::NotEqual {
         let t = cx.lex.tok.clone();
         let loc = cx.lex.loc;
         cx.next();
