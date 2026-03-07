@@ -440,6 +440,9 @@ pub struct VM {
 
     /// Current function name for debug diagnostics
     debug_func_name: String,
+
+    /// Set to true if execution was cancelled via cancel_ptr()
+    pub cancelled: bool,
 }
 
 impl Default for VM {
@@ -460,6 +463,7 @@ impl VM {
             current_func: 0,
             locals_base: 0,
             debug_func_name: String::new(),
+            cancelled: false,
         }
     }
 
@@ -583,6 +587,7 @@ impl VM {
 
         // Allocate zero-initialized global memory
         self.globals = vec![0u8; program.globals_size];
+        self.cancelled = false;
 
         loop {
             let func = &program.functions[self.current_func as usize];
@@ -957,17 +962,29 @@ impl VM {
                 // Control flow
                 Opcode::Jump { offset } => {
                     self.ip = (self.ip as i32 + offset) as usize;
+                    if offset < 0 && self.cancel_flag() {
+                        self.cancelled = true;
+                        return 0;
+                    }
                 }
 
                 Opcode::JumpIfZero { cond, offset } => {
                     if self.get_u64(cond) == 0 {
                         self.ip = (self.ip as i32 + offset) as usize;
+                        if offset < 0 && self.cancel_flag() {
+                            self.cancelled = true;
+                            return 0;
+                        }
                     }
                 }
 
                 Opcode::JumpIfNotZero { cond, offset } => {
                     if self.get_u64(cond) != 0 {
                         self.ip = (self.ip as i32 + offset) as usize;
+                        if offset < 0 && self.cancel_flag() {
+                            self.cancelled = true;
+                            return 0;
+                        }
                     }
                 }
 
@@ -975,6 +992,10 @@ impl VM {
                 Opcode::ILtJump { a, b, offset } => {
                     if self.get_i64(a) >= self.get_i64(b) {
                         self.ip = (self.ip as i32 + offset) as usize;
+                        if offset < 0 && self.cancel_flag() {
+                            self.cancelled = true;
+                            return 0;
+                        }
                     }
                 }
 
@@ -1149,6 +1170,18 @@ impl VM {
     /// Only valid after `run` has been called.
     pub fn globals_ptr(&mut self) -> *mut u8 {
         self.globals.as_mut_ptr()
+    }
+
+    /// Returns a pointer to the cancel flag byte.
+    /// Write a non-zero value from another thread to stop execution at the
+    /// next backward jump.  The pointer is valid for the lifetime of this VM.
+    pub fn cancel_ptr(&mut self) -> *mut u8 {
+        &mut self.cancelled as *mut bool as *mut u8
+    }
+
+    #[inline(always)]
+    fn cancel_flag(&self) -> bool {
+        self.cancelled
     }
 
     /// Get the size of the globals buffer in bytes.
@@ -1679,5 +1712,31 @@ mod tests {
         let mut vm = VM::new();
         let result = vm.run(&program);
         assert_eq!(result, 55);  // 1+2+3+...+10 = 55
+    }
+
+    #[test]
+    fn test_infinite_loop_cancels() {
+        // Infinite loop: Jump { offset: -1 } forever.
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::Jump { offset: -1 });
+
+        let mut program = VMProgram::new();
+        program.globals_size = 1; // room for the cancel flag
+        program.entry = program.add_function(func);
+
+        let mut vm = VM::new();
+
+        struct CancelPtr(*mut u8);
+        unsafe impl Send for CancelPtr {}
+        let cancel = CancelPtr(vm.cancel_ptr());
+
+        // After 50 ms, write 1 to the cancel flag.
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            unsafe { *cancel.0 = 1; }
+        });
+
+        vm.run(&program);
+        assert!(vm.cancelled, "expected the infinite loop to be cancelled");
     }
 }
