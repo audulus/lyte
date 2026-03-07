@@ -4,9 +4,8 @@
 // hithere
 
 main {
-    // set up "hi" followed by nulls using strcpy
     var dst: [i8; 32]
-    strcpy(dst, "hi")
+    strcat(dst, "hi")
     strcat(dst, "there")
     println(dst)
 }
