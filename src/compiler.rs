@@ -103,6 +103,14 @@ impl Compiler {
 
     }
 
+    pub fn print_ast(&self) {
+        for tree in self.ast.iter().skip(self.stdlib_trees) {
+            for decl in &tree.decls {
+                println!("{}", decl.pretty_print());
+            }
+        }
+    }
+
     pub fn parse(&mut self, contents: &str, path: &str) -> bool {
         let mut lexer = Lexer::new(&contents, &path);
 
