@@ -20,6 +20,9 @@ struct Args {
 
     #[clap(short)]
     r: bool,
+
+    #[clap(short, long)]
+    test: bool,
 }
 
 fn main() {
@@ -55,7 +58,7 @@ fn main() {
     compiler.print_ir = args.ir;
 
     // Only specialize when compiling or running - specialize requires a main function
-    if args.c || args.r || args.bytecode {
+    if args.c || args.r || args.test || args.bytecode {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             std::process::exit(1);
@@ -80,11 +83,11 @@ fn main() {
             }
         }
 
-        if args.c {
+        if args.c || args.test {
             compiler.run();
         }
 
-        if args.r {
+        if args.r || args.test {
             match compiler.run_vm() {
                 Ok(_) => println!("vm execution successful"),
                 Err(e) => {

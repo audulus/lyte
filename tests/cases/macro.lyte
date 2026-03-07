@@ -1,4 +1,4 @@
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
 // assert(true)
@@ -6,6 +6,12 @@
 // assert(true)
 // assert(true)
 // assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
 
 // A macro will be substituted into the call site
 // instead of called.

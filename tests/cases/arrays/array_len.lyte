@@ -1,7 +1,9 @@
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
 // assert(true)
+// assert(true)
+// vm execution successful
 
 main {
     var a = [1, 2, 3]

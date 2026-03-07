@@ -1,9 +1,13 @@
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
 // assert(true)
 // assert(true)
 // assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
 
 struct Point {
     x: i32,

@@ -1,11 +1,13 @@
-
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
 // assert(true)
 // assert(true)
 // assert(true)
-
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
 
 add_ints(a: i32, b: i32) → i32 {
     return a + b

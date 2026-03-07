@@ -37,11 +37,17 @@ cargo run --bin lyte <file.lyte> -c
 # Compile and run a single file with the VM
 cargo run --bin lyte <file.lyte> -r
 
+# Run both JIT and VM (used for tests)
+cargo run --bin lyte <file.lyte> -t
+
 # Parse and show AST
 cargo run --bin lyte <file.lyte> --ast
 
 # Show IR output
 cargo run --bin lyte <file.lyte> --ir
+
+# Show VM bytecode
+cargo run --bin lyte <file.lyte> --bytecode
 
 # Process entire directory
 cargo run --bin lyte <directory/> --c

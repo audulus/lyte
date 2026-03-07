@@ -1,8 +1,0 @@
-// args: -r
-// expected stdout:
-// hello world
-// vm execution successful
-
-main {
-    println("hello world")
-}

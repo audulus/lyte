@@ -1,9 +1,0 @@
-// args: -r
-// expected stdout:
-// assert(true)
-// vm execution successful
-
-main {
-    var i: i32
-    assert(i == 0)
-}

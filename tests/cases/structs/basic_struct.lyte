@@ -1,6 +1,7 @@
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
+// vm execution successful
 
 struct MyStruct {
     i: i32,

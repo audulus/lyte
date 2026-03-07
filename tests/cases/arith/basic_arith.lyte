@@ -1,5 +1,4 @@
-
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
 // assert(true)
@@ -7,7 +6,12 @@
 // assert(true)
 // assert(true)
 // assert(true)
-
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
 
 main {
     assert(2+2 == 4)

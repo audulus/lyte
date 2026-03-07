@@ -1,7 +1,9 @@
-// args: -c
+// args: -t
 // expected stdout:
 // compilation successful
 // hello world
+// hello world
+// vm execution successful
 
 main {
     println("hello world")
