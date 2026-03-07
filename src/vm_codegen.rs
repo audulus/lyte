@@ -803,6 +803,8 @@ impl<'a> FunctionTranslator<'a> {
                 addr
             }
 
+            Expr::Arena(inner) => self.translate_expr(*inner, func),
+
             _ => {
                 // Unimplemented expression - return 0.
                 let dst = self.alloc_reg();
