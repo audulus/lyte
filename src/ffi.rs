@@ -122,8 +122,8 @@ pub unsafe extern "C" fn lyte_compiler_specialize(ptr: *mut LyteCompiler) -> boo
     }
     let c = &mut *ptr;
     c.last_error = None;
-    if !c.compiler.specialize() {
-        c.set_error("specialization error");
+    if let Err(e) = c.compiler.specialize() {
+        c.set_error(&e);
         return false;
     }
     true

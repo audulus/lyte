@@ -68,8 +68,8 @@ fn main() {
             std::process::exit(1);
         }
 
-        if !compiler.specialize() {
-            eprintln!("Monomorphization failed");
+        if let Err(e) = compiler.specialize() {
+            eprintln!("{}", e);
             std::process::exit(1);
         }
 

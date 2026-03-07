@@ -117,14 +117,14 @@ impl JIT {
         let main_decls = &decls.find(Name::new(name.into()));
 
         if main_decls.is_empty() {
-            panic!("no main function found");
+            return Err("no main function found".to_string());
         }
 
         // Find the main function.
         let main_decl = if let Decl::Func(d) = &main_decls[0] {
             d
         } else {
-            panic!("no main function found");
+            return Err("main is not a function".to_string());
         };
 
         let id = self.compile_function(decls, main_decl)?;

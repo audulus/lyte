@@ -195,15 +195,13 @@ impl Compiler {
         true
     }
 
-    pub fn specialize(&mut self) -> bool {
+    pub fn specialize(&mut self) -> Result<(), String> {
         let mut pass = MonomorphPass::new();
         let name = Name::new("main".into());
-        if let Ok(all_decls) = pass.monomorphize(&self.decls, name ) {
-            // monomorphize now returns all decls (original + specialized)
-            self.decls = DeclTable::new(all_decls);
-            return true;
-        }
-        false
+        let all_decls = pass.monomorphize(&self.decls, name)?;
+        // monomorphize now returns all decls (original + specialized)
+        self.decls = DeclTable::new(all_decls);
+        Ok(())
     }
 
     pub fn has_decls(&self) -> bool {
@@ -297,7 +295,7 @@ mod tests {
 
         compiler.parse(code.into(), &paths[0]);
         assert!(compiler.check());
-        compiler.specialize();
+        compiler.specialize().unwrap();
         assert!(compiler.decls.decls.len() > 0);
         compiler.run();
     }
@@ -316,7 +314,7 @@ mod tests {
         let mut compiler = Compiler::new();
         compiler.parse(code, ".");
         assert!(compiler.check());
-        compiler.specialize();
+        compiler.specialize().unwrap();
 
         let (code_ptr, globals_size) = compiler.jit().expect("JIT compilation failed");
         let mut globals: Vec<u8> = vec![0u8; globals_size];
@@ -354,7 +352,7 @@ mod tests {
 
         compiler.parse(code.into(), &paths[0]);
         assert!(compiler.check());
-        compiler.specialize();
+        compiler.specialize().unwrap();
         assert!(compiler.decls.decls.len() > 0);
         compiler.run_vm().expect("VM execution failed");
     }

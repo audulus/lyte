@@ -41,7 +41,7 @@ impl MonomorphPass {
         // Find the entry point function declaration
         let func_decls = decls.find(entry_point);
         if func_decls.is_empty() {
-            return Err(format!("Entry point function '{}' not found", entry_point));
+            return Err("no main function found".to_string());
         }
 
         if func_decls.len() > 1 {
@@ -841,7 +841,7 @@ mod tests {
         let result = pass.monomorphize(&decls, Name::str("main"));
         // Should fail because the entry point doesn't exist
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert!(result.unwrap_err().contains("no main function found"));
     }
 
 

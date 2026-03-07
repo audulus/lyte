@@ -1,0 +1,6 @@
+// args: -c
+// expected stderr:
+// no main function found
+
+foo {
+}
