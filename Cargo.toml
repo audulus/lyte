@@ -24,6 +24,3 @@ cranelift-jit = "0.129.1"
 cranelift-codegen = "0.129.1"
 cranelift-native = "0.129.1"
 libc = "0.2"
-
-[profile.release]
-panic = "abort" # So we don't have another unwind personality function for rust.
