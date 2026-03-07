@@ -23,7 +23,7 @@
 
 - [x] Audit all `Expr` variants handled in JIT but missing from VM
 - [x] Macro support in VM (see above)
-- [ ] Verify character literal support in VM codegen
+- [x] Verify character literal support in VM codegen
 
 ## Error Handling
 
