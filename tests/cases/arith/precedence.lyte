@@ -1,0 +1,41 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // multiplication before addition
+    assert(2 + 3 * 4 == 14)
+    // division before subtraction
+    assert(10 - 6 / 2 == 7)
+    // modulo same precedence as multiplication
+    assert(2 + 10 % 3 == 3)
+    // parentheses override precedence
+    assert((2 + 3) * 4 == 20)
+    // left-to-right associativity
+    assert(10 - 3 - 2 == 5)
+    // mixed multiplication and division
+    assert(12 / 3 * 2 == 8)
+    // comparison lower than arithmetic
+    assert(2 + 3 == 1 + 4)
+    // nested parentheses
+    assert((2 + 3) * (4 - 1) == 15)
+}
