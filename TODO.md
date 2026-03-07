@@ -3,8 +3,8 @@
 ## Language Features
 
 ### String Support
-- [ ] Add string operation support (concatenation, length, indexing)
-- [ ] Add string test cases
+- [x] Add string operation support (concatenation, length, indexing)
+- [x] Add string test cases
 
 ### Match Expressions / Pattern Matching
 - [ ] Design grammar for match expressions
