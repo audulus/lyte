@@ -20,7 +20,7 @@ be stored as indices into function tables (each table would be all functions of 
 
 ## Unboxed Function closures
 
-To avoid having to use generics for closures, we can compute a max closure size for each function signature by analyzing the whole program.
+To avoid having to use generics for closures, we could compute a max closure size for each function signature by analyzing the whole program. For now though, let's see if we can do better for performance.
 
 ## Escape Analysis
 
