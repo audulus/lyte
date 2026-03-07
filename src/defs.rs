@@ -93,6 +93,7 @@ pub enum Binop {
     Minus,
     Mult,
     Div,
+    Mod,
     Pow,
     Equal,
     NotEqual,
@@ -114,7 +115,7 @@ impl Binop {
     }
 
     pub fn arithmetic(self) -> bool {
-        self == Binop::Plus || self == Binop::Minus || self == Binop::Mult || self == Binop::Div
+        self == Binop::Plus || self == Binop::Minus || self == Binop::Mult || self == Binop::Div || self == Binop::Mod
     }
 
     pub fn overload_name(self) -> &'static str {
@@ -123,6 +124,7 @@ impl Binop {
             Binop::Minus => "__sub",
             Binop::Mult => "__mul",
             Binop::Div => "__div",
+            Binop::Mod => "__mod",
             _ => panic!(),
         }
     }

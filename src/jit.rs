@@ -1414,6 +1414,17 @@ impl<'a> FunctionTranslator<'a> {
                     _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
+            Binop::Mod => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
+                match *t {
+                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
+                        self.builder.ins().urem(lhs, rhs)
+                    }
+                    _ => unreachable!("type {:?} not supported for modulo", t),
+                }
+            }
             Binop::Assign => {
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);

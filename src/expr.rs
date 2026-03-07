@@ -451,6 +451,7 @@ fn format_binop(op: Binop) -> &'static str {
         Binop::Minus => "-",
         Binop::Mult => "*",
         Binop::Div => "/",
+        Binop::Mod => "%",
         Binop::Pow => "^",
         Binop::Equal => "==",
         Binop::NotEqual => "!=",

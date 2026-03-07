@@ -221,6 +221,7 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
         Token::Minus => Binop::Minus,
         Token::Mult => Binop::Mult,
         Token::Div => Binop::Div,
+        Token::TokMod => Binop::Mod,
         Token::Leq => Binop::Leq,
         Token::Geq => Binop::Geq,
         Token::Less => Binop::Less,
@@ -363,7 +364,7 @@ fn parse_sum(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) ->
 fn parse_term(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     let mut lhs = parse_exp(arena, typevars, cx);
 
-    while cx.lex.tok == Token::Mult || cx.lex.tok == Token::Div {
+    while cx.lex.tok == Token::Mult || cx.lex.tok == Token::Div || cx.lex.tok == Token::TokMod {
         let t = cx.lex.tok.clone();
         cx.next();
         let rhs = parse_exp(arena, typevars, cx);

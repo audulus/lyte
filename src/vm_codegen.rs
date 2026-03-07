@@ -888,6 +888,10 @@ impl<'a> FunctionTranslator<'a> {
                 }
             },
 
+            Binop::Mod => {
+                func.emit(Opcode::IRem { dst, a: lhs, b: rhs });
+            }
+
             Binop::Equal => match &*ty {
                 Type::Float32 => {
                     func.emit(Opcode::FEq { dst, a: lhs, b: rhs });

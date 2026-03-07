@@ -310,6 +310,7 @@ impl Lexer {
             }
             '*' => Token::Mult,
             '/' => Token::Div,
+            '%' => Token::TokMod,
             '^' => Token::Power,
             '?' => Token::Cond,
             ':' => Token::Colon,
