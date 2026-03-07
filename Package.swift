@@ -5,7 +5,8 @@ let package = Package(
     name: "Lyte",
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [
-        .library(name: "Lyte", targets: ["Lyte"]),
+        // .dynamic so we don't run out of exception personality functions
+        .library(name: "Lyte", type: .dynamic, targets: ["Lyte"]),
     ],
     targets: [
         .binaryTarget(
