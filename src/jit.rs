@@ -17,6 +17,30 @@ use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
+// Opaque jmp_buf: 256 bytes (32 * u64), 8-byte aligned.
+// macOS arm64 jmp_buf ≤ 192 bytes; macOS x86_64 ≤ 148 bytes.
+#[repr(C, align(8))]
+struct JmpBuf([u64; 32]);
+
+extern "C" {
+    fn setjmp(env: *mut u8) -> i32;
+    fn longjmp(env: *mut u8, val: i32) -> !;
+}
+
+/// Bytes reserved at the start of the globals buffer for the runtime header:
+///   offset 0: cancel flag (u8) — write non-zero to cancel running JIT code
+///   offset 8..(8 + size_of::<JmpBuf>): the longjmp target
+///
+/// User globals start at `CANCEL_FLAG_RESERVED`.
+/// The jmp_buf starts at offset 8 so it is naturally aligned.
+pub const CANCEL_FLAG_RESERVED: i32 = 8 + std::mem::size_of::<JmpBuf>() as i32;
+
+/// Called from JIT-generated code when `globals[0]` (the cancel flag) is non-zero.
+/// Receives the globals base pointer and longjmps to the checkpoint stored at `globals[8]`.
+unsafe extern "C" fn lyte_abort(globals: *mut u8) {
+    longjmp(globals.add(8), 1);
+}
+
 /// The basic JIT class.
 pub struct JIT {
     /// The function builder context, which is reused across multiple
@@ -64,7 +88,8 @@ impl Default for JIT {
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
-        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        builder.symbol("__lyte_abort", lyte_abort as *const u8);
 
         let module = JITModule::new(builder);
         Self {
@@ -188,7 +213,8 @@ impl JIT {
     }
 
     fn declare_globals(&mut self, decls: &DeclTable) {
-        let mut offset: i32 = 0;
+        // Reserve the first CANCEL_FLAG_RESERVED bytes for the cancel flag at offset 0.
+        let mut offset: i32 = CANCEL_FLAG_RESERVED;
         for decl in &decls.decls {
             if let Decl::Global { name, ty } = decl {
                 self.globals.insert(*name, offset);
@@ -441,7 +467,36 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
+        self.emit_cancel_check();
         self.translate_expr(decl.body.unwrap(), decl, decls)
+    }
+
+    /// Emit a cancellation check at the current position.
+    ///
+    /// Reads `globals[0]` (the cancel flag).  If it is non-zero, calls
+    /// `lyte_abort(globals_base)` which longjmps to the checkpoint stored at
+    /// `globals[8]`, immediately unwinding the entire JIT call stack.
+    /// Falls through into a fresh `continue_block` when the flag is clear.
+    fn emit_cancel_check(&mut self) {
+        let cancel_block = self.builder.create_block();
+        let continue_block = self.builder.create_block();
+
+        let base = self.globals_base.expect("globals_base not set");
+        let flag = self.builder.ins().load(I8, MemFlags::trusted(), base, 0);
+        let is_set = self.builder.ins().icmp_imm(IntCC::NotEqual, flag, 0);
+        self.builder.ins().brif(is_set, cancel_block, &[], continue_block, &[]);
+
+        self.builder.switch_to_block(cancel_block);
+        self.builder.seal_block(cancel_block);
+        let fn_ptr = self.builder.ins().iconst(I64, lyte_abort as usize as i64);
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(I64)); // globals_base
+        let sref = self.builder.import_signature(sig);
+        self.builder.ins().call_indirect(sref, fn_ptr, &[base]);
+        self.builder.ins().trap(TrapCode::user(1).unwrap()); // unreachable after longjmp
+
+        self.builder.switch_to_block(continue_block);
+        self.builder.seal_block(continue_block);
     }
 
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
@@ -854,6 +909,11 @@ impl<'a> FunctionTranslator<'a> {
                 let incremented = self.builder.ins().iadd_imm(current_val, 1);
                 self.builder.def_var(loop_var, incremented);
 
+                // Check for cancellation before jumping back.
+                if !self.builder.is_unreachable() {
+                    self.emit_cancel_check();
+                }
+
                 // Jump back to header.
                 self.builder.ins().jump(header_block, &[]);
 
@@ -909,6 +969,11 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.switch_to_block(body_block);
                 self.builder.seal_block(body_block);
                 self.translate_expr(*body_id, decl, decls);
+
+                // Check for cancellation before jumping back.
+                if !self.builder.is_unreachable() {
+                    self.emit_cancel_check();
+                }
 
                 // Jump back to header.
                 self.builder.ins().jump(header_block, &[]);

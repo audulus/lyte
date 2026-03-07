@@ -151,7 +151,9 @@ impl Compiler {
     /// The offset and size are in bytes within the globals buffer.
     pub fn globals_info(&self) -> Vec<(String, usize, usize, String)> {
         let mut result = Vec::new();
-        let mut offset: usize = 0;
+        // Mirror the layout used by JIT::declare_globals: user globals start
+        // after the cancel flag reservation.
+        let mut offset: usize = CANCEL_FLAG_RESERVED as usize;
         for decl in &self.decls.decls {
             if let Decl::Global { name, ty } = decl {
                 let size = ty.size(&self.decls) as usize;
@@ -178,11 +180,23 @@ impl Compiler {
             println!("compilation successful");
 
             // Allocate zeroed global memory and pass to main.
+            // globals[0] is the cancel flag; globals[8] holds the longjmp target.
             type Entry = fn(*mut u8) -> ();
             let mut globals: Vec<u8> = vec![0u8; globals_size];
-            unsafe {
-                let code_fn = mem::transmute::<_, Entry>(code_ptr);
-                code_fn(globals.as_mut_ptr());
+            let cancelled = unsafe {
+                // globals[0]: cancel flag; globals[8]: JmpBuf for longjmp target.
+                extern "C" { fn setjmp(env: *mut u8) -> i32; }
+                let jmp_buf_ptr = globals.as_mut_ptr().add(8);
+                if setjmp(jmp_buf_ptr) == 0 {
+                    let code_fn = mem::transmute::<_, Entry>(code_ptr);
+                    code_fn(globals.as_mut_ptr());
+                    false
+                } else {
+                    true
+                }
+            };
+            if cancelled {
+                println!("execution cancelled");
             }
         } else {
             println!("{:?}", r);
@@ -212,7 +226,7 @@ mod tests {
     use super::*;
 
     fn jit(code: &str) {
-        
+
         let mut compiler = Compiler::new();
         let paths = vec![String::from(".")];
 
@@ -221,6 +235,52 @@ mod tests {
         compiler.specialize();
         assert!(compiler.decls.decls.len() > 0);
         compiler.run();
+    }
+
+    #[test]
+    fn test_infinite_loop_cancels() {
+        let code = r#"
+            main {
+                var i = 0
+                while true {
+                    i = i + 1
+                }
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        assert!(compiler.check());
+        compiler.specialize();
+
+        let (code_ptr, globals_size) = compiler.jit().expect("JIT compilation failed");
+        let mut globals: Vec<u8> = vec![0u8; globals_size];
+
+        // Wrap the raw pointer so it can be sent to another thread.
+        struct CancelPtr(*mut u8);
+        unsafe impl Send for CancelPtr {}
+        let sender = CancelPtr(globals.as_mut_ptr());
+
+        // After 50 ms, set globals[0] = 1 to trigger cancellation.
+        let _handle = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            unsafe { sender.0.write_volatile(1) };
+        });
+
+        let cancelled = unsafe {
+            extern "C" { fn setjmp(env: *mut u8) -> i32; }
+            let jmp_buf_ptr = globals.as_mut_ptr().add(8);
+            if setjmp(jmp_buf_ptr) == 0 {
+                type Entry = fn(*mut u8) -> ();
+                let code_fn = mem::transmute::<_, Entry>(code_ptr);
+                code_fn(globals.as_mut_ptr());
+                false
+            } else {
+                true
+            }
+        };
+
+        assert!(cancelled, "expected the infinite loop to be cancelled");
     }
 
     fn run(code: &str) {
