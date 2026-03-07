@@ -29,6 +29,36 @@ strlen(s: [i8]) -> i32 {
     return n
 }
 
+itoa(dst: [i8], n: i32) {
+    var num = n
+    if n < 0 {
+        num = 0 - n
+    }
+
+    var div = 1
+    var temp = num / 10
+    while temp > 0 {
+        div = div * 10
+        temp = temp / 10
+    }
+
+    var pos = 0
+    if n < 0 {
+        pos = 1
+    }
+
+    for i in 0 .. dst.len {
+        if i == 0 && n < 0 {
+            dst[i] = 45 as i8
+        } else if i >= pos && div > 0 {
+            dst[i] = ((num / div) % 10 + 48) as i8
+            div = div / 10
+        } else {
+            dst[i] = 0 as i8
+        }
+    }
+}
+
 strcat(dst: [i8], src: [i8]) {
     var j = 0
     var copying = false
