@@ -17,7 +17,7 @@
 ### Macros
 - [x] Implement macro support in VM backend (macros expand before codegen, works in both backends)
 - [x] Add VM macro test cases (`macro_vm.lyte`)
-- [ ] Consider overloaded macros (`checker.rs:443` — `XXX: overloaded macros?`)
+- [x] Disallow overloaded macros
 
 ## Backend Parity (JIT vs VM)
 
