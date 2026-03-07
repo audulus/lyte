@@ -2,7 +2,9 @@
 
 println(s: [i8]) {
     for i in 0 .. s.len {
-        putc(s[i] as i32)
+        if s[i] != 0 as i8 {
+            putc(s[i] as i32)
+        }
     }
     putc(10)
 }
