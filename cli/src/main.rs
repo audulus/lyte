@@ -84,10 +84,16 @@ fn main() {
         }
 
         if args.c || args.test {
+            if args.test {
+                println!("executing compiled code");
+            }
             compiler.run();
         }
 
         if args.r || args.test {
+            if args.test {
+                println!("executing VM code");
+            }
             match compiler.run_vm() {
                 Ok(_) => println!("vm execution successful"),
                 Err(e) => {

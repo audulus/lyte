@@ -1,7 +1,9 @@
 // args: -t
 // expected stdout:
+// executing compiled code
 // compilation successful
 // hello world
+// executing VM code
 // hello world
 // vm execution successful
 

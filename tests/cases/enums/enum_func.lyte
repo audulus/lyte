@@ -1,8 +1,10 @@
 // args: -t
 // expected stdout:
+// executing compiled code
 // compilation successful
 // assert(true)
 // assert(true)
+// executing VM code
 // assert(true)
 // assert(true)
 // vm execution successful
