@@ -1,0 +1,29 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // empty string
+    assert(strlen("") == 0)
+
+    // single char
+    assert(strlen("a") == 1)
+
+    // multi char
+    assert(strlen("hello") == 5)
+
+    // zero-initialized array should have strlen 0
+    var buf: [i8; 8]
+    assert(strlen(buf) == 0)
+}

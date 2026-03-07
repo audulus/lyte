@@ -1,0 +1,25 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // mutate individual characters
+    var s = "abcd"
+    s[0] = 'z'
+    s[3] = 'w'
+    assert(s[0] == 'z')
+    assert(s[1] == 'b')
+    assert(s[2] == 'c')
+    assert(s[3] == 'w')
+}

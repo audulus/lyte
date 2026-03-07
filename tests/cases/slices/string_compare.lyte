@@ -1,0 +1,30 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // same content different variables
+    var a = "test"
+    var b = "test"
+    assert(a == b)
+
+    // different content
+    var c = "foo"
+    var d = "bar"
+    assert(c != d)
+
+    // single char strings
+    assert("x" == "x")
+    assert("x" != "y")
+}

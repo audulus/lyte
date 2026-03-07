@@ -1,0 +1,25 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+struct Msg {
+    buf: [i8; 8]
+}
+
+main {
+    var m: Msg
+    m.buf[0] = 'h'
+    m.buf[1] = 'i'
+    assert(m.buf[0] == 'h')
+    assert(m.buf[1] == 'i')
+    assert(m.buf[2] == 0 as i8)
+}
