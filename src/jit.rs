@@ -1777,7 +1777,7 @@ fn collect_free_vars_rec(
         }
         // Terminal expressions — no sub-expressions.
         Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) | Expr::String(_)
-        | Expr::Char(_) | Expr::True | Expr::False | Expr::Cast
+        | Expr::Char(_) | Expr::True | Expr::False
         | Expr::Enum(_) | Expr::Error => {}
     }
 }

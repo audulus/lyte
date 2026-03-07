@@ -46,9 +46,6 @@ pub enum Expr {
     /// Character literal.
     Char(char),
 
-    /// Type cast expression.
-    Cast,
-
     /// Struct field access.
     Field(ExprID, Name),
 
@@ -140,7 +137,6 @@ impl Expr {
             Expr::False => "false".to_string(),
             Expr::Enum(name) => format!(".{}", name),
             Expr::Error => "<error>".to_string(),
-            Expr::Cast => "<cast>".to_string(),
 
             Expr::Call(func_id, args) => {
                 let func_str = arena.exprs[*func_id].pretty_print(arena, indent);
@@ -333,7 +329,6 @@ pub fn copy_expr(
         Expr::False => dst_arena.add(Expr::False, loc),
         Expr::Enum(name) => dst_arena.add(Expr::Enum(*name), loc),
         Expr::Error => dst_arena.add(Expr::Error, loc),
-        Expr::Cast => dst_arena.add(Expr::Cast, loc),
         Expr::Call(f, args) => {
             let new_f = copy_expr(*f, src_arena, dst_arena, subst);
             let new_args: Vec<ExprID> = args.iter()

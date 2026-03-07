@@ -711,10 +711,7 @@ impl Checker {
 
                 func(tuple(param_types), rt)
             }
-            _ => {
-                println!("haven't yet implemented {:?}", &arena[id]);
-                panic!();
-            }
+            Expr::Error => self.fresh(),
         };
         self.types[id] = ty;
         ty

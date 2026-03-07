@@ -257,7 +257,7 @@ impl MonomorphPass {
             // True leaves
             Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) |
             Expr::String(_) | Expr::Char(_) | Expr::True | Expr::False |
-            Expr::Enum(_) | Expr::Error | Expr::Cast | Expr::Macro(_, _) => {}
+            Expr::Enum(_) | Expr::Error | Expr::Macro(_, _) => {}
         }
         Ok(())
     }
