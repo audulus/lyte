@@ -74,10 +74,9 @@ The compiler is structured as a multi-pass system:
 
 ### Key Design Principles
 - No recursive data structures (use arrays with indices instead)
-- Dynamic ownership with runtime "owned" bit rather than compile-time ownership
-- Static array bounds checking via abstract interpretation
-- Safe memory transmutation by restricting type system
-- Unboxed function closures with computed max closure sizes
+- Static array bounds checking via abstract interpretation (`src/array_checker.rs`)
+- Interfaces for constraining generics and static dependency injection
+- Escape analysis to prevent returning functions with closures
 
 ### Test Structure (Golden Tests)
 Tests use the `goldentests` crate (v1.4.1). The test runner is in `cli/tests/cli.rs` and invokes the `../target/debug/lyte` binary against all `.lyte` files in `tests/cases/`. You must `cargo build` before running tests since the binary is invoked directly.
