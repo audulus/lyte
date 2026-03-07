@@ -398,7 +398,7 @@ fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signatu
             sig.params.push(AbiParam::new(t.cranelift_type()));
         }
     } else {
-        panic!();
+        panic!("fn_sig: expected Tuple for `from` type, got {:?}", from);
     }
 
     // Only add return value if not void and not returned via pointer.

@@ -48,7 +48,6 @@
 ## Code Quality
 
 - [ ] `vm_codegen.rs:541-544` — function ID loading emits `LoadImm 0` as placeholder
-- [ ] `jit.rs:401` — empty panic with no message
 - [ ] Clean up vague panic messages throughout codebase
 
 ## Test Coverage
