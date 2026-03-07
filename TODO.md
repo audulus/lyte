@@ -7,6 +7,9 @@
 - [x] Add string test cases
 
 ### Match Expressions / Pattern Matching
+
+While pattern matching is very powerful, we're going to leave it out of 1.0.
+
 - [ ] Design grammar for match expressions
 - [ ] Add parser support
 - [ ] Implement type checking for match exhaustiveness
