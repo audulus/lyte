@@ -572,7 +572,9 @@ impl Checker {
                 let t = self.fresh();
                 let array_t = self.check_expr(*array_expr, arena, decls);
                 let idx_t = self.check_expr(*index_expr, arena, decls);
-                self.lvalue[id] = self.lvalue[*array_expr];
+
+                // Arrays always mutable?
+                self.lvalue[id] = true;
 
                 // Probably should allow both signed and unsigned indexing?
                 // self.eq(
