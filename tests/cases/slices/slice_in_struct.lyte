@@ -1,0 +1,8 @@
+// expected stdout:
+// ❌ ../tests/cases/slices/slice_in_struct.lyte:7:5: slice type [i32] is not allowed in struct fields (use a sized array instead)
+//         x: [i32]
+//         ^
+
+struct Bad {
+    x: [i32]
+}

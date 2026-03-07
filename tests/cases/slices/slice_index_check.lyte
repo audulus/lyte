@@ -1,11 +1,11 @@
 // expected stdout:
-// ❌ ../tests/cases/arrays/slice_index_check.lyte:21:11: couldn't prove index is >= 0
+// ❌ ../tests/cases/slices/slice_index_check.lyte:21:11: couldn't prove index is >= 0
 //         s[-1] = 0
 //               ^
-// ❌ ../tests/cases/arrays/slice_index_check.lyte:21:11: couldn't prove index is less than slice length
+// ❌ ../tests/cases/slices/slice_index_check.lyte:21:11: couldn't prove index is less than slice length
 //         s[-1] = 0
 //               ^
-// ❌ ../tests/cases/arrays/slice_index_check.lyte:15:16: couldn't prove index is less than slice length
+// ❌ ../tests/cases/slices/slice_index_check.lyte:15:16: couldn't prove index is less than slice length
 //             dst[i] = src[i]
 //                    ^
 
