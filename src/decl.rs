@@ -86,6 +86,28 @@ impl FuncDecl {
     pub fn domain(&self) -> TypeID {
         crate::TypeID::new(crate::Type::Tuple(self.param_types()))
     }
+
+    /// Expand all macro invocations in this function's arena.
+    pub fn expand_macros(&mut self, macros: &std::collections::HashMap<Name, FuncDecl>) {
+        let n = self.arena.exprs.len();
+        for i in 0..n {
+            if let Expr::Macro(name, ref args) = self.arena.exprs[i] {
+                let args = args.clone();
+                if let Some(mac) = macros.get(&name) {
+                    let subst: Vec<(Name, ExprID)> = mac.params.iter()
+                        .zip(args.iter())
+                        .map(|(p, a)| (p.name, *a))
+                        .collect();
+
+                    let body = mac.body.expect("macro must have a body");
+                    let new_body = copy_expr(body, &mac.arena, &mut self.arena, &subst);
+
+                    self.arena.exprs[i] = self.arena.exprs[new_body].clone();
+                    self.arena.locs[i] = self.arena.locs[new_body];
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]

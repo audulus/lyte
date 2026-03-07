@@ -1,13 +1,16 @@
-macro swap<T>(x: T, y: T) {
+
+// A macro will be substituted into the call site
+// instead of called.
+macro swap(x, y) {
     let tmp = x
-    //x = y
-    //y = tmp
+    x = y
+    y = tmp
 }
 
 main {
     var a = 1
     var b = 2
     @swap(a, b)
-    //assert(a == 2)
-    //assert(b == 1)
+    assert(a == 2)
+    assert(b == 1)
 }

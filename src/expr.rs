@@ -314,6 +314,136 @@ impl Expr {
     }
 }
 
+/// Recursively copy an expression from one arena to another,
+/// substituting names with argument expressions.
+pub fn copy_expr(
+    src_id: ExprID,
+    src_arena: &ExprArena,
+    dst_arena: &mut ExprArena,
+    subst: &[(Name, ExprID)],
+) -> ExprID {
+    let loc = src_arena.locs[src_id];
+    match &src_arena.exprs[src_id] {
+        Expr::Id(name) => {
+            for (param_name, arg_id) in subst {
+                if name == param_name {
+                    return *arg_id;
+                }
+            }
+            dst_arena.add(Expr::Id(*name), loc)
+        }
+        Expr::Int(n) => dst_arena.add(Expr::Int(*n), loc),
+        Expr::UInt(n) => dst_arena.add(Expr::UInt(*n), loc),
+        Expr::Real(s) => dst_arena.add(Expr::Real(s.clone()), loc),
+        Expr::String(s) => dst_arena.add(Expr::String(s.clone()), loc),
+        Expr::Char(c) => dst_arena.add(Expr::Char(*c), loc),
+        Expr::True => dst_arena.add(Expr::True, loc),
+        Expr::False => dst_arena.add(Expr::False, loc),
+        Expr::Enum(name) => dst_arena.add(Expr::Enum(*name), loc),
+        Expr::Error => dst_arena.add(Expr::Error, loc),
+        Expr::Cast => dst_arena.add(Expr::Cast, loc),
+        Expr::Call(f, args) => {
+            let new_f = copy_expr(*f, src_arena, dst_arena, subst);
+            let new_args: Vec<ExprID> = args.iter()
+                .map(|a| copy_expr(*a, src_arena, dst_arena, subst))
+                .collect();
+            dst_arena.add(Expr::Call(new_f, new_args), loc)
+        }
+        Expr::Macro(name, args) => {
+            let new_args: Vec<ExprID> = args.iter()
+                .map(|a| copy_expr(*a, src_arena, dst_arena, subst))
+                .collect();
+            dst_arena.add(Expr::Macro(*name, new_args), loc)
+        }
+        Expr::Binop(op, lhs, rhs) => {
+            let new_lhs = copy_expr(*lhs, src_arena, dst_arena, subst);
+            let new_rhs = copy_expr(*rhs, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Binop(*op, new_lhs, new_rhs), loc)
+        }
+        Expr::Unop(op, arg) => {
+            let new_arg = copy_expr(*arg, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Unop(*op, new_arg), loc)
+        }
+        Expr::Lambda { params, body } => {
+            let new_body = copy_expr(*body, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Lambda { params: params.clone(), body: new_body }, loc)
+        }
+        Expr::Field(expr, name) => {
+            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Field(new_expr, *name), loc)
+        }
+        Expr::Array(value, size) => {
+            let new_value = copy_expr(*value, src_arena, dst_arena, subst);
+            let new_size = copy_expr(*size, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Array(new_value, new_size), loc)
+        }
+        Expr::ArrayLiteral(exprs) => {
+            let new_exprs: Vec<ExprID> = exprs.iter()
+                .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
+                .collect();
+            dst_arena.add(Expr::ArrayLiteral(new_exprs), loc)
+        }
+        Expr::ArrayIndex(arr, idx) => {
+            let new_arr = copy_expr(*arr, src_arena, dst_arena, subst);
+            let new_idx = copy_expr(*idx, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::ArrayIndex(new_arr, new_idx), loc)
+        }
+        Expr::AsTy(expr, ty) => {
+            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::AsTy(new_expr, *ty), loc)
+        }
+        Expr::Assign(name, expr) => {
+            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Assign(*name, new_expr), loc)
+        }
+        Expr::Let(name, init, ty) => {
+            let new_init = copy_expr(*init, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Let(*name, new_init, *ty), loc)
+        }
+        Expr::Var(name, init, ty) => {
+            let new_init = init.map(|e| copy_expr(e, src_arena, dst_arena, subst));
+            dst_arena.add(Expr::Var(*name, new_init, *ty), loc)
+        }
+        Expr::If(cond, then, else_) => {
+            let new_cond = copy_expr(*cond, src_arena, dst_arena, subst);
+            let new_then = copy_expr(*then, src_arena, dst_arena, subst);
+            let new_else = else_.map(|e| copy_expr(e, src_arena, dst_arena, subst));
+            dst_arena.add(Expr::If(new_cond, new_then, new_else), loc)
+        }
+        Expr::While(cond, body) => {
+            let new_cond = copy_expr(*cond, src_arena, dst_arena, subst);
+            let new_body = copy_expr(*body, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::While(new_cond, new_body), loc)
+        }
+        Expr::For { var, start, end, body } => {
+            let new_start = copy_expr(*start, src_arena, dst_arena, subst);
+            let new_end = copy_expr(*end, src_arena, dst_arena, subst);
+            let new_body = copy_expr(*body, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::For { var: *var, start: new_start, end: new_end, body: new_body }, loc)
+        }
+        Expr::Block(exprs) => {
+            let new_exprs: Vec<ExprID> = exprs.iter()
+                .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
+                .collect();
+            dst_arena.add(Expr::Block(new_exprs), loc)
+        }
+        Expr::Return(expr) => {
+            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Return(new_expr), loc)
+        }
+        Expr::Tuple(exprs) => {
+            let new_exprs: Vec<ExprID> = exprs.iter()
+                .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
+                .collect();
+            dst_arena.add(Expr::Tuple(new_exprs), loc)
+        }
+        Expr::Arena(expr) => {
+            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Arena(new_expr), loc)
+        }
+    }
+}
+
 fn format_binop(op: Binop) -> &'static str {
     match op {
         Binop::Assign => "=",

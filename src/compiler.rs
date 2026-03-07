@@ -2,6 +2,7 @@ use crate::vm::{VM, VMProgram};
 use crate::vm_codegen::VMCodegen;
 use crate::*;
 use core::mem;
+use std::collections::HashMap;
 use std::fs;
 
 /// Returns the built-in function declarations (assert, print, etc.)
@@ -105,10 +106,31 @@ impl Compiler {
             decls.append(&mut tree.decls.clone());
         }
 
+        // Collect macros for expansion.
+        let macros: HashMap<Name, FuncDecl> = decls.iter().filter_map(|d| {
+            if let Decl::Macro(m) = d {
+                Some((m.name, m.clone()))
+            } else {
+                None
+            }
+        }).collect();
+
+        // Expand macros in all function bodies.
+        for decl in &mut decls {
+            if let Decl::Func(ref mut fdecl) = decl {
+                fdecl.expand_macros(&macros);
+            }
+        }
+
         self.decls = DeclTable::new(decls);
         let orig_decls = self.decls.clone();
 
         for decl in &mut self.decls.decls {
+            // Skip type-checking macro declarations (they are untyped templates).
+            if matches!(decl, Decl::Macro(_)) {
+                continue;
+            }
+
             let mut checker = Checker::new();
             checker.check_decl(decl, &orig_decls);
 
@@ -117,14 +139,8 @@ impl Compiler {
                 return false;
             }
 
-            match decl {
-                Decl::Func(ref mut fdecl) => {
-                    fdecl.types = checker.solved_types();
-                }
-                Decl::Macro(ref mut mdecl) => {
-                    mdecl.types = checker.solved_types();
-                }
-                _ => {}
+            if let Decl::Func(ref mut fdecl) = decl {
+                fdecl.types = checker.solved_types();
             }
         }
 
