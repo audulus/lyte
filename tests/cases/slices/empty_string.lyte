@@ -1,8 +1,16 @@
+// args: -t
 // expected stdout:
-// ❌ ../tests/cases/slices/empty_string.lyte:7:13: empty string literals are not allowed
-//         var s = ""
-//                 ^
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
 
 main {
     var s = ""
+    assert(s[0] == 0 as i8)
+    assert(s == "")
 }

@@ -702,7 +702,7 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::String(s) => {
                 let bytes = s.as_bytes();
-                let total_size = bytes.len() as u32;
+                let total_size = bytes.len() as u32 + 1;
                 let slot = self.alloc_local(total_size);
                 let addr_reg = self.alloc_reg();
                 func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
@@ -712,6 +712,9 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(Opcode::LoadImm { dst: val_reg, value: b as i64 });
                     self.emit_store_offset(&int8_ty, addr_reg, i as i32, val_reg, func);
                 }
+                let null_reg = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst: null_reg, value: 0 });
+                self.emit_store_offset(&int8_ty, addr_reg, bytes.len() as i32, null_reg, func);
                 addr_reg
             }
 

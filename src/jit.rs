@@ -1198,7 +1198,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Arena(block_id) => self.translate_expr(*block_id, decl, decls),
             Expr::String(s) => {
                 let bytes = s.as_bytes();
-                let total_size = bytes.len() as u32;
+                let total_size = bytes.len() as u32 + 1;
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
                     size: total_size,
@@ -1210,6 +1210,8 @@ impl<'a> FunctionTranslator<'a> {
                     let val = self.builder.ins().iconst(I8, b as i64);
                     self.builder.ins().stack_store(val, slot, i as i32);
                 }
+                let null = self.builder.ins().iconst(I8, 0);
+                self.builder.ins().stack_store(null, slot, bytes.len() as i32);
                 addr
             }
             _ => {
