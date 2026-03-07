@@ -1,28 +1,31 @@
 
 # Notes
 
-## No recursive data structures
+✅ = implemented feature
+❌ = not planned
+
+## No recursive data structures ✅
 
 No recursive data structures are allowed. In order to create recursive data, use an array and indices to other elements of the array. This simplifies memory management, though more complicated data structures will need their own allocators for array elements.
 
-## Interfaces
+## Interfaces ✅
 
 Interfaces are used to provide functions that must exist when another function is called. Typically this is used to constrain generics. It can also be used for a static form of dependency injection, if the interface is not itself generic.
 
-## Static array bounds checking
+## Static array bounds checking ✅
 
 Static analysis (probably via abstract interpretation) should be used to ensure that array indexing is in bounds. If the compiler fails to prove the index is in bounds, the programmer can put a conditional around the array access.
 
-## Safe transmutation of memory
+## Safe transmutation of memory ❌
 
 In rust, `transmute` is unsafe. Perhaps we can restrict our type system such that transmute is always safe (no pointers, etc.). With safe transmutation, we could implement a memory allocator safely. This may conflict with dynamic ownership which would involve storing pointers in memory. Also, function pointers would have to
 be stored as indices into function tables (each table would be all functions of a particular signature).
 
-## Unboxed Function closures
+## Unboxed Function closures ❌
 
 To avoid having to use generics for closures, we could compute a max closure size for each function signature by analyzing the whole program. For now though, let's see if we can do better for performance.
 
-## Escape Analysis
+## Escape Analysis ✅
 
 We use a simple escape anlysis to prevent returning functions with closures (src/checker.rs)
 
