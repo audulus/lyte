@@ -6,3 +6,11 @@ println(s: [i8]) {
     }
     putc(10)
 }
+
+strcpy(dst: [i8], src: [i8]) {
+    for i in 0 .. dst.len {
+        if i < src.len {
+            dst[i] = src[i]
+        }
+    }
+}
