@@ -11,6 +11,8 @@ strcpy(dst: [i8], src: [i8]) {
     for i in 0 .. dst.len {
         if i < src.len {
             dst[i] = src[i]
+        } else {
+            dst[i] = 0 as i8
         }
     }
 }
