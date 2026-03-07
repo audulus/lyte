@@ -3,9 +3,6 @@
 ## Language Features
 
 ### String Support
-- [ ] Add `Type::String` runtime representation
-- [ ] Implement string literal codegen in JIT (`jit.rs` — currently panics at line 1194)
-- [ ] Implement string literal codegen in VM (`vm_codegen.rs` — no handling at all)
 - [ ] Add string operation support (concatenation, length, indexing)
 - [ ] Add string test cases
 
