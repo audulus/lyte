@@ -1,0 +1,9 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+
+main {
+    var s: [i32]
+    assert(s.len == 0)
+}
