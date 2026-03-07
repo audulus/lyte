@@ -1235,6 +1235,46 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Compute the natural alignment of a type for use with Cranelift memory
+    /// operations. Cranelift requires that alignment ≤ greatest_divisible_power_of_two(size),
+    /// so we base alignment on the element type rather than the total size.
+    fn type_align(t: &crate::TypeID, decls: &crate::DeclTable) -> u8 {
+        let size = t.size(decls) as u64;
+        if size == 0 {
+            return 1;
+        }
+        // Cranelift requires align ≤ greatest_divisible_power_of_two(size).
+        // Compute the natural alignment, then clamp to that limit.
+        let natural = match &**t {
+            crate::Type::Array(elem, _) => Self::type_align(elem, decls),
+            crate::Type::Slice(_) => 4,
+            crate::Type::Int8 | crate::Type::UInt8 | crate::Type::Bool => 1,
+            crate::Type::Float64 => 8,
+            crate::Type::Tuple(fields) => fields.iter().map(|f| Self::type_align(f, decls)).max().unwrap_or(1),
+            crate::Type::Name(name, vars) => {
+                let decl = decls.find(*name);
+                if decl.len() == 1 {
+                    if let crate::decl::Decl::Struct(sdecl) = &decl[0] {
+                        let inst: crate::Instance = sdecl.typevars.iter().zip(vars.iter())
+                            .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
+                            .collect();
+                        sdecl.fields.iter()
+                            .map(|f| Self::type_align(&f.ty.subst(&inst), decls))
+                            .max().unwrap_or(1)
+                    } else {
+                        4
+                    }
+                } else {
+                    4
+                }
+            }
+            _ => 4,
+        };
+        // Clamp: alignment must not exceed the largest power of 2 dividing size.
+        let max_align = size & size.wrapping_neg(); // greatest_divisible_power_of_two
+        std::cmp::min(natural, max_align as u8)
+    }
+
     fn gen_copy(
         &mut self,
         t: crate::TypeID,
@@ -1244,7 +1284,7 @@ impl<'a> FunctionTranslator<'a> {
     ) {
         if t.is_ptr() {
             let size = t.size(decls) as u64;
-            let align = if size >= 4 { 4u8 } else { 1u8 };
+            let align = Self::type_align(&t, decls);
             self.builder.emit_small_memory_copy(
                 self.module.isa().frontend_config(),
                 dst,
@@ -1283,7 +1323,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Value {
         if t.is_ptr() {
             let size = t.size(decls) as u64;
-            let align = std::num::NonZeroU8::new(if size >= 4 { 4 } else { 1 }).unwrap();
+            let align = std::num::NonZeroU8::new(Self::type_align(&t, decls)).unwrap();
             self.builder.emit_small_memory_compare(
                 self.module.isa().frontend_config(),
                 IntCC::Equal,
