@@ -1,0 +1,21 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    var dst = [0 as i8, 0 as i8, 0 as i8, 0 as i8]
+    var src = [104 as i8, 101 as i8, 108 as i8, 108 as i8]
+    strcpy(dst, src)
+    assert(dst[0] == 104 as i8)
+    assert(dst[3] == 108 as i8)
+
+    // shorter src: copied values and zero-filled remainder
+    var dst2 = [1 as i8, 1 as i8, 1 as i8, 1 as i8]
+    strcpy(dst2, [65 as i8, 66 as i8])
+    assert(dst2[0] == 65 as i8)
+    assert(dst2[2] == 0 as i8)
+}
