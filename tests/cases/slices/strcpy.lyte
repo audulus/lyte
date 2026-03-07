@@ -7,9 +7,7 @@
 // assert(true)
 // assert(true)
 // assert(true)
-// assert(true)
 // executing VM code
-// assert(true)
 // assert(true)
 // assert(true)
 // assert(true)
@@ -21,8 +19,7 @@ main {
     var dst = "     "
     var src = "hello"
     strcpy(dst, src)
-    assert(dst[0] == 'h')
-    assert(dst[4] == 'o')
+    assert(dst == "hello")
 
     // shorter src: copied values and zero-filled remainder
     var dst2 = "xxxx"
