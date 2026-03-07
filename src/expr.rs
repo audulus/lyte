@@ -70,9 +70,6 @@ pub enum Expr {
     /// Type ascription.
     AsTy(ExprID, TypeID),
 
-    /// Variable assignment.
-    Assign(Name, ExprID),
-
     /// Immutable variable declaration with initializer and optional type.
     Let(Name, ExprID, Option<TypeID>),
 
@@ -218,11 +215,6 @@ impl Expr {
                 let expr_str = arena.exprs[*expr].pretty_print(arena, indent);
                 let ty_str = ty.pretty_print();
                 format!("{}:{}", expr_str, ty_str)
-            }
-
-            Expr::Assign(name, expr) => {
-                let expr_str = arena.exprs[*expr].pretty_print(arena, indent);
-                format!("{} = {}", name, expr_str)
             }
 
             Expr::Let(name, expr, ty) => {
@@ -391,10 +383,6 @@ pub fn copy_expr(
         Expr::AsTy(expr, ty) => {
             let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
             dst_arena.add(Expr::AsTy(new_expr, *ty), loc)
-        }
-        Expr::Assign(name, expr) => {
-            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
-            dst_arena.add(Expr::Assign(*name, new_expr), loc)
         }
         Expr::Let(name, init, ty) => {
             let new_init = copy_expr(*init, src_arena, dst_arena, subst);
@@ -624,16 +612,6 @@ mod tests {
         // let x: i32 = 42
         let let2 = Expr::Let(Name::str("x"), value_id, Some(mk_type(Type::Int32)));
         assert_eq!(let2.pretty_print(&arena, 0), "let x: i32 = 42");
-    }
-
-    #[test]
-    fn test_pretty_print_assign() {
-        let mut arena = ExprArena::new();
-
-        let value_id = arena.add(Expr::Int(42), test_loc());
-        let assign_expr = Expr::Assign(Name::str("x"), value_id);
-
-        assert_eq!(assign_expr.pretty_print(&arena, 0), "x = 42");
     }
 
     #[test]

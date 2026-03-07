@@ -1156,21 +1156,6 @@ impl<'a> FunctionTranslator<'a> {
                     _ => val,
                 }
             }
-            Expr::Assign(name, value_id) => {
-                let value = self.translate_expr(*value_id, decl, decls);
-                let ty = decl.types[*value_id];
-                if let Some(&var) = self.variables.get(&**name) {
-                    if !self.let_bindings.contains(&**name) {
-                        let addr = self.builder.use_var(var);
-                        self.gen_copy(ty, addr, value, decls);
-                    }
-                } else if let Some(&offset) = self.globals.get(name) {
-                    let base = self.globals_base.expect("globals_base not set");
-                    let addr = self.builder.ins().iadd_imm(base, offset as i64);
-                    self.gen_copy(ty, addr, value, decls);
-                }
-                value
-            }
             Expr::Enum(case_name) => {
                 let index = if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
                     let enum_decls = decls.find(*enum_name);
@@ -1704,14 +1689,6 @@ fn collect_free_vars_rec(
                 result.push((s.clone(), types[expr]));
                 seen.insert(s);
             }
-        }
-        Expr::Assign(name, rhs) => {
-            let s = name.to_string();
-            if local_vars.contains_key(&s) && !exclude.contains(&s) && !seen.contains(&s) {
-                result.push((s.clone(), types[expr]));
-                seen.insert(s);
-            }
-            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
         }
         Expr::Call(fn_id, args) => {
             collect_free_vars_rec(*fn_id, arena, exclude, local_vars, types, result, seen);

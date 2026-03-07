@@ -989,14 +989,6 @@ fn escape_walk(
             }
             scope.insert(name.to_string());
         }
-        Expr::Assign(lhs, rhs) => {
-            escape_walk(*rhs, arena, scope, tainted, errors);
-            if expr_is_tainted(*rhs, arena, scope, tainted) {
-                tainted.insert(lhs.to_string());
-            } else {
-                tainted.remove(&lhs.to_string());
-            }
-        }
         Expr::If(cond, then, else_) => {
             escape_walk(*cond, arena, scope, tainted, errors);
             escape_walk(*then, arena, scope, tainted, errors);
@@ -1093,11 +1085,6 @@ fn lambda_has_captures(
         Expr::Id(name) => {
             let s = name.to_string();
             outer_scope.contains(&s) && !lambda_params.contains(&s)
-        }
-        Expr::Assign(name, rhs) => {
-            let s = name.to_string();
-            (outer_scope.contains(&s) && !lambda_params.contains(&s))
-                || lambda_has_captures(*rhs, arena, lambda_params, outer_scope)
         }
         Expr::Binop(_, lhs, rhs) => {
             lambda_has_captures(*lhs, arena, lambda_params, outer_scope)

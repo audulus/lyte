@@ -238,9 +238,6 @@ impl MonomorphPass {
                 self.process_expr(end, fdecl, decls)?;
                 self.process_expr(body, fdecl, decls)?;
             }
-            Expr::Assign(_, rhs) => {
-                self.process_expr(*rhs, fdecl, decls)?;
-            }
             Expr::AsTy(inner, _) => {
                 self.process_expr(*inner, fdecl, decls)?;
             }

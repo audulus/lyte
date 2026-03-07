@@ -724,17 +724,6 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_cast(*expr_id, *target_ty, func)
             }
 
-            Expr::Assign(name, value_id) => {
-                let value_reg = self.translate_expr(*value_id, func);
-                if let Some(&addr_reg) = self.variables.get(name) {
-                    if self.local_slots.contains_key(name) {
-                        let ty = self.expr_type(*value_id);
-                        self.emit_store(&ty, addr_reg, value_reg, func);
-                    }
-                }
-                value_reg
-            }
-
             Expr::Lambda { params, body } => {
                 let lambda_ty = self.expr_type(expr);
                 if let Type::Func(dom, rng) = &*lambda_ty {
