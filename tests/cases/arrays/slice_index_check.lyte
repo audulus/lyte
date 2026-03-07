@@ -10,7 +10,7 @@
 //                    ^
 
 // Should get an error that i couldn't be proven to be less than dst.len
-strcpy(dst: [i8], src: [i8]) {
+strcpy_bad(dst: [i8], src: [i8]) {
     for i in 0 .. src.len {
         dst[i] = src[i]
     }
@@ -19,4 +19,13 @@ strcpy(dst: [i8], src: [i8]) {
 // Should get an error for negative index
 neg_index(s: [i32]) {
     s[-1] = 0
+}
+
+// No errors from this one.
+strcpy_ok(dst: [i8], src: [i8]) {
+    for i in 0 .. dst.len {
+        if i < src.len {
+            dst[i] = src[i]
+        }
+    }
 }
