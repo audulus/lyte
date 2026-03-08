@@ -143,5 +143,6 @@ xcodebuild -create-xcframework \
 echo "Created $XCFRAMEWORK"
 
 echo "Zipping $XCFRAMEWORK..."
-zip -r "$XCFRAMEWORK.zip" "$XCFRAMEWORK"
+# -y preserves symlinks
+zip -r -y "$XCFRAMEWORK.zip" "$XCFRAMEWORK"
 echo "Created $XCFRAMEWORK.zip"
