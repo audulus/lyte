@@ -1,8 +1,8 @@
 // args: -c
 // expected stdout:
-// ❌ ../tests/cases/arrays/array_index_unsigned.lyte:11:1: couldn't prove index is less than array length
-//     }
-//     ^
+// ❌ ../tests/cases/arrays/array_index_unsigned.lyte:10:5: couldn't prove index is less than array length
+//         a[i]
+//         ^
 
 main {
     var a: [i32; 4]
