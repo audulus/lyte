@@ -1,0 +1,24 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// executing VM code
+// assert(true)
+// vm execution successful
+
+sum_array(a: [i32; 256]) → i32 {
+    var s = 0
+    for i in 0 .. 256 {
+        s = s + a[i]
+    }
+    return s
+}
+
+main {
+    var a: [i32; 256]
+    for i in 0 .. 256 {
+        a[i] = 1
+    }
+    assert(sum_array(a) == 256)
+}

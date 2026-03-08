@@ -1,0 +1,26 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+sum<N>(a: [i32; N]) → i32 {
+    var s = 0
+    for i in 0 .. N {
+        s = s + a[i]
+    }
+    return s
+}
+
+last<T, N>(a: [T; N]) → T {
+    a[N - 1]
+}
+
+main {
+    var a: [i32; 128]
+    for i in 0 .. 128 {
+        a[i] = 1
+    }
+    assert(sum(a) == 128)
+    assert(last(a) == 1)
+}

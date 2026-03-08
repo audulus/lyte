@@ -1,0 +1,30 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// executing VM code
+// assert(true)
+// vm execution successful
+
+struct Inner {
+    value: i32
+}
+
+struct Middle {
+    inner: Inner
+}
+
+struct Outer {
+    middle: Middle
+}
+
+struct Top {
+    outer: Outer
+}
+
+main {
+    var t: Top
+    t.outer.middle.inner.value = 42
+    assert(t.outer.middle.inner.value == 42)
+}

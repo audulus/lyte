@@ -1,0 +1,23 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+struct Wrapper<T> {
+    value: T
+}
+
+main {
+    // Generic struct with array type parameter
+    var wa: Wrapper<[i32; 8]>
+    for i in 0 .. 8 {
+        wa.value[i] = i
+    }
+    assert(wa.value[7] == 7)
+
+    // Generic struct with scalar type parameter
+    var wi: Wrapper<i32>
+    wi.value = 42
+    assert(wi.value == 42)
+}
