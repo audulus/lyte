@@ -39,7 +39,6 @@ While pattern matching is very powerful, we're going to leave it out of 1.0.
 - [ ] `safety_checker.rs` — safety checking panics
 - [x] panic when `main` not found (should be a user-facing error)
 - [ ] division by zero panics (should be runtime error)
-- [ ] `vm_codegen.rs:1795` — hack comment for high register usage
 
 ### General
 - [ ] Move toward `Result<T, E>` instead of panics throughout the pipeline
