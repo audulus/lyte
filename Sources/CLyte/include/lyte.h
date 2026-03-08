@@ -18,6 +18,10 @@ LyteCompiler* lyte_compiler_new(void);
 /// Free a compiler instance.
 void lyte_compiler_free(LyteCompiler* compiler);
 
+/// Returns true if an internal compiler error (panic) occurred,
+/// rendering this compiler instance invalid. Create a new compiler.
+bool lyte_compiler_had_ice(const LyteCompiler* compiler);
+
 /// Get the last error message, or NULL if no error.
 const char* lyte_compiler_get_error(const LyteCompiler* compiler);
 

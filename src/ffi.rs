@@ -7,8 +7,13 @@ use crate::compiler::Compiler;
 use crate::vm::{VM, VMProgram};
 
 /// Run a closure, catching any panic and storing it as the last error.
-/// Returns `false` if a panic occurred.
+/// Returns `false` if a panic occurred or if the compiler is in an invalid
+/// state due to a previous ICE.
 unsafe fn catch_panic(c: *mut LyteCompiler, f: impl FnOnce(&mut LyteCompiler) -> bool) -> bool {
+    if (*c).ice_occurred {
+        (*c).set_error("compiler is in an invalid state after a previous internal compiler error");
+        return false;
+    }
     let result = panic::catch_unwind(AssertUnwindSafe(|| f(&mut *c)));
     match result {
         Ok(v) => v,
@@ -21,6 +26,7 @@ unsafe fn catch_panic(c: *mut LyteCompiler, f: impl FnOnce(&mut LyteCompiler) ->
                 "internal compiler error".to_string()
             };
             (*c).set_error(&msg);
+            (*c).ice_occurred = true;
             false
         }
     }
@@ -46,6 +52,9 @@ pub struct LyteCompiler {
     vm_program: Option<VMProgram>,
     /// VM instance (populated after VM run).
     vm: Option<VM>,
+    /// Whether an internal compiler error (panic) has occurred,
+    /// rendering this compiler instance invalid.
+    ice_occurred: bool,
 }
 
 impl LyteCompiler {
@@ -64,6 +73,7 @@ pub extern "C" fn lyte_compiler_new() -> *mut LyteCompiler {
         globals: Vec::new(),
         vm_program: None,
         vm: None,
+        ice_occurred: false,
     }))
 }
 
@@ -73,6 +83,16 @@ pub unsafe extern "C" fn lyte_compiler_free(ptr: *mut LyteCompiler) {
     if !ptr.is_null() {
         drop(Box::from_raw(ptr));
     }
+}
+
+/// Returns true if an internal compiler error (panic) has occurred,
+/// rendering this compiler instance invalid. A new compiler must be created.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_had_ice(ptr: *const LyteCompiler) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    (*ptr).ice_occurred
 }
 
 /// Get the last error message, or NULL if no error.
