@@ -47,7 +47,6 @@ While pattern matching is very powerful, we're going to leave it out of 1.0.
 
 ## Code Quality
 
-- [ ] `vm_codegen.rs:541-544` — function ID loading emits `LoadImm 0` as placeholder
 - [ ] Clean up vague panic messages throughout codebase
 
 ## Test Coverage
