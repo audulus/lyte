@@ -41,34 +41,10 @@ cargo build --release --target "$IOS_SIM_TARGET"
 rm -rf "$XCFRAMEWORK" "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# Create a .framework bundle from a dylib.
-# Usage: create_framework <dylib_path> <platform> <min_os_version>
-create_framework() {
-    local dylib_path="$1"
-    local platform="$2"
-    local framework_dir="$BUILD_DIR/$platform/$FRAMEWORK_NAME.framework"
-
-    mkdir -p "$framework_dir/Headers" "$framework_dir/Modules"
-
-    # Copy dylib and rename to framework name
-    cp "$dylib_path" "$framework_dir/$FRAMEWORK_NAME"
-
-    # Fix the install name
-    install_name_tool -id "@rpath/$FRAMEWORK_NAME.framework/$FRAMEWORK_NAME" "$framework_dir/$FRAMEWORK_NAME"
-
-    # Copy headers
-    cp "$HEADER_DIR"/*.h "$framework_dir/Headers/"
-
-    # Write framework modulemap (must use 'framework module' for .framework bundles)
-    cat > "$framework_dir/Modules/module.modulemap" <<MODULEMAP
-framework module $FRAMEWORK_NAME {
-    header "lyte.h"
-    export *
-}
-MODULEMAP
-
-    # Create Info.plist
-    cat > "$framework_dir/Info.plist" <<PLIST
+# Write Info.plist to a given path
+write_info_plist() {
+    local plist_path="$1"
+    cat > "$plist_path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -92,6 +68,56 @@ MODULEMAP
 </dict>
 </plist>
 PLIST
+}
+
+# Write module.modulemap to a given path
+write_modulemap() {
+    local modulemap_path="$1"
+    cat > "$modulemap_path" <<MODULEMAP
+framework module $FRAMEWORK_NAME {
+    header "lyte.h"
+    export *
+}
+MODULEMAP
+}
+
+# Create a .framework bundle from a dylib.
+# Usage: create_framework <dylib_path> <platform>
+# macOS uses deep bundle structure (Versions/A/...), iOS uses shallow.
+create_framework() {
+    local dylib_path="$1"
+    local platform="$2"
+    local framework_dir="$BUILD_DIR/$platform/$FRAMEWORK_NAME.framework"
+
+    if [[ "$platform" == "macos" ]]; then
+        # Deep bundle structure for macOS
+        local version_dir="$framework_dir/Versions/A"
+        mkdir -p "$version_dir/Headers" "$version_dir/Modules" "$version_dir/Resources"
+
+        cp "$dylib_path" "$version_dir/$FRAMEWORK_NAME"
+        install_name_tool -id "@rpath/$FRAMEWORK_NAME.framework/Versions/A/$FRAMEWORK_NAME" "$version_dir/$FRAMEWORK_NAME"
+        cp "$HEADER_DIR"/*.h "$version_dir/Headers/"
+        write_modulemap "$version_dir/Modules/module.modulemap"
+        write_info_plist "$version_dir/Resources/Info.plist"
+
+        # Create Versions/Current symlink
+        (cd "$framework_dir/Versions" && ln -sf A Current)
+
+        # Create top-level symlinks
+        (cd "$framework_dir" && ln -sf Versions/Current/$FRAMEWORK_NAME $FRAMEWORK_NAME)
+        (cd "$framework_dir" && ln -sf Versions/Current/Headers Headers)
+        (cd "$framework_dir" && ln -sf Versions/Current/Modules Modules)
+        (cd "$framework_dir" && ln -sf Versions/Current/Resources Resources)
+    else
+        # Shallow bundle structure for iOS / iOS Simulator
+        mkdir -p "$framework_dir/Headers" "$framework_dir/Modules"
+
+        cp "$dylib_path" "$framework_dir/$FRAMEWORK_NAME"
+        install_name_tool -id "@rpath/$FRAMEWORK_NAME.framework/$FRAMEWORK_NAME" "$framework_dir/$FRAMEWORK_NAME"
+        cp "$HEADER_DIR"/*.h "$framework_dir/Headers/"
+        write_modulemap "$framework_dir/Modules/module.modulemap"
+        write_info_plist "$framework_dir/Info.plist"
+    fi
 
     echo "$framework_dir"
 }
