@@ -19,6 +19,9 @@ IOS_SIM_TARGET="aarch64-apple-ios-sim"
 
 BUILD_DIR=".build/xcframework"
 
+rm -rf $XCFRAMEWORK
+rm -f $XCFRAMEWORK.zip
+
 # Ensure targets are installed
 rustup target add "$MACOS_ARM_TARGET" "$MACOS_X86_TARGET" "$IOS_TARGET" "$IOS_SIM_TARGET"
 
