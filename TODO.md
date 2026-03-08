@@ -37,7 +37,7 @@ Panics are ok because they are caught and turned into ICE
 
 ## Code Quality
 
-- [ ] Clean up vague panic messages throughout codebase
+- [x] Clean up vague panic messages throughout codebase
 
 ## Test Coverage
 

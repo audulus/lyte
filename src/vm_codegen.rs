@@ -457,7 +457,7 @@ impl<'a> FunctionTranslator<'a> {
         let reg = self.next_reg;
         self.next_reg += 1;
         if self.next_reg > 250 {
-            panic!("too many registers used");
+            panic!("VM codegen: register limit exceeded (max 250)");
         }
         reg
     }
@@ -790,10 +790,10 @@ impl<'a> FunctionTranslator<'a> {
                         self.lambda_patches.push((instr_idx, lambda_name));
                         dst
                     } else {
-                        panic!("lambda domain should be a tuple type");
+                        panic!("VM codegen lambda: expected tuple domain type, got {:?}", dom);
                     }
                 } else {
-                    panic!("lambda expression should have function type");
+                    panic!("VM codegen lambda: expected function type, got {:?}", lambda_ty);
                 }
             }
 
@@ -1041,7 +1041,7 @@ impl<'a> FunctionTranslator<'a> {
 
             Binop::Assign => {
                 // Handled above.
-                unreachable!()
+                unreachable!("Assign binop should be handled before translate_binop")
             }
         }
 
@@ -1835,7 +1835,7 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(Opcode::Store32Off { base: fat_addr, offset: 8, src: len_reg });
                 fat_addr
             }
-            _ => panic!("expected array type for slice parameter"),
+            _ => panic!("VM codegen wrap_as_slice: expected array type, got {:?}", actual_ty),
         }
     }
 

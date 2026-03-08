@@ -209,7 +209,7 @@ impl TypeID {
                         sdecl.fields.iter().map(|field| field.ty.subst(&inst).size(decls)).sum()
                     }
                     Decl::Enum { .. } => 4, // i32 discriminant
-                    _ => panic!()
+                    _ => panic!("expected struct or enum decl for type {}, got {:?}", name, decl[0])
                 }
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),

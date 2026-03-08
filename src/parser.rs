@@ -235,8 +235,7 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
         Token::Or => Binop::Or,
         Token::And => Binop::And,
         _ => {
-            println!("got {:?}", tok);
-            unreachable!()
+            unreachable!("expected binary operator token, got {:?}", tok)
         }
     };
 

@@ -326,7 +326,7 @@ impl JIT {
         let res = verify_function(&self.ctx.func, &flags);
         // println!("{}", self.ctx.func.display());
         if let Err(errors) = res {
-            panic!("{}", errors);
+            panic!("cranelift IR verification failed:\n{}", errors);
         }
 
         (called, pending_lambdas)
@@ -509,7 +509,7 @@ impl<'a> FunctionTranslator<'a> {
                     let base = self.globals_base.expect("globals_base not set");
                     self.builder.ins().iadd_imm(base, offset as i64)
                 } else {
-                    panic!("unknown lvalue: {:?}", name);
+                    panic!("JIT: unknown lvalue variable {:?} (not local or global)", name);
                 }
             }
             Expr::Field(lhs, name) => {
@@ -522,10 +522,10 @@ impl<'a> FunctionTranslator<'a> {
                         let off_value = self.builder.ins().iconst(I64, off as i64);
                         self.builder.ins().iadd(lhs_value, off_value)
                     } else {
-                        panic!();
+                        panic!("JIT lvalue field: expected struct decl for {:?}, got {:?}", struct_name, struct_decl[0]);
                     }
                 } else {
-                    panic!();
+                    panic!("JIT lvalue field: expected struct type, got {:?}", lhs_ty);
                 }
             }
             Expr::ArrayIndex(lhs, rhs) => {
@@ -535,7 +535,7 @@ impl<'a> FunctionTranslator<'a> {
                 let (elem_ty, is_sl) = match &*lhs_ty {
                     crate::Type::Array(ty, _) => (*ty, false),
                     crate::Type::Slice(ty) => (*ty, true),
-                    _ => panic!("subscript expression not on array. should be caught by type checker"),
+                    _ => panic!("JIT lvalue subscript: expected array or slice type, got {:?}", lhs_ty),
                 };
                 let data_ptr = if is_sl {
                     self.builder.ins().load(I64, MemFlags::new(), lhs_val, 0)
@@ -676,7 +676,7 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().iconst(I32, 0)
                     }
                 } else {
-                    panic!("tried to call non-function. should be caught by checker");
+                    panic!("JIT call: expected function type, got {:?}", decl.types[*fn_id]);
                 }
             }
             Expr::Let(name, init, _) => {
@@ -749,7 +749,7 @@ impl<'a> FunctionTranslator<'a> {
                                 .load(load_ty, MemFlags::new(), lhs_val, off)
                         }
                     } else {
-                        panic!("unknown struct. should be caught by checker");
+                        panic!("JIT field access: no struct declaration found for {:?}", struct_name);
                     }
                 } else if let crate::Type::Tuple(elem_types) = &*lhs_ty {
                     // Tuple field access: x.0, x.1, etc.
@@ -769,7 +769,7 @@ impl<'a> FunctionTranslator<'a> {
                             .load(load_ty, MemFlags::new(), lhs_val, off)
                     }
                 } else {
-                    panic!("lhs of field expression is not a struct or tuple. should be caught by checker");
+                    panic!("JIT field access: expected struct or tuple type, got {:?}", lhs_ty);
                 }
             }
             Expr::ArrayIndex(lhs, rhs) => {
@@ -779,7 +779,7 @@ impl<'a> FunctionTranslator<'a> {
                 let (elem_ty, is_sl) = match &*lhs_ty {
                     crate::Type::Array(ty, _) => (*ty, false),
                     crate::Type::Slice(ty) => (*ty, true),
-                    _ => panic!("subscript expression not on array. should be caught by type checker"),
+                    _ => panic!("JIT subscript: expected array or slice type, got {:?}", lhs_ty),
                 };
                 let data_ptr = if is_sl {
                     self.builder.ins().load(I64, MemFlags::new(), lhs_val, 0)
@@ -824,7 +824,7 @@ impl<'a> FunctionTranslator<'a> {
                     addr
 
                 } else {
-                    panic!("array literal not on array type.");
+                    panic!("JIT array literal: expected array type, got {:?}", decl.types[expr]);
                 }
             }
             Expr::Block(exprs) => {
@@ -1023,7 +1023,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     addr
                 } else {
-                    panic!("tuple expression not of tuple type");
+                    panic!("JIT tuple expression: expected tuple type, got {:?}", decl.types[expr]);
                 }
             }
             Expr::Lambda { params, body } => {
@@ -1109,10 +1109,10 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().store(MemFlags::new(), closure_ptr_val, pair_addr, 8);
                         pair_addr
                     } else {
-                        panic!("lambda domain should be a tuple type");
+                        panic!("JIT lambda: expected tuple domain type, got {:?}", dom);
                     }
                 } else {
-                    panic!("lambda expression should have function type");
+                    panic!("JIT lambda: expected function type, got {:?}", lambda_ty);
                 }
             }
             Expr::UInt(n) => self.builder.ins().iconst(I32, *n as i64),
@@ -1203,7 +1203,7 @@ impl<'a> FunctionTranslator<'a> {
                 addr
             }
             _ => {
-                panic!("unimplemented expression: {:?}", &decl.arena[expr]);
+                panic!("JIT: unimplemented expression: {:?}", &decl.arena[expr]);
             }
         }
     }
@@ -1538,7 +1538,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().bor(lhs, rhs)
             }
             _ => {
-                panic!("unimplemented binary operation: {:?}", binop);
+                panic!("JIT: unimplemented binary operation: {:?}", binop);
             },
         }
     }
@@ -1598,7 +1598,7 @@ impl<'a> FunctionTranslator<'a> {
             self.builder.ins().store(MemFlags::new(), null, pair_addr, 8);
             pair_addr
         } else {
-            panic!("expected function type. got {:?}", ty);
+            panic!("JIT wrap_as_func_pair: expected function type, got {:?}", ty);
         }
     }
 
@@ -1655,7 +1655,7 @@ impl<'a> FunctionTranslator<'a> {
                 fat_addr
             }
             _ => {
-                panic!("expected array type for slice parameter");
+                panic!("JIT wrap_as_slice: expected array type, got {:?}", actual_ty);
             }
         }
     }

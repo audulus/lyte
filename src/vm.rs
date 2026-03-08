@@ -401,7 +401,7 @@ impl VMFunction {
             Opcode::ILtJump { offset: off, .. } => {
                 *off = offset;
             }
-            _ => panic!("patch_jump called on non-jump instruction"),
+            _ => panic!("patch_jump called on non-jump instruction at index {}: {:?}", idx, &self.code[idx]),
         }
     }
 }
