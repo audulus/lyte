@@ -1,0 +1,81 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// 0.004604
+// 0.017491
+// 0.032307
+// 0.043825
+// 0.052433
+// 0.058505
+// 0.062391
+// 0.064418
+// executing VM code
+// 0.004604
+// 0.017491
+// 0.032307
+// 0.043825
+// 0.052433
+// 0.058505
+// 0.062391
+// 0.064418
+// vm execution successful
+
+// Biquad lowpass filter — compute coefficients from cutoff/Q,
+// then process an impulse and print 8 samples of the response.
+
+struct Biquad {
+    b0: f32, b1: f32, b2: f32,
+    a1: f32, a2: f32,
+    x1: f32, x2: f32,
+    y1: f32, y2: f32
+}
+
+// Design a 2nd-order lowpass (RBJ cookbook).
+lpf(fc: f32, fs: f32, q: f32) -> Biquad {
+    var w0 = 2.0 * 3.14159265 * fc / fs
+    var alpha = sinf(w0) / (2.0 * q)
+    var cs = cosf(w0)
+
+    var a0 = 1.0 + alpha
+    var inv = 1.0 / a0
+
+    var bq: Biquad
+    bq.b1 = (1.0 - cs) * inv
+    bq.b0 = bq.b1 / 2.0
+    bq.b2 = bq.b0
+    bq.a1 = (0.0 - 2.0 * cs) * inv
+    bq.a2 = (1.0 - alpha) * inv
+    bq.x1 = 0.0
+    bq.x2 = 0.0
+    bq.y1 = 0.0
+    bq.y2 = 0.0
+    return bq
+}
+
+printf(x: f32) {
+    var buf: [i8; 16]
+    ftoa(buf, x)
+    println(buf)
+}
+
+main {
+    // 1 kHz lowpass, 44100 Hz sample rate, Q = 0.707 (Butterworth)
+    var bq = lpf(1000.0, 44100.0, 0.707)
+
+    // Process impulse response (8 samples) — direct form I
+    var i = 0
+    while i < 8 {
+        var x = 0.0
+        if i == 0 { x = 1.0 }
+
+        var y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2
+        bq.x2 = bq.x1
+        bq.x1 = x
+        bq.y2 = bq.y1
+        bq.y1 = y
+
+        printf(y)
+        i = i + 1
+    }
+}
