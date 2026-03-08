@@ -184,11 +184,11 @@ impl Compiler {
             }
         }
 
-        // Static array bounds checking.
-        let mut array_checker = ArrayChecker::new();
-        array_checker.check(&self.decls);
-        array_checker.print_errors();
-        if !array_checker.errors.is_empty() {
+        // Static safety checks (array bounds, division by zero).
+        let mut safety_checker = SafetyChecker::new();
+        safety_checker.check(&self.decls);
+        safety_checker.print_errors();
+        if !safety_checker.errors.is_empty() {
             return false;
         }
 

@@ -70,7 +70,7 @@ The compiler is structured as a multi-pass system:
 - **Lexer** (`src/lexer.rs`) - Tokenizes input
 - **Parser** (`src/parser.rs`) - Builds AST from tokens
 - **Type Checker** (`src/checker.rs`) - Performs type inference and constraint solving
-- **Array Checker** (`src/array_checker.rs`) - Static bounds checking for arrays
+- **Safety Checker** (`src/safety_checker.rs`) - Static safety checks (array bounds, division by zero)
 - **Compiler** (`src/compiler.rs`) - Orchestrates compilation pipeline
 - **JIT** (`src/jit.rs`) - Cranelift-based code generation and execution
 - **VM** (`src/vm.rs`, `src/vm_codegen`, `VM.md`) - Virtual machine for iOS and code generation
@@ -82,7 +82,7 @@ The compiler is structured as a multi-pass system:
 
 ### Key Design Principles
 - No recursive data structures (use arrays with indices instead)
-- Static array bounds checking via abstract interpretation (`src/array_checker.rs`)
+- Static safety checking via abstract interpretation (`src/safety_checker.rs`)
 - Interfaces for constraining generics and static dependency injection
 - Escape analysis to prevent returning functions with closures
 

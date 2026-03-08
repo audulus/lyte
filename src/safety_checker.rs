@@ -1,7 +1,7 @@
 use crate::interval::{enclose, IndexInterval};
 use crate::*;
 
-pub struct ArrayError {
+pub struct SafetyError {
     pub location: Loc,
     pub message: String,
 }
@@ -28,44 +28,31 @@ struct Var {
     ty: TypeID,
 }
 
-/// Static array bounds checker using abstract interpretation.
+/// Static safety checker using abstract interpretation.
 ///
-/// `ArrayChecker` performs compile-time verification that array accesses are within bounds.
+/// `SafetyChecker` performs compile-time verification that operations which could
+/// trap or cause undefined behavior at runtime are provably safe. Currently checks:
+/// - **Array bounds**: array indices are within `[0, length)`
+/// - **Division by zero**: integer divisors are provably non-zero
+///
 /// It uses interval arithmetic to track the possible range of integer values and propagates
-/// constraints from conditionals (e.g., `if i < n`) to prove that array indices are valid.
+/// constraints from conditionals (e.g., `if i < n`, `if b != 0`) to prove safety.
 ///
 /// # How It Works
 ///
 /// The checker maintains a set of constraints on variable values as it traverses the AST.
-/// When it encounters an array index expression `a[i]`, it checks whether the computed
-/// interval for `i` is within `[0, array_length)`.
-///
 /// Constraints are derived from:
-/// - **Conditionals**: `if i < 100` adds the constraint `i.max = 99` in the then-branch
+/// - **Conditionals**: `if i < 100` adds `i.max = 99`; `if b != 0` marks `b` as non-zero
 /// - **Type information**: `u32` variables are known to be `>= 0`
 /// - **Assignments**: `i = 5` updates the interval to `[5, 5]`
 /// - **Arithmetic**: intervals are propagated through `+`, `-`, and `*` operations
 ///
-/// # Example
-///
-/// ```ignore
-/// f(i: i32) {
-///     var a: [i32; 100]
-///     if i >= 0 && i < 100 {
-///         a[i]  // OK: i is proven to be in [0, 99]
-///     }
-/// }
-/// ```
-///
-/// Without the conditional guard, the checker would report an error because `i` could
-/// be negative or >= 100.
-///
 /// # Limitations
 ///
-/// - Only tracks `+`, `-`, and `*` for arithmetic (not `/`, etc.)
+/// - Only tracks `+`, `-`, and `*` for arithmetic
 /// - Constraints from while loop conditions don't persist after mutation
 /// - Complex expressions may result in unconstrained intervals
-pub struct ArrayChecker {
+pub struct SafetyChecker {
     /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
 
@@ -75,10 +62,10 @@ pub struct ArrayChecker {
     /// Symbolic length bounds: records that `index < array.len`.
     len_bounds: Vec<LenBound>,
 
-    pub errors: Vec<ArrayError>,
+    pub errors: Vec<SafetyError>,
 }
 
-impl ArrayChecker {
+impl SafetyChecker {
     pub fn new() -> Self {
         Self {
             vars: vec![],
@@ -280,7 +267,7 @@ impl ArrayChecker {
                 let rhs_r = self.check_expr(*index_expr, decl, decls);
 
                 if rhs_r.min < 0 {
-                    self.errors.push(ArrayError {
+                    self.errors.push(SafetyError {
                         location: decl.arena.locs[expr],
                         message: format!("couldn't prove index is >= 0"),
                     });
@@ -289,7 +276,7 @@ impl ArrayChecker {
                 if let Type::Array(_, ref n) = *lhs_ty {
                     if let ArraySize::Known(n) = n {
                         if *n > 0 && rhs_r.max >= (*n).into() {
-                            self.errors.push(ArrayError {
+                            self.errors.push(SafetyError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove index is less than array length"),
                             });
@@ -315,7 +302,7 @@ impl ArrayChecker {
                         _ => false,
                     };
                     if !has_len_bound {
-                        self.errors.push(ArrayError {
+                        self.errors.push(SafetyError {
                             location: decl.arena.locs[expr],
                             message: format!("couldn't prove index is less than slice length"),
                         });
@@ -364,7 +351,7 @@ impl ArrayChecker {
                         let ty = decl.types[*rhs];
                         let is_int = matches!(*ty, Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8);
                         if is_int && !rhs_range.excludes_zero() {
-                            self.errors.push(ArrayError {
+                            self.errors.push(SafetyError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove divisor is non-zero"),
                             });
@@ -494,7 +481,7 @@ impl ArrayChecker {
 mod tests {
     use super::*;
 
-    pub fn check(s: &str) -> Vec<ArrayError> {
+    pub fn check(s: &str) -> Vec<SafetyError> {
         let mut errors = vec![];
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
@@ -514,7 +501,7 @@ mod tests {
             }
         }
 
-        let mut array_checker = ArrayChecker::new();
+        let mut array_checker = SafetyChecker::new();
         array_checker.check(&table);
 
         array_checker.print_errors();
