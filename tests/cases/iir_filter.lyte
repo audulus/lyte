@@ -3,21 +3,7 @@
 // executing compiled code
 // compilation successful
 // assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
 // executing VM code
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
-// assert(true)
 // assert(true)
 // vm execution successful
 
@@ -74,6 +60,8 @@ main {
     expected[6] = 0.062391
     expected[7] = 0.064418
 
+    var matches = 0
+
     // Process impulse response (8 samples) — direct form I
     for i in 0 .. 8 {
         var x = 0.0
@@ -85,6 +73,10 @@ main {
         bq.y2 = bq.y1
         bq.y1 = y
 
-        assert(approx(y, expected[i]))
+        if approx(y, expected[i]) {
+            matches = matches + 1
+        }
     }
+
+    assert(matches == 8)
 }
