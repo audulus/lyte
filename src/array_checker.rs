@@ -11,6 +11,7 @@ struct IndexConstraint {
     pub name: Name,
     pub min: Option<i64>,
     pub max: Option<i64>,
+    pub non_zero: bool,
 }
 
 /// Records that variable `index` has been proven < `array.len`.
@@ -88,12 +89,22 @@ impl ArrayChecker {
     }
 
     fn add(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
-        self.constraints.push(IndexConstraint { name, min, max })
+        self.constraints.push(IndexConstraint { name, min, max, non_zero: false })
     }
 
     fn replace(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
         self.constraints.retain(|c| c.name != name);
         self.add(name, min, max);
+    }
+
+    fn add_non_zero(&mut self, name: Name) {
+        // If there's already a constraint, mark it non_zero.
+        // Otherwise, add an unconstrained entry with non_zero set.
+        if let Some(c) = self.constraints.iter_mut().find(|c| c.name == name) {
+            c.non_zero = true;
+        } else {
+            self.constraints.push(IndexConstraint { name, min: None, max: None, non_zero: true });
+        }
     }
 
     fn find(&self, name: Name) -> Option<IndexConstraint> {
@@ -154,6 +165,29 @@ impl ArrayChecker {
             }
         }
 
+        // match `x != 0` — mark x as non-zero
+        if let Expr::Binop(Binop::NotEqual, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*lhs] {
+                if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*rhs] {
+                    self.add_non_zero(*name);
+                }
+            }
+            if let Expr::Id(name) = &decl.arena[*rhs] {
+                if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*lhs] {
+                    self.add_non_zero(*name);
+                }
+            }
+        }
+
+        // match `x > 0` — min is 1, which also implies non-zero
+        if let Expr::Binop(Binop::Greater, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*lhs] {
+                if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*rhs] {
+                    self.add(*name, Some(1), None);
+                }
+            }
+        }
+
         if let Expr::Binop(Binop::And, lhs, rhs) = &decl.arena[expr] {
             self.match_expr(*lhs, decl, decls);
             self.match_expr(*rhs, decl, decls);
@@ -162,8 +196,8 @@ impl ArrayChecker {
 
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
-            Expr::Int(x) => IndexInterval { min: *x, max: *x },
-            Expr::UInt(x) => IndexInterval { min: *x as i64, max: *x as i64 },
+            Expr::Int(x) => IndexInterval { min: *x, max: *x, non_zero: *x != 0 },
+            Expr::UInt(x) => IndexInterval { min: *x as i64, max: *x as i64, non_zero: *x != 0 },
             Expr::Block(exprs) => {
                 let n = self.vars.len();
                 for e in exprs {
@@ -199,6 +233,7 @@ impl ArrayChecker {
             Expr::Id(name) => {
                 let mut min = i64::min_value();
                 let mut max = i64::max_value();
+                let mut non_zero = false;
                 for c in &self.constraints {
                     if c.name == *name {
                         if let Some(m) = c.min {
@@ -207,9 +242,12 @@ impl ArrayChecker {
                         if let Some(m) = c.max {
                             max = max.min(m)
                         }
+                        if c.non_zero {
+                            non_zero = true;
+                        }
                     }
                 }
-                IndexInterval { min, max }
+                IndexInterval { min, max, non_zero }
             }
             Expr::If(cond, then_expr, else_expr) => {
                 let initial_constraint_count = self.constraints.len();
@@ -315,6 +353,25 @@ impl ArrayChecker {
                     let lhs_range = self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
                     return lhs_range * rhs_range
+                }
+
+                if *op == Binop::Div || *op == Binop::Mod {
+                    let lhs_range = self.check_expr(*lhs, decl, decls);
+                    let rhs_range = self.check_expr(*rhs, decl, decls);
+
+                    // Only check integer division — float div-by-zero produces Inf/NaN per IEEE 754.
+                    if *rhs < decl.types.len() {
+                        let ty = decl.types[*rhs];
+                        let is_int = matches!(*ty, Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8);
+                        if is_int && !rhs_range.excludes_zero() {
+                            self.errors.push(ArrayError {
+                                location: decl.arena.locs[expr],
+                                message: format!("couldn't prove divisor is non-zero"),
+                            });
+                        }
+                    }
+
+                    return lhs_range // approximate: ignore division for interval tracking
                 }
 
                 if *op == Binop::Assign {
@@ -676,5 +733,77 @@ mod tests {
 
         let errors = check(s);
         assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_div_by_zero_unconstrained() {
+        let s = "
+        f(a: i32, b: i32) → i32 { a / b }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_div_by_literal_nonzero() {
+        let s = "
+        f(a: i32) → i32 { a / 2 }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_div_guarded_neq_zero() {
+        let s = "
+        f(a: i32, b: i32) → i32 {
+            if b != 0 {
+                a / b
+            } else {
+                0
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_div_guarded_greater_zero() {
+        let s = "
+        f(a: i32, b: i32) → i32 {
+            if b > 0 {
+                a / b
+            } else {
+                0
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_mod_by_zero_unconstrained() {
+        let s = "
+        f(a: i32, b: i32) → i32 { a % b }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_float_div_by_zero_ok() {
+        let s = "
+        f(a: f32, b: f32) → f32 { a / b }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
     }
 }
