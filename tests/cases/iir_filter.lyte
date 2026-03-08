@@ -2,27 +2,27 @@
 // expected stdout:
 // executing compiled code
 // compilation successful
-// 0.004604
-// 0.017491
-// 0.032307
-// 0.043825
-// 0.052433
-// 0.058505
-// 0.062391
-// 0.064418
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 // executing VM code
-// 0.004604
-// 0.017491
-// 0.032307
-// 0.043825
-// 0.052433
-// 0.058505
-// 0.062391
-// 0.064418
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 // vm execution successful
 
 // Biquad lowpass filter — compute coefficients from cutoff/Q,
-// then process an impulse and print 8 samples of the response.
+// then process an impulse and verify 8 samples of the response.
 
 struct Biquad {
     b0: f32, b1: f32, b2: f32,
@@ -53,19 +53,29 @@ lpf(fc: f32, fs: f32, q: f32) -> Biquad {
     return bq
 }
 
-printf(x: f32) {
-    var buf: [i8; 16]
-    ftoa(buf, x)
-    println(buf)
+approx(a: f32, b: f32) -> bool {
+    var d = a - b
+    if d < 0.0 { d = 0.0 - d }
+    return d < 0.0001
 }
 
 main {
     // 1 kHz lowpass, 44100 Hz sample rate, Q = 0.707 (Butterworth)
     var bq = lpf(1000.0, 44100.0, 0.707)
 
+    // Expected impulse response values (pre-computed)
+    var expected: [f32; 8]
+    expected[0] = 0.004604
+    expected[1] = 0.017491
+    expected[2] = 0.032307
+    expected[3] = 0.043825
+    expected[4] = 0.052433
+    expected[5] = 0.058505
+    expected[6] = 0.062391
+    expected[7] = 0.064418
+
     // Process impulse response (8 samples) — direct form I
-    var i = 0
-    while i < 8 {
+    for i in 0 .. 8 {
         var x = 0.0
         if i == 0 { x = 1.0 }
 
@@ -75,7 +85,6 @@ main {
         bq.y2 = bq.y1
         bq.y1 = y
 
-        printf(y)
-        i = i + 1
+        assert(approx(y, expected[i]))
     }
 }

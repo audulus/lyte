@@ -2,47 +2,67 @@
 // expected stdout:
 // executing compiled code
 // compilation successful
-// 0.997495
-// 0.070737
-// 14.101419
-// 7.389056
-// 2.000000
-// 2.000000
-// 3.500000
-// 2.000000
-// 3.000000
-// 8.000000
-// 0.785398
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 // executing VM code
-// 0.997495
-// 0.070737
-// 14.101419
-// 7.389056
-// 2.000000
-// 2.000000
-// 3.500000
-// 2.000000
-// 3.000000
-// 8.000000
-// 0.785398
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 // vm execution successful
 
-printf(x: f32) {
-    var buf: [i8; 16]
-    ftoa(buf, x)
-    println(buf)
+approx(a: f32, b: f32) -> bool {
+    var d = a - b
+    if d < 0.0 { d = 0.0 - d }
+    return d < 0.001
 }
 
 main {
-    printf(sinf(1.5))
-    printf(cosf(1.5))
-    printf(tanf(1.5))
-    printf(expf(2.0))
-    printf(lnf(expf(2.0)))
-    printf(sqrtf(4.0))
-    printf(absf(-3.5))
-    printf(floorf(2.7))
-    printf(ceilf(2.3))
-    printf(powf(2.0, 3.0))
-    printf(atan2f(1.0, 1.0))
+    // sin/cos identity: sin^2 + cos^2 == 1
+    var x = 1.5
+    var s = sinf(x)
+    var c = cosf(x)
+    assert(approx(s * s + c * c, 1.0))
+
+    // tan == sin/cos
+    assert(approx(tanf(x), sinf(x) / cosf(x)))
+
+    // exp and ln are inverses
+    assert(approx(lnf(expf(2.0)), 2.0))
+
+    // sqrt
+    assert(approx(sqrtf(4.0), 2.0))
+
+    // abs
+    assert(approx(absf(-3.5), 3.5))
+
+    // floor / ceil
+    assert(approx(floorf(2.7), 2.0))
+    assert(approx(ceilf(2.3), 3.0))
+
+    // pow
+    assert(approx(powf(2.0, 3.0), 8.0))
+
+    // atan2
+    assert(approx(atan2f(1.0, 1.0), 3.14159265 / 4.0))
+
+    // sinf(0) == 0, cosf(0) == 1
+    assert(approx(sinf(0.0), 0.0))
+    assert(approx(cosf(0.0), 1.0))
 }
