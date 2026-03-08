@@ -99,11 +99,11 @@ impl SafetyChecker {
     }
 
     /// Given expr evaluates to true, add constraints accordingly.
-    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
+    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Result<(), Ice> {
         // Simplest form: match expressions of the form i < n, where n is an integer literal
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
-                let ival = self.check_expr(*rhs, decl, decls);
+                let ival = self.check_expr(*rhs, decl, decls)?;
                 if ival.max != i64::max_value() {
                     self.add(*name, None, Some(ival.max - 1));
                 }
@@ -112,7 +112,7 @@ impl SafetyChecker {
 
         if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
-                let ival = self.check_expr(*rhs, decl, decls);
+                let ival = self.check_expr(*rhs, decl, decls)?;
                 if ival.max != i64::max_value() {
                     self.add(*name, None, Some(ival.max));
                 }
@@ -176,27 +176,29 @@ impl SafetyChecker {
         }
 
         if let Expr::Binop(Binop::And, lhs, rhs) = &decl.arena[expr] {
-            self.match_expr(*lhs, decl, decls);
-            self.match_expr(*rhs, decl, decls);
+            self.match_expr(*lhs, decl, decls)?;
+            self.match_expr(*rhs, decl, decls)?;
         }
+
+        Ok(())
     }
 
-    fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
+    fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Result<IndexInterval, Ice> {
         match &decl.arena[expr] {
-            Expr::Int(x) => IndexInterval { min: *x, max: *x, non_zero: *x != 0 },
-            Expr::UInt(x) => IndexInterval { min: *x as i64, max: *x as i64, non_zero: *x != 0 },
+            Expr::Int(x) => Ok(IndexInterval { min: *x, max: *x, non_zero: *x != 0 }),
+            Expr::UInt(x) => Ok(IndexInterval { min: *x as i64, max: *x as i64, non_zero: *x != 0 }),
             Expr::Block(exprs) => {
                 let n = self.vars.len();
                 for e in exprs {
-                    self.check_expr(*e, decl, decls);
+                    self.check_expr(*e, decl, decls)?;
                 }
                 while self.vars.len() > n {
                     self.vars.pop();
                 }
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
             Expr::Let(name, init, _) => {
-                self.check_expr(*init, decl, decls);
+                self.check_expr(*init, decl, decls)?;
                 let ty = decl.types[expr];
                 self.vars.push(Var { name: *name, ty });
 
@@ -204,18 +206,18 @@ impl SafetyChecker {
                     self.add(*name, Some(0), None);
                 }
 
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
             Expr::Var(name, init, _) => {
                 if let Some(init) = init {
-                    self.check_expr(*init, decl, decls);
+                    self.check_expr(*init, decl, decls)?;
                 }
                 let ty = decl.types[expr];
 
                 if ty == mk_type(Type::UInt32) {
                     self.add(*name, Some(0), None);
                 }
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
             Expr::Id(name) => {
                 let mut min = i64::min_value();
@@ -234,18 +236,18 @@ impl SafetyChecker {
                         }
                     }
                 }
-                IndexInterval { min, max, non_zero }
+                Ok(IndexInterval { min, max, non_zero })
             }
             Expr::If(cond, then_expr, else_expr) => {
                 let initial_constraint_count = self.constraints.len();
                 let initial_len_bound_count = self.len_bounds.len();
 
-                self.match_expr(*cond, decl, decls);
+                self.match_expr(*cond, decl, decls)?;
 
-                let mut r = self.check_expr(*then_expr, decl, decls);
+                let mut r = self.check_expr(*then_expr, decl, decls)?;
 
                 if let Some(else_expr) = else_expr {
-                    let else_r = self.check_expr(*else_expr, decl, decls);
+                    let else_r = self.check_expr(*else_expr, decl, decls)?;
                     r = enclose(r, else_r);
                 }
 
@@ -255,20 +257,16 @@ impl SafetyChecker {
                 }
                 self.len_bounds.truncate(initial_len_bound_count);
 
-                r
+                Ok(r)
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 if *array_expr >= decl.types.len() {
-                    print_error_with_context(
-                        decl.arena.locs[expr],
-                        "internal compiler error: no type found for array index expression",
-                    );
-                    return IndexInterval::default();
+                    return ice!("no type found for array index expression");
                 }
 
-                self.check_expr(*array_expr, decl, decls);
+                self.check_expr(*array_expr, decl, decls)?;
                 let lhs_ty = decl.types[*array_expr];
-                let rhs_r = self.check_expr(*index_expr, decl, decls);
+                let rhs_r = self.check_expr(*index_expr, decl, decls)?;
 
                 if rhs_r.min < 0 {
                     self.errors.push(SafetyError {
@@ -313,42 +311,42 @@ impl SafetyChecker {
                     }
                 }
 
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
             Expr::While(cond, body) => {
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
-                self.match_expr(*cond, decl, decls);
+                self.match_expr(*cond, decl, decls)?;
 
-                self.check_expr(*body, decl, decls);
+                self.check_expr(*body, decl, decls)?;
                 self.constraints = saved_constraints;
                 self.len_bounds = saved_len_bounds;
 
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
             Expr::Binop(op, lhs, rhs) => {
 
                 if *op == Binop::Plus {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
-                    return lhs_range + rhs_range
+                    let lhs_range = self.check_expr(*lhs, decl, decls)?;
+                    let rhs_range = self.check_expr(*rhs, decl, decls)?;
+                    return Ok(lhs_range + rhs_range)
                 }
 
                 if *op == Binop::Minus {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
-                    return lhs_range - rhs_range
+                    let lhs_range = self.check_expr(*lhs, decl, decls)?;
+                    let rhs_range = self.check_expr(*rhs, decl, decls)?;
+                    return Ok(lhs_range - rhs_range)
                 }
 
                 if *op == Binop::Mult {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
-                    return lhs_range * rhs_range
+                    let lhs_range = self.check_expr(*lhs, decl, decls)?;
+                    let rhs_range = self.check_expr(*rhs, decl, decls)?;
+                    return Ok(lhs_range * rhs_range)
                 }
 
                 if *op == Binop::Div || *op == Binop::Mod {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    let lhs_range = self.check_expr(*lhs, decl, decls)?;
+                    let rhs_range = self.check_expr(*rhs, decl, decls)?;
 
                     // Only check integer division — float div-by-zero produces Inf/NaN per IEEE 754.
                     if *rhs < decl.types.len() {
@@ -362,12 +360,12 @@ impl SafetyChecker {
                         }
                     }
 
-                    return lhs_range // approximate: ignore division for interval tracking
+                    return Ok(lhs_range) // approximate: ignore division for interval tracking
                 }
 
                 if *op == Binop::Assign {
-                    self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    self.check_expr(*lhs, decl, decls)?;
+                    let rhs_range = self.check_expr(*rhs, decl, decls)?;
 
                     if rhs_range != IndexInterval::default() {
                         if let Expr::Id(name) = &decl.arena[*lhs] {
@@ -375,36 +373,36 @@ impl SafetyChecker {
                         }
                     }
 
-                    return IndexInterval::default()
+                    return Ok(IndexInterval::default())
                 }
 
                 // For other binops (==, !=, <, >, etc.), still recurse
                 // into sub-expressions to check array accesses.
-                self.check_expr(*lhs, decl, decls);
-                self.check_expr(*rhs, decl, decls);
-                IndexInterval::default()
+                self.check_expr(*lhs, decl, decls)?;
+                self.check_expr(*rhs, decl, decls)?;
+                Ok(IndexInterval::default())
             }
             Expr::Call(_, args) => {
                 for arg in args {
-                    self.check_expr(*arg, decl, decls);
+                    self.check_expr(*arg, decl, decls)?;
                 }
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
             Expr::Unop(_, expr) => {
-                self.check_expr(*expr, decl, decls);
-                IndexInterval::default()
+                self.check_expr(*expr, decl, decls)?;
+                Ok(IndexInterval::default())
             }
             Expr::Return(expr) => {
-                self.check_expr(*expr, decl, decls);
-                IndexInterval::default()
+                self.check_expr(*expr, decl, decls)?;
+                Ok(IndexInterval::default())
             }
             Expr::Field(expr, _) => {
-                self.check_expr(*expr, decl, decls);
-                IndexInterval::default()
+                self.check_expr(*expr, decl, decls)?;
+                Ok(IndexInterval::default())
             }
             Expr::For { var, start, end, body } => {
-                let start_r = self.check_expr(*start, decl, decls);
-                let end_r = self.check_expr(*end, decl, decls);
+                let start_r = self.check_expr(*start, decl, decls)?;
+                let end_r = self.check_expr(*end, decl, decls)?;
                 self.vars.push(Var { name: *var, ty: mk_type(Type::Int32) });
                 self.add(*var, Some(start_r.min), Some(end_r.max.saturating_sub(1)));
                 // for i in 0 .. arr.len — record that i < arr.len
@@ -418,20 +416,20 @@ impl SafetyChecker {
                         }
                     }
                 }
-                self.check_expr(*body, decl, decls);
-                IndexInterval::default()
+                self.check_expr(*body, decl, decls)?;
+                Ok(IndexInterval::default())
             }
             Expr::ArrayLiteral(exprs) => {
                 for e in exprs {
-                    self.check_expr(*e, decl, decls);
+                    self.check_expr(*e, decl, decls)?;
                 }
-                IndexInterval::default()
+                Ok(IndexInterval::default())
             }
-            _ => IndexInterval::default(),
+            _ => Ok(IndexInterval::default()),
         }
     }
 
-    fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) -> Result<(), Ice> {
         if let Some(body) = func_decl.body {
 
             for param in &func_decl.params {
@@ -445,33 +443,36 @@ impl SafetyChecker {
                 }
             }
 
-            self.check_expr(body, &func_decl, decls);
+            self.check_expr(body, &func_decl, decls)?;
 
             self.vars.clear();
             self.constraints.clear();
             self.len_bounds.clear();
         }
+        Ok(())
     }
 
-    fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
+    fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) -> Result<(), Ice> {
         match decl {
             Decl::Func(func_decl) => {
                 // Skip generic functions with size variables — they'll be
                 // checked after monomorphization when sizes are concrete.
                 if func_decl.size_vars.is_empty() {
-                    self.check_fn_decl(func_decl, decls);
+                    self.check_fn_decl(func_decl, decls)?;
                 }
             }
             // Macros are untyped templates; skip them.
             Decl::Macro(_) => (),
             _ => (),
         }
+        Ok(())
     }
 
-    pub fn check(&mut self, decls: &DeclTable) {
+    pub fn check(&mut self, decls: &DeclTable) -> Result<(), Ice> {
         for decl in &decls.decls {
-            self.check_decl(decl, decls);
+            self.check_decl(decl, decls)?;
         }
+        Ok(())
     }
 
     pub fn print_errors(&self) {
@@ -505,12 +506,12 @@ mod tests {
             }
         }
 
-        let mut array_checker = SafetyChecker::new();
-        array_checker.check(&table);
+        let mut safety_checker = SafetyChecker::new();
+        safety_checker.check(&table).expect("internal compiler error in safety checker");
 
-        array_checker.print_errors();
+        safety_checker.print_errors();
 
-        array_checker.errors
+        safety_checker.errors
     }
 
     #[test]

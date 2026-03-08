@@ -186,7 +186,10 @@ impl Compiler {
 
         // Static safety checks (array bounds, division by zero).
         let mut safety_checker = SafetyChecker::new();
-        safety_checker.check(&self.decls);
+        if let Err(ice) = safety_checker.check(&self.decls) {
+            println!("{}", ice);
+            return false;
+        }
         safety_checker.print_errors();
         if !safety_checker.errors.is_empty() {
             return false;

@@ -79,6 +79,32 @@ pub fn print_error_with_context(loc: Loc, message: &str) {
     }
 }
 
+/// Internal Compiler Error.
+#[derive(Debug)]
+pub struct Ice {
+    pub message: String,
+    pub file: &'static str,
+    pub line: u32,
+}
+
+impl fmt::Display for Ice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "internal compiler error at {}:{}: {}", self.file, self.line, self.message)
+    }
+}
+
+/// Creates an `Ice` (internal compiler error) with the current file and line.
+#[macro_export]
+macro_rules! ice {
+    ($($arg:tt)*) => {
+        Err($crate::defs::Ice {
+            message: format!($($arg)*),
+            file: file!(),
+            line: line!(),
+        })
+    };
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Unop {
     Neg,
