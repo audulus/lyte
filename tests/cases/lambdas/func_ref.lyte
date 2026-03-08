@@ -1,0 +1,23 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+add_one(x: i32) → i32 { return x + 1 }
+double(x: i32) → i32 { return x * 2 }
+
+apply(f: i32 → i32, x: i32) → i32 { return f(x) }
+
+main {
+    assert(apply(add_one, 3) == 4)
+    assert(apply(double, 3) == 6)
+    assert(apply(add_one, apply(double, 5)) == 11)
+}
