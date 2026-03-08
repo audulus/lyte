@@ -119,6 +119,25 @@ impl Constraint {
         }
     }
 
+    /// Returns a pretty-printed string for the constraint.
+    pub fn pretty(&self, inst: &Instance) -> String {
+        match self {
+            Constraint::Equal(a, b, _) => {
+                format!("{} == {}", a.subst(inst), b.subst(inst))
+            }
+            Constraint::Or(a, alts, _) => {
+                let alt_strs: Vec<String> = alts.iter().map(|t| format!("{}", t.ty.subst(inst))).collect();
+                format!("{} is one of [{}]", a.subst(inst), alt_strs.join(", "))
+            }
+            Constraint::Field(a, name, b, _) => {
+                format!("{}.{} == {}", a.subst(inst), name, b.subst(inst))
+            }
+            Constraint::ArrayOf(a, b, _) => {
+                format!("array_of({}, {})", a.subst(inst), b.subst(inst))
+            }
+        }
+    }
+
     /// Pretty-prints the constraint.
     pub fn print(&self, inst: &Instance) {
         match self {
@@ -312,7 +331,7 @@ pub fn solved_constraints(
         if !c.solved(instance) {
             errors.push(TypeError {
                 location: c.loc(),
-                message: format!("ambiguous constraint: {:?}", c),
+                message: format!("ambiguous constraint: {}", c.pretty(instance)),
             });
         }
     }
