@@ -561,7 +561,10 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Int(imm) => self.builder.ins().iconst(I32, *imm),
             Expr::Real(s) => {
                 let val: f64 = s.parse().expect("invalid float literal");
-                self.builder.ins().f64const(val)
+                match &*decl.types[expr] {
+                    crate::Type::Float32 => self.builder.ins().f32const(val as f32),
+                    _ => self.builder.ins().f64const(val),
+                }
             }
             Expr::Char(c) => self.builder.ins().iconst(I8, *c as i64),
             Expr::Id(name) => {
@@ -1214,7 +1217,15 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Value {
         let v = self.translate_expr(arg_id, decl, decls);
         match unop {
-            Unop::Neg => self.builder.ins().imul_imm(v, -1),
+            Unop::Neg => {
+                let t = decl.types[arg_id];
+                match *t {
+                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                        self.builder.ins().fneg(v)
+                    }
+                    _ => self.builder.ins().imul_imm(v, -1),
+                }
+            }
             Unop::Not => {
                 let bnot = self.builder.ins().bnot(v);
                 self.builder.ins().band_imm(bnot, 1)

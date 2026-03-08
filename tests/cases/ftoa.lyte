@@ -1,0 +1,30 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// 3.141592
+// -1.500000
+// 0.250000
+// 42.000000
+// executing VM code
+// 3.141592
+// -1.500000
+// 0.250000
+// 42.000000
+// vm execution successful
+
+main {
+    var buf: [i8; 16]
+
+    ftoa(buf, 3.141592)
+    println(buf)
+
+    ftoa(buf, -1.5)
+    println(buf)
+
+    ftoa(buf, 0.25)
+    println(buf)
+
+    ftoa(buf, 42.0)
+    println(buf)
+}

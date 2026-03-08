@@ -135,11 +135,14 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
+        let float32 = mk_type(Type::Float32);
         let cast_overloads = vec![
             func(int8, int32),
             func(int32, int8),
             func(int32, uint32),
             func(uint32, int32),
+            func(int32, float32),
+            func(float32, int32),
         ];
 
         Self {

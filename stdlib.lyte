@@ -59,6 +59,55 @@ itoa(dst: [i8], n: i32) {
     }
 }
 
+ftoa(dst: [i8], n: f32) {
+    var num = n
+    if n < 0.0 {
+        num = 0.0 - n
+    }
+
+    var int_part = num as i32
+    var frac_part = ((num - (int_part as f32)) * 1000000.0 + 0.5) as i32
+
+    // count digits in integer part
+    var div = 1
+    var temp = int_part / 10
+    while temp > 0 {
+        div = div * 10
+        temp = temp / 10
+    }
+
+    // phase 0: sign, phase 1: integer digits, phase 2: dot, phase 3: frac digits, phase 4: null
+    var phase = 1
+    if n < 0.0 {
+        phase = 0
+    }
+    var frac_div = 100000
+
+    for i in 0 .. dst.len {
+        if phase == 0 {
+            dst[i] = 45 as i8
+            phase = 1
+        } else if phase == 1 {
+            dst[i] = ((int_part / div) % 10 + 48) as i8
+            div = div / 10
+            if div == 0 {
+                phase = 2
+            }
+        } else if phase == 2 {
+            dst[i] = 46 as i8
+            phase = 3
+        } else if phase == 3 {
+            dst[i] = ((frac_part / frac_div) % 10 + 48) as i8
+            frac_div = frac_div / 10
+            if frac_div == 0 {
+                phase = 4
+            }
+        } else {
+            dst[i] = 0 as i8
+        }
+    }
+}
+
 strcat(dst: [i8], src: [i8]) {
     var j = 0
     var copying = false
