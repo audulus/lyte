@@ -259,7 +259,11 @@ impl SafetyChecker {
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
                 if *array_expr >= decl.types.len() {
-                    panic!("no type found for array index expression");
+                    print_error_with_context(
+                        decl.arena.locs[expr],
+                        "internal compiler error: no type found for array index expression",
+                    );
+                    return IndexInterval::default();
                 }
 
                 self.check_expr(*array_expr, decl, decls);
