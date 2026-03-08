@@ -22,7 +22,7 @@
         "keywords": {
             "patterns": [{
                 "name": "keyword.control.lyte",
-                "match": "\\b(if|else|while|for|var|let|where|assert)\\b"
+                "match": "\\b(if|else|while|for|in|var|let|where|assert)\\b"
             }, {
                 "name": "keyword.declaration.lyte",
                 "match": "\\b(struct|enum|interface)\\b"
