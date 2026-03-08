@@ -1710,9 +1710,15 @@ impl<'a> FunctionTranslator<'a> {
             b: offset_reg,
         });
 
-        let dst = self.alloc_reg();
-        self.emit_load(&elem_ty, dst, addr_reg, func);
-        dst
+        // Composite types (arrays, structs, tuples) are represented as
+        // pointers — return the address directly instead of loading.
+        if self.is_ptr_type(&elem_ty) {
+            addr_reg
+        } else {
+            let dst = self.alloc_reg();
+            self.emit_load(&elem_ty, dst, addr_reg, func);
+            dst
+        }
     }
 
     /// Translate an array literal.

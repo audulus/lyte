@@ -1,0 +1,29 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
+
+struct Point {
+    x: i32,
+    y: i32
+}
+
+struct Line {
+    points: [Point; 4]
+}
+
+main {
+    var line: Line
+    line.points[0].x = 10
+    line.points[0].y = 20
+    line.points[3].x = 30
+    line.points[3].y = 40
+    assert(line.points[0].x == 10)
+    assert(line.points[3].y == 40)
+}

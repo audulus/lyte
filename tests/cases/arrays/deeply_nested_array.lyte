@@ -1,0 +1,19 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // 3 levels of array nesting
+    var a: [[[i8; 2]; 2]; 2]
+    a[0][0][0] = 'a'
+    a[1][1][1] = 'z'
+    assert(a[0][0][0] == 'a')
+    assert(a[1][1][1] == 'z')
+}

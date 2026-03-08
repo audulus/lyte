@@ -789,8 +789,15 @@ impl<'a> FunctionTranslator<'a> {
                 let off = self.builder.ins().imul_imm(rhs_val, elem_ty.size(decls) as i64);
                 let off = self.builder.ins().uextend(I64, off);
                 let p = self.builder.ins().iadd(data_ptr, off);
-                let load_ty = decl.types[expr].cranelift_type();
-                self.builder.ins().load(load_ty, MemFlags::new(), p, 0)
+                let result_ty = decl.types[expr];
+                if result_ty.is_ptr() {
+                    // Composite types (arrays, structs, tuples) are represented
+                    // as pointers — return the address directly.
+                    p
+                } else {
+                    let load_ty = result_ty.cranelift_type();
+                    self.builder.ins().load(load_ty, MemFlags::new(), p, 0)
+                }
             }
             Expr::ArrayLiteral(elements) => {
                 let element_values: Vec<Value> = elements
