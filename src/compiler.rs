@@ -7,7 +7,7 @@ use std::fs;
 
 /// Returns the built-in function declarations (assert, print, etc.)
 fn builtin_decls() -> Vec<Decl> {
-    vec![
+    let mut decls = vec![
         // assert(cond: bool) → void
         Decl::Func(FuncDecl {
             name: Name::new("assert".into()),
@@ -59,7 +59,96 @@ fn builtin_decls() -> Vec<Decl> {
             types: vec![],
             closure_vars: vec![],
         }),
-    ]
+    ];
+
+    // Math builtins: unary f32 and f64 variants.
+    let unary_math = [
+        ("sinf", "sind"),
+        ("cosf", "cosd"),
+        ("tanf", "tand"),
+        ("lnf", "lnd"),
+        ("expf", "expd"),
+        ("sqrtf", "sqrtd"),
+        ("absf", "absd"),
+        ("floorf", "floord"),
+        ("ceilf", "ceild"),
+    ];
+    for (f32_name, f64_name) in unary_math {
+        decls.push(Decl::Func(FuncDecl {
+            name: Name::new(f32_name.into()),
+            typevars: vec![],
+            size_vars: vec![],
+            params: vec![Param {
+                name: Name::new("x".into()),
+                ty: Some(mk_type(Type::Float32)),
+            }],
+            body: None,
+            ret: mk_type(Type::Float32),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+            closure_vars: vec![],
+        }));
+        decls.push(Decl::Func(FuncDecl {
+            name: Name::new(f64_name.into()),
+            typevars: vec![],
+            size_vars: vec![],
+            params: vec![Param {
+                name: Name::new("x".into()),
+                ty: Some(mk_type(Type::Float64)),
+            }],
+            body: None,
+            ret: mk_type(Type::Float64),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+            closure_vars: vec![],
+        }));
+    }
+
+    // Math builtins: binary f32 and f64 variants.
+    let binary_math = [
+        ("powf", "powd"),
+        ("atan2f", "atan2d"),
+    ];
+    for (f32_name, f64_name) in binary_math {
+        decls.push(Decl::Func(FuncDecl {
+            name: Name::new(f32_name.into()),
+            typevars: vec![],
+            size_vars: vec![],
+            params: vec![
+                Param { name: Name::new("x".into()), ty: Some(mk_type(Type::Float32)) },
+                Param { name: Name::new("y".into()), ty: Some(mk_type(Type::Float32)) },
+            ],
+            body: None,
+            ret: mk_type(Type::Float32),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+            closure_vars: vec![],
+        }));
+        decls.push(Decl::Func(FuncDecl {
+            name: Name::new(f64_name.into()),
+            typevars: vec![],
+            size_vars: vec![],
+            params: vec![
+                Param { name: Name::new("x".into()), ty: Some(mk_type(Type::Float64)) },
+                Param { name: Name::new("y".into()), ty: Some(mk_type(Type::Float64)) },
+            ],
+            body: None,
+            ret: mk_type(Type::Float64),
+            constraints: vec![],
+            loc: test_loc(),
+            arena: ExprArena::new(),
+            types: vec![],
+            closure_vars: vec![],
+        }));
+    }
+
+    decls
 }
 
 // An AST.

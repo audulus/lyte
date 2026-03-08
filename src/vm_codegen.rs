@@ -1266,6 +1266,55 @@ impl<'a> FunctionTranslator<'a> {
                 return dst;
             }
 
+            // Unary math builtins (f32 and f64).
+            let unary_math_f32: &[(&str, fn(Reg, Reg) -> Opcode)] = &[
+                ("sinf", |dst, src| Opcode::SinF32 { dst, src }),
+                ("cosf", |dst, src| Opcode::CosF32 { dst, src }),
+                ("tanf", |dst, src| Opcode::TanF32 { dst, src }),
+                ("lnf", |dst, src| Opcode::LnF32 { dst, src }),
+                ("expf", |dst, src| Opcode::ExpF32 { dst, src }),
+                ("sqrtf", |dst, src| Opcode::SqrtF32 { dst, src }),
+                ("absf", |dst, src| Opcode::AbsF32 { dst, src }),
+                ("floorf", |dst, src| Opcode::FloorF32 { dst, src }),
+                ("ceilf", |dst, src| Opcode::CeilF32 { dst, src }),
+            ];
+            let unary_math_f64: &[(&str, fn(Reg, Reg) -> Opcode)] = &[
+                ("sind", |dst, src| Opcode::SinF64 { dst, src }),
+                ("cosd", |dst, src| Opcode::CosF64 { dst, src }),
+                ("tand", |dst, src| Opcode::TanF64 { dst, src }),
+                ("lnd", |dst, src| Opcode::LnF64 { dst, src }),
+                ("expd", |dst, src| Opcode::ExpF64 { dst, src }),
+                ("sqrtd", |dst, src| Opcode::SqrtF64 { dst, src }),
+                ("absd", |dst, src| Opcode::AbsF64 { dst, src }),
+                ("floord", |dst, src| Opcode::FloorF64 { dst, src }),
+                ("ceild", |dst, src| Opcode::CeilF64 { dst, src }),
+            ];
+            for (n, mk_op) in unary_math_f32.iter().chain(unary_math_f64.iter()) {
+                if **name == *n {
+                    let src = self.translate_expr(arg_ids[0], func);
+                    let dst = self.alloc_reg();
+                    func.emit(mk_op(dst, src));
+                    return dst;
+                }
+            }
+
+            // Binary math builtins (f32 and f64).
+            let binary_math: &[(&str, fn(Reg, Reg, Reg) -> Opcode)] = &[
+                ("powf", |dst, a, b| Opcode::PowF32 { dst, a, b }),
+                ("powd", |dst, a, b| Opcode::PowF64 { dst, a, b }),
+                ("atan2f", |dst, a, b| Opcode::Atan2F32 { dst, a, b }),
+                ("atan2d", |dst, a, b| Opcode::Atan2F64 { dst, a, b }),
+            ];
+            for (n, mk_op) in binary_math {
+                if **name == *n {
+                    let a = self.translate_expr(arg_ids[0], func);
+                    let b = self.translate_expr(arg_ids[1], func);
+                    let dst = self.alloc_reg();
+                    func.emit(mk_op(dst, a, b));
+                    return dst;
+                }
+            }
+
             // Get the return type of the call expression.
             let ret_ty = self.expr_type(call_expr);
             let returns_ptr = returns_via_pointer(ret_ty);

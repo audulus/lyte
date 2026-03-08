@@ -317,6 +317,38 @@ pub enum Opcode {
 
     /// Print a character
     Putc { src: Reg },
+
+    // ============ Math Builtins ============
+
+    /// Unary f32 math: dst = op(src)
+    SinF32 { dst: Reg, src: Reg },
+    CosF32 { dst: Reg, src: Reg },
+    TanF32 { dst: Reg, src: Reg },
+    LnF32 { dst: Reg, src: Reg },
+    ExpF32 { dst: Reg, src: Reg },
+    SqrtF32 { dst: Reg, src: Reg },
+    AbsF32 { dst: Reg, src: Reg },
+    FloorF32 { dst: Reg, src: Reg },
+    CeilF32 { dst: Reg, src: Reg },
+
+    /// Unary f64 math: dst = op(src)
+    SinF64 { dst: Reg, src: Reg },
+    CosF64 { dst: Reg, src: Reg },
+    TanF64 { dst: Reg, src: Reg },
+    LnF64 { dst: Reg, src: Reg },
+    ExpF64 { dst: Reg, src: Reg },
+    SqrtF64 { dst: Reg, src: Reg },
+    AbsF64 { dst: Reg, src: Reg },
+    FloorF64 { dst: Reg, src: Reg },
+    CeilF64 { dst: Reg, src: Reg },
+
+    /// Binary f32 math: dst = op(a, b)
+    PowF32 { dst: Reg, a: Reg, b: Reg },
+    Atan2F32 { dst: Reg, a: Reg, b: Reg },
+
+    /// Binary f64 math: dst = op(a, b)
+    PowF64 { dst: Reg, a: Reg, b: Reg },
+    Atan2F64 { dst: Reg, a: Reg, b: Reg },
 }
 
 /// A compiled function for the VM
@@ -1181,6 +1213,36 @@ impl VM {
                         print!("{}", c);
                     }
                 }
+
+                // Math builtins — f32 unary
+                Opcode::SinF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).sin()); }
+                Opcode::CosF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).cos()); }
+                Opcode::TanF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).tan()); }
+                Opcode::LnF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).ln()); }
+                Opcode::ExpF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).exp()); }
+                Opcode::SqrtF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).sqrt()); }
+                Opcode::AbsF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).abs()); }
+                Opcode::FloorF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).floor()); }
+                Opcode::CeilF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).ceil()); }
+
+                // Math builtins — f64 unary
+                Opcode::SinF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).sin()); }
+                Opcode::CosF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).cos()); }
+                Opcode::TanF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).tan()); }
+                Opcode::LnF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).ln()); }
+                Opcode::ExpF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).exp()); }
+                Opcode::SqrtF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).sqrt()); }
+                Opcode::AbsF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).abs()); }
+                Opcode::FloorF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).floor()); }
+                Opcode::CeilF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).ceil()); }
+
+                // Math builtins — f32 binary
+                Opcode::PowF32 { dst, a, b } => { self.set_f32(dst, self.get_f32(a).powf(self.get_f32(b))); }
+                Opcode::Atan2F32 { dst, a, b } => { self.set_f32(dst, self.get_f32(a).atan2(self.get_f32(b))); }
+
+                // Math builtins — f64 binary
+                Opcode::PowF64 { dst, a, b } => { self.set_f64(dst, self.get_f64(a).powf(self.get_f64(b))); }
+                Opcode::Atan2F64 { dst, a, b } => { self.set_f64(dst, self.get_f64(a).atan2(self.get_f64(b))); }
             }
         }
     }

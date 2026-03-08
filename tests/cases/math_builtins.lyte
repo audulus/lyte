@@ -1,0 +1,71 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // sin/cos identity: sin^2 + cos^2 == 1
+    var x = 1.5
+    var s = sinf(x)
+    var c = cosf(x)
+    var sum = s * s + c * c
+    assert(sum > 0.999 && sum < 1.001)
+
+    // tan == sin/cos
+    var t = tanf(x)
+    var ratio = sinf(x) / cosf(x)
+    assert(t - ratio > -0.001 && t - ratio < 0.001)
+
+    // exp and ln are inverses
+    var e = expf(2.0)
+    var l = lnf(e)
+    assert(l > 1.999 && l < 2.001)
+
+    // sqrt
+    assert(sqrtf(4.0) > 1.999 && sqrtf(4.0) < 2.001)
+
+    // abs
+    assert(absf(-3.5) > 3.499 && absf(-3.5) < 3.501)
+
+    // floor / ceil
+    assert(floorf(2.7) > 1.999 && floorf(2.7) < 2.001)
+    assert(ceilf(2.3) > 2.999 && ceilf(2.3) < 3.001)
+
+    // pow
+    assert(powf(2.0, 3.0) > 7.999 && powf(2.0, 3.0) < 8.001)
+
+    // atan2
+    var a = atan2f(1.0, 1.0)
+    var pi4 = 3.14159265 / 4.0
+    assert(a - pi4 > -0.001 && a - pi4 < 0.001)
+
+    // sinf(0) == 0
+    assert(sinf(0.0) > -0.001 && sinf(0.0) < 0.001)
+
+    // cosf(0) == 1
+    assert(cosf(0.0) > 0.999 && cosf(0.0) < 1.001)
+}

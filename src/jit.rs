@@ -596,7 +596,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Determine if this is a builtin (assert/print) which has a raw fn_ptr
                 // and no globals/closure parameters, vs a user function with a fat pointer.
                 let is_builtin = if let Expr::Id(name) = &decl.arena[*fn_id] {
-                    *name == Name::str("assert") || *name == Name::str("print") || *name == Name::str("putc")
+                    is_builtin_name(name)
                 } else {
                     false
                 };
@@ -1566,6 +1566,10 @@ impl<'a> FunctionTranslator<'a> {
             return self.builder.ins().iconst(I64, lyte_putc as i64);
         }
 
+        if let Some(ptr) = math_builtin_ptr(name) {
+            return self.builder.ins().iconst(I64, ptr);
+        }
+
         if let crate::Type::Func(dom, rng) = ty {
             let mut sig = fn_sig(&self.module, *dom, *rng);
             // Add globals and closure pointers as first two parameters.
@@ -1810,4 +1814,79 @@ extern "C" fn lyte_putc(val: i32) {
 
 extern "C" fn lyte_print_i64(val: i64) {
     println!("{}", val);
+}
+
+// Math builtins — f32 unary
+extern "C" fn lyte_sinf(x: f32) -> f32 { x.sin() }
+extern "C" fn lyte_cosf(x: f32) -> f32 { x.cos() }
+extern "C" fn lyte_tanf(x: f32) -> f32 { x.tan() }
+extern "C" fn lyte_lnf(x: f32) -> f32 { x.ln() }
+extern "C" fn lyte_expf(x: f32) -> f32 { x.exp() }
+extern "C" fn lyte_sqrtf(x: f32) -> f32 { x.sqrt() }
+extern "C" fn lyte_absf(x: f32) -> f32 { x.abs() }
+extern "C" fn lyte_floorf(x: f32) -> f32 { x.floor() }
+extern "C" fn lyte_ceilf(x: f32) -> f32 { x.ceil() }
+
+// Math builtins — f64 unary
+extern "C" fn lyte_sind(x: f64) -> f64 { x.sin() }
+extern "C" fn lyte_cosd(x: f64) -> f64 { x.cos() }
+extern "C" fn lyte_tand(x: f64) -> f64 { x.tan() }
+extern "C" fn lyte_lnd(x: f64) -> f64 { x.ln() }
+extern "C" fn lyte_expd(x: f64) -> f64 { x.exp() }
+extern "C" fn lyte_sqrtd(x: f64) -> f64 { x.sqrt() }
+extern "C" fn lyte_absd(x: f64) -> f64 { x.abs() }
+extern "C" fn lyte_floord(x: f64) -> f64 { x.floor() }
+extern "C" fn lyte_ceild(x: f64) -> f64 { x.ceil() }
+
+// Math builtins — f32 binary
+extern "C" fn lyte_powf(x: f32, y: f32) -> f32 { x.powf(y) }
+extern "C" fn lyte_atan2f(x: f32, y: f32) -> f32 { x.atan2(y) }
+
+// Math builtins — f64 binary
+extern "C" fn lyte_powd(x: f64, y: f64) -> f64 { x.powf(y) }
+extern "C" fn lyte_atan2d(x: f64, y: f64) -> f64 { x.atan2(y) }
+
+const BUILTIN_NAMES: &[&str] = &[
+    "assert", "print", "putc",
+    "sinf", "sind", "cosf", "cosd", "tanf", "tand",
+    "lnf", "lnd", "expf", "expd", "sqrtf", "sqrtd",
+    "absf", "absd", "floorf", "floord", "ceilf", "ceild",
+    "powf", "powd", "atan2f", "atan2d",
+];
+
+fn is_builtin_name(name: &Name) -> bool {
+    BUILTIN_NAMES.iter().any(|&n| *name == Name::str(n))
+}
+
+fn math_builtin_ptr(name: &Name) -> Option<i64> {
+    let pairs: &[(&str, i64)] = &[
+        ("sinf", lyte_sinf as *const () as i64),
+        ("sind", lyte_sind as *const () as i64),
+        ("cosf", lyte_cosf as *const () as i64),
+        ("cosd", lyte_cosd as *const () as i64),
+        ("tanf", lyte_tanf as *const () as i64),
+        ("tand", lyte_tand as *const () as i64),
+        ("lnf", lyte_lnf as *const () as i64),
+        ("lnd", lyte_lnd as *const () as i64),
+        ("expf", lyte_expf as *const () as i64),
+        ("expd", lyte_expd as *const () as i64),
+        ("sqrtf", lyte_sqrtf as *const () as i64),
+        ("sqrtd", lyte_sqrtd as *const () as i64),
+        ("absf", lyte_absf as *const () as i64),
+        ("absd", lyte_absd as *const () as i64),
+        ("floorf", lyte_floorf as *const () as i64),
+        ("floord", lyte_floord as *const () as i64),
+        ("ceilf", lyte_ceilf as *const () as i64),
+        ("ceild", lyte_ceild as *const () as i64),
+        ("powf", lyte_powf as *const () as i64),
+        ("powd", lyte_powd as *const () as i64),
+        ("atan2f", lyte_atan2f as *const () as i64),
+        ("atan2d", lyte_atan2d as *const () as i64),
+    ];
+    for &(n, ptr) in pairs {
+        if *name == Name::str(n) {
+            return Some(ptr);
+        }
+    }
+    None
 }
