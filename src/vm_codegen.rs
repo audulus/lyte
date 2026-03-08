@@ -39,6 +39,9 @@ pub struct VMCodegen {
     /// Calls that need to be patched after all functions are compiled.
     pending_calls: Vec<PendingCall>,
 
+    /// LoadImm instructions for function references that need patching.
+    pending_func_loads: Vec<PendingCall>,
+
     /// Global variable offsets.
     globals: HashMap<Name, i32>,
 
@@ -60,6 +63,7 @@ impl VMCodegen {
             compiled_functions: HashSet::new(),
             pending_functions: Vec::new(),
             pending_calls: Vec::new(),
+            pending_func_loads: Vec::new(),
             globals: HashMap::new(),
             lambda_counter: 0,
         }
@@ -129,6 +133,16 @@ impl VMCodegen {
             }
         }
 
+        // Patch all pending function reference loads with the correct function indices.
+        for pending in &self.pending_func_loads {
+            if let Some(&callee_idx) = self.func_indices.get(&pending.callee) {
+                let func = &mut self.program.functions[pending.func_idx as usize];
+                if let Opcode::LoadImm { ref mut value, .. } = func.code[pending.instr_idx] {
+                    *value = callee_idx as i64;
+                }
+            }
+        }
+
         Ok(std::mem::take(&mut self.program))
     }
 
@@ -146,6 +160,7 @@ impl VMCodegen {
 
         // Extract data from translator before it's dropped (it borrows self.pending_functions).
         let calls_to_patch = std::mem::take(&mut translator.calls_to_patch);
+        let func_load_patches = std::mem::take(&mut translator.func_load_patches);
         let pending_lambdas = std::mem::take(&mut translator.pending_lambdas);
         let lambda_patches = std::mem::take(&mut translator.lambda_patches);
         drop(translator);
@@ -156,6 +171,15 @@ impl VMCodegen {
                 func_idx: idx,
                 instr_idx: call.instr_idx,
                 callee: call.callee,
+            });
+        }
+
+        // Collect pending function reference loads.
+        for patch in func_load_patches {
+            self.pending_func_loads.push(PendingCall {
+                func_idx: idx,
+                instr_idx: patch.instr_idx,
+                callee: patch.callee,
             });
         }
 
@@ -244,6 +268,9 @@ struct FunctionTranslator<'a> {
     /// LoadImm instructions that need to be patched with lambda function indices.
     lambda_patches: Vec<(usize, Name)>,
 
+    /// LoadImm instructions that need to be patched with function indices (function references).
+    func_load_patches: Vec<CallToPatch>,
+
     /// Global variable offsets.
     globals: &'a HashMap<Name, i32>,
 
@@ -288,6 +315,7 @@ impl<'a> FunctionTranslator<'a> {
             calls_to_patch: Vec::new(),
             pending_lambdas: Vec::new(),
             lambda_patches: Vec::new(),
+            func_load_patches: Vec::new(),
             globals,
             output_ptr: None,
             output_ptr_slot: None,
@@ -545,9 +573,11 @@ impl<'a> FunctionTranslator<'a> {
                         // Return function index as a value.
                         let dst = self.alloc_reg();
                         self.pending_functions.push(*name);
-                        // For now, emit 0 - in a real implementation we'd need to
-                        // patch this later or use a function table.
-                        func.emit(Opcode::LoadImm { dst, value: 0 });
+                        let instr_idx = func.emit(Opcode::LoadImm { dst, value: 0 });
+                        self.func_load_patches.push(CallToPatch {
+                            instr_idx,
+                            callee: *name,
+                        });
                         dst
                     } else {
                         // Unknown identifier - this shouldn't happen after type checking.
