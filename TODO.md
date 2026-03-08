@@ -30,18 +30,9 @@ While pattern matching is very powerful, we're going to leave it out of 1.0.
 
 ## Error Handling
 
-### Replace panics with proper errors
-- [ ] `jit.rs:1194` — unimplemented expression panic (should be a compiler error)
-- [ ] `jit.rs:1470` — unimplemented binary operation panic
-- [ ] `jit.rs:512, 538, 676, 749, 779` — "should be caught by type checker" panics
-- [ ] `decl.rs:138` — field offset panic if field not found
-- [ ] `types.rs:17-21` — size calculation panics on size variables
-- [ ] `safety_checker.rs` — safety checking panics
-- [x] panic when `main` not found (should be a user-facing error)
-- [ ] division by zero panics (should be runtime error)
+Panics are ok because they are caught and turned into ICE
 
 ### General
-- [ ] Move toward `Result<T, E>` instead of panics throughout the pipeline
 - [ ] Improve error recovery in the parser (currently stops at first error in many cases)
 
 ## Code Quality
