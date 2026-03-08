@@ -44,7 +44,7 @@ Panics are ok because they are caught and turned into ICE
 - [x] String literals
 - [x] Macro VM tests (`macro_vm.lyte`)
 - [ ] Error recovery tests
-- [ ] Boundary condition tests (large arrays, deeply nested types)
+- [x] Boundary condition tests (large arrays, deeply nested types)
 
 ## Design (Long-term)
 
