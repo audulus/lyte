@@ -1864,7 +1864,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Emit a load instruction with offset based on type.
     fn emit_load_offset(
-        &self,
+        &mut self,
         ty: &TypeID,
         dst: Reg,
         base: Reg,
@@ -1873,7 +1873,7 @@ impl<'a> FunctionTranslator<'a> {
     ) {
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => {
-                let addr = self.alloc_reg_func(func);
+                let addr = self.alloc_reg();
                 func.emit(Opcode::IAddImm {
                     dst: addr,
                     src: base,
@@ -1905,11 +1905,6 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    /// Allocate a register (workaround for borrow issues).
-    fn alloc_reg_func(&self, _func: &mut VMFunction) -> Reg {
-        // This is a hack - we just use a high register.
-        250
-    }
 
     /// Emit a store instruction based on type.
     fn emit_store(&self, ty: &TypeID, addr: Reg, src: Reg, func: &mut VMFunction) {
