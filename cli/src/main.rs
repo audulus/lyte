@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::fs;
+use std::panic;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -25,9 +26,7 @@ struct Args {
     test: bool,
 }
 
-fn main() {
-    let args = Args::parse();
-
+fn run(args: Args) -> i32 {
     let mut paths = vec![];
 
     if let Ok(entries) = fs::read_dir(args.file.clone()) {
@@ -43,11 +42,11 @@ fn main() {
     for path in &paths {
         if let Ok(contents) = fs::read_to_string(path) {
             if !compiler.parse(&contents, &path) {
-                std::process::exit(1);
+                return 1;
             }
         } else {
             eprintln!("could not read file {:?}", path);
-            std::process::exit(1)
+            return 1;
         }
     }
 
@@ -56,7 +55,7 @@ fn main() {
     }
 
     if !compiler.check() {
-        std::process::exit(1);
+        return 1;
     }
 
     compiler.print_ir = args.ir;
@@ -65,12 +64,12 @@ fn main() {
     if args.c || args.r || args.test || args.bytecode {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
-            std::process::exit(1);
+            return 1;
         }
 
         if let Err(e) = compiler.specialize() {
             eprintln!("{}", e);
-            std::process::exit(1);
+            return 1;
         }
 
         if args.bytecode {
@@ -82,7 +81,7 @@ fn main() {
                 }
                 Err(e) => {
                     eprintln!("VM compilation error: {}", e);
-                    std::process::exit(1);
+                    return 1;
                 }
             }
         }
@@ -102,11 +101,32 @@ fn main() {
                 Ok(_) => println!("vm execution successful"),
                 Err(e) => {
                     eprintln!("VM error: {}", e);
-                    std::process::exit(1);
+                    return 1;
                 }
             }
         }
     }
 
-    std::process::exit(0)
+    0
+}
+
+fn main() {
+    let args = Args::parse();
+
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| run(args)));
+
+    match result {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = e.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown error".to_string()
+            };
+            eprintln!("internal compiler error: {}", msg);
+            std::process::exit(1);
+        }
+    }
 }

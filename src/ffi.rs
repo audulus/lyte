@@ -1,9 +1,30 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 
 use crate::compiler::Compiler;
 use crate::vm::{VM, VMProgram};
+
+/// Run a closure, catching any panic and storing it as the last error.
+/// Returns `false` if a panic occurred.
+unsafe fn catch_panic(c: *mut LyteCompiler, f: impl FnOnce(&mut LyteCompiler) -> bool) -> bool {
+    let result = panic::catch_unwind(AssertUnwindSafe(|| f(&mut *c)));
+    match result {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                format!("internal compiler error: {}", s)
+            } else if let Some(s) = e.downcast_ref::<String>() {
+                format!("internal compiler error: {}", s)
+            } else {
+                "internal compiler error".to_string()
+            };
+            (*c).set_error(&msg);
+            false
+        }
+    }
+}
 
 /// Info about a single global variable, with pre-computed C strings.
 struct GlobalInfo {
@@ -76,27 +97,30 @@ pub unsafe extern "C" fn lyte_compiler_parse(
     if ptr.is_null() || source.is_null() || filename.is_null() {
         return false;
     }
-    let c = &mut *ptr;
-    let source = match CStr::from_ptr(source).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            c.set_error("invalid UTF-8 in source");
+    let src = source;
+    let fname = filename;
+    catch_panic(ptr, |c| {
+        let source = match CStr::from_ptr(src).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                c.set_error("invalid UTF-8 in source");
+                return false;
+            }
+        };
+        let filename = match CStr::from_ptr(fname).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                c.set_error("invalid UTF-8 in filename");
+                return false;
+            }
+        };
+        c.last_error = None;
+        if !c.compiler.parse(source, filename) {
+            c.set_error("parse error");
             return false;
         }
-    };
-    let filename = match CStr::from_ptr(filename).to_str() {
-        Ok(s) => s,
-        Err(_) => {
-            c.set_error("invalid UTF-8 in filename");
-            return false;
-        }
-    };
-    c.last_error = None;
-    if !c.compiler.parse(source, filename) {
-        c.set_error("parse error");
-        return false;
-    }
-    true
+        true
+    })
 }
 
 /// Type-check the parsed source. Returns true on success.
@@ -105,13 +129,14 @@ pub unsafe extern "C" fn lyte_compiler_check(ptr: *mut LyteCompiler) -> bool {
     if ptr.is_null() {
         return false;
     }
-    let c = &mut *ptr;
-    c.last_error = None;
-    if !c.compiler.check() {
-        c.set_error("type check error");
-        return false;
-    }
-    true
+    catch_panic(ptr, |c| {
+        c.last_error = None;
+        if !c.compiler.check() {
+            c.set_error("type check error");
+            return false;
+        }
+        true
+    })
 }
 
 /// Monomorphize generics. Returns true on success.
@@ -120,13 +145,14 @@ pub unsafe extern "C" fn lyte_compiler_specialize(ptr: *mut LyteCompiler) -> boo
     if ptr.is_null() {
         return false;
     }
-    let c = &mut *ptr;
-    c.last_error = None;
-    if let Err(e) = c.compiler.specialize() {
-        c.set_error(&e);
-        return false;
-    }
-    true
+    catch_panic(ptr, |c| {
+        c.last_error = None;
+        if let Err(e) = c.compiler.specialize() {
+            c.set_error(&e);
+            return false;
+        }
+        true
+    })
 }
 
 /// JIT compile. Returns true on success.
@@ -136,29 +162,30 @@ pub unsafe extern "C" fn lyte_compiler_jit(ptr: *mut LyteCompiler) -> bool {
     if ptr.is_null() {
         return false;
     }
-    let c = &mut *ptr;
-    c.last_error = None;
-    c.jit_result = None;
-    c.globals.clear();
-    match c.compiler.jit() {
-        Ok(result) => {
-            c.jit_result = Some(result);
-            c.globals = c.compiler.globals_info()
-                .into_iter()
-                .map(|(name, offset, size, ty)| GlobalInfo {
-                    name: CString::new(name).unwrap_or_default(),
-                    offset,
-                    size,
-                    ty: CString::new(ty).unwrap_or_default(),
-                })
-                .collect();
-            true
+    catch_panic(ptr, |c| {
+        c.last_error = None;
+        c.jit_result = None;
+        c.globals.clear();
+        match c.compiler.jit() {
+            Ok(result) => {
+                c.jit_result = Some(result);
+                c.globals = c.compiler.globals_info()
+                    .into_iter()
+                    .map(|(name, offset, size, ty)| GlobalInfo {
+                        name: CString::new(name).unwrap_or_default(),
+                        offset,
+                        size,
+                        ty: CString::new(ty).unwrap_or_default(),
+                    })
+                    .collect();
+                true
+            }
+            Err(msg) => {
+                c.set_error(&msg);
+                false
+            }
         }
-        Err(msg) => {
-            c.set_error(&msg);
-            false
-        }
-    }
+    })
 }
 
 /// Get the JIT-compiled code pointer (the `main` function).
@@ -285,30 +312,31 @@ pub unsafe extern "C" fn lyte_compiler_compile_vm(ptr: *mut LyteCompiler) -> boo
     if ptr.is_null() {
         return false;
     }
-    let c = &mut *ptr;
-    c.last_error = None;
-    c.vm_program = None;
-    c.vm = None;
-    c.globals.clear();
-    match c.compiler.compile_vm() {
-        Ok(program) => {
-            c.globals = c.compiler.globals_info()
-                .into_iter()
-                .map(|(name, offset, size, ty)| GlobalInfo {
-                    name: CString::new(name).unwrap_or_default(),
-                    offset,
-                    size,
-                    ty: CString::new(ty).unwrap_or_default(),
-                })
-                .collect();
-            c.vm_program = Some(program);
-            true
+    catch_panic(ptr, |c| {
+        c.last_error = None;
+        c.vm_program = None;
+        c.vm = None;
+        c.globals.clear();
+        match c.compiler.compile_vm() {
+            Ok(program) => {
+                c.globals = c.compiler.globals_info()
+                    .into_iter()
+                    .map(|(name, offset, size, ty)| GlobalInfo {
+                        name: CString::new(name).unwrap_or_default(),
+                        offset,
+                        size,
+                        ty: CString::new(ty).unwrap_or_default(),
+                    })
+                    .collect();
+                c.vm_program = Some(program);
+                true
+            }
+            Err(msg) => {
+                c.set_error(&msg);
+                false
+            }
         }
-        Err(msg) => {
-            c.set_error(&msg);
-            false
-        }
-    }
+    })
 }
 
 /// Run the VM program. Returns true on success.
@@ -319,20 +347,21 @@ pub unsafe extern "C" fn lyte_compiler_run_vm(ptr: *mut LyteCompiler) -> bool {
     if ptr.is_null() {
         return false;
     }
-    let c = &mut *ptr;
-    c.last_error = None;
-    match &c.vm_program {
-        Some(program) => {
-            let mut vm = VM::new();
-            vm.run(program);
-            c.vm = Some(vm);
-            true
+    catch_panic(ptr, |c| {
+        c.last_error = None;
+        match &c.vm_program {
+            Some(program) => {
+                let mut vm = VM::new();
+                vm.run(program);
+                c.vm = Some(vm);
+                true
+            }
+            None => {
+                c.set_error("no VM program compiled");
+                false
+            }
         }
-        None => {
-            c.set_error("no VM program compiled");
-            false
-        }
-    }
+    })
 }
 
 /// Get a pointer to the VM's globals buffer.
