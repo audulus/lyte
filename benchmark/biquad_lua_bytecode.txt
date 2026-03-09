@@ -1,0 +1,208 @@
+
+main </Volumes/My Shared Files/lyte/benchmark/biquad.lua:0,0> (72 instructions at 0x10320adc0)
+0+ params, 16 slots, 1 upvalue, 14 locals, 19 constants, 1 function
+	1	[1]	VARARGPREP	0
+	2	[4]	GETTABUP 	0 0 0	; _ENV "math"
+	3	[4]	GETFIELD 	0 0 1	; "sin"
+	4	[5]	GETTABUP 	1 0 0	; _ENV "math"
+	5	[5]	GETFIELD 	1 1 2	; "pi"
+	6	[25]	CLOSURE  	2 0	; 0x10320b120
+	7	[27]	MOVE     	3 2
+	8	[27]	LOADF    	4 1000
+	9	[27]	LOADF    	5 44100
+	10	[27]	LOADK    	6 3	; 0.707
+	11	[27]	CALL     	3 4 2	; 3 in 1 out
+	12	[29]	LOADK    	4 4	; 10000000
+	13	[30]	LOADF    	5 0
+	14	[31]	LOADK    	6 5	; 0.00997732426303855
+	15	[32]	LOADF    	7 0
+	16	[33]	MULK     	8 1 6	; 2.0
+	17	[33]	MMBINK   	1 6 8 1	; __mul 2.0 flip
+	18	[36]	LOADI    	9 1
+	19	[36]	MOVE     	10 4
+	20	[36]	LOADI    	11 1
+	21	[36]	FORPREP  	9 44	; exit to 67
+	22	[37]	MOVE     	12 0
+	23	[37]	MUL      	13 5 8
+	24	[37]	MMBIN    	5 8 8	; __mul
+	25	[37]	CALL     	12 2 2	; 1 in 1 out
+	26	[38]	ADD      	5 5 6
+	27	[38]	MMBIN    	5 6 6	; __add
+	28	[39]	GTI      	5 1 0
+	29	[39]	JMP      	2	; to 32
+	30	[39]	SUBK     	5 5 7	; 1.0
+	31	[39]	MMBINK   	5 7 7 0	; __sub 1.0
+	32	[41]	GETFIELD 	13 3 8	; "b0"
+	33	[41]	MUL      	13 13 12
+	34	[41]	MMBIN    	13 12 8	; __mul
+	35	[41]	GETFIELD 	14 3 9	; "b1"
+	36	[41]	GETFIELD 	15 3 10	; "x1"
+	37	[41]	MUL      	14 14 15
+	38	[41]	MMBIN    	14 15 8	; __mul
+	39	[41]	ADD      	13 13 14
+	40	[41]	MMBIN    	13 14 6	; __add
+	41	[41]	GETFIELD 	14 3 11	; "b2"
+	42	[41]	GETFIELD 	15 3 12	; "x2"
+	43	[41]	MUL      	14 14 15
+	44	[41]	MMBIN    	14 15 8	; __mul
+	45	[41]	ADD      	13 13 14
+	46	[41]	MMBIN    	13 14 6	; __add
+	47	[41]	GETFIELD 	14 3 13	; "a1"
+	48	[41]	GETFIELD 	15 3 14	; "y1"
+	49	[41]	MUL      	14 14 15
+	50	[41]	MMBIN    	14 15 8	; __mul
+	51	[41]	SUB      	13 13 14
+	52	[41]	MMBIN    	13 14 7	; __sub
+	53	[41]	GETFIELD 	14 3 15	; "a2"
+	54	[41]	GETFIELD 	15 3 16	; "y2"
+	55	[41]	MUL      	14 14 15
+	56	[41]	MMBIN    	14 15 8	; __mul
+	57	[41]	SUB      	13 13 14
+	58	[41]	MMBIN    	13 14 7	; __sub
+	59	[42]	GETFIELD 	14 3 10	; "x1"
+	60	[42]	SETFIELD 	3 12 14	; "x2"
+	61	[43]	SETFIELD 	3 10 12	; "x1"
+	62	[44]	GETFIELD 	14 3 14	; "y1"
+	63	[44]	SETFIELD 	3 16 14	; "y2"
+	64	[45]	SETFIELD 	3 14 13	; "y1"
+	65	[46]	MOVE     	7 13
+	66	[36]	FORLOOP  	9 45	; to 22
+	67	[49]	GETTABUP 	9 0 17	; _ENV "print"
+	68	[49]	MOVE     	10 4
+	69	[49]	LOADK    	11 18	; " samples processed"
+	70	[49]	CONCAT   	10 2
+	71	[49]	CALL     	9 2 1	; 1 in 0 out
+	72	[49]	RETURN   	9 1 1k	; 0 out
+constants (19) for 0x10320adc0:
+	0	S	"math"
+	1	S	"sin"
+	2	S	"pi"
+	3	F	0.707
+	4	I	10000000
+	5	F	0.00997732426303855
+	6	F	2.0
+	7	F	1.0
+	8	S	"b0"
+	9	S	"b1"
+	10	S	"x1"
+	11	S	"b2"
+	12	S	"x2"
+	13	S	"a1"
+	14	S	"y1"
+	15	S	"a2"
+	16	S	"y2"
+	17	S	"print"
+	18	S	" samples processed"
+locals (14) for 0x10320adc0:
+	0	sin	4	73
+	1	pi	6	73
+	2	lpf	7	73
+	3	bq	12	73
+	4	n	13	73
+	5	phase	14	73
+	6	freq	15	73
+	7	last_y	16	73
+	8	two_pi	18	73
+	9	(for state)	21	67
+	10	(for state)	21	67
+	11	i	22	66
+	12	x	26	66
+	13	y	59	66
+upvalues (1) for 0x10320adc0:
+	0	_ENV	1	0
+
+function </Volumes/My Shared Files/lyte/benchmark/biquad.lua:8,25> (64 instructions at 0x10320b120)
+3 params, 10 slots, 3 upvalues, 8 locals, 15 constants, 0 functions
+	1	[9]	GETUPVAL 	3 0	; pi
+	2	[9]	MULK     	3 3 0	; 2.0
+	3	[9]	MMBINK   	3 0 8 1	; __mul 2.0 flip
+	4	[9]	MUL      	3 3 0
+	5	[9]	MMBIN    	3 0 8	; __mul
+	6	[9]	DIV      	3 3 1
+	7	[9]	MMBIN    	3 1 11	; __div
+	8	[10]	GETUPVAL 	4 1	; sin
+	9	[10]	MOVE     	5 3
+	10	[10]	CALL     	4 2 2	; 1 in 1 out
+	11	[10]	MULK     	5 2 0	; 2.0
+	12	[10]	MMBINK   	2 0 8 1	; __mul 2.0 flip
+	13	[10]	DIV      	4 4 5
+	14	[10]	MMBIN    	4 5 11	; __div
+	15	[11]	GETTABUP 	5 2 1	; _ENV "math"
+	16	[11]	GETFIELD 	5 5 2	; "cos"
+	17	[11]	MOVE     	6 3
+	18	[11]	CALL     	5 2 2	; 1 in 1 out
+	19	[13]	ADDK     	6 4 3	; 1.0
+	20	[13]	MMBINK   	4 3 6 1	; __add 1.0 flip
+	21	[14]	LOADF    	7 1
+	22	[14]	DIV      	7 7 6
+	23	[14]	MMBIN    	7 6 11	; __div
+	24	[16]	NEWTABLE 	8 5 0	; 0
+	25	[16]	EXTRAARG 	0
+	26	[17]	LOADF    	9 1
+	27	[17]	SUB      	9 9 5
+	28	[17]	MMBIN    	9 5 7	; __sub
+	29	[17]	DIVK     	9 9 0	; 2.0
+	30	[17]	MMBINK   	9 0 11 0	; __div 2.0
+	31	[17]	MUL      	9 9 7
+	32	[17]	MMBIN    	9 7 8	; __mul
+	33	[17]	SETFIELD 	8 4 9	; "b0"
+	34	[18]	LOADF    	9 1
+	35	[18]	SUB      	9 9 5
+	36	[18]	MMBIN    	9 5 7	; __sub
+	37	[18]	MUL      	9 9 7
+	38	[18]	MMBIN    	9 7 8	; __mul
+	39	[18]	SETFIELD 	8 5 9	; "b1"
+	40	[19]	LOADF    	9 1
+	41	[19]	SUB      	9 9 5
+	42	[19]	MMBIN    	9 5 7	; __sub
+	43	[19]	DIVK     	9 9 0	; 2.0
+	44	[19]	MMBINK   	9 0 11 0	; __div 2.0
+	45	[19]	MUL      	9 9 7
+	46	[19]	MMBIN    	9 7 8	; __mul
+	47	[19]	SETFIELD 	8 6 9	; "b2"
+	48	[20]	MULK     	9 5 8	; -2.0
+	49	[20]	MMBINK   	5 8 8 1	; __mul -2.0 flip
+	50	[20]	MUL      	9 9 7
+	51	[20]	MMBIN    	9 7 8	; __mul
+	52	[20]	SETFIELD 	8 7 9	; "a1"
+	53	[21]	LOADF    	9 1
+	54	[21]	SUB      	9 9 4
+	55	[21]	MMBIN    	9 4 7	; __sub
+	56	[21]	MUL      	9 9 7
+	57	[21]	MMBIN    	9 7 8	; __mul
+	58	[21]	SETFIELD 	8 9 9	; "a2"
+	59	[22]	SETFIELD 	8 10 11k	; "x1" 0.0
+	60	[22]	SETFIELD 	8 12 11k	; "x2" 0.0
+	61	[23]	SETFIELD 	8 13 11k	; "y1" 0.0
+	62	[23]	SETFIELD 	8 14 11k	; "y2" 0.0
+	63	[24]	RETURN1  	8
+	64	[25]	RETURN0  	
+constants (15) for 0x10320b120:
+	0	F	2.0
+	1	S	"math"
+	2	S	"cos"
+	3	F	1.0
+	4	S	"b0"
+	5	S	"b1"
+	6	S	"b2"
+	7	S	"a1"
+	8	F	-2.0
+	9	S	"a2"
+	10	S	"x1"
+	11	F	0.0
+	12	S	"x2"
+	13	S	"y1"
+	14	S	"y2"
+locals (8) for 0x10320b120:
+	0	fc	1	65
+	1	fs	1	65
+	2	q	1	65
+	3	w0	8	65
+	4	alpha	15	65
+	5	cs	19	65
+	6	a0	21	65
+	7	inv	24	65
+upvalues (3) for 0x10320b120:
+	0	pi	1	1
+	1	sin	1	0
+	2	_ENV	0	0
