@@ -134,9 +134,12 @@ mod tags {
     pub const ATAN2_F32: u8 = 108;
     pub const POW_F64: u8 = 109;
     pub const ATAN2_F64: u8 = 110;
+    // Superinstructions: fused LocalAddr+Load/Store
+    pub const LOAD_SLOT32: u8 = 111;
+    pub const STORE_SLOT32: u8 = 112;
     // For i64/f64 immediates that don't fit in 32 bits
-    pub const LOAD_IMM_WIDE: u8 = 111;
-    pub const LOAD_F64_WIDE: u8 = 112;
+    pub const LOAD_IMM_WIDE: u8 = 113;
+    pub const LOAD_F64_WIDE: u8 = 114;
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -268,6 +271,8 @@ impl LinkedProgram {
             Opcode::JumpIfZero { cond, offset } => PackedOp { tag: tags::JUMP_IF_ZERO, r1: cond, r2: 0, r3: 0, imm: offset },
             Opcode::JumpIfNotZero { cond, offset } => PackedOp { tag: tags::JUMP_IF_NOT_ZERO, r1: cond, r2: 0, r3: 0, imm: offset },
             Opcode::ILtJump { a, b, offset } => PackedOp { tag: tags::ILT_JUMP, r1: a, r2: b, r3: 0, imm: offset },
+            Opcode::LoadSlot32 { dst, slot } => PackedOp { tag: tags::LOAD_SLOT32, r1: dst, r2: 0, r3: 0, imm: slot as i32 },
+            Opcode::StoreSlot32 { slot, src } => PackedOp { tag: tags::STORE_SLOT32, r1: src, r2: 0, r3: 0, imm: slot as i32 },
             Opcode::Call { func, args_start, arg_count } => PackedOp { tag: tags::CALL, r1: args_start, r2: arg_count, r3: 0, imm: func as i32 },
             Opcode::CallIndirect { func_reg, args_start, arg_count } => PackedOp { tag: tags::CALL_INDIRECT, r1: func_reg, r2: args_start, r3: arg_count, imm: 0 },
             Opcode::Return => PackedOp { tag: tags::RETURN, r1: 0, r2: 0, r3: 0, imm: 0 },
@@ -574,6 +579,14 @@ pub enum Opcode {
 
     /// Jump if a < b (signed): if !(a < b) jump
     ILtJump { a: Reg, b: Reg, offset: Offset },
+
+    // ============ Superinstructions: Fused Local Slot Access ============
+
+    /// Fused LocalAddr + Load32: load 32-bit value from local slot into register
+    LoadSlot32 { dst: Reg, slot: u16 },
+
+    /// Fused LocalAddr + Store32: store 32-bit value from register into local slot
+    StoreSlot32 { slot: u16, src: Reg },
 
     /// Call function by index, args in registers starting at `args_start`
     /// Result (if any) goes in register 0
@@ -1155,6 +1168,16 @@ impl VM {
                 tags::LOCAL_ADDR => {
                     let offset = self.locals_base + (op.imm as usize) * 8;
                     r_set!(op.r1, unsafe { self.locals.as_ptr().add(offset) } as u64);
+                }
+                tags::LOAD_SLOT32 => {
+                    let offset = self.locals_base + (op.imm as usize) * 8;
+                    let ptr = unsafe { self.locals.as_ptr().add(offset) };
+                    set_i64!(op.r1, unsafe { *(ptr as *const i32) } as i64);
+                }
+                tags::STORE_SLOT32 => {
+                    let offset = self.locals_base + (op.imm as usize) * 8;
+                    let ptr = unsafe { self.locals.as_mut_ptr().add(offset) };
+                    unsafe { *(ptr as *mut i32) = get_i64!(op.r1) as i32; }
                 }
 
                 tags::GLOBAL_ADDR => {

@@ -143,6 +143,11 @@ impl VMCodegen {
             }
         }
 
+        // Phase 2: Strip NOPs now that all patching is done.
+        for func in &mut self.program.functions {
+            crate::vm_optimize::compact(&mut func.code);
+        }
+
         Ok(std::mem::take(&mut self.program))
     }
 
@@ -153,6 +158,9 @@ impl VMCodegen {
 
         let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &mut self.lambda_counter, &self.globals);
         translator.translate(&mut func);
+
+        // Peephole optimize: eliminate redundant Move/LocalAddr instructions.
+        crate::vm_optimize::optimize(&mut func.code);
 
         let idx = self.program.add_function(func);
         self.func_indices.insert(decl.name, idx);
