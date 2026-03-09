@@ -1,0 +1,99 @@
+-- BYTECODE -- biquad.lua:8-25
+0001    UGET     3   0      ; pi
+0002    MULNV    3   3   0  ; 2
+0003    MULVV    3   3   0
+0004    DIVVV    3   3   1
+0005    UGET     4   1      ; sin
+0006    MOV      6   3
+0007    CALL     4   2   2
+0008    MULNV    5   2   0  ; 2
+0009    DIVVV    4   4   5
+0010    GGET     5   0      ; "math"
+0011    TGETS    5   5   1  ; "cos"
+0012    MOV      7   3
+0013    CALL     5   2   2
+0014    ADDNV    6   4   1  ; 1
+0015    DIVNV    7   6   1  ; 1
+0016    TDUP     8   2
+0017    SUBNV    9   5   1  ; 1
+0018    DIVVN    9   9   0  ; 2
+0019    MULVV    9   9   7
+0020    TSETS    9   8   3  ; "b0"
+0021    SUBNV    9   5   1  ; 1
+0022    MULVV    9   9   7
+0023    TSETS    9   8   4  ; "b1"
+0024    SUBNV    9   5   1  ; 1
+0025    DIVVN    9   9   0  ; 2
+0026    MULVV    9   9   7
+0027    TSETS    9   8   5  ; "b2"
+0028    MULNV    9   5   2  ; -2
+0029    MULVV    9   9   7
+0030    TSETS    9   8   6  ; "a1"
+0031    SUBNV    9   4   1  ; 1
+0032    MULVV    9   9   7
+0033    TSETS    9   8   7  ; "a2"
+0034    RET1     8   2
+
+-- BYTECODE -- biquad.lua:0-50
+0001    GGET     0   0      ; "math"
+0002    TGETS    0   0   1  ; "sin"
+0003    GGET     1   0      ; "math"
+0004    TGETS    1   1   2  ; "pi"
+0005    FNEW     2   3      ; biquad.lua:8
+0006    MOV      3   2
+0007    KSHORT   5 1000
+0008    KNUM     6   0      ; 44100
+0009    KNUM     7   1      ; 0.707
+0010    CALL     3   2   4
+0011    KNUM     4   2      ; 10000000
+0012    KSHORT   5   0
+0013    KNUM     6   3      ; 0.0099773242630385
+0014    KSHORT   7   0
+0015    MULNV    8   1   4  ; 2
+0016    KSHORT   9   1
+0017    MOV     10   4
+0018    KSHORT  11   1
+0019    FORI     9 => 0054
+0020 => MOV     13   0
+0021    MULVV   15   5   8
+0022    CALL    13   2   2
+0023    ADDVV    5   5   6
+0024    KSHORT  14   1
+0025    ISGE    14   5
+0026    JMP     14 => 0028
+0027    SUBVN    5   5   5  ; 1
+0028 => TGETS   14   3   4  ; "b0"
+0029    MULVV   14  14  13
+0030    TGETS   15   3   5  ; "b1"
+0031    TGETS   16   3   6  ; "x1"
+0032    MULVV   15  15  16
+0033    ADDVV   14  14  15
+0034    TGETS   15   3   7  ; "b2"
+0035    TGETS   16   3   8  ; "x2"
+0036    MULVV   15  15  16
+0037    ADDVV   14  14  15
+0038    TGETS   15   3   9  ; "a1"
+0039    TGETS   16   3  10  ; "y1"
+0040    MULVV   15  15  16
+0041    SUBVV   14  14  15
+0042    TGETS   15   3  11  ; "a2"
+0043    TGETS   16   3  12  ; "y2"
+0044    MULVV   15  15  16
+0045    SUBVV   14  14  15
+0046    TGETS   15   3   6  ; "x1"
+0047    TSETS   15   3   8  ; "x2"
+0048    TSETS   13   3   6  ; "x1"
+0049    TGETS   15   3  10  ; "y1"
+0050    TSETS   15   3  12  ; "y2"
+0051    TSETS   14   3  10  ; "y1"
+0052    MOV      7  14
+0053    FORL     9 => 0020
+0054 => GGET     9  13      ; "print"
+0055    MOV     11   4
+0056    KSTR    12  14      ; " samples processed"
+0057    CAT     11  11  12
+0058    CALL     9   1   2
+0059    UCLO     0 => 0060
+0060 => RET0     0   1
+
+10000000 samples processed
