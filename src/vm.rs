@@ -4,6 +4,309 @@
 use std::convert::TryInto;
 use std::fmt;
 
+// ============ Packed Bytecode Format ============
+//
+// Each instruction is 8 bytes: [tag:u8, r1:u8, r2:u8, r3:u8, imm:i32]
+// This is half the size of the Opcode enum (16 bytes), improving cache behavior.
+// The `tag` field is a raw u8 discriminant, dispatched via a match that LLVM
+// compiles to a jump table — the Rust equivalent of computed goto.
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct PackedOp {
+    tag: u8,
+    r1: u8,  // dst / first reg
+    r2: u8,  // src / second reg
+    r3: u8,  // third reg
+    imm: i32, // immediate: offset, f32 bits, constant index, or 4th reg in low byte
+}
+
+// Tag constants — one per opcode variant
+mod tags {
+    pub const NOP: u8 = 0;
+    pub const HALT: u8 = 1;
+    pub const MOVE: u8 = 2;
+    pub const LOAD_IMM: u8 = 3;
+    pub const LOAD_F32: u8 = 4;
+    pub const LOAD_F64: u8 = 5;
+    pub const LOAD_CONST: u8 = 6;
+    pub const IADD: u8 = 7;
+    pub const ISUB: u8 = 8;
+    pub const IMUL: u8 = 9;
+    pub const IDIV: u8 = 10;
+    pub const UDIV: u8 = 11;
+    pub const IREM: u8 = 12;
+    pub const IPOW: u8 = 13;
+    pub const INEG: u8 = 14;
+    pub const IADD_IMM: u8 = 15;
+    pub const FADD: u8 = 16;
+    pub const FSUB: u8 = 17;
+    pub const FMUL: u8 = 18;
+    pub const FDIV: u8 = 19;
+    pub const FNEG: u8 = 20;
+    pub const FPOW: u8 = 21;
+    pub const FMUL_ADD: u8 = 22;
+    pub const FMUL_SUB: u8 = 23;
+    pub const DADD: u8 = 24;
+    pub const DSUB: u8 = 25;
+    pub const DMUL: u8 = 26;
+    pub const DDIV: u8 = 27;
+    pub const DNEG: u8 = 28;
+    pub const DPOW: u8 = 29;
+    pub const DMUL_ADD: u8 = 30;
+    pub const DMUL_SUB: u8 = 31;
+    pub const AND: u8 = 32;
+    pub const OR: u8 = 33;
+    pub const XOR: u8 = 34;
+    pub const NOT: u8 = 35;
+    pub const SHL: u8 = 36;
+    pub const SHR: u8 = 37;
+    pub const USHR: u8 = 38;
+    pub const IEQ: u8 = 39;
+    pub const INE: u8 = 40;
+    pub const ILT: u8 = 41;
+    pub const ILE: u8 = 42;
+    pub const ULT: u8 = 43;
+    pub const FEQ: u8 = 44;
+    pub const FNE: u8 = 45;
+    pub const FLT: u8 = 46;
+    pub const FLE: u8 = 47;
+    pub const MEM_EQ: u8 = 48;
+    pub const MEM_NE: u8 = 49;
+    pub const DEQ: u8 = 50;
+    pub const DLT: u8 = 51;
+    pub const DLE: u8 = 52;
+    pub const I32_TO_F32: u8 = 53;
+    pub const F32_TO_I32: u8 = 54;
+    pub const I32_TO_F64: u8 = 55;
+    pub const F64_TO_I32: u8 = 56;
+    pub const F32_TO_F64: u8 = 57;
+    pub const F64_TO_F32: u8 = 58;
+    pub const LOAD8: u8 = 59;
+    pub const LOAD32: u8 = 60;
+    pub const LOAD64: u8 = 61;
+    pub const LOAD32_OFF: u8 = 62;
+    pub const LOAD64_OFF: u8 = 63;
+    pub const STORE8: u8 = 64;
+    pub const STORE32: u8 = 65;
+    pub const STORE64: u8 = 66;
+    pub const STORE8_OFF: u8 = 67;
+    pub const STORE32_OFF: u8 = 68;
+    pub const STORE64_OFF: u8 = 69;
+    pub const LOCAL_ADDR: u8 = 70;
+    pub const GLOBAL_ADDR: u8 = 71;
+    pub const JUMP: u8 = 72;
+    pub const JUMP_IF_ZERO: u8 = 73;
+    pub const JUMP_IF_NOT_ZERO: u8 = 74;
+    pub const ILT_JUMP: u8 = 75;
+    pub const CALL: u8 = 76;
+    pub const CALL_INDIRECT: u8 = 77;
+    pub const RETURN: u8 = 78;
+    pub const RETURN_REG: u8 = 79;
+    pub const ALLOC_LOCALS: u8 = 80;
+    pub const MEM_COPY: u8 = 81;
+    pub const MEM_ZERO: u8 = 82;
+    pub const SAVE_REGS: u8 = 83;
+    pub const RESTORE_REGS: u8 = 84;
+    pub const PRINT_I32: u8 = 85;
+    pub const PRINT_F32: u8 = 86;
+    pub const ASSERT: u8 = 87;
+    pub const PUTC: u8 = 88;
+    pub const SIN_F32: u8 = 89;
+    pub const COS_F32: u8 = 90;
+    pub const TAN_F32: u8 = 91;
+    pub const LN_F32: u8 = 92;
+    pub const EXP_F32: u8 = 93;
+    pub const SQRT_F32: u8 = 94;
+    pub const ABS_F32: u8 = 95;
+    pub const FLOOR_F32: u8 = 96;
+    pub const CEIL_F32: u8 = 97;
+    pub const SIN_F64: u8 = 98;
+    pub const COS_F64: u8 = 99;
+    pub const TAN_F64: u8 = 100;
+    pub const LN_F64: u8 = 101;
+    pub const EXP_F64: u8 = 102;
+    pub const SQRT_F64: u8 = 103;
+    pub const ABS_F64: u8 = 104;
+    pub const FLOOR_F64: u8 = 105;
+    pub const CEIL_F64: u8 = 106;
+    pub const POW_F32: u8 = 107;
+    pub const ATAN2_F32: u8 = 108;
+    pub const POW_F64: u8 = 109;
+    pub const ATAN2_F64: u8 = 110;
+    // For i64/f64 immediates that don't fit in 32 bits
+    pub const LOAD_IMM_WIDE: u8 = 111;
+    pub const LOAD_F64_WIDE: u8 = 112;
+}
+
+/// Linked program: all function code flattened into packed bytecode
+struct LinkedProgram {
+    ops: Vec<PackedOp>,
+    func_offsets: Vec<usize>,
+    func_locals: Vec<u32>,
+    /// Pool for i64 values that don't fit in 32-bit immediate
+    wide_i64: Vec<i64>,
+    /// Pool for f64 values
+    wide_f64: Vec<f64>,
+}
+
+impl LinkedProgram {
+    fn from_program(program: &VMProgram) -> Self {
+        let mut ops = Vec::new();
+        let mut func_offsets = Vec::with_capacity(program.functions.len());
+        let mut func_locals = Vec::with_capacity(program.functions.len());
+        let mut wide_i64 = Vec::new();
+        let mut wide_f64 = Vec::new();
+
+        for func in &program.functions {
+            func_offsets.push(ops.len());
+            func_locals.push(func.locals_size);
+
+            for op in &func.code {
+                ops.push(Self::pack_opcode(op, &mut wide_i64, &mut wide_f64));
+            }
+
+            // Insert implicit return if needed
+            match func.code.last() {
+                Some(Opcode::Return) | Some(Opcode::ReturnReg { .. }) | Some(Opcode::Halt) => {}
+                _ => ops.push(PackedOp { tag: tags::RETURN, r1: 0, r2: 0, r3: 0, imm: 0 }),
+            }
+        }
+
+        LinkedProgram { ops, func_offsets, func_locals, wide_i64, wide_f64 }
+    }
+
+    fn pack_opcode(op: &Opcode, wide_i64: &mut Vec<i64>, wide_f64: &mut Vec<f64>) -> PackedOp {
+        match *op {
+            Opcode::Nop => PackedOp { tag: tags::NOP, r1: 0, r2: 0, r3: 0, imm: 0 },
+            Opcode::Halt => PackedOp { tag: tags::HALT, r1: 0, r2: 0, r3: 0, imm: 0 },
+            Opcode::Move { dst, src } => PackedOp { tag: tags::MOVE, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::LoadImm { dst, value } => {
+                if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
+                    PackedOp { tag: tags::LOAD_IMM, r1: dst, r2: 0, r3: 0, imm: value as i32 }
+                } else {
+                    let idx = wide_i64.len();
+                    wide_i64.push(value);
+                    PackedOp { tag: tags::LOAD_IMM_WIDE, r1: dst, r2: 0, r3: 0, imm: idx as i32 }
+                }
+            }
+            Opcode::LoadF32 { dst, value } => {
+                PackedOp { tag: tags::LOAD_F32, r1: dst, r2: 0, r3: 0, imm: value.to_bits() as i32 }
+            }
+            Opcode::LoadF64 { dst, value } => {
+                let idx = wide_f64.len();
+                wide_f64.push(value);
+                PackedOp { tag: tags::LOAD_F64_WIDE, r1: dst, r2: 0, r3: 0, imm: idx as i32 }
+            }
+            Opcode::LoadConst { dst, idx } => PackedOp { tag: tags::LOAD_CONST, r1: dst, r2: 0, r3: 0, imm: idx as i32 },
+            Opcode::IAdd { dst, a, b } => PackedOp { tag: tags::IADD, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::ISub { dst, a, b } => PackedOp { tag: tags::ISUB, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::IMul { dst, a, b } => PackedOp { tag: tags::IMUL, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::IDiv { dst, a, b } => PackedOp { tag: tags::IDIV, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::UDiv { dst, a, b } => PackedOp { tag: tags::UDIV, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::IRem { dst, a, b } => PackedOp { tag: tags::IREM, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::IPow { dst, a, b } => PackedOp { tag: tags::IPOW, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::INeg { dst, src } => PackedOp { tag: tags::INEG, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::IAddImm { dst, src, imm } => PackedOp { tag: tags::IADD_IMM, r1: dst, r2: src, r3: 0, imm },
+            Opcode::FAdd { dst, a, b } => PackedOp { tag: tags::FADD, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FSub { dst, a, b } => PackedOp { tag: tags::FSUB, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FMul { dst, a, b } => PackedOp { tag: tags::FMUL, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FDiv { dst, a, b } => PackedOp { tag: tags::FDIV, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FNeg { dst, src } => PackedOp { tag: tags::FNEG, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::FPow { dst, a, b } => PackedOp { tag: tags::FPOW, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FMulAdd { dst, a, b, c } => PackedOp { tag: tags::FMUL_ADD, r1: dst, r2: a, r3: b, imm: c as i32 },
+            Opcode::FMulSub { dst, a, b, c } => PackedOp { tag: tags::FMUL_SUB, r1: dst, r2: a, r3: b, imm: c as i32 },
+            Opcode::DAdd { dst, a, b } => PackedOp { tag: tags::DADD, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DSub { dst, a, b } => PackedOp { tag: tags::DSUB, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DMul { dst, a, b } => PackedOp { tag: tags::DMUL, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DDiv { dst, a, b } => PackedOp { tag: tags::DDIV, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DNeg { dst, src } => PackedOp { tag: tags::DNEG, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::DPow { dst, a, b } => PackedOp { tag: tags::DPOW, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DMulAdd { dst, a, b, c } => PackedOp { tag: tags::DMUL_ADD, r1: dst, r2: a, r3: b, imm: c as i32 },
+            Opcode::DMulSub { dst, a, b, c } => PackedOp { tag: tags::DMUL_SUB, r1: dst, r2: a, r3: b, imm: c as i32 },
+            Opcode::And { dst, a, b } => PackedOp { tag: tags::AND, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::Or { dst, a, b } => PackedOp { tag: tags::OR, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::Xor { dst, a, b } => PackedOp { tag: tags::XOR, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::Not { dst, src } => PackedOp { tag: tags::NOT, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::Shl { dst, a, b } => PackedOp { tag: tags::SHL, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::Shr { dst, a, b } => PackedOp { tag: tags::SHR, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::UShr { dst, a, b } => PackedOp { tag: tags::USHR, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::IEq { dst, a, b } => PackedOp { tag: tags::IEQ, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::INe { dst, a, b } => PackedOp { tag: tags::INE, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::ILt { dst, a, b } => PackedOp { tag: tags::ILT, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::ILe { dst, a, b } => PackedOp { tag: tags::ILE, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::ULt { dst, a, b } => PackedOp { tag: tags::ULT, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FEq { dst, a, b } => PackedOp { tag: tags::FEQ, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FNe { dst, a, b } => PackedOp { tag: tags::FNE, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FLt { dst, a, b } => PackedOp { tag: tags::FLT, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::FLe { dst, a, b } => PackedOp { tag: tags::FLE, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::MemEq { dst, a, b, size } => PackedOp { tag: tags::MEM_EQ, r1: dst, r2: a, r3: b, imm: size as i32 },
+            Opcode::MemNe { dst, a, b, size } => PackedOp { tag: tags::MEM_NE, r1: dst, r2: a, r3: b, imm: size as i32 },
+            Opcode::DEq { dst, a, b } => PackedOp { tag: tags::DEQ, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DLt { dst, a, b } => PackedOp { tag: tags::DLT, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::DLe { dst, a, b } => PackedOp { tag: tags::DLE, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::I32ToF32 { dst, src } => PackedOp { tag: tags::I32_TO_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::F32ToI32 { dst, src } => PackedOp { tag: tags::F32_TO_I32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::I32ToF64 { dst, src } => PackedOp { tag: tags::I32_TO_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::F64ToI32 { dst, src } => PackedOp { tag: tags::F64_TO_I32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::F32ToF64 { dst, src } => PackedOp { tag: tags::F32_TO_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::F64ToF32 { dst, src } => PackedOp { tag: tags::F64_TO_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::Load8 { dst, addr } => PackedOp { tag: tags::LOAD8, r1: dst, r2: addr, r3: 0, imm: 0 },
+            Opcode::Load32 { dst, addr } => PackedOp { tag: tags::LOAD32, r1: dst, r2: addr, r3: 0, imm: 0 },
+            Opcode::Load64 { dst, addr } => PackedOp { tag: tags::LOAD64, r1: dst, r2: addr, r3: 0, imm: 0 },
+            Opcode::Load32Off { dst, base, offset } => PackedOp { tag: tags::LOAD32_OFF, r1: dst, r2: base, r3: 0, imm: offset },
+            Opcode::Load64Off { dst, base, offset } => PackedOp { tag: tags::LOAD64_OFF, r1: dst, r2: base, r3: 0, imm: offset },
+            Opcode::Store8 { addr, src } => PackedOp { tag: tags::STORE8, r1: addr, r2: src, r3: 0, imm: 0 },
+            Opcode::Store32 { addr, src } => PackedOp { tag: tags::STORE32, r1: addr, r2: src, r3: 0, imm: 0 },
+            Opcode::Store64 { addr, src } => PackedOp { tag: tags::STORE64, r1: addr, r2: src, r3: 0, imm: 0 },
+            Opcode::Store8Off { base, offset, src } => PackedOp { tag: tags::STORE8_OFF, r1: base, r2: src, r3: 0, imm: offset },
+            Opcode::Store32Off { base, offset, src } => PackedOp { tag: tags::STORE32_OFF, r1: base, r2: src, r3: 0, imm: offset },
+            Opcode::Store64Off { base, offset, src } => PackedOp { tag: tags::STORE64_OFF, r1: base, r2: src, r3: 0, imm: offset },
+            Opcode::LocalAddr { dst, slot } => PackedOp { tag: tags::LOCAL_ADDR, r1: dst, r2: 0, r3: 0, imm: slot as i32 },
+            Opcode::GlobalAddr { dst, offset } => PackedOp { tag: tags::GLOBAL_ADDR, r1: dst, r2: 0, r3: 0, imm: offset },
+            Opcode::Jump { offset } => PackedOp { tag: tags::JUMP, r1: 0, r2: 0, r3: 0, imm: offset },
+            Opcode::JumpIfZero { cond, offset } => PackedOp { tag: tags::JUMP_IF_ZERO, r1: cond, r2: 0, r3: 0, imm: offset },
+            Opcode::JumpIfNotZero { cond, offset } => PackedOp { tag: tags::JUMP_IF_NOT_ZERO, r1: cond, r2: 0, r3: 0, imm: offset },
+            Opcode::ILtJump { a, b, offset } => PackedOp { tag: tags::ILT_JUMP, r1: a, r2: b, r3: 0, imm: offset },
+            Opcode::Call { func, args_start, arg_count } => PackedOp { tag: tags::CALL, r1: args_start, r2: arg_count, r3: 0, imm: func as i32 },
+            Opcode::CallIndirect { func_reg, args_start, arg_count } => PackedOp { tag: tags::CALL_INDIRECT, r1: func_reg, r2: args_start, r3: arg_count, imm: 0 },
+            Opcode::Return => PackedOp { tag: tags::RETURN, r1: 0, r2: 0, r3: 0, imm: 0 },
+            Opcode::ReturnReg { src } => PackedOp { tag: tags::RETURN_REG, r1: src, r2: 0, r3: 0, imm: 0 },
+            Opcode::AllocLocals { size } => PackedOp { tag: tags::ALLOC_LOCALS, r1: 0, r2: 0, r3: 0, imm: size as i32 },
+            Opcode::MemCopy { dst, src, size } => PackedOp { tag: tags::MEM_COPY, r1: dst, r2: src, r3: 0, imm: size as i32 },
+            Opcode::MemZero { dst, size } => PackedOp { tag: tags::MEM_ZERO, r1: dst, r2: 0, r3: 0, imm: size as i32 },
+            Opcode::SaveRegs { start_reg, count, slot } => PackedOp { tag: tags::SAVE_REGS, r1: start_reg, r2: count, r3: 0, imm: slot as i32 },
+            Opcode::RestoreRegs { start_reg, count, slot } => PackedOp { tag: tags::RESTORE_REGS, r1: start_reg, r2: count, r3: 0, imm: slot as i32 },
+            Opcode::PrintI32 { src } => PackedOp { tag: tags::PRINT_I32, r1: src, r2: 0, r3: 0, imm: 0 },
+            Opcode::PrintF32 { src } => PackedOp { tag: tags::PRINT_F32, r1: src, r2: 0, r3: 0, imm: 0 },
+            Opcode::Assert { src } => PackedOp { tag: tags::ASSERT, r1: src, r2: 0, r3: 0, imm: 0 },
+            Opcode::Putc { src } => PackedOp { tag: tags::PUTC, r1: src, r2: 0, r3: 0, imm: 0 },
+            Opcode::SinF32 { dst, src } => PackedOp { tag: tags::SIN_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::CosF32 { dst, src } => PackedOp { tag: tags::COS_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::TanF32 { dst, src } => PackedOp { tag: tags::TAN_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::LnF32 { dst, src } => PackedOp { tag: tags::LN_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::ExpF32 { dst, src } => PackedOp { tag: tags::EXP_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::SqrtF32 { dst, src } => PackedOp { tag: tags::SQRT_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::AbsF32 { dst, src } => PackedOp { tag: tags::ABS_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::FloorF32 { dst, src } => PackedOp { tag: tags::FLOOR_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::CeilF32 { dst, src } => PackedOp { tag: tags::CEIL_F32, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::SinF64 { dst, src } => PackedOp { tag: tags::SIN_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::CosF64 { dst, src } => PackedOp { tag: tags::COS_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::TanF64 { dst, src } => PackedOp { tag: tags::TAN_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::LnF64 { dst, src } => PackedOp { tag: tags::LN_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::ExpF64 { dst, src } => PackedOp { tag: tags::EXP_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::SqrtF64 { dst, src } => PackedOp { tag: tags::SQRT_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::AbsF64 { dst, src } => PackedOp { tag: tags::ABS_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::FloorF64 { dst, src } => PackedOp { tag: tags::FLOOR_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::CeilF64 { dst, src } => PackedOp { tag: tags::CEIL_F64, r1: dst, r2: src, r3: 0, imm: 0 },
+            Opcode::PowF32 { dst, a, b } => PackedOp { tag: tags::POW_F32, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::Atan2F32 { dst, a, b } => PackedOp { tag: tags::ATAN2_F32, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::PowF64 { dst, a, b } => PackedOp { tag: tags::POW_F64, r1: dst, r2: a, r3: b, imm: 0 },
+            Opcode::Atan2F64 { dst, a, b } => PackedOp { tag: tags::ATAN2_F64, r1: dst, r2: a, r3: b, imm: 0 },
+        }
+    }
+}
+
 /// Register index (0-255)
 pub type Reg = u8;
 
@@ -22,6 +325,7 @@ pub type ConstIdx = u32;
 /// Memory operations handle different sizes based on type info
 /// stored separately (not in the instruction stream).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u8)]
 pub enum Opcode {
     /// No operation
     Nop,
@@ -615,440 +919,292 @@ impl VM {
 
     /// Run the program and return the result
     pub fn run(&mut self, program: &VMProgram) -> i64 {
+        // === Link phase: pack all function code into flat bytecode ===
+        let linked = LinkedProgram::from_program(program);
+
+        // === Initialize VM state ===
         self.current_func = program.entry;
-        self.ip = 0;
+        self.ip = linked.func_offsets[program.entry as usize];
         self.locals_base = 0;
-        self.debug_func_name = program.functions[program.entry as usize].name.clone();
-
-        // Clear registers
         self.registers = [0; 256];
-
-        // Allocate zero-initialized global memory
         self.globals = vec![0u8; program.globals_size];
         self.cancelled = false;
 
+        #[cfg(debug_assertions)]
+        { self.debug_func_name = program.functions[program.entry as usize].name.clone(); }
+
+        // === Dispatch loop: match on raw u8 tag → LLVM compiles to jump table ===
+        // PackedOp is 8 bytes (vs 16 for Opcode enum), halving cache footprint.
+        // Raw pointer access to registers avoids &mut self borrow conflicts.
+        let ops = linked.ops.as_ptr();
+        let regs = self.registers.as_mut_ptr();
+
         loop {
-            let func = &program.functions[self.current_func as usize];
-
-            if self.ip >= func.code.len() {
-                // End of function without return
-                if self.call_stack.is_empty() {
-                    return self.get_i64(0);
-                }
-                // Implicit return
-                let frame = self.call_stack.pop().unwrap();
-                self.current_func = frame.func_idx;
-                self.ip = frame.ip;
-                self.locals_base = frame.locals_base;
-                continue;
-            }
-
-            let op = func.code[self.ip];
+            let op = unsafe { *ops.add(self.ip) };
             self.ip += 1;
 
-            match op {
-                Opcode::Nop => {}
+            macro_rules! r {
+                ($idx:expr) => { unsafe { *regs.add($idx as usize) } }
+            }
+            macro_rules! r_set {
+                ($idx:expr, $val:expr) => { unsafe { *regs.add($idx as usize) = $val } }
+            }
+            macro_rules! r_f32 {
+                ($idx:expr) => { f32::from_bits(r!($idx) as u32) }
+            }
+            macro_rules! r_f64 {
+                ($idx:expr) => { f64::from_bits(r!($idx)) }
+            }
+            macro_rules! set_f32 {
+                ($idx:expr, $val:expr) => { r_set!($idx, ($val).to_bits() as u64) }
+            }
+            macro_rules! set_f64 {
+                ($idx:expr, $val:expr) => { r_set!($idx, ($val).to_bits()) }
+            }
+            macro_rules! set_i64 {
+                ($idx:expr, $val:expr) => { r_set!($idx, ($val) as u64) }
+            }
+            macro_rules! get_i64 {
+                ($idx:expr) => { r!($idx) as i64 }
+            }
 
-                Opcode::Halt => {
-                    return self.get_i64(0);
+            match op.tag {
+                tags::NOP => {}
+
+                tags::HALT => {
+                    return get_i64!(0u8);
                 }
 
-                // Register operations
-                Opcode::Move { dst, src } => {
-                    self.registers[dst as usize] = self.registers[src as usize];
+                tags::MOVE => {
+                    r_set!(op.r1, r!(op.r2));
                 }
 
-                Opcode::LoadImm { dst, value } => {
-                    self.set_i64(dst, value);
+                tags::LOAD_IMM => {
+                    set_i64!(op.r1, op.imm as i64);
                 }
 
-                Opcode::LoadF32 { dst, value } => {
-                    self.set_f32(dst, value);
+                tags::LOAD_IMM_WIDE => {
+                    set_i64!(op.r1, linked.wide_i64[op.imm as usize]);
                 }
 
-                Opcode::LoadF64 { dst, value } => {
-                    self.set_f64(dst, value);
+                tags::LOAD_F32 => {
+                    r_set!(op.r1, f32::from_bits(op.imm as u32).to_bits() as u64);
                 }
 
-                Opcode::LoadConst { dst, idx } => {
-                    self.set_u64(dst, program.constants[idx as usize]);
+                tags::LOAD_F64_WIDE => {
+                    set_f64!(op.r1, linked.wide_f64[op.imm as usize]);
+                }
+
+                tags::LOAD_CONST => {
+                    r_set!(op.r1, program.constants[op.imm as usize]);
                 }
 
                 // Integer arithmetic
-                Opcode::IAdd { dst, a, b } => {
-                    let result = self.get_i64(a).wrapping_add(self.get_i64(b));
-                    self.set_i64(dst, result);
+                tags::IADD => { set_i64!(op.r1, get_i64!(op.r2).wrapping_add(get_i64!(op.r3))); }
+                tags::ISUB => { set_i64!(op.r1, get_i64!(op.r2).wrapping_sub(get_i64!(op.r3))); }
+                tags::IMUL => { set_i64!(op.r1, get_i64!(op.r2).wrapping_mul(get_i64!(op.r3))); }
+                tags::IDIV => {
+                    let b = get_i64!(op.r3);
+                    if b == 0 { panic!("Division by zero"); }
+                    set_i64!(op.r1, get_i64!(op.r2) / b);
                 }
-
-                Opcode::ISub { dst, a, b } => {
-                    let result = self.get_i64(a).wrapping_sub(self.get_i64(b));
-                    self.set_i64(dst, result);
+                tags::UDIV => {
+                    let b = r!(op.r3);
+                    if b == 0 { panic!("Division by zero"); }
+                    r_set!(op.r1, r!(op.r2) / b);
                 }
-
-                Opcode::IMul { dst, a, b } => {
-                    let result = self.get_i64(a).wrapping_mul(self.get_i64(b));
-                    self.set_i64(dst, result);
+                tags::IREM => {
+                    let b = get_i64!(op.r3);
+                    if b == 0 { panic!("Division by zero"); }
+                    set_i64!(op.r1, get_i64!(op.r2) % b);
                 }
-
-                Opcode::IDiv { dst, a, b } => {
-                    let b_val = self.get_i64(b);
-                    if b_val == 0 {
-                        panic!("Division by zero");
-                    }
-                    self.set_i64(dst, self.get_i64(a) / b_val);
+                tags::IPOW => {
+                    set_i64!(op.r1, get_i64!(op.r2).wrapping_pow(get_i64!(op.r3) as u32));
                 }
-
-                Opcode::UDiv { dst, a, b } => {
-                    let b_val = self.get_u64(b);
-                    if b_val == 0 {
-                        panic!("Division by zero");
-                    }
-                    self.set_u64(dst, self.get_u64(a) / b_val);
-                }
-
-                Opcode::IRem { dst, a, b } => {
-                    let b_val = self.get_i64(b);
-                    if b_val == 0 {
-                        panic!("Division by zero");
-                    }
-                    self.set_i64(dst, self.get_i64(a) % b_val);
-                }
-
-                Opcode::IPow { dst, a, b } => {
-                    let base = self.get_i64(a);
-                    let exp = self.get_i64(b) as u32;
-                    self.set_i64(dst, base.wrapping_pow(exp));
-                }
-
-                Opcode::INeg { dst, src } => {
-                    self.set_i64(dst, -self.get_i64(src));
-                }
-
-                Opcode::IAddImm { dst, src, imm } => {
-                    self.set_i64(dst, self.get_i64(src).wrapping_add(imm as i64));
-                }
+                tags::INEG => { set_i64!(op.r1, -get_i64!(op.r2)); }
+                tags::IADD_IMM => { set_i64!(op.r1, get_i64!(op.r2).wrapping_add(op.imm as i64)); }
 
                 // Float32 arithmetic
-                Opcode::FAdd { dst, a, b } => {
-                    self.set_f32(dst, self.get_f32(a) + self.get_f32(b));
-                }
-
-                Opcode::FSub { dst, a, b } => {
-                    self.set_f32(dst, self.get_f32(a) - self.get_f32(b));
-                }
-
-                Opcode::FMul { dst, a, b } => {
-                    self.set_f32(dst, self.get_f32(a) * self.get_f32(b));
-                }
-
-                Opcode::FDiv { dst, a, b } => {
-                    self.set_f32(dst, self.get_f32(a) / self.get_f32(b));
-                }
-
-                Opcode::FNeg { dst, src } => {
-                    self.set_f32(dst, -self.get_f32(src));
-                }
-
-                Opcode::FPow { dst, a, b } => {
-                    self.set_f32(dst, self.get_f32(a).powf(self.get_f32(b)));
-                }
-
-                Opcode::FMulAdd { dst, a, b, c } => {
-                    self.set_f32(dst, self.get_f32(a).mul_add(self.get_f32(b), self.get_f32(c)));
-                }
-
-                Opcode::FMulSub { dst, a, b, c } => {
-                    self.set_f32(dst, self.get_f32(a).mul_add(self.get_f32(b), -self.get_f32(c)));
-                }
+                tags::FADD => { set_f32!(op.r1, r_f32!(op.r2) + r_f32!(op.r3)); }
+                tags::FSUB => { set_f32!(op.r1, r_f32!(op.r2) - r_f32!(op.r3)); }
+                tags::FMUL => { set_f32!(op.r1, r_f32!(op.r2) * r_f32!(op.r3)); }
+                tags::FDIV => { set_f32!(op.r1, r_f32!(op.r2) / r_f32!(op.r3)); }
+                tags::FNEG => { set_f32!(op.r1, -r_f32!(op.r2)); }
+                tags::FPOW => { set_f32!(op.r1, r_f32!(op.r2).powf(r_f32!(op.r3))); }
+                tags::FMUL_ADD => { set_f32!(op.r1, r_f32!(op.r2).mul_add(r_f32!(op.r3), r_f32!(op.imm as u8))); }
+                tags::FMUL_SUB => { set_f32!(op.r1, r_f32!(op.r2) * r_f32!(op.r3) - r_f32!(op.imm as u8)); }
 
                 // Float64 arithmetic
-                Opcode::DAdd { dst, a, b } => {
-                    self.set_f64(dst, self.get_f64(a) + self.get_f64(b));
-                }
+                tags::DADD => { set_f64!(op.r1, r_f64!(op.r2) + r_f64!(op.r3)); }
+                tags::DSUB => { set_f64!(op.r1, r_f64!(op.r2) - r_f64!(op.r3)); }
+                tags::DMUL => { set_f64!(op.r1, r_f64!(op.r2) * r_f64!(op.r3)); }
+                tags::DDIV => { set_f64!(op.r1, r_f64!(op.r2) / r_f64!(op.r3)); }
+                tags::DNEG => { set_f64!(op.r1, -r_f64!(op.r2)); }
+                tags::DPOW => { set_f64!(op.r1, r_f64!(op.r2).powf(r_f64!(op.r3))); }
+                tags::DMUL_ADD => { set_f64!(op.r1, r_f64!(op.r2).mul_add(r_f64!(op.r3), r_f64!(op.imm as u8))); }
+                tags::DMUL_SUB => { set_f64!(op.r1, r_f64!(op.r2) * r_f64!(op.r3) - r_f64!(op.imm as u8)); }
 
-                Opcode::DSub { dst, a, b } => {
-                    self.set_f64(dst, self.get_f64(a) - self.get_f64(b));
-                }
+                // Bitwise
+                tags::AND => { r_set!(op.r1, r!(op.r2) & r!(op.r3)); }
+                tags::OR => { r_set!(op.r1, r!(op.r2) | r!(op.r3)); }
+                tags::XOR => { r_set!(op.r1, r!(op.r2) ^ r!(op.r3)); }
+                tags::NOT => { r_set!(op.r1, !r!(op.r2)); }
+                tags::SHL => { r_set!(op.r1, r!(op.r2) << (r!(op.r3) & 63)); }
+                tags::SHR => { set_i64!(op.r1, get_i64!(op.r2) >> (r!(op.r3) & 63)); }
+                tags::USHR => { r_set!(op.r1, r!(op.r2) >> (r!(op.r3) & 63)); }
 
-                Opcode::DMul { dst, a, b } => {
-                    self.set_f64(dst, self.get_f64(a) * self.get_f64(b));
-                }
+                // Comparisons
+                tags::IEQ => { r_set!(op.r1, (get_i64!(op.r2) == get_i64!(op.r3)) as u64); }
+                tags::INE => { r_set!(op.r1, (get_i64!(op.r2) != get_i64!(op.r3)) as u64); }
+                tags::ILT => { r_set!(op.r1, (get_i64!(op.r2) < get_i64!(op.r3)) as u64); }
+                tags::ILE => { r_set!(op.r1, (get_i64!(op.r2) <= get_i64!(op.r3)) as u64); }
+                tags::ULT => { r_set!(op.r1, (r!(op.r2) < r!(op.r3)) as u64); }
+                tags::FEQ => { r_set!(op.r1, (r_f32!(op.r2) == r_f32!(op.r3)) as u64); }
+                tags::FNE => { r_set!(op.r1, (r_f32!(op.r2) != r_f32!(op.r3)) as u64); }
+                tags::FLT => { r_set!(op.r1, (r_f32!(op.r2) < r_f32!(op.r3)) as u64); }
+                tags::FLE => { r_set!(op.r1, (r_f32!(op.r2) <= r_f32!(op.r3)) as u64); }
+                tags::DEQ => { r_set!(op.r1, (r_f64!(op.r2) == r_f64!(op.r3)) as u64); }
+                tags::DLT => { r_set!(op.r1, (r_f64!(op.r2) < r_f64!(op.r3)) as u64); }
+                tags::DLE => { r_set!(op.r1, (r_f64!(op.r2) <= r_f64!(op.r3)) as u64); }
 
-                Opcode::DDiv { dst, a, b } => {
-                    self.set_f64(dst, self.get_f64(a) / self.get_f64(b));
-                }
-
-                Opcode::DNeg { dst, src } => {
-                    self.set_f64(dst, -self.get_f64(src));
-                }
-
-                Opcode::DPow { dst, a, b } => {
-                    self.set_f64(dst, self.get_f64(a).powf(self.get_f64(b)));
-                }
-
-                Opcode::DMulAdd { dst, a, b, c } => {
-                    self.set_f64(dst, self.get_f64(a).mul_add(self.get_f64(b), self.get_f64(c)));
-                }
-
-                Opcode::DMulSub { dst, a, b, c } => {
-                    self.set_f64(dst, self.get_f64(a).mul_add(self.get_f64(b), -self.get_f64(c)));
-                }
-
-                // Bitwise operations
-                Opcode::And { dst, a, b } => {
-                    self.set_u64(dst, self.get_u64(a) & self.get_u64(b));
-                }
-
-                Opcode::Or { dst, a, b } => {
-                    self.set_u64(dst, self.get_u64(a) | self.get_u64(b));
-                }
-
-                Opcode::Xor { dst, a, b } => {
-                    self.set_u64(dst, self.get_u64(a) ^ self.get_u64(b));
-                }
-
-                Opcode::Not { dst, src } => {
-                    self.set_u64(dst, !self.get_u64(src));
-                }
-
-                Opcode::Shl { dst, a, b } => {
-                    let shift = (self.get_u64(b) & 63) as u32;
-                    self.set_u64(dst, self.get_u64(a) << shift);
-                }
-
-                Opcode::Shr { dst, a, b } => {
-                    let shift = (self.get_u64(b) & 63) as u32;
-                    self.set_i64(dst, self.get_i64(a) >> shift);
-                }
-
-                Opcode::UShr { dst, a, b } => {
-                    let shift = (self.get_u64(b) & 63) as u32;
-                    self.set_u64(dst, self.get_u64(a) >> shift);
-                }
-
-                // Integer comparisons
-                Opcode::IEq { dst, a, b } => {
-                    self.set_bool(dst, self.get_i64(a) == self.get_i64(b));
-                }
-
-                Opcode::INe { dst, a, b } => {
-                    self.set_bool(dst, self.get_i64(a) != self.get_i64(b));
-                }
-
-                Opcode::ILt { dst, a, b } => {
-                    self.set_bool(dst, self.get_i64(a) < self.get_i64(b));
-                }
-
-                Opcode::ILe { dst, a, b } => {
-                    self.set_bool(dst, self.get_i64(a) <= self.get_i64(b));
-                }
-
-                Opcode::ULt { dst, a, b } => {
-                    self.set_bool(dst, self.get_u64(a) < self.get_u64(b));
-                }
-
-                // Float32 comparisons
-                Opcode::FEq { dst, a, b } => {
-                    self.set_bool(dst, self.get_f32(a) == self.get_f32(b));
-                }
-
-                Opcode::FNe { dst, a, b } => {
-                    self.set_bool(dst, self.get_f32(a) != self.get_f32(b));
-                }
-
-                Opcode::FLt { dst, a, b } => {
-                    self.set_bool(dst, self.get_f32(a) < self.get_f32(b));
-                }
-
-                Opcode::FLe { dst, a, b } => {
-                    self.set_bool(dst, self.get_f32(a) <= self.get_f32(b));
-                }
-
-                // Memory comparisons (for structs, tuples, arrays)
-                Opcode::MemEq { dst, a, b, size } => {
-                    let pa = self.get_u64(a);
-                    let pb = self.get_u64(b);
-                    self.check_ptr(pa, size as usize);
-                    self.check_ptr(pb, size as usize);
+                tags::MEM_EQ => {
+                    let pa = r!(op.r2) as *const u8;
+                    let pb = r!(op.r3) as *const u8;
                     let eq = unsafe {
-                        std::slice::from_raw_parts(pa as *const u8, size as usize)
-                            == std::slice::from_raw_parts(pb as *const u8, size as usize)
+                        std::slice::from_raw_parts(pa, op.imm as usize)
+                            == std::slice::from_raw_parts(pb, op.imm as usize)
                     };
-                    self.set_bool(dst, eq);
+                    r_set!(op.r1, eq as u64);
                 }
 
-                Opcode::MemNe { dst, a, b, size } => {
-                    let pa = self.get_u64(a);
-                    let pb = self.get_u64(b);
-                    self.check_ptr(pa, size as usize);
-                    self.check_ptr(pb, size as usize);
+                tags::MEM_NE => {
+                    let pa = r!(op.r2) as *const u8;
+                    let pb = r!(op.r3) as *const u8;
                     let ne = unsafe {
-                        std::slice::from_raw_parts(pa as *const u8, size as usize)
-                            != std::slice::from_raw_parts(pb as *const u8, size as usize)
+                        std::slice::from_raw_parts(pa, op.imm as usize)
+                            != std::slice::from_raw_parts(pb, op.imm as usize)
                     };
-                    self.set_bool(dst, ne);
-                }
-
-                // Float64 comparisons
-                Opcode::DEq { dst, a, b } => {
-                    self.set_bool(dst, self.get_f64(a) == self.get_f64(b));
-                }
-
-                Opcode::DLt { dst, a, b } => {
-                    self.set_bool(dst, self.get_f64(a) < self.get_f64(b));
-                }
-
-                Opcode::DLe { dst, a, b } => {
-                    self.set_bool(dst, self.get_f64(a) <= self.get_f64(b));
+                    r_set!(op.r1, ne as u64);
                 }
 
                 // Type conversions
-                Opcode::I32ToF32 { dst, src } => {
-                    self.set_f32(dst, (self.get_i64(src) as i32) as f32);
-                }
-
-                Opcode::F32ToI32 { dst, src } => {
-                    self.set_i64(dst, self.get_f32(src) as i32 as i64);
-                }
-
-                Opcode::I32ToF64 { dst, src } => {
-                    self.set_f64(dst, (self.get_i64(src) as i32) as f64);
-                }
-
-                Opcode::F64ToI32 { dst, src } => {
-                    self.set_i64(dst, self.get_f64(src) as i32 as i64);
-                }
-
-                Opcode::F32ToF64 { dst, src } => {
-                    self.set_f64(dst, self.get_f32(src) as f64);
-                }
-
-                Opcode::F64ToF32 { dst, src } => {
-                    self.set_f32(dst, self.get_f64(src) as f32);
-                }
+                tags::I32_TO_F32 => { set_f32!(op.r1, (get_i64!(op.r2) as i32) as f32); }
+                tags::F32_TO_I32 => { set_i64!(op.r1, r_f32!(op.r2) as i32 as i64); }
+                tags::I32_TO_F64 => { set_f64!(op.r1, (get_i64!(op.r2) as i32) as f64); }
+                tags::F64_TO_I32 => { set_i64!(op.r1, r_f64!(op.r2) as i32 as i64); }
+                tags::F32_TO_F64 => { set_f64!(op.r1, r_f32!(op.r2) as f64); }
+                tags::F64_TO_F32 => { set_f32!(op.r1, r_f64!(op.r2) as f32); }
 
                 // Memory operations
-                Opcode::Load8 { dst, addr } => {
-                    let ptr = self.get_u64(addr);
+                tags::LOAD8 => {
+                    let ptr = r!(op.r2);
                     self.check_ptr(ptr, 1);
-                    unsafe { self.set_i64(dst, *(ptr as *const u8) as i64); }
+                    set_i64!(op.r1, unsafe { *(ptr as *const u8) } as i64);
                 }
-
-                Opcode::Load32 { dst, addr } => {
-                    let ptr = self.get_u64(addr);
+                tags::LOAD32 => {
+                    let ptr = r!(op.r2);
                     self.check_ptr(ptr, 4);
-                    unsafe { self.set_i64(dst, *(ptr as *const i32) as i64); }
+                    set_i64!(op.r1, unsafe { *(ptr as *const i32) } as i64);
                 }
-
-                Opcode::Load64 { dst, addr } => {
-                    let ptr = self.get_u64(addr);
+                tags::LOAD64 => {
+                    let ptr = r!(op.r2);
                     self.check_ptr(ptr, 8);
-                    unsafe { self.set_i64(dst, *(ptr as *const i64)); }
+                    set_i64!(op.r1, unsafe { *(ptr as *const i64) });
                 }
-
-                Opcode::Load32Off { dst, base, offset } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                tags::LOAD32_OFF => {
+                    let ptr = (r!(op.r2) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 4);
-                    unsafe { self.set_i64(dst, *(ptr as *const i32) as i64); }
+                    set_i64!(op.r1, unsafe { *(ptr as *const i32) } as i64);
                 }
-
-                Opcode::Load64Off { dst, base, offset } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                tags::LOAD64_OFF => {
+                    let ptr = (r!(op.r2) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 8);
-                    unsafe { self.set_i64(dst, *(ptr as *const i64)); }
+                    set_i64!(op.r1, unsafe { *(ptr as *const i64) });
                 }
-
-                Opcode::Store8 { addr, src } => {
-                    let ptr = self.get_u64(addr);
+                tags::STORE8 => {
+                    let ptr = r!(op.r1);
                     self.check_ptr(ptr, 1);
-                    unsafe { *(ptr as *mut u8) = self.get_u64(src) as u8; }
+                    unsafe { *(ptr as *mut u8) = r!(op.r2) as u8; }
                 }
-
-                Opcode::Store32 { addr, src } => {
-                    let ptr = self.get_u64(addr);
+                tags::STORE32 => {
+                    let ptr = r!(op.r1);
                     self.check_ptr(ptr, 4);
-                    unsafe { *(ptr as *mut i32) = self.get_i64(src) as i32; }
+                    unsafe { *(ptr as *mut i32) = get_i64!(op.r2) as i32; }
                 }
-
-                Opcode::Store64 { addr, src } => {
-                    let ptr = self.get_u64(addr);
+                tags::STORE64 => {
+                    let ptr = r!(op.r1);
                     self.check_ptr(ptr, 8);
-                    unsafe { *(ptr as *mut i64) = self.get_i64(src); }
+                    unsafe { *(ptr as *mut i64) = get_i64!(op.r2); }
                 }
-
-                Opcode::Store8Off { base, offset, src } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                tags::STORE8_OFF => {
+                    let ptr = (r!(op.r1) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 1);
-                    unsafe { *(ptr as *mut u8) = self.get_u64(src) as u8; }
+                    unsafe { *(ptr as *mut u8) = r!(op.r2) as u8; }
                 }
-
-                Opcode::Store32Off { base, offset, src } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                tags::STORE32_OFF => {
+                    let ptr = (r!(op.r1) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 4);
-                    unsafe { *(ptr as *mut i32) = self.get_i64(src) as i32; }
+                    unsafe { *(ptr as *mut i32) = get_i64!(op.r2) as i32; }
                 }
-
-                Opcode::Store64Off { base, offset, src } => {
-                    let ptr = (self.get_u64(base) as i64 + offset as i64) as u64;
+                tags::STORE64_OFF => {
+                    let ptr = (r!(op.r1) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 8);
-                    unsafe { *(ptr as *mut i64) = self.get_i64(src); }
+                    unsafe { *(ptr as *mut i64) = get_i64!(op.r2); }
                 }
 
-                Opcode::LocalAddr { dst, slot } => {
-                    self.set_u64(dst, self.local_ptr(slot) as u64);
+                tags::LOCAL_ADDR => {
+                    let offset = self.locals_base + (op.imm as usize) * 8;
+                    r_set!(op.r1, unsafe { self.locals.as_ptr().add(offset) } as u64);
                 }
 
-                Opcode::GlobalAddr { dst, offset } => {
-                    let addr = unsafe { self.globals.as_ptr().add(offset as usize) };
-                    self.set_u64(dst, addr as u64);
+                tags::GLOBAL_ADDR => {
+                    r_set!(op.r1, unsafe { self.globals.as_ptr().add(op.imm as usize) } as u64);
                 }
 
                 // Control flow
-                Opcode::Jump { offset } => {
-                    self.ip = (self.ip as i32 + offset) as usize;
-                    if offset < 0 && self.cancel_flag() {
+                tags::JUMP => {
+                    self.ip = (self.ip as i32 + op.imm) as usize;
+                    if op.imm < 0 && self.cancel_flag() {
                         self.cancelled = true;
                         return 0;
                     }
                 }
 
-                Opcode::JumpIfZero { cond, offset } => {
-                    if self.get_u64(cond) == 0 {
-                        self.ip = (self.ip as i32 + offset) as usize;
-                        if offset < 0 && self.cancel_flag() {
+                tags::JUMP_IF_ZERO => {
+                    if r!(op.r1) == 0 {
+                        self.ip = (self.ip as i32 + op.imm) as usize;
+                        if op.imm < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
                         }
                     }
                 }
 
-                Opcode::JumpIfNotZero { cond, offset } => {
-                    if self.get_u64(cond) != 0 {
-                        self.ip = (self.ip as i32 + offset) as usize;
-                        if offset < 0 && self.cancel_flag() {
+                tags::JUMP_IF_NOT_ZERO => {
+                    if r!(op.r1) != 0 {
+                        self.ip = (self.ip as i32 + op.imm) as usize;
+                        if op.imm < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
                         }
                     }
                 }
 
-                // Superinstructions: compare and branch
-                Opcode::ILtJump { a, b, offset } => {
-                    if self.get_i64(a) >= self.get_i64(b) {
-                        self.ip = (self.ip as i32 + offset) as usize;
-                        if offset < 0 && self.cancel_flag() {
+                tags::ILT_JUMP => {
+                    if get_i64!(op.r1) >= get_i64!(op.r2) {
+                        self.ip = (self.ip as i32 + op.imm) as usize;
+                        if op.imm < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
                         }
                     }
                 }
 
-                Opcode::Call { func, args_start, arg_count } => {
-                    debug_assert!((func as usize) < program.functions.len(),
-                        "VM: call to invalid function index {func} (have {} functions)",
-                        program.functions.len());
+                tags::CALL => {
+                    let func = op.imm as u32;
+                    let args_start = op.r1 as usize;
+                    let arg_count = op.r2 as usize;
 
-                    // Save current frame
                     let frame = CallFrame {
                         func_idx: self.current_func,
                         ip: self.ip,
@@ -1057,39 +1213,30 @@ impl VM {
                     };
                     self.call_stack.push(frame);
 
-                    // Copy arguments to registers 0..arg_count
-                    let arg_start = args_start as usize;
-                    for i in 0..arg_count as usize {
-                        if i != arg_start + i {
-                            self.registers[i] = self.registers[arg_start + i];
+                    for i in 0..arg_count {
+                        if i != args_start + i {
+                            self.registers[i] = self.registers[args_start + i];
                         }
                     }
 
-                    // Set up new frame
-                    // Move locals_base past the current function's locals
-                    let current_func = &program.functions[self.current_func as usize];
-                    self.locals_base += current_func.locals_size as usize;
-
-                    let new_func = &program.functions[func as usize];
+                    self.locals_base += linked.func_locals[self.current_func as usize] as usize;
                     self.current_func = func;
-                    self.ip = 0;
-                    self.debug_func_name = new_func.name.clone();
+                    self.ip = linked.func_offsets[func as usize];
 
-                    // Ensure we have enough locals space
-                    let needed = self.locals_base + new_func.locals_size as usize;
+                    #[cfg(debug_assertions)]
+                    { self.debug_func_name = program.functions[func as usize].name.clone(); }
+
+                    let needed = self.locals_base + linked.func_locals[func as usize] as usize;
                     if needed > self.locals.len() {
                         self.locals.resize(needed * 2, 0);
                     }
                 }
 
-                Opcode::CallIndirect { func_reg, args_start, arg_count } => {
-                    let func_idx = self.get_u64(func_reg) as FuncIdx;
+                tags::CALL_INDIRECT => {
+                    let func_idx = r!(op.r1) as FuncIdx;
+                    let args_start = op.r2 as usize;
+                    let arg_count = op.r3 as usize;
 
-                    debug_assert!((func_idx as usize) < program.functions.len(),
-                        "VM: indirect call to invalid function index {func_idx} (have {} functions)",
-                        program.functions.len());
-
-                    // Save current frame
                     let frame = CallFrame {
                         func_idx: self.current_func,
                         ip: self.ip,
@@ -1098,107 +1245,99 @@ impl VM {
                     };
                     self.call_stack.push(frame);
 
-                    // Copy arguments
-                    let arg_start = args_start as usize;
-                    for i in 0..arg_count as usize {
-                        if i != arg_start + i {
-                            self.registers[i] = self.registers[arg_start + i];
+                    for i in 0..arg_count {
+                        if i != args_start + i {
+                            self.registers[i] = self.registers[args_start + i];
                         }
                     }
 
-                    // Set up new frame
-                    // Move locals_base past the current function's locals
-                    let current_func = &program.functions[self.current_func as usize];
-                    self.locals_base += current_func.locals_size as usize;
-
-                    self.debug_func_name = program.functions[func_idx as usize].name.clone();
+                    self.locals_base += linked.func_locals[self.current_func as usize] as usize;
                     self.current_func = func_idx;
-                    self.ip = 0;
+                    self.ip = linked.func_offsets[func_idx as usize];
+
+                    #[cfg(debug_assertions)]
+                    { self.debug_func_name = program.functions[func_idx as usize].name.clone(); }
                 }
 
-                Opcode::Return => {
+                tags::RETURN => {
                     if self.call_stack.is_empty() {
-                        return self.get_i64(0);
+                        return get_i64!(0u8);
                     }
                     let frame = self.call_stack.pop().unwrap();
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
-                    self.debug_func_name = program.functions[frame.func_idx as usize].name.clone();
+
+                    #[cfg(debug_assertions)]
+                    { self.debug_func_name = program.functions[frame.func_idx as usize].name.clone(); }
                 }
 
-                Opcode::ReturnReg { src } => {
-                    // Move return value to r0
-                    self.registers[0] = self.registers[src as usize];
-
+                tags::RETURN_REG => {
+                    self.registers[0] = self.registers[op.r1 as usize];
                     if self.call_stack.is_empty() {
-                        return self.get_i64(0);
+                        return get_i64!(0u8);
                     }
                     let frame = self.call_stack.pop().unwrap();
                     self.current_func = frame.func_idx;
                     self.ip = frame.ip;
                     self.locals_base = frame.locals_base;
-                    self.debug_func_name = program.functions[frame.func_idx as usize].name.clone();
+
+                    #[cfg(debug_assertions)]
+                    { self.debug_func_name = program.functions[frame.func_idx as usize].name.clone(); }
                 }
 
-                Opcode::AllocLocals { size } => {
-                    let needed = self.locals_base + size as usize;
+                tags::ALLOC_LOCALS => {
+                    let size = op.imm as usize;
+                    let needed = self.locals_base + size;
                     if needed > self.locals.len() {
                         self.locals.resize(needed * 2, 0);
                     }
-                    // Zero out the locals
-                    for i in 0..size as usize {
+                    for i in 0..size {
                         self.locals[self.locals_base + i] = 0;
                     }
                 }
 
-                Opcode::MemCopy { dst, src, size } => {
-                    let dst_ptr = self.get_u64(dst);
-                    let src_ptr = self.get_u64(src);
-                    self.check_ptr(dst_ptr, size as usize);
-                    self.check_ptr(src_ptr, size as usize);
+                tags::MEM_COPY => {
+                    let dst_ptr = r!(op.r1);
+                    let src_ptr = r!(op.r2);
+                    let size = op.imm as usize;
+                    self.check_ptr(dst_ptr, size);
+                    self.check_ptr(src_ptr, size);
                     unsafe {
-                        std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size as usize);
+                        std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size);
                     }
                 }
 
-                Opcode::MemZero { dst, size } => {
-                    let ptr = self.get_u64(dst);
-                    self.check_ptr(ptr, size as usize);
-                    unsafe {
-                        std::ptr::write_bytes(ptr as *mut u8, 0, size as usize);
-                    }
+                tags::MEM_ZERO => {
+                    let ptr = r!(op.r1);
+                    let size = op.imm as usize;
+                    self.check_ptr(ptr, size);
+                    unsafe { std::ptr::write_bytes(ptr as *mut u8, 0, size); }
                 }
 
-                Opcode::SaveRegs { start_reg, count, slot } => {
-                    let base = self.locals_base + slot as usize;
-                    for i in 0..count as usize {
-                        let reg_val = self.registers[start_reg as usize + i];
+                tags::SAVE_REGS => {
+                    let base = self.locals_base + op.imm as usize;
+                    for i in 0..op.r2 as usize {
+                        let reg_val = self.registers[op.r1 as usize + i];
                         let offset = base + i * 8;
                         self.locals[offset..offset + 8].copy_from_slice(&reg_val.to_le_bytes());
                     }
                 }
 
-                Opcode::RestoreRegs { start_reg, count, slot } => {
-                    let base = self.locals_base + slot as usize;
-                    for i in 0..count as usize {
+                tags::RESTORE_REGS => {
+                    let base = self.locals_base + op.imm as usize;
+                    for i in 0..op.r2 as usize {
                         let offset = base + i * 8;
                         let bytes: [u8; 8] = self.locals[offset..offset + 8].try_into().unwrap();
-                        self.registers[start_reg as usize + i] = u64::from_le_bytes(bytes);
+                        self.registers[op.r1 as usize + i] = u64::from_le_bytes(bytes);
                     }
                 }
 
                 // Debugging
-                Opcode::PrintI32 { src } => {
-                    println!("{}", self.get_i64(src) as i32);
-                }
-
-                Opcode::PrintF32 { src } => {
-                    println!("{}", self.get_f32(src));
-                }
-
-                Opcode::Assert { src } => {
-                    let val = self.get_u64(src) != 0;
+                tags::PRINT_I32 => { println!("{}", get_i64!(op.r1) as i32); }
+                tags::PRINT_F32 => { println!("{}", r_f32!(op.r1)); }
+                tags::ASSERT => {
+                    let val = r!(op.r1) != 0;
                     println!("assert({})", val);
                     if !val {
                         panic!("Assertion failed at {}:{}",
@@ -1206,48 +1345,44 @@ impl VM {
                             self.ip - 1);
                     }
                 }
-
-                Opcode::Putc { src } => {
-                    let val = self.get_i64(src) as u32;
-                    if let Some(c) = char::from_u32(val) {
+                tags::PUTC => {
+                    if let Some(c) = char::from_u32(get_i64!(op.r1) as u32) {
                         print!("{}", c);
                     }
                 }
 
                 // Math builtins — f32 unary
-                Opcode::SinF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).sin()); }
-                Opcode::CosF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).cos()); }
-                Opcode::TanF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).tan()); }
-                Opcode::LnF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).ln()); }
-                Opcode::ExpF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).exp()); }
-                Opcode::SqrtF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).sqrt()); }
-                Opcode::AbsF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).abs()); }
-                Opcode::FloorF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).floor()); }
-                Opcode::CeilF32 { dst, src } => { self.set_f32(dst, self.get_f32(src).ceil()); }
+                tags::SIN_F32 => { set_f32!(op.r1, r_f32!(op.r2).sin()); }
+                tags::COS_F32 => { set_f32!(op.r1, r_f32!(op.r2).cos()); }
+                tags::TAN_F32 => { set_f32!(op.r1, r_f32!(op.r2).tan()); }
+                tags::LN_F32 => { set_f32!(op.r1, r_f32!(op.r2).ln()); }
+                tags::EXP_F32 => { set_f32!(op.r1, r_f32!(op.r2).exp()); }
+                tags::SQRT_F32 => { set_f32!(op.r1, r_f32!(op.r2).sqrt()); }
+                tags::ABS_F32 => { set_f32!(op.r1, r_f32!(op.r2).abs()); }
+                tags::FLOOR_F32 => { set_f32!(op.r1, r_f32!(op.r2).floor()); }
+                tags::CEIL_F32 => { set_f32!(op.r1, r_f32!(op.r2).ceil()); }
 
                 // Math builtins — f64 unary
-                Opcode::SinF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).sin()); }
-                Opcode::CosF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).cos()); }
-                Opcode::TanF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).tan()); }
-                Opcode::LnF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).ln()); }
-                Opcode::ExpF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).exp()); }
-                Opcode::SqrtF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).sqrt()); }
-                Opcode::AbsF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).abs()); }
-                Opcode::FloorF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).floor()); }
-                Opcode::CeilF64 { dst, src } => { self.set_f64(dst, self.get_f64(src).ceil()); }
+                tags::SIN_F64 => { set_f64!(op.r1, r_f64!(op.r2).sin()); }
+                tags::COS_F64 => { set_f64!(op.r1, r_f64!(op.r2).cos()); }
+                tags::TAN_F64 => { set_f64!(op.r1, r_f64!(op.r2).tan()); }
+                tags::LN_F64 => { set_f64!(op.r1, r_f64!(op.r2).ln()); }
+                tags::EXP_F64 => { set_f64!(op.r1, r_f64!(op.r2).exp()); }
+                tags::SQRT_F64 => { set_f64!(op.r1, r_f64!(op.r2).sqrt()); }
+                tags::ABS_F64 => { set_f64!(op.r1, r_f64!(op.r2).abs()); }
+                tags::FLOOR_F64 => { set_f64!(op.r1, r_f64!(op.r2).floor()); }
+                tags::CEIL_F64 => { set_f64!(op.r1, r_f64!(op.r2).ceil()); }
 
-                // Math builtins — f32 binary
-                Opcode::PowF32 { dst, a, b } => { self.set_f32(dst, self.get_f32(a).powf(self.get_f32(b))); }
-                Opcode::Atan2F32 { dst, a, b } => { self.set_f32(dst, self.get_f32(a).atan2(self.get_f32(b))); }
+                // Math builtins — binary
+                tags::POW_F32 => { set_f32!(op.r1, r_f32!(op.r2).powf(r_f32!(op.r3))); }
+                tags::ATAN2_F32 => { set_f32!(op.r1, r_f32!(op.r2).atan2(r_f32!(op.r3))); }
+                tags::POW_F64 => { set_f64!(op.r1, r_f64!(op.r2).powf(r_f64!(op.r3))); }
+                tags::ATAN2_F64 => { set_f64!(op.r1, r_f64!(op.r2).atan2(r_f64!(op.r3))); }
 
-                // Math builtins — f64 binary
-                Opcode::PowF64 { dst, a, b } => { self.set_f64(dst, self.get_f64(a).powf(self.get_f64(b))); }
-                Opcode::Atan2F64 { dst, a, b } => { self.set_f64(dst, self.get_f64(a).atan2(self.get_f64(b))); }
+                _ => { panic!("VM: unknown opcode tag {}", op.tag); }
             }
         }
     }
-
-    /// Get a mutable pointer to the globals buffer.
     /// Only valid after `run` has been called.
     pub fn globals_ptr(&mut self) -> *mut u8 {
         self.globals.as_mut_ptr()
