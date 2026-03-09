@@ -5,7 +5,8 @@ let package = Package(
     name: "Lyte",
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [
-        .library(name: "Lyte", targets: ["Lyte"]),
+        .library(name: "Lyte",
+        type: .dynamic, targets: ["Lyte"]),
     ],
     targets: [
         .binaryTarget(
