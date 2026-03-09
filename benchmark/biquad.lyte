@@ -1,0 +1,60 @@
+// Biquad filter DSP benchmark
+// Process 10 million samples through a lowpass filter
+
+struct Biquad {
+    b0: f32, b1: f32, b2: f32,
+    a1: f32, a2: f32,
+    x1: f32, x2: f32,
+    y1: f32, y2: f32
+}
+
+// Design a 2nd-order lowpass (RBJ cookbook)
+lpf(fc: f32, fs: f32, q: f32) -> Biquad {
+    var w0 = 2.0 * 3.14159265 * fc / fs
+    var alpha = sinf(w0) / (2.0 * q)
+    var cs = cosf(w0)
+
+    var a0 = 1.0 + alpha
+    var inv = 1.0 / a0
+
+    var bq: Biquad
+    bq.b1 = (1.0 - cs) * inv
+    bq.b0 = bq.b1 / 2.0
+    bq.b2 = bq.b0
+    bq.a1 = (0.0 - 2.0 * cs) * inv
+    bq.a2 = (1.0 - alpha) * inv
+    bq.x1 = 0.0
+    bq.x2 = 0.0
+    bq.y1 = 0.0
+    bq.y2 = 0.0
+    return bq
+}
+
+main {
+    var bq = lpf(1000.0, 44100.0, 0.707)
+
+    var n = 10000000
+    var phase = 0.0
+    var freq = 440.0 / 44100.0
+    var last_y = 0.0
+
+    // Process a 440 Hz sine wave through the filter
+    var i = 0
+    while i < n {
+        var x = sinf(phase * 2.0 * 3.14159265)
+        phase = phase + freq
+        if phase > 1.0 { phase = phase - 1.0 }
+
+        var y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2
+        bq.x2 = bq.x1
+        bq.x1 = x
+        bq.y2 = bq.y1
+        bq.y1 = y
+        last_y = y
+
+        i = i + 1
+    }
+
+    print(n)
+    println(" samples processed")
+}
