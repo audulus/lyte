@@ -159,8 +159,12 @@ impl VMCodegen {
         let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &mut self.lambda_counter, &self.globals);
         translator.translate(&mut func);
 
-        // Peephole optimize: eliminate redundant Move/LocalAddr instructions.
-        crate::vm_optimize::optimize(&mut func.code);
+        // Peephole optimize: eliminate redundant instructions + register allocation.
+        if let Some(new_reg_count) = crate::vm_optimize::optimize(&mut func.code) {
+            // Register allocation compacted the register numbering.
+            // Update locals_size: slot area stays the same, register save area shrinks.
+            func.locals_size = func.local_slots as u32 * 8 + new_reg_count as u32 * 8;
+        }
 
         let idx = self.program.add_function(func);
         self.func_indices.insert(decl.name, idx);
