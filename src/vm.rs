@@ -1447,8 +1447,24 @@ impl fmt::Display for VMFunction {
         writeln!(f, "fn {} (params: {}, locals: {} bytes):",
             self.name, self.param_count, self.locals_size)?;
 
+        // Collect jump targets.
+        let mut targets = std::collections::HashSet::new();
         for (i, op) in self.code.iter().enumerate() {
-            writeln!(f, "  {:4}: {:?}", i, op)?;
+            let offset = match op {
+                Opcode::Jump { offset } |
+                Opcode::JumpIfZero { offset, .. } |
+                Opcode::JumpIfNotZero { offset, .. } |
+                Opcode::ILtJump { offset, .. } => Some(*offset),
+                _ => None,
+            };
+            if let Some(off) = offset {
+                targets.insert((i as i32 + 1 + off) as usize);
+            }
+        }
+
+        for (i, op) in self.code.iter().enumerate() {
+            let marker = if targets.contains(&i) { "=>" } else { "  " };
+            writeln!(f, "{}{:4}: {:?}", marker, i, op)?;
         }
 
         Ok(())
