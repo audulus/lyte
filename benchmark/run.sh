@@ -26,6 +26,10 @@ echo "--- Lua $(lua -v 2>&1 | head -1) ---"
 time lua benchmark/biquad.lua
 echo ""
 
-echo "--- LuaJIT $(luajit -v 2>&1 | head -1) ---"
+echo "--- LuaJIT JIT $(luajit -v 2>&1 | head -1) ---"
 time luajit benchmark/biquad.lua
+echo ""
+
+echo "--- LuaJIT Interpreter (no JIT) ---"
+time luajit -joff benchmark/biquad.lua
 echo ""
