@@ -1506,23 +1506,26 @@ impl<'a> FunctionTranslator<'a> {
             src: then_result,
         });
 
-        // Jump over else branch (or to end if no else).
-        let jump_to_end = func.emit(Opcode::Jump { offset: 0 });
-
-        // Patch jump to else (which is now here, after the then branch's jump to end).
-        func.patch_jump(jump_to_else);
-
         if let Some(else_expr_id) = else_id {
+            // Jump over else branch.
+            let jump_to_end = func.emit(Opcode::Jump { offset: 0 });
+
+            // Patch jump to else (which is now here, after the then branch's jump to end).
+            func.patch_jump(jump_to_else);
+
             // Else branch.
             let else_result = self.translate_expr(else_expr_id, func);
             func.emit(Opcode::Move {
                 dst: result_reg,
                 src: else_result,
             });
-        }
 
-        // Patch jump to end (for both cases: after else, or when no else).
-        func.patch_jump(jump_to_end);
+            // Patch jump to end.
+            func.patch_jump(jump_to_end);
+        } else {
+            // No else branch — patch jump to here directly.
+            func.patch_jump(jump_to_else);
+        }
 
         result_reg
     }
