@@ -20,6 +20,8 @@ pub fn optimize(code: &mut Vec<Opcode>) -> Option<u8> {
     }
     // Fuse LocalAddr+Load/Store into superinstructions (after all other opts)
     fuse_local_access(code);
+    // Fuse IAddImm+Load/Store into offset-addressing superinstructions
+    fuse_offset_access(code);
     // Register allocation: compact register numbering via linear scan
     Some(register_allocation(code))
 }
@@ -706,6 +708,48 @@ fn fuse_local_access(code: &mut Vec<Opcode>) {
                 }
                 Opcode::Store32 { addr, src } if addr == addr_reg => {
                     code[i] = Opcode::StoreSlot32 { slot, src };
+                    code[i + 1] = Opcode::Nop;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Fuse IAddImm + Load32/Store32 into Load32Off/Store32Off.
+///
+/// Pattern: `IAddImm { dst: A, src: B, imm: N }` followed by `Store32 { addr: A, src: V }`
+/// where A is only used by the Store32. Fuse into `Store32Off { base: B, offset: N, src: V }`.
+/// Similarly for Load32, Load64, Store64, etc.
+fn fuse_offset_access(code: &mut Vec<Opcode>) {
+    let uses = compute_use_counts_fast(code);
+
+    for i in 0..code.len().saturating_sub(1) {
+        if let Opcode::IAddImm { dst: addr_reg, src: base, imm } = code[i] {
+            // Only fuse if the computed address register is used exactly once
+            if uses[addr_reg as usize] != 1 {
+                continue;
+            }
+            let offset = imm as i32;
+            match code[i + 1] {
+                Opcode::Store32 { addr, src } if addr == addr_reg => {
+                    code[i] = Opcode::Store32Off { base, offset, src };
+                    code[i + 1] = Opcode::Nop;
+                }
+                Opcode::Store64 { addr, src } if addr == addr_reg => {
+                    code[i] = Opcode::Store64Off { base, offset, src };
+                    code[i + 1] = Opcode::Nop;
+                }
+                Opcode::Store8 { addr, src } if addr == addr_reg => {
+                    code[i] = Opcode::Store8Off { base, offset, src };
+                    code[i + 1] = Opcode::Nop;
+                }
+                Opcode::Load32 { dst, addr } if addr == addr_reg => {
+                    code[i] = Opcode::Load32Off { dst, base, offset };
+                    code[i + 1] = Opcode::Nop;
+                }
+                Opcode::Load64 { dst, addr } if addr == addr_reg => {
+                    code[i] = Opcode::Load64Off { dst, base, offset };
                     code[i + 1] = Opcode::Nop;
                 }
                 _ => {}

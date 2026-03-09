@@ -245,7 +245,12 @@ struct FunctionTranslator<'a> {
     decls: &'a DeclTable,
 
     /// Map from variable names to their register numbers.
+    /// For pointer types, the register holds the memory address.
+    /// For register-promoted scalars, the register holds the value directly.
     variables: HashMap<Name, Reg>,
+
+    /// Set of variable names that are register-promoted (value in register, not memory).
+    reg_promoted: HashSet<Name>,
 
     /// Map from variable names to their local slot indices (for addressable vars).
     local_slots: HashMap<Name, u16>,
@@ -316,6 +321,7 @@ impl<'a> FunctionTranslator<'a> {
             decl,
             decls,
             variables: HashMap::new(),
+            reg_promoted: HashSet::new(),
             local_slots: HashMap::new(),
             next_reg: 0,
             next_slot: 0,
@@ -369,22 +375,30 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(Opcode::Store64 { addr, src: out_reg });
         }
 
-        // Save parameters to local slots so they persist across recursive calls.
-        // Registers are shared across all call frames, but locals are per-frame.
-        // When returning via pointer, r0 is the output pointer so params start at r1.
+        // Handle parameters. Scalars stay in registers (SaveRegs preserves them
+        // across calls). Pointer types are stored to local slots.
         let param_offset = if returns_via_pointer(self.decl.ret) { 1u8 } else { 0u8 };
         for (i, param) in self.decl.params.iter().enumerate() {
             let src_reg = i as Reg + param_offset;
             let ty = param.ty.expect("parameter must have type");
-            let size = ty.size(self.decls) as u32;
-            let slot = self.alloc_local(size);
-            self.local_slots.insert(param.name, slot);
 
-            // Get address of local slot and store the parameter there.
-            let addr_reg = self.alloc_reg();
-            func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
-            self.emit_store(&ty, addr_reg, src_reg, func);
-            self.variables.insert(param.name, addr_reg);
+            if !self.is_ptr_type(&ty) {
+                // Scalar parameter: copy to a dedicated register so the param
+                // register can be reused. The copy will be eliminated by
+                // move forwarding if possible.
+                let reg = self.alloc_reg();
+                func.emit(Opcode::Move { dst: reg, src: src_reg });
+                self.variables.insert(param.name, reg);
+                self.reg_promoted.insert(param.name);
+            } else {
+                let size = ty.size(self.decls) as u32;
+                let slot = self.alloc_local(size);
+                self.local_slots.insert(param.name, slot);
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                self.emit_store(&ty, addr_reg, src_reg, func);
+                self.variables.insert(param.name, addr_reg);
+            }
         }
 
         // Translate the body if present.
@@ -554,16 +568,18 @@ impl<'a> FunctionTranslator<'a> {
 
                 // Check if it's a local variable.
                 if let Some(&reg) = self.variables.get(name) {
-                    // For pointer types (structs, arrays), return the address.
-                    // Re-emit LocalAddr to ensure the register is correct even
-                    // after calls that may have clobbered it.
-                    if self.is_ptr_type(&ty) {
+                    if self.reg_promoted.contains(name) {
+                        // Register-promoted scalar: value is already in the register.
+                        reg
+                    } else if self.is_ptr_type(&ty) {
+                        // Pointer type: re-emit LocalAddr to ensure the register
+                        // is correct after calls that may have clobbered it.
                         if let Some(&slot) = self.local_slots.get(name) {
                             func.emit(Opcode::LocalAddr { dst: reg, slot });
                         }
                         reg
                     } else if let Some(&slot) = self.local_slots.get(name) {
-                        // Load from local slot.
+                        // Non-promoted scalar in local slot: load from memory.
                         let dst = self.alloc_reg();
                         func.emit(Opcode::LocalAddr { dst, slot });
                         let load_dst = self.alloc_reg();
@@ -612,60 +628,62 @@ impl<'a> FunctionTranslator<'a> {
                 let init_reg = self.translate_expr(*init, func);
                 let ty = self.expr_type(expr);
 
-                // Store let bindings in local slots to preserve them across recursive calls.
-                // Registers are shared across all call frames, but locals are per-frame.
-                let size = ty.size(self.decls) as u32;
-                let slot = self.alloc_local(size);
-                self.local_slots.insert(*name, slot);
+                if !self.is_ptr_type(&ty) {
+                    // Scalar: keep value in a register (SaveRegs preserves it across calls).
+                    let reg = self.alloc_reg();
+                    func.emit(Opcode::Move { dst: reg, src: init_reg });
+                    self.variables.insert(*name, reg);
+                    self.reg_promoted.insert(*name);
+                } else {
+                    // Pointer type: store to local slot.
+                    let size = ty.size(self.decls) as u32;
+                    let slot = self.alloc_local(size);
+                    self.local_slots.insert(*name, slot);
 
-                let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
-                self.emit_store(&ty, addr_reg, init_reg, func);
-                self.variables.insert(*name, addr_reg);
+                    let addr_reg = self.alloc_reg();
+                    func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                    self.emit_store(&ty, addr_reg, init_reg, func);
+                    self.variables.insert(*name, addr_reg);
+                }
                 init_reg
             }
 
             Expr::Var(name, init, _) => {
                 let ty = self.expr_type(expr);
-                let size = ty.size(self.decls);
-                let slot = self.alloc_local(size as u32);
-                self.local_slots.insert(*name, slot);
 
-                // Get address of local slot.
-                let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr {
-                    dst: addr_reg,
-                    slot,
-                });
-                self.variables.insert(*name, addr_reg);
-
-                // Initialize if there's an initializer.
-                if let Some(init_id) = init {
-                    let init_reg = self.translate_expr(*init_id, func);
-
-                    // After translating the initializer (which may involve calls),
-                    // registers may have been clobbered. Re-emit LocalAddr to ensure
-                    // addr_reg has the correct value.
-                    func.emit(Opcode::LocalAddr {
-                        dst: addr_reg,
-                        slot,
-                    });
-
-                    self.emit_store(&ty, addr_reg, init_reg, func);
+                if !self.is_ptr_type(&ty) {
+                    // Scalar: keep value in a register.
+                    let reg = self.alloc_reg();
+                    if let Some(init_id) = init {
+                        let init_reg = self.translate_expr(*init_id, func);
+                        func.emit(Opcode::Move { dst: reg, src: init_reg });
+                    } else {
+                        func.emit(Opcode::LoadImm { dst: reg, value: 0 });
+                    }
+                    self.variables.insert(*name, reg);
+                    self.reg_promoted.insert(*name);
                 } else {
-                    // Zero-initialize.
-                    func.emit(Opcode::MemZero {
-                        dst: addr_reg,
-                        size: size as u32,
-                    });
+                    // Pointer type: store to local slot.
+                    let size = ty.size(self.decls);
+                    let slot = self.alloc_local(size as u32);
+                    self.local_slots.insert(*name, slot);
+
+                    let addr_reg = self.alloc_reg();
+                    func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                    self.variables.insert(*name, addr_reg);
+
+                    if let Some(init_id) = init {
+                        let init_reg = self.translate_expr(*init_id, func);
+                        func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                        self.emit_store(&ty, addr_reg, init_reg, func);
+                    } else {
+                        func.emit(Opcode::MemZero { dst: addr_reg, size: size as u32 });
+                    }
                 }
 
                 // Return 0 for void-like expression.
                 let result = self.alloc_reg();
-                func.emit(Opcode::LoadImm {
-                    dst: result,
-                    value: 0,
-                });
+                func.emit(Opcode::LoadImm { dst: result, value: 0 });
                 result
             }
 
@@ -1067,6 +1085,17 @@ impl<'a> FunctionTranslator<'a> {
         rhs_id: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
+        // Check for direct register-promoted scalar assignment (e.g., `x = expr`).
+        if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
+            if self.reg_promoted.contains(name) {
+                let rhs = self.translate_expr(rhs_id, func);
+                let reg = *self.variables.get(name).unwrap();
+                if reg != rhs {
+                    func.emit(Opcode::Move { dst: reg, src: rhs });
+                }
+                return rhs;
+            }
+        }
         let rhs = self.translate_expr(rhs_id, func);
         let lhs_addr = self.translate_lvalue(lhs_id, func);
         let ty = self.expr_type(lhs_id);
