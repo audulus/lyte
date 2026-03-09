@@ -1,0 +1,182 @@
+// Biquad filter benchmark — bytecode golden test.
+// Tracks codegen quality for the DSP hot loop.
+
+// args: --bytecode
+// expected stdout:
+// fn main (params: 0, locals: 160 bytes):
+//      0: SaveRegs { start_reg: 0, count: 10, slot: 80 }
+//      1: LocalAddr { dst: 0, slot: 0 }
+//      2: LoadF32 { dst: 1, value: 1000.0 }
+//      3: LoadF32 { dst: 2, value: 44100.0 }
+//      4: LoadF32 { dst: 3, value: 0.707 }
+//      5: LocalAddr { dst: 4, slot: 5 }
+//      6: Move { dst: 5, src: 1 }
+//      7: Move { dst: 6, src: 2 }
+//      8: Move { dst: 7, src: 3 }
+//      9: Call { func: 1, args_start: 4, arg_count: 4 }
+//     10: LocalAddr { dst: 1, slot: 5 }
+//     11: LocalAddr { dst: 0, slot: 0 }
+//     12: MemCopy { dst: 0, src: 1, size: 36 }
+//     13: LoadImm { dst: 1, value: 10000000 }
+//     14: LoadF32 { dst: 2, value: 0.0 }
+//     15: LoadF32 { dst: 3, value: 440.0 }
+//     16: LoadF32 { dst: 4, value: 44100.0 }
+//     17: FDiv { dst: 5, a: 3, b: 4 }
+//     18: LoadImm { dst: 3, value: 0 }
+//     19: Move { dst: 4, src: 3 }
+//     20: ILt { dst: 6, a: 4, b: 1 }
+//     21: JumpIfZero { cond: 6, offset: 45 }
+//     22: Move { dst: 4, src: 2 }
+//     23: LoadF32 { dst: 6, value: 2.0 }
+//     24: FMul { dst: 7, a: 4, b: 6 }
+//     25: LoadF32 { dst: 4, value: 3.1415927 }
+//     26: FMul { dst: 6, a: 7, b: 4 }
+//     27: SinF32 { dst: 4, src: 6 }
+//     28: Move { dst: 6, src: 2 }
+//     29: FAdd { dst: 2, a: 6, b: 5 }
+//     30: Move { dst: 6, src: 2 }
+//     31: LoadF32 { dst: 7, value: 1.0 }
+//     32: FLt { dst: 8, a: 7, b: 6 }
+//     33: JumpIfZero { cond: 8, offset: 4 }
+//     34: Move { dst: 6, src: 2 }
+//     35: LoadF32 { dst: 7, value: 1.0 }
+//     36: FSub { dst: 2, a: 6, b: 7 }
+//     37: Jump { offset: 0 }
+//     38: LocalAddr { dst: 0, slot: 0 }
+//     39: Load32Off { dst: 6, base: 0, offset: 0 }
+//     40: FMul { dst: 7, a: 6, b: 4 }
+//     41: Load32Off { dst: 6, base: 0, offset: 4 }
+//     42: Load32Off { dst: 8, base: 0, offset: 20 }
+//     43: FMul { dst: 9, a: 6, b: 8 }
+//     44: FAdd { dst: 6, a: 7, b: 9 }
+//     45: Load32Off { dst: 7, base: 0, offset: 8 }
+//     46: Load32Off { dst: 8, base: 0, offset: 24 }
+//     47: FMul { dst: 9, a: 7, b: 8 }
+//     48: FAdd { dst: 7, a: 6, b: 9 }
+//     49: Load32Off { dst: 6, base: 0, offset: 12 }
+//     50: Load32Off { dst: 8, base: 0, offset: 28 }
+//     51: FMul { dst: 9, a: 6, b: 8 }
+//     52: FSub { dst: 6, a: 7, b: 9 }
+//     53: Load32Off { dst: 7, base: 0, offset: 16 }
+//     54: Load32Off { dst: 8, base: 0, offset: 32 }
+//     55: FMul { dst: 9, a: 7, b: 8 }
+//     56: FSub { dst: 7, a: 6, b: 9 }
+//     57: Load32Off { dst: 6, base: 0, offset: 20 }
+//     58: Store32Off { base: 0, offset: 24, src: 6 }
+//     59: Store32Off { base: 0, offset: 20, src: 4 }
+//     60: Load32Off { dst: 4, base: 0, offset: 28 }
+//     61: Store32Off { base: 0, offset: 32, src: 4 }
+//     62: Store32Off { base: 0, offset: 28, src: 7 }
+//     63: Move { dst: 4, src: 3 }
+//     64: LoadImm { dst: 6, value: 1 }
+//     65: IAdd { dst: 3, a: 4, b: 6 }
+//     66: Jump { offset: -48 }
+//     67: LoadImm { dst: 0, value: 0 }
+//     68: RestoreRegs { start_reg: 1, count: 9, slot: 88 }
+//     69: Return
+// fn lpf (params: 4, locals: 112 bytes):
+//      0: SaveRegs { start_reg: 0, count: 8, slot: 48 }
+//      1: LocalAddr { dst: 4, slot: 0 }
+//      2: Store64 { addr: 4, src: 0 }
+//      3: LoadF32 { dst: 0, value: 2.0 }
+//      4: LoadF32 { dst: 5, value: 3.1415927 }
+//      5: FMul { dst: 6, a: 0, b: 5 }
+//      6: FMul { dst: 0, a: 6, b: 1 }
+//      7: FDiv { dst: 1, a: 0, b: 2 }
+//      8: SinF32 { dst: 0, src: 1 }
+//      9: LoadF32 { dst: 2, value: 2.0 }
+//     10: FMul { dst: 5, a: 2, b: 3 }
+//     11: FDiv { dst: 2, a: 0, b: 5 }
+//     12: CosF32 { dst: 0, src: 1 }
+//     13: LoadF32 { dst: 1, value: 1.0 }
+//     14: FAdd { dst: 3, a: 1, b: 2 }
+//     15: LoadF32 { dst: 1, value: 1.0 }
+//     16: FDiv { dst: 5, a: 1, b: 3 }
+//     17: LocalAddr { dst: 1, slot: 1 }
+//     18: MemZero { dst: 1, size: 36 }
+//     19: LoadF32 { dst: 3, value: 1.0 }
+//     20: FSub { dst: 6, a: 3, b: 0 }
+//     21: FMul { dst: 3, a: 6, b: 5 }
+//     22: Store32Off { base: 1, offset: 4, src: 3 }
+//     23: Load32Off { dst: 3, base: 1, offset: 4 }
+//     24: LoadF32 { dst: 6, value: 2.0 }
+//     25: FDiv { dst: 7, a: 3, b: 6 }
+//     26: Store32Off { base: 1, offset: 0, src: 7 }
+//     27: Load32Off { dst: 3, base: 1, offset: 0 }
+//     28: Store32Off { base: 1, offset: 8, src: 3 }
+//     29: LoadF32 { dst: 3, value: 0.0 }
+//     30: LoadF32 { dst: 6, value: 2.0 }
+//     31: FMul { dst: 7, a: 6, b: 0 }
+//     32: FSub { dst: 0, a: 3, b: 7 }
+//     33: FMul { dst: 3, a: 0, b: 5 }
+//     34: Store32Off { base: 1, offset: 12, src: 3 }
+//     35: LoadF32 { dst: 0, value: 1.0 }
+//     36: FSub { dst: 3, a: 0, b: 2 }
+//     37: FMul { dst: 0, a: 3, b: 5 }
+//     38: Store32Off { base: 1, offset: 16, src: 0 }
+//     39: LoadF32 { dst: 0, value: 0.0 }
+//     40: Store32Off { base: 1, offset: 20, src: 0 }
+//     41: LoadF32 { dst: 0, value: 0.0 }
+//     42: Store32Off { base: 1, offset: 24, src: 0 }
+//     43: LoadF32 { dst: 0, value: 0.0 }
+//     44: Store32Off { base: 1, offset: 28, src: 0 }
+//     45: LoadF32 { dst: 0, value: 0.0 }
+//     46: Store32Off { base: 1, offset: 32, src: 0 }
+//     47: Load64 { dst: 0, addr: 4 }
+//     48: MemCopy { dst: 0, src: 1, size: 36 }
+//     49: RestoreRegs { start_reg: 0, count: 8, slot: 48 }
+//     50: Return
+
+struct Biquad {
+    b0: f32, b1: f32, b2: f32,
+    a1: f32, a2: f32,
+    x1: f32, x2: f32,
+    y1: f32, y2: f32
+}
+
+lpf(fc: f32, fs: f32, q: f32) -> Biquad {
+    var w0 = 2.0 * 3.14159265 * fc / fs
+    var alpha = sinf(w0) / (2.0 * q)
+    var cs = cosf(w0)
+
+    var a0 = 1.0 + alpha
+    var inv = 1.0 / a0
+
+    var bq: Biquad
+    bq.b1 = (1.0 - cs) * inv
+    bq.b0 = bq.b1 / 2.0
+    bq.b2 = bq.b0
+    bq.a1 = (0.0 - 2.0 * cs) * inv
+    bq.a2 = (1.0 - alpha) * inv
+    bq.x1 = 0.0
+    bq.x2 = 0.0
+    bq.y1 = 0.0
+    bq.y2 = 0.0
+    return bq
+}
+
+main {
+    var bq = lpf(1000.0, 44100.0, 0.707)
+
+    var n = 10000000
+    var phase = 0.0
+    var freq = 440.0 / 44100.0
+    var last_y = 0.0
+
+    var i = 0
+    while i < n {
+        var x = sinf(phase * 2.0 * 3.14159265)
+        phase = phase + freq
+        if phase > 1.0 { phase = phase - 1.0 }
+
+        var y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2
+        bq.x2 = bq.x1
+        bq.x1 = x
+        bq.y2 = bq.y1
+        bq.y1 = y
+        last_y = y
+
+        i = i + 1
+    }
+
+}
