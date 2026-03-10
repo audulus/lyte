@@ -125,7 +125,10 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
                         expect(Token::Rbracket, cx);
                         Type::Array(r, ArraySize::Var(name))
                     } else {
-                        cx.err(format!("Expected integer array size or size parameter, got {}", name));
+                        cx.err(format!(
+                            "Expected integer array size or size parameter, got {}",
+                            name
+                        ));
                         Type::Array(r, ArraySize::Known(0))
                     }
                 } else {
@@ -845,7 +848,11 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
         }
     }
     collect_size_vars_in_type(ret, &mut size_vars);
-    let typevars: Vec<Name> = all_vars.iter().filter(|n| !size_vars.contains(n)).cloned().collect();
+    let typevars: Vec<Name> = all_vars
+        .iter()
+        .filter(|n| !size_vars.contains(n))
+        .cloned()
+        .collect();
 
     let mut body = None;
     if cx.lex.tok == Token::Lbrace {

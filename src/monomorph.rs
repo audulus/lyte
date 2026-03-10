@@ -11,11 +11,19 @@ pub struct MonomorphKey {
 
 impl MonomorphKey {
     pub fn new(name: Name, type_args: Vec<TypeID>) -> Self {
-        Self { name, type_args, size_args: vec![] }
+        Self {
+            name,
+            type_args,
+            size_args: vec![],
+        }
     }
 
     pub fn new_with_sizes(name: Name, type_args: Vec<TypeID>, size_args: Vec<i32>) -> Self {
-        Self { name, type_args, size_args }
+        Self {
+            name,
+            type_args,
+            size_args,
+        }
     }
 
     pub fn mangled_name(&self) -> Name {
@@ -23,9 +31,7 @@ impl MonomorphKey {
         if self.size_args.is_empty() {
             base
         } else {
-            let suffix: String = self.size_args.iter()
-                .map(|n| format!("${}", n))
-                .collect();
+            let suffix: String = self.size_args.iter().map(|n| format!("${}", n)).collect();
             Name::new(format!("{}{}", base, suffix))
         }
     }
@@ -169,8 +175,14 @@ fn is_more_complex(current: &[TypeID], previous: &[TypeID]) -> bool {
 fn type_complexity(ty: TypeID) -> usize {
     match &*ty {
         // Primitives have complexity 0
-        Type::Void | Type::Bool | Type::Int8 | Type::UInt8
-        | Type::Int32 | Type::UInt32 | Type::Float32 | Type::Float64 => 0,
+        Type::Void
+        | Type::Bool
+        | Type::Int8
+        | Type::UInt8
+        | Type::Int32
+        | Type::UInt32
+        | Type::Float32
+        | Type::Float64 => 0,
 
         // Type variables have complexity 0 (they're placeholders)
         Type::Var(_) | Type::Anon(_) => 0,
@@ -179,21 +191,21 @@ fn type_complexity(ty: TypeID) -> usize {
         Type::Array(elem, _) | Type::Slice(elem) => 1 + type_complexity(*elem),
 
         // Tuples: 1 + max complexity of elements
-        Type::Tuple(types) => {
-            1 + types.iter().map(|t| type_complexity(*t)).max().unwrap_or(0)
-        }
+        Type::Tuple(types) => 1 + types.iter().map(|t| type_complexity(*t)).max().unwrap_or(0),
 
         // Functions: 1 + max of domain and range
-        Type::Func(dom, rng) => {
-            1 + type_complexity(*dom).max(type_complexity(*rng))
-        }
+        Type::Func(dom, rng) => 1 + type_complexity(*dom).max(type_complexity(*rng)),
 
         // Named types (including generics): 1 + max complexity of parameters
         Type::Name(_, params) => {
             if params.is_empty() {
                 0 // Simple named type like "MyStruct"
             } else {
-                1 + params.iter().map(|t| type_complexity(*t)).max().unwrap_or(0)
+                1 + params
+                    .iter()
+                    .map(|t| type_complexity(*t))
+                    .max()
+                    .unwrap_or(0)
             }
         }
     }
@@ -235,20 +247,14 @@ mod tests {
         assert_eq!(type_complexity(generic), 1);
 
         // Nested generic Vec<Vec<i32>>
-        let nested = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![generic],
-        ));
+        let nested = mk_type(Type::Name(Name::new("Vec".into()), vec![generic]));
         assert_eq!(type_complexity(nested), 2);
     }
 
     #[test]
     fn test_is_more_complex_simple() {
         let i32_ty = mk_type(Type::Int32);
-        let vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![i32_ty],
-        ));
+        let vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![i32_ty]));
 
         // Vec<i32> is more complex than i32
         assert!(is_more_complex(&[vec_i32], &[i32_ty]));
@@ -263,14 +269,8 @@ mod tests {
     #[test]
     fn test_is_more_complex_nested() {
         let i32_ty = mk_type(Type::Int32);
-        let vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![i32_ty],
-        ));
-        let vec_vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![vec_i32],
-        ));
+        let vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![i32_ty]));
+        let vec_vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![vec_i32]));
 
         // Vec<Vec<i32>> is more complex than Vec<i32>
         assert!(is_more_complex(&[vec_vec_i32], &[vec_i32]));
@@ -284,20 +284,14 @@ mod tests {
     #[test]
     fn test_recursion_detector_no_recursion() {
         let mut detector = RecursionDetector::new();
-        let key1 = MonomorphKey::new(
-            Name::new("foo".into()),
-            vec![mk_type(Type::Int32)],
-        );
+        let key1 = MonomorphKey::new(Name::new("foo".into()), vec![mk_type(Type::Int32)]);
 
         assert!(detector.check(&key1).is_ok());
         detector.begin_instantiation(key1.clone());
         assert_eq!(detector.depth(), 1);
 
         // Different function is OK
-        let key2 = MonomorphKey::new(
-            Name::new("bar".into()),
-            vec![mk_type(Type::Int32)],
-        );
+        let key2 = MonomorphKey::new(Name::new("bar".into()), vec![mk_type(Type::Int32)]);
         assert!(detector.check(&key2).is_ok());
 
         detector.end_instantiation();
@@ -307,10 +301,7 @@ mod tests {
     #[test]
     fn test_recursion_detector_same_instantiation() {
         let mut detector = RecursionDetector::new();
-        let key = MonomorphKey::new(
-            Name::new("foo".into()),
-            vec![mk_type(Type::Int32)],
-        );
+        let key = MonomorphKey::new(Name::new("foo".into()), vec![mk_type(Type::Int32)]);
 
         detector.begin_instantiation(key.clone());
 
@@ -326,14 +317,8 @@ mod tests {
         let name = Name::new("foo".into());
 
         let i32_ty = mk_type(Type::Int32);
-        let vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![i32_ty],
-        ));
-        let vec_vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![vec_i32],
-        ));
+        let vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![i32_ty]));
+        let vec_vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![vec_i32]));
 
         let key1 = MonomorphKey::new(name, vec![i32_ty]);
         detector.begin_instantiation(key1);
@@ -356,10 +341,7 @@ mod tests {
         let name = Name::new("unwrap".into());
 
         let i32_ty = mk_type(Type::Int32);
-        let vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![i32_ty],
-        ));
+        let vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![i32_ty]));
 
         let key1 = MonomorphKey::new(name, vec![vec_i32]);
         detector.begin_instantiation(key1);
@@ -378,10 +360,7 @@ mod tests {
 
         let i32_ty = mk_type(Type::Int32);
         let bool_ty = mk_type(Type::Bool);
-        let vec_i32 = mk_type(Type::Name(
-            Name::new("Vec".into()),
-            vec![i32_ty],
-        ));
+        let vec_i32 = mk_type(Type::Name(Name::new("Vec".into()), vec![i32_ty]));
 
         let key1 = MonomorphKey::new(name, vec![i32_ty, bool_ty]);
         detector.begin_instantiation(key1);
@@ -396,14 +375,8 @@ mod tests {
     fn test_recursion_detector_stack() {
         let mut detector = RecursionDetector::new();
 
-        let key1 = MonomorphKey::new(
-            Name::new("f".into()),
-            vec![mk_type(Type::Int32)],
-        );
-        let key2 = MonomorphKey::new(
-            Name::new("g".into()),
-            vec![mk_type(Type::Bool)],
-        );
+        let key1 = MonomorphKey::new(Name::new("f".into()), vec![mk_type(Type::Int32)]);
+        let key2 = MonomorphKey::new(Name::new("g".into()), vec![mk_type(Type::Bool)]);
 
         detector.begin_instantiation(key1.clone());
         detector.begin_instantiation(key2.clone());
@@ -442,10 +415,7 @@ mod tests {
         assert_eq!(key1, key2);
 
         // Different name
-        let key3 = MonomorphKey::new(
-            Name::new("bar".into()),
-            vec![mk_type(Type::Int32)],
-        );
+        let key3 = MonomorphKey::new(Name::new("bar".into()), vec![mk_type(Type::Int32)]);
         assert_ne!(key1, key3);
 
         // Different type args

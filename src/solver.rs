@@ -103,9 +103,7 @@ impl Constraint {
             Constraint::Field(struct_ty, _, ft, _) => {
                 struct_ty.solved_inst(inst) && ft.solved_inst(inst)
             }
-            Constraint::ArrayOf(arr, elem, _) => {
-                arr.solved_inst(inst) && elem.solved_inst(inst)
-            }
+            Constraint::ArrayOf(arr, elem, _) => arr.solved_inst(inst) && elem.solved_inst(inst),
         }
     }
 
@@ -126,7 +124,10 @@ impl Constraint {
                 format!("{} == {}", a.subst(inst), b.subst(inst))
             }
             Constraint::Or(a, alts, _) => {
-                let alt_strs: Vec<String> = alts.iter().map(|t| format!("{}", t.ty.subst(inst))).collect();
+                let alt_strs: Vec<String> = alts
+                    .iter()
+                    .map(|t| format!("{}", t.ty.subst(inst)))
+                    .collect();
                 format!("{} is one of [{}]", a.subst(inst), alt_strs.join(", "))
             }
             Constraint::Field(a, name, b, _) => {

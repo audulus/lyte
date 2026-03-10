@@ -39,15 +39,13 @@ fn type_to_string(ty: TypeID) -> String {
         Type::Float64 => "f64".to_string(),
 
         Type::Tuple(types) => {
-            let type_strs: Vec<_> = types.iter()
-                .map(|t| type_to_string(*t))
-                .collect();
+            let type_strs: Vec<_> = types.iter().map(|t| type_to_string(*t)).collect();
             format!("({})", type_strs.join(","))
         }
 
         Type::Array(elem_ty, size) => {
             format!("[{};{}]", type_to_string(*elem_ty), size)
-        }  // Display impl handles both Known and Var
+        } // Display impl handles both Known and Var
 
         Type::Func(from, to) => {
             format!("fn({})_{}", type_to_string(*from), type_to_string(*to))
@@ -57,9 +55,7 @@ fn type_to_string(ty: TypeID) -> String {
             if params.is_empty() {
                 format!("{}", name)
             } else {
-                let param_strs: Vec<_> = params.iter()
-                    .map(|p| type_to_string(*p))
-                    .collect();
+                let param_strs: Vec<_> = params.iter().map(|p| type_to_string(*p)).collect();
                 format!("{}<{}>", name, param_strs.join(","))
             }
         }
@@ -100,10 +96,7 @@ mod tests {
     #[test]
     fn test_mangle_multiple_primitives() {
         let name = Name::new("map".into());
-        let type_args = vec![
-            mk_type(Type::Int32),
-            mk_type(Type::Bool),
-        ];
+        let type_args = vec![mk_type(Type::Int32), mk_type(Type::Bool)];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(mangled, Name::new("map$i32$bool".into()));
     }
@@ -133,7 +126,10 @@ mod tests {
     #[test]
     fn test_mangle_array_type() {
         let name = Name::new("process".into());
-        let type_args = vec![mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(10)))];
+        let type_args = vec![mk_type(Type::Array(
+            mk_type(Type::Float32),
+            ArraySize::Known(10),
+        ))];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(mangled, Name::new("process$[f32;10]".into()));
     }
@@ -141,10 +137,7 @@ mod tests {
     #[test]
     fn test_mangle_tuple_type() {
         let name = Name::new("swap".into());
-        let tuple_ty = mk_type(Type::Tuple(vec![
-            mk_type(Type::Int32),
-            mk_type(Type::Bool),
-        ]));
+        let tuple_ty = mk_type(Type::Tuple(vec![mk_type(Type::Int32), mk_type(Type::Bool)]));
         let type_args = vec![tuple_ty];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(mangled, Name::new("swap$(i32,bool)".into()));
@@ -153,10 +146,7 @@ mod tests {
     #[test]
     fn test_mangle_function_type() {
         let name = Name::new("apply".into());
-        let func_ty = mk_type(Type::Func(
-            mk_type(Type::Int32),
-            mk_type(Type::Bool),
-        ));
+        let func_ty = mk_type(Type::Func(mk_type(Type::Int32), mk_type(Type::Bool)));
         let type_args = vec![func_ty];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(mangled, Name::new("apply$fn(i32)_bool".into()));
@@ -191,10 +181,7 @@ mod tests {
             Name::new("GenericStruct".into()),
             vec![mk_type(Type::Int32)],
         ));
-        let outer = mk_type(Type::Name(
-            Name::new("GenericStruct".into()),
-            vec![inner],
-        ));
+        let outer = mk_type(Type::Name(Name::new("GenericStruct".into()), vec![inner]));
         let type_args = vec![outer];
         let mangled = mangle_name(name, &type_args);
         assert_eq!(
@@ -207,21 +194,12 @@ mod tests {
     fn test_mangle_complex_combination() {
         let name = Name::new("complex".into());
         // Array of tuples containing a function
-        let func_ty = mk_type(Type::Func(
-            mk_type(Type::Int32),
-            mk_type(Type::Bool),
-        ));
-        let tuple_ty = mk_type(Type::Tuple(vec![
-            func_ty,
-            mk_type(Type::Float32),
-        ]));
+        let func_ty = mk_type(Type::Func(mk_type(Type::Int32), mk_type(Type::Bool)));
+        let tuple_ty = mk_type(Type::Tuple(vec![func_ty, mk_type(Type::Float32)]));
         let array_ty = mk_type(Type::Array(tuple_ty, ArraySize::Known(5)));
         let type_args = vec![array_ty];
         let mangled = mangle_name(name, &type_args);
-        assert_eq!(
-            mangled,
-            Name::new("complex$[(fn(i32)_bool,f32);5]".into())
-        );
+        assert_eq!(mangled, Name::new("complex$[(fn(i32)_bool,f32);5]".into()));
     }
 
     #[test]
@@ -250,14 +228,8 @@ mod tests {
         assert_ne!(mangled1, mangled2);
 
         // id<i32, bool> and id<bool, i32> should be different
-        let mangled3 = mangle_name(
-            name,
-            &[mk_type(Type::Int32), mk_type(Type::Bool)],
-        );
-        let mangled4 = mangle_name(
-            name,
-            &[mk_type(Type::Bool), mk_type(Type::Int32)],
-        );
+        let mangled3 = mangle_name(name, &[mk_type(Type::Int32), mk_type(Type::Bool)]);
+        let mangled4 = mangle_name(name, &[mk_type(Type::Bool), mk_type(Type::Int32)]);
         assert_ne!(mangled3, mangled4);
     }
 

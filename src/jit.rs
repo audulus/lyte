@@ -6,6 +6,7 @@ use crate::expr::*;
 use crate::DeclTable;
 use crate::Instance;
 extern crate cranelift_codegen;
+use core::panic;
 use cranelift::codegen::{self, settings};
 use cranelift::prelude::isa::CallConv;
 use cranelift::prelude::types::*;
@@ -13,7 +14,6 @@ use cranelift::prelude::*;
 use cranelift_codegen::verifier::verify_function;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
-use core::panic;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
@@ -147,9 +147,7 @@ impl JIT {
         decls: &DeclTable,
         decl: &FuncDecl,
     ) -> Result<cranelift_module::FuncId, String> {
-        self.ctx.func.signature = fn_sig(&self.module,
-            decl.domain(),
-            decl.ret);
+        self.ctx.func.signature = fn_sig(&self.module, decl.domain(), decl.ret);
 
         // Add globals base pointer as first parameter to all functions.
         self.ctx.func.signature.params.insert(0, AbiParam::new(I64));
@@ -169,7 +167,11 @@ impl JIT {
 
         // Print the generated IR
         if self.print_ir {
-            println!("Generated IR for \"{}\":\n{}", decl.name, self.ctx.func.display());
+            println!(
+                "Generated IR for \"{}\":\n{}",
+                decl.name,
+                self.ctx.func.display()
+            );
         }
 
         // Define the function to jit. This finishes compilation, although
@@ -224,7 +226,12 @@ impl JIT {
         self.globals_size = offset as usize;
     }
 
-    fn function_body(&mut self, decls: &DeclTable, decl: &FuncDecl, has_globals: bool) -> (HashSet<Name>, Vec<FuncDecl>) {
+    fn function_body(
+        &mut self,
+        decls: &DeclTable,
+        decl: &FuncDecl,
+        has_globals: bool,
+    ) -> (HashSet<Name>, Vec<FuncDecl>) {
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -272,15 +279,24 @@ impl JIT {
             None
         };
 
-        let mut trans = FunctionTranslator::new(builder, &mut self.module, &self.globals, globals_base, output_ptr, &mut self.lambda_counter);
+        let mut trans = FunctionTranslator::new(
+            builder,
+            &mut self.module,
+            &self.globals,
+            globals_base,
+            output_ptr,
+            &mut self.lambda_counter,
+        );
 
         // Set up captured variables from the closure pointer.
         if let Some(closure_ptr_val) = closure_ptr {
             for (i, cv) in decl.closure_vars.iter().enumerate() {
                 // Each slot in the closure struct holds a pointer to the captured variable's storage.
-                let var_ptr = trans.builder.ins().load(
-                    I64, MemFlags::new(), closure_ptr_val, (i * 8) as i32,
-                );
+                let var_ptr =
+                    trans
+                        .builder
+                        .ins()
+                        .load(I64, MemFlags::new(), closure_ptr_val, (i * 8) as i32);
                 let var = trans.declare_variable(&cv.name.to_string(), I64);
                 trans.builder.def_var(var, var_ptr);
                 // NOT added to let_bindings → acts as a var binding (accessed through the pointer).
@@ -307,7 +323,9 @@ impl JIT {
                 let size = decl.ret.size(decls) as i64;
                 let size_val = trans.builder.ins().iconst(I64, size);
                 // Use memcpy to copy the data.
-                trans.builder.call_memcpy(trans.module.target_config(), output, result, size_val);
+                trans
+                    .builder
+                    .call_memcpy(trans.module.target_config(), output, result, size_val);
                 trans.builder.ins().return_(&[]);
             } else if *decl.ret == crate::Type::Void {
                 trans.builder.ins().return_(&[]);
@@ -369,7 +387,10 @@ impl crate::Type {
     // using a pointer or is the value in the register?
     fn is_ptr(&self) -> bool {
         match self {
-            crate::Type::Name(_, _) | crate::Type::Tuple(_) | crate::Type::Array(_, _) | crate::Type::Slice(_) => true,
+            crate::Type::Name(_, _)
+            | crate::Type::Tuple(_)
+            | crate::Type::Array(_, _)
+            | crate::Type::Slice(_) => true,
             _ => false,
         }
     }
@@ -484,7 +505,9 @@ impl<'a> FunctionTranslator<'a> {
         let base = self.globals_base.expect("globals_base not set");
         let flag = self.builder.ins().load(I8, MemFlags::trusted(), base, 0);
         let is_set = self.builder.ins().icmp_imm(IntCC::NotEqual, flag, 0);
-        self.builder.ins().brif(is_set, cancel_block, &[], continue_block, &[]);
+        self.builder
+            .ins()
+            .brif(is_set, cancel_block, &[], continue_block, &[]);
 
         self.builder.switch_to_block(cancel_block);
         self.builder.seal_block(cancel_block);
@@ -509,7 +532,10 @@ impl<'a> FunctionTranslator<'a> {
                     let base = self.globals_base.expect("globals_base not set");
                     self.builder.ins().iadd_imm(base, offset as i64)
                 } else {
-                    panic!("JIT: unknown lvalue variable {:?} (not local or global)", name);
+                    panic!(
+                        "JIT: unknown lvalue variable {:?} (not local or global)",
+                        name
+                    );
                 }
             }
             Expr::Field(lhs, name) => {
@@ -522,7 +548,10 @@ impl<'a> FunctionTranslator<'a> {
                         let off_value = self.builder.ins().iconst(I64, off as i64);
                         self.builder.ins().iadd(lhs_value, off_value)
                     } else {
-                        panic!("JIT lvalue field: expected struct decl for {:?}, got {:?}", struct_name, struct_decl[0]);
+                        panic!(
+                            "JIT lvalue field: expected struct decl for {:?}, got {:?}",
+                            struct_name, struct_decl[0]
+                        );
                     }
                 } else {
                     panic!("JIT lvalue field: expected struct type, got {:?}", lhs_ty);
@@ -535,14 +564,20 @@ impl<'a> FunctionTranslator<'a> {
                 let (elem_ty, is_sl) = match &*lhs_ty {
                     crate::Type::Array(ty, _) => (*ty, false),
                     crate::Type::Slice(ty) => (*ty, true),
-                    _ => panic!("JIT lvalue subscript: expected array or slice type, got {:?}", lhs_ty),
+                    _ => panic!(
+                        "JIT lvalue subscript: expected array or slice type, got {:?}",
+                        lhs_ty
+                    ),
                 };
                 let data_ptr = if is_sl {
                     self.builder.ins().load(I64, MemFlags::new(), lhs_val, 0)
                 } else {
                     lhs_val
                 };
-                let off = self.builder.ins().imul_imm(rhs_val, elem_ty.size(decls) as i64);
+                let off = self
+                    .builder
+                    .ins()
+                    .imul_imm(rhs_val, elem_ty.size(decls) as i64);
                 let off = self.builder.ins().uextend(I64, off);
                 self.builder.ins().iadd(data_ptr, off)
             }
@@ -583,7 +618,9 @@ impl<'a> FunctionTranslator<'a> {
                     // Global variable - load from base + offset.
                     let base = self.globals_base.expect("globals_base not set");
                     let addr = self.builder.ins().iadd_imm(base, offset as i64);
-                    self.builder.ins().load(ty.cranelift_type(), MemFlags::new(), addr, 0)
+                    self.builder
+                        .ins()
+                        .load(ty.cranelift_type(), MemFlags::new(), addr, 0)
                 } else {
                     self.translate_func(name, &*ty)
                 }
@@ -655,7 +692,11 @@ impl<'a> FunctionTranslator<'a> {
                             // If the callee expects a slice, wrap sized arrays in a fat pointer.
                             if i < param_types.len() {
                                 if is_slice(param_types[i]) {
-                                    args.push(self.wrap_as_slice(arg_val, decl.types[*arg_id], decls));
+                                    args.push(self.wrap_as_slice(
+                                        arg_val,
+                                        decl.types[*arg_id],
+                                        decls,
+                                    ));
                                     continue;
                                 }
                             }
@@ -676,7 +717,10 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().iconst(I32, 0)
                     }
                 } else {
-                    panic!("JIT call: expected function type, got {:?}", decl.types[*fn_id]);
+                    panic!(
+                        "JIT call: expected function type, got {:?}",
+                        decl.types[*fn_id]
+                    );
                 }
             }
             Expr::Let(name, init, _) => {
@@ -749,7 +793,10 @@ impl<'a> FunctionTranslator<'a> {
                                 .load(load_ty, MemFlags::new(), lhs_val, off)
                         }
                     } else {
-                        panic!("JIT field access: no struct declaration found for {:?}", struct_name);
+                        panic!(
+                            "JIT field access: no struct declaration found for {:?}",
+                            struct_name
+                        );
                     }
                 } else if let crate::Type::Tuple(elem_types) = &*lhs_ty {
                     // Tuple field access: x.0, x.1, etc.
@@ -769,7 +816,10 @@ impl<'a> FunctionTranslator<'a> {
                             .load(load_ty, MemFlags::new(), lhs_val, off)
                     }
                 } else {
-                    panic!("JIT field access: expected struct or tuple type, got {:?}", lhs_ty);
+                    panic!(
+                        "JIT field access: expected struct or tuple type, got {:?}",
+                        lhs_ty
+                    );
                 }
             }
             Expr::ArrayIndex(lhs, rhs) => {
@@ -779,14 +829,20 @@ impl<'a> FunctionTranslator<'a> {
                 let (elem_ty, is_sl) = match &*lhs_ty {
                     crate::Type::Array(ty, _) => (*ty, false),
                     crate::Type::Slice(ty) => (*ty, true),
-                    _ => panic!("JIT subscript: expected array or slice type, got {:?}", lhs_ty),
+                    _ => panic!(
+                        "JIT subscript: expected array or slice type, got {:?}",
+                        lhs_ty
+                    ),
                 };
                 let data_ptr = if is_sl {
                     self.builder.ins().load(I64, MemFlags::new(), lhs_val, 0)
                 } else {
                     lhs_val
                 };
-                let off = self.builder.ins().imul_imm(rhs_val, elem_ty.size(decls) as i64);
+                let off = self
+                    .builder
+                    .ins()
+                    .imul_imm(rhs_val, elem_ty.size(decls) as i64);
                 let off = self.builder.ins().uextend(I64, off);
                 let p = self.builder.ins().iadd(data_ptr, off);
                 let result_ty = decl.types[expr];
@@ -829,9 +885,11 @@ impl<'a> FunctionTranslator<'a> {
                     }
 
                     addr
-
                 } else {
-                    panic!("JIT array literal: expected array type, got {:?}", decl.types[expr]);
+                    panic!(
+                        "JIT array literal: expected array type, got {:?}",
+                        decl.types[expr]
+                    );
                 }
             }
             Expr::Block(exprs) => {
@@ -853,7 +911,9 @@ impl<'a> FunctionTranslator<'a> {
                 let merge_block = self.builder.create_block();
 
                 // Branch based on condition.
-                self.builder.ins().brif(cond_val, then_block, &[], else_block, &[]);
+                self.builder
+                    .ins()
+                    .brif(cond_val, then_block, &[], else_block, &[]);
 
                 // Then block.
                 self.builder.switch_to_block(then_block);
@@ -885,7 +945,12 @@ impl<'a> FunctionTranslator<'a> {
                 // If we need if-as-expression, we'd use block parameters.
                 self.builder.ins().iconst(I32, 0)
             }
-            Expr::For { var, start, end, body } => {
+            Expr::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 // Evaluate start and end values.
                 let start_val = self.translate_expr(*start, decl, decls);
                 let end_val = self.translate_expr(*end, decl, decls);
@@ -906,8 +971,13 @@ impl<'a> FunctionTranslator<'a> {
                 // Header block: check condition (loop_var < end).
                 self.builder.switch_to_block(header_block);
                 let current_val = self.builder.use_var(loop_var);
-                let cond = self.builder.ins().icmp(IntCC::SignedLessThan, current_val, end_val);
-                self.builder.ins().brif(cond, body_block, &[], exit_block, &[]);
+                let cond = self
+                    .builder
+                    .ins()
+                    .icmp(IntCC::SignedLessThan, current_val, end_val);
+                self.builder
+                    .ins()
+                    .brif(cond, body_block, &[], exit_block, &[]);
 
                 // Body block.
                 self.builder.switch_to_block(body_block);
@@ -942,10 +1012,13 @@ impl<'a> FunctionTranslator<'a> {
 
                 if returns_via_pointer(ret_ty) {
                     // Copy result to output pointer and return void.
-                    let output = self.output_ptr.expect("output_ptr not set for pointer return");
+                    let output = self
+                        .output_ptr
+                        .expect("output_ptr not set for pointer return");
                     let size = ret_ty.size(decls) as i64;
                     let size_val = self.builder.ins().iconst(I64, size);
-                    self.builder.call_memcpy(self.module.target_config(), output, result, size_val);
+                    self.builder
+                        .call_memcpy(self.module.target_config(), output, result, size_val);
                     self.builder.ins().return_(&[]);
                 } else {
                     self.builder.ins().return_(&[result]);
@@ -973,7 +1046,9 @@ impl<'a> FunctionTranslator<'a> {
                 // Header block: evaluate condition.
                 self.builder.switch_to_block(header_block);
                 let cond_val = self.translate_expr(*cond_id, decl, decls);
-                self.builder.ins().brif(cond_val, body_block, &[], exit_block, &[]);
+                self.builder
+                    .ins()
+                    .brif(cond_val, body_block, &[], exit_block, &[]);
 
                 // Body block.
                 self.builder.switch_to_block(body_block);
@@ -1030,7 +1105,10 @@ impl<'a> FunctionTranslator<'a> {
 
                     addr
                 } else {
-                    panic!("JIT tuple expression: expected tuple type, got {:?}", decl.types[expr]);
+                    panic!(
+                        "JIT tuple expression: expected tuple type, got {:?}",
+                        decl.types[expr]
+                    );
                 }
             }
             Expr::Lambda { params, body } => {
@@ -1041,16 +1119,24 @@ impl<'a> FunctionTranslator<'a> {
                         *self.lambda_counter += 1;
                         let lambda_name = Name::new(format!("__lambda_{}", id));
 
-                        let lambda_params: Vec<Param> = params.iter().zip(param_types.iter())
-                            .map(|(p, ty)| Param { name: p.name, ty: Some(*ty) })
+                        let lambda_params: Vec<Param> = params
+                            .iter()
+                            .zip(param_types.iter())
+                            .map(|(p, ty)| Param {
+                                name: p.name,
+                                ty: Some(*ty),
+                            })
                             .collect();
 
                         // Compute free variables captured from the enclosing scope.
-                        let param_names: std::collections::HashSet<String> = params.iter()
-                            .map(|p| p.name.to_string())
-                            .collect();
+                        let param_names: std::collections::HashSet<String> =
+                            params.iter().map(|p| p.name.to_string()).collect();
                         let free_vars = collect_free_var_names(
-                            *body, &decl.arena, &param_names, &self.variables, &decl.types,
+                            *body,
+                            &decl.arena,
+                            &param_names,
+                            &self.variables,
+                            &decl.types,
                         );
 
                         // Allocate a closure struct on the stack; each slot holds the address
@@ -1067,7 +1153,10 @@ impl<'a> FunctionTranslator<'a> {
                             for (i, (name, ty)) in free_vars.iter().enumerate() {
                                 let var_ptr = self.get_var_address(name, *ty, decls);
                                 self.builder.ins().store(
-                                    MemFlags::new(), var_ptr, closure_addr, (i * 8) as i32,
+                                    MemFlags::new(),
+                                    var_ptr,
+                                    closure_addr,
+                                    (i * 8) as i32,
                                 );
                             }
                             closure_addr
@@ -1075,8 +1164,12 @@ impl<'a> FunctionTranslator<'a> {
                             self.builder.ins().iconst(I64, 0)
                         };
 
-                        let closure_vars: Vec<ClosureVar> = free_vars.iter()
-                            .map(|(name, ty)| ClosureVar { name: Name::new(name.clone()), ty: *ty })
+                        let closure_vars: Vec<ClosureVar> = free_vars
+                            .iter()
+                            .map(|(name, ty)| ClosureVar {
+                                name: Name::new(name.clone()),
+                                ty: *ty,
+                            })
                             .collect();
 
                         let lambda_decl = FuncDecl {
@@ -1098,10 +1191,12 @@ impl<'a> FunctionTranslator<'a> {
                         let mut sig = fn_sig(&self.module, dom, rng);
                         sig.params.insert(0, AbiParam::new(I64)); // globals_base
                         sig.params.insert(1, AbiParam::new(I64)); // closure_ptr
-                        let callee = self.module
+                        let callee = self
+                            .module
                             .declare_function(&*lambda_name, Linkage::Export, &sig)
                             .expect("problem declaring lambda");
-                        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+                        let local_callee =
+                            self.module.declare_func_in_func(callee, self.builder.func);
                         let fn_ptr = self.builder.ins().func_addr(I64, local_callee);
 
                         // Build a fat pointer pair {fn_ptr, closure_ptr} on the stack.
@@ -1112,8 +1207,12 @@ impl<'a> FunctionTranslator<'a> {
                             key: None,
                         });
                         let pair_addr = self.builder.ins().stack_addr(I64, pair_slot, 0);
-                        self.builder.ins().store(MemFlags::new(), fn_ptr, pair_addr, 0);
-                        self.builder.ins().store(MemFlags::new(), closure_ptr_val, pair_addr, 8);
+                        self.builder
+                            .ins()
+                            .store(MemFlags::new(), fn_ptr, pair_addr, 0);
+                        self.builder
+                            .ins()
+                            .store(MemFlags::new(), closure_ptr_val, pair_addr, 8);
                         pair_addr
                     } else {
                         panic!("JIT lambda: expected tuple domain type, got {:?}", dom);
@@ -1157,19 +1256,18 @@ impl<'a> FunctionTranslator<'a> {
                     (crate::Type::Float64, crate::Type::Float32) => {
                         self.builder.ins().fdemote(F32, val)
                     }
-                    (crate::Type::Int8, crate::Type::Int32) => {
-                        self.builder.ins().sextend(I32, val)
-                    }
-                    (crate::Type::Int32, crate::Type::Int8) => {
-                        self.builder.ins().ireduce(I8, val)
-                    }
+                    (crate::Type::Int8, crate::Type::Int32) => self.builder.ins().sextend(I32, val),
+                    (crate::Type::Int32, crate::Type::Int8) => self.builder.ins().ireduce(I8, val),
                     _ => val,
                 }
             }
             Expr::Enum(case_name) => {
                 let index = if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
                     let enum_decls = decls.find(*enum_name);
-                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls.iter().find(|d| matches!(d, crate::Decl::Enum { .. })) {
+                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls
+                        .iter()
+                        .find(|d| matches!(d, crate::Decl::Enum { .. }))
+                    {
                         cases.iter().position(|c| c == case_name).unwrap_or(0) as i64
                     } else {
                         0
@@ -1206,7 +1304,9 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.ins().stack_store(val, slot, i as i32);
                 }
                 let null = self.builder.ins().iconst(I8, 0);
-                self.builder.ins().stack_store(null, slot, bytes.len() as i32);
+                self.builder
+                    .ins()
+                    .stack_store(null, slot, bytes.len() as i32);
                 addr
             }
             _ => {
@@ -1255,17 +1355,27 @@ impl<'a> FunctionTranslator<'a> {
             crate::Type::Slice(_) => 4,
             crate::Type::Int8 | crate::Type::UInt8 | crate::Type::Bool => 1,
             crate::Type::Float64 => 8,
-            crate::Type::Tuple(fields) => fields.iter().map(|f| Self::type_align(f, decls)).max().unwrap_or(1),
+            crate::Type::Tuple(fields) => fields
+                .iter()
+                .map(|f| Self::type_align(f, decls))
+                .max()
+                .unwrap_or(1),
             crate::Type::Name(name, vars) => {
                 let decl = decls.find(*name);
                 if decl.len() == 1 {
                     if let crate::decl::Decl::Struct(sdecl) = &decl[0] {
-                        let inst: crate::Instance = sdecl.typevars.iter().zip(vars.iter())
+                        let inst: crate::Instance = sdecl
+                            .typevars
+                            .iter()
+                            .zip(vars.iter())
                             .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
-                        sdecl.fields.iter()
+                        sdecl
+                            .fields
+                            .iter()
                             .map(|f| Self::type_align(&f.ty.subst(&inst), decls))
-                            .max().unwrap_or(1)
+                            .max()
+                            .unwrap_or(1)
                     } else {
                         4
                     }
@@ -1280,13 +1390,7 @@ impl<'a> FunctionTranslator<'a> {
         std::cmp::min(natural, max_align as u8)
     }
 
-    fn gen_copy(
-        &mut self,
-        t: crate::TypeID,
-        dst: Value,
-        src: Value,
-        decls: &crate::DeclTable,
-    ) {
+    fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &crate::DeclTable) {
         if t.is_ptr() {
             let size = t.size(decls) as u64;
             let align = Self::type_align(&t, decls);
@@ -1305,17 +1409,14 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn gen_zero(
-        &mut self,
-        t: crate::TypeID,
-        dst: Value,
-        decls: &crate::DeclTable,
-    ) {
+    fn gen_zero(&mut self, t: crate::TypeID, dst: Value, decls: &crate::DeclTable) {
         let size = t.size(decls) as u32;
         let zero = self.builder.ins().iconst(I8, 0);
         // Store zero byte-by-byte for the size of the type
         for offset in 0..size {
-            self.builder.ins().store(MemFlags::new(), zero, dst, offset as i32);
+            self.builder
+                .ins()
+                .store(MemFlags::new(), zero, dst, offset as i32);
         }
     }
 
@@ -1341,9 +1442,11 @@ impl<'a> FunctionTranslator<'a> {
             )
         } else {
             match *t {
-                crate::types::Type::Bool | crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                    self.builder.ins().icmp(IntCC::Equal, dst, src)
-                }
+                crate::types::Type::Bool
+                | crate::types::Type::Int32
+                | crate::types::Type::UInt32
+                | crate::types::Type::Int8
+                | crate::types::Type::UInt8 => self.builder.ins().icmp(IntCC::Equal, dst, src),
                 crate::types::Type::Float32 | crate::types::Type::Float64 => {
                     self.builder.ins().fcmp(FloatCC::Equal, dst, src)
                 }
@@ -1367,9 +1470,10 @@ impl<'a> FunctionTranslator<'a> {
                 let t = decl.types[lhs_id];
 
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                        self.builder.ins().iadd(lhs, rhs)
-                    }
+                    crate::types::Type::Int32
+                    | crate::types::Type::UInt32
+                    | crate::types::Type::Int8
+                    | crate::types::Type::UInt8 => self.builder.ins().iadd(lhs, rhs),
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fadd(lhs, rhs)
                     }
@@ -1382,9 +1486,10 @@ impl<'a> FunctionTranslator<'a> {
                 let t = decl.types[lhs_id];
 
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                        self.builder.ins().isub(lhs, rhs)
-                    }
+                    crate::types::Type::Int32
+                    | crate::types::Type::UInt32
+                    | crate::types::Type::Int8
+                    | crate::types::Type::UInt8 => self.builder.ins().isub(lhs, rhs),
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fsub(lhs, rhs)
                     }
@@ -1396,9 +1501,10 @@ impl<'a> FunctionTranslator<'a> {
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                        self.builder.ins().imul(lhs, rhs)
-                    }
+                    crate::types::Type::Int32
+                    | crate::types::Type::UInt32
+                    | crate::types::Type::Int8
+                    | crate::types::Type::UInt8 => self.builder.ins().imul(lhs, rhs),
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fmul(lhs, rhs)
                     }
@@ -1410,9 +1516,10 @@ impl<'a> FunctionTranslator<'a> {
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                        self.builder.ins().udiv(lhs, rhs)
-                    }
+                    crate::types::Type::Int32
+                    | crate::types::Type::UInt32
+                    | crate::types::Type::Int8
+                    | crate::types::Type::UInt8 => self.builder.ins().udiv(lhs, rhs),
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fdiv(lhs, rhs)
                     }
@@ -1424,9 +1531,10 @@ impl<'a> FunctionTranslator<'a> {
                 let rhs = self.translate_expr(rhs_id, decl, decls);
                 let t = decl.types[lhs_id];
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
-                        self.builder.ins().urem(lhs, rhs)
-                    }
+                    crate::types::Type::Int32
+                    | crate::types::Type::UInt32
+                    | crate::types::Type::Int8
+                    | crate::types::Type::UInt8 => self.builder.ins().urem(lhs, rhs),
                     _ => unreachable!("type {:?} not supported for modulo", t),
                 }
             }
@@ -1449,7 +1557,11 @@ impl<'a> FunctionTranslator<'a> {
                 let t = decl.types[lhs_id];
 
                 match *t {
-                    crate::types::Type::Bool | crate::types::Type::Int32 | crate::types::Type::UInt32 | crate::types::Type::Int8 | crate::types::Type::UInt8 => {
+                    crate::types::Type::Bool
+                    | crate::types::Type::Int32
+                    | crate::types::Type::UInt32
+                    | crate::types::Type::Int8
+                    | crate::types::Type::UInt8 => {
                         self.builder.ins().icmp(IntCC::NotEqual, lhs, rhs)
                     }
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
@@ -1489,9 +1601,10 @@ impl<'a> FunctionTranslator<'a> {
                     crate::types::Type::Int32 | crate::types::Type::Int8 => {
                         self.builder.ins().icmp(IntCC::SignedGreaterThan, lhs, rhs)
                     }
-                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => {
-                        self.builder.ins().icmp(IntCC::UnsignedGreaterThan, lhs, rhs)
-                    }
+                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => self
+                        .builder
+                        .ins()
+                        .icmp(IntCC::UnsignedGreaterThan, lhs, rhs),
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs)
                     }
@@ -1504,12 +1617,14 @@ impl<'a> FunctionTranslator<'a> {
                 let t = decl.types[lhs_id];
 
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::Int8 => {
-                        self.builder.ins().icmp(IntCC::SignedLessThanOrEqual, lhs, rhs)
-                    }
-                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => {
-                        self.builder.ins().icmp(IntCC::UnsignedLessThanOrEqual, lhs, rhs)
-                    }
+                    crate::types::Type::Int32 | crate::types::Type::Int8 => self
+                        .builder
+                        .ins()
+                        .icmp(IntCC::SignedLessThanOrEqual, lhs, rhs),
+                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => self
+                        .builder
+                        .ins()
+                        .icmp(IntCC::UnsignedLessThanOrEqual, lhs, rhs),
                     crate::types::Type::Float32 | crate::types::Type::Float64 => {
                         self.builder.ins().fcmp(FloatCC::LessThanOrEqual, lhs, rhs)
                     }
@@ -1522,15 +1637,18 @@ impl<'a> FunctionTranslator<'a> {
                 let t = decl.types[lhs_id];
 
                 match *t {
-                    crate::types::Type::Int32 | crate::types::Type::Int8 => {
-                        self.builder.ins().icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs)
-                    }
-                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => {
-                        self.builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, lhs, rhs)
-                    }
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
-                        self.builder.ins().fcmp(FloatCC::GreaterThanOrEqual, lhs, rhs)
-                    }
+                    crate::types::Type::Int32 | crate::types::Type::Int8 => self
+                        .builder
+                        .ins()
+                        .icmp(IntCC::SignedGreaterThanOrEqual, lhs, rhs),
+                    crate::types::Type::UInt32 | crate::types::Type::UInt8 => self
+                        .builder
+                        .ins()
+                        .icmp(IntCC::UnsignedGreaterThanOrEqual, lhs, rhs),
+                    crate::types::Type::Float32 | crate::types::Type::Float64 => self
+                        .builder
+                        .ins()
+                        .fcmp(FloatCC::GreaterThanOrEqual, lhs, rhs),
                     _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
@@ -1546,7 +1664,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             _ => {
                 panic!("JIT: unimplemented binary operation: {:?}", binop);
-            },
+            }
         }
     }
 
@@ -1601,18 +1719,30 @@ impl<'a> FunctionTranslator<'a> {
             });
             let pair_addr = self.builder.ins().stack_addr(I64, slot, 0);
             let null = self.builder.ins().iconst(I64, 0);
-            self.builder.ins().store(MemFlags::new(), fn_ptr, pair_addr, 0);
-            self.builder.ins().store(MemFlags::new(), null, pair_addr, 8);
+            self.builder
+                .ins()
+                .store(MemFlags::new(), fn_ptr, pair_addr, 0);
+            self.builder
+                .ins()
+                .store(MemFlags::new(), null, pair_addr, 8);
             pair_addr
         } else {
-            panic!("JIT wrap_as_func_pair: expected function type, got {:?}", ty);
+            panic!(
+                "JIT wrap_as_func_pair: expected function type, got {:?}",
+                ty
+            );
         }
     }
 
     /// Returns the address of a variable's storage for use in a closure struct.
     /// For var bindings the variable already holds a pointer; for let bindings
     /// a fresh stack slot is allocated and the value is copied into it.
-    fn get_var_address(&mut self, name: &str, ty: crate::TypeID, decls: &crate::DeclTable) -> Value {
+    fn get_var_address(
+        &mut self,
+        name: &str,
+        ty: crate::TypeID,
+        decls: &crate::DeclTable,
+    ) -> Value {
         if let Some(&var) = self.variables.get(name) {
             if self.let_bindings.contains(name) {
                 // let binding: allocate a slot, copy the value in, capture the slot address.
@@ -1641,7 +1771,12 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Wraps a sized array value in a slice fat pointer {data_ptr, len} on the stack.
     /// If the value is already a slice, returns it as-is.
-    fn wrap_as_slice(&mut self, val: Value, actual_ty: crate::TypeID, _decls: &crate::DeclTable) -> Value {
+    fn wrap_as_slice(
+        &mut self,
+        val: Value,
+        actual_ty: crate::TypeID,
+        _decls: &crate::DeclTable,
+    ) -> Value {
         match &*actual_ty {
             crate::Type::Slice(_) => {
                 // Already a slice fat pointer, pass through.
@@ -1658,11 +1793,16 @@ impl<'a> FunctionTranslator<'a> {
                 });
                 let fat_addr = self.builder.ins().stack_addr(I64, slot, 0);
                 self.builder.ins().store(MemFlags::new(), val, fat_addr, 0);
-                self.builder.ins().store(MemFlags::new(), len_val, fat_addr, 8);
+                self.builder
+                    .ins()
+                    .store(MemFlags::new(), len_val, fat_addr, 8);
                 fat_addr
             }
             _ => {
-                panic!("JIT wrap_as_slice: expected array type, got {:?}", actual_ty);
+                panic!(
+                    "JIT wrap_as_slice: expected array type, got {:?}",
+                    actual_ty
+                );
             }
         }
     }
@@ -1691,7 +1831,15 @@ fn collect_free_var_names(
 ) -> Vec<(String, crate::TypeID)> {
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    collect_free_vars_rec(body, arena, exclude, local_vars, types, &mut result, &mut seen);
+    collect_free_vars_rec(
+        body,
+        arena,
+        exclude,
+        local_vars,
+        types,
+        &mut result,
+        &mut seen,
+    );
     result
 }
 
@@ -1744,7 +1892,9 @@ fn collect_free_vars_rec(
             collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
             collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
             collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
             collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
@@ -1790,7 +1940,15 @@ fn collect_free_vars_rec(
             for p in params {
                 inner_exclude.insert(p.name.to_string());
             }
-            collect_free_vars_rec(*body, arena, &inner_exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(
+                *body,
+                arena,
+                &inner_exclude,
+                local_vars,
+                types,
+                result,
+                seen,
+            );
         }
         Expr::Macro(_, args) => {
             for a in args {
@@ -1798,9 +1956,15 @@ fn collect_free_vars_rec(
             }
         }
         // Terminal expressions — no sub-expressions.
-        Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) | Expr::String(_)
-        | Expr::Char(_) | Expr::True | Expr::False
-        | Expr::Enum(_) | Expr::Error => {}
+        Expr::Int(_)
+        | Expr::UInt(_)
+        | Expr::Real(_)
+        | Expr::String(_)
+        | Expr::Char(_)
+        | Expr::True
+        | Expr::False
+        | Expr::Enum(_)
+        | Expr::Error => {}
     }
 }
 
@@ -1824,41 +1988,83 @@ extern "C" fn lyte_print_i64(val: i64) {
 }
 
 // Math builtins — f32 unary
-extern "C" fn lyte_sinf(x: f32) -> f32 { x.sin() }
-extern "C" fn lyte_cosf(x: f32) -> f32 { x.cos() }
-extern "C" fn lyte_tanf(x: f32) -> f32 { x.tan() }
-extern "C" fn lyte_lnf(x: f32) -> f32 { x.ln() }
-extern "C" fn lyte_expf(x: f32) -> f32 { x.exp() }
-extern "C" fn lyte_sqrtf(x: f32) -> f32 { x.sqrt() }
-extern "C" fn lyte_absf(x: f32) -> f32 { x.abs() }
-extern "C" fn lyte_floorf(x: f32) -> f32 { x.floor() }
-extern "C" fn lyte_ceilf(x: f32) -> f32 { x.ceil() }
+extern "C" fn lyte_sinf(x: f32) -> f32 {
+    x.sin()
+}
+extern "C" fn lyte_cosf(x: f32) -> f32 {
+    x.cos()
+}
+extern "C" fn lyte_tanf(x: f32) -> f32 {
+    x.tan()
+}
+extern "C" fn lyte_lnf(x: f32) -> f32 {
+    x.ln()
+}
+extern "C" fn lyte_expf(x: f32) -> f32 {
+    x.exp()
+}
+extern "C" fn lyte_sqrtf(x: f32) -> f32 {
+    x.sqrt()
+}
+extern "C" fn lyte_absf(x: f32) -> f32 {
+    x.abs()
+}
+extern "C" fn lyte_floorf(x: f32) -> f32 {
+    x.floor()
+}
+extern "C" fn lyte_ceilf(x: f32) -> f32 {
+    x.ceil()
+}
 
 // Math builtins — f64 unary
-extern "C" fn lyte_sind(x: f64) -> f64 { x.sin() }
-extern "C" fn lyte_cosd(x: f64) -> f64 { x.cos() }
-extern "C" fn lyte_tand(x: f64) -> f64 { x.tan() }
-extern "C" fn lyte_lnd(x: f64) -> f64 { x.ln() }
-extern "C" fn lyte_expd(x: f64) -> f64 { x.exp() }
-extern "C" fn lyte_sqrtd(x: f64) -> f64 { x.sqrt() }
-extern "C" fn lyte_absd(x: f64) -> f64 { x.abs() }
-extern "C" fn lyte_floord(x: f64) -> f64 { x.floor() }
-extern "C" fn lyte_ceild(x: f64) -> f64 { x.ceil() }
+extern "C" fn lyte_sind(x: f64) -> f64 {
+    x.sin()
+}
+extern "C" fn lyte_cosd(x: f64) -> f64 {
+    x.cos()
+}
+extern "C" fn lyte_tand(x: f64) -> f64 {
+    x.tan()
+}
+extern "C" fn lyte_lnd(x: f64) -> f64 {
+    x.ln()
+}
+extern "C" fn lyte_expd(x: f64) -> f64 {
+    x.exp()
+}
+extern "C" fn lyte_sqrtd(x: f64) -> f64 {
+    x.sqrt()
+}
+extern "C" fn lyte_absd(x: f64) -> f64 {
+    x.abs()
+}
+extern "C" fn lyte_floord(x: f64) -> f64 {
+    x.floor()
+}
+extern "C" fn lyte_ceild(x: f64) -> f64 {
+    x.ceil()
+}
 
 // Math builtins — f32 binary
-extern "C" fn lyte_powf(x: f32, y: f32) -> f32 { x.powf(y) }
-extern "C" fn lyte_atan2f(x: f32, y: f32) -> f32 { x.atan2(y) }
+extern "C" fn lyte_powf(x: f32, y: f32) -> f32 {
+    x.powf(y)
+}
+extern "C" fn lyte_atan2f(x: f32, y: f32) -> f32 {
+    x.atan2(y)
+}
 
 // Math builtins — f64 binary
-extern "C" fn lyte_powd(x: f64, y: f64) -> f64 { x.powf(y) }
-extern "C" fn lyte_atan2d(x: f64, y: f64) -> f64 { x.atan2(y) }
+extern "C" fn lyte_powd(x: f64, y: f64) -> f64 {
+    x.powf(y)
+}
+extern "C" fn lyte_atan2d(x: f64, y: f64) -> f64 {
+    x.atan2(y)
+}
 
 const BUILTIN_NAMES: &[&str] = &[
-    "assert", "print", "putc",
-    "sinf", "sind", "cosf", "cosd", "tanf", "tand",
-    "lnf", "lnd", "expf", "expd", "sqrtf", "sqrtd",
-    "absf", "absd", "floorf", "floord", "ceilf", "ceild",
-    "powf", "powd", "atan2f", "atan2d",
+    "assert", "print", "putc", "sinf", "sind", "cosf", "cosd", "tanf", "tand", "lnf", "lnd",
+    "expf", "expd", "sqrtf", "sqrtd", "absf", "absd", "floorf", "floord", "ceilf", "ceild", "powf",
+    "powd", "atan2f", "atan2d",
 ];
 
 fn is_builtin_name(name: &Name) -> bool {

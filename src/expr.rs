@@ -9,7 +9,6 @@ use crate::*;
 /// should be represented this way.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Expr {
-
     /// Identifier expression.
     Id(Name),
 
@@ -35,10 +34,7 @@ pub enum Expr {
     Unop(Unop, ExprID),
 
     /// Lambda expression with parameters and body.
-    Lambda {
-        params: Vec<Param>,
-        body: ExprID,
-    },
+    Lambda { params: Vec<Param>, body: ExprID },
 
     /// String literal.
     String(String),
@@ -121,11 +117,7 @@ impl Expr {
     /// let output = arena.exprs[expr_id].pretty_print(&arena, 0);
     /// // Output: "42"
     /// ```
-    pub fn pretty_print(
-        &self,
-        arena: &ExprArena,
-        indent: usize,
-    ) -> String {
+    pub fn pretty_print(&self, arena: &ExprArena, indent: usize) -> String {
         match self {
             Expr::Id(name) => name.to_string(),
             Expr::Int(n) => n.to_string(),
@@ -253,7 +245,12 @@ impl Expr {
                 format!("while {} {}", cond_str, body_str)
             }
 
-            Expr::For { var, start, end, body } => {
+            Expr::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 let start_str = arena.exprs[*start].pretty_print(arena, indent);
                 let end_str = arena.exprs[*end].pretty_print(arena, indent);
                 let body_str = arena.exprs[*body].pretty_print(arena, indent + 1);
@@ -331,13 +328,15 @@ pub fn copy_expr(
         Expr::Error => dst_arena.add(Expr::Error, loc),
         Expr::Call(f, args) => {
             let new_f = copy_expr(*f, src_arena, dst_arena, subst);
-            let new_args: Vec<ExprID> = args.iter()
+            let new_args: Vec<ExprID> = args
+                .iter()
                 .map(|a| copy_expr(*a, src_arena, dst_arena, subst))
                 .collect();
             dst_arena.add(Expr::Call(new_f, new_args), loc)
         }
         Expr::Macro(name, args) => {
-            let new_args: Vec<ExprID> = args.iter()
+            let new_args: Vec<ExprID> = args
+                .iter()
                 .map(|a| copy_expr(*a, src_arena, dst_arena, subst))
                 .collect();
             dst_arena.add(Expr::Macro(*name, new_args), loc)
@@ -353,7 +352,13 @@ pub fn copy_expr(
         }
         Expr::Lambda { params, body } => {
             let new_body = copy_expr(*body, src_arena, dst_arena, subst);
-            dst_arena.add(Expr::Lambda { params: params.clone(), body: new_body }, loc)
+            dst_arena.add(
+                Expr::Lambda {
+                    params: params.clone(),
+                    body: new_body,
+                },
+                loc,
+            )
         }
         Expr::Field(expr, name) => {
             let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
@@ -365,7 +370,8 @@ pub fn copy_expr(
             dst_arena.add(Expr::Array(new_value, new_size), loc)
         }
         Expr::ArrayLiteral(exprs) => {
-            let new_exprs: Vec<ExprID> = exprs.iter()
+            let new_exprs: Vec<ExprID> = exprs
+                .iter()
                 .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
                 .collect();
             dst_arena.add(Expr::ArrayLiteral(new_exprs), loc)
@@ -398,14 +404,28 @@ pub fn copy_expr(
             let new_body = copy_expr(*body, src_arena, dst_arena, subst);
             dst_arena.add(Expr::While(new_cond, new_body), loc)
         }
-        Expr::For { var, start, end, body } => {
+        Expr::For {
+            var,
+            start,
+            end,
+            body,
+        } => {
             let new_start = copy_expr(*start, src_arena, dst_arena, subst);
             let new_end = copy_expr(*end, src_arena, dst_arena, subst);
             let new_body = copy_expr(*body, src_arena, dst_arena, subst);
-            dst_arena.add(Expr::For { var: *var, start: new_start, end: new_end, body: new_body }, loc)
+            dst_arena.add(
+                Expr::For {
+                    var: *var,
+                    start: new_start,
+                    end: new_end,
+                    body: new_body,
+                },
+                loc,
+            )
         }
         Expr::Block(exprs) => {
-            let new_exprs: Vec<ExprID> = exprs.iter()
+            let new_exprs: Vec<ExprID> = exprs
+                .iter()
                 .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
                 .collect();
             dst_arena.add(Expr::Block(new_exprs), loc)
@@ -415,7 +435,8 @@ pub fn copy_expr(
             dst_arena.add(Expr::Return(new_expr), loc)
         }
         Expr::Tuple(exprs) => {
-            let new_exprs: Vec<ExprID> = exprs.iter()
+            let new_exprs: Vec<ExprID> = exprs
+                .iter()
                 .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
                 .collect();
             dst_arena.add(Expr::Tuple(new_exprs), loc)
@@ -478,8 +499,14 @@ mod tests {
 
         assert_eq!(Expr::Int(42).pretty_print(&arena, 0), "42");
         assert_eq!(Expr::UInt(100).pretty_print(&arena, 0), "100");
-        assert_eq!(Expr::Real("3.14".to_string()).pretty_print(&arena, 0), "3.14");
-        assert_eq!(Expr::String("hello".to_string()).pretty_print(&arena, 0), "\"hello\"");
+        assert_eq!(
+            Expr::Real("3.14".to_string()).pretty_print(&arena, 0),
+            "3.14"
+        );
+        assert_eq!(
+            Expr::String("hello".to_string()).pretty_print(&arena, 0),
+            "\"hello\""
+        );
         assert_eq!(Expr::Char('x').pretty_print(&arena, 0), "'x'");
         assert_eq!(Expr::True.pretty_print(&arena, 0), "true");
         assert_eq!(Expr::False.pretty_print(&arena, 0), "false");
@@ -490,7 +517,10 @@ mod tests {
         let arena = ExprArena::new();
 
         assert_eq!(Expr::Id(Name::str("foo")).pretty_print(&arena, 0), "foo");
-        assert_eq!(Expr::Enum(Name::str("Active")).pretty_print(&arena, 0), ".Active");
+        assert_eq!(
+            Expr::Enum(Name::str("Active")).pretty_print(&arena, 0),
+            ".Active"
+        );
     }
 
     #[test]
@@ -619,7 +649,10 @@ mod tests {
         let body_id = arena.add(Expr::Binop(Binop::Plus, x_id, one_id), test_loc());
 
         let lambda = Expr::Lambda {
-            params: vec![Param { name: Name::str("x"), ty: None }],
+            params: vec![Param {
+                name: Name::str("x"),
+                ty: None,
+            }],
             body: body_id,
         };
 

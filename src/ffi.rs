@@ -4,7 +4,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 
 use crate::compiler::Compiler;
-use crate::vm::{VM, VMProgram};
+use crate::vm::{VMProgram, VM};
 
 /// Run a closure, catching any panic and storing it as the last error.
 /// Returns `false` if a panic occurred or if the compiler is in an invalid
@@ -189,7 +189,9 @@ pub unsafe extern "C" fn lyte_compiler_jit(ptr: *mut LyteCompiler) -> bool {
         match c.compiler.jit() {
             Ok(result) => {
                 c.jit_result = Some(result);
-                c.globals = c.compiler.globals_info()
+                c.globals = c
+                    .compiler
+                    .globals_info()
                     .into_iter()
                     .map(|(name, offset, size, ty)| GlobalInfo {
                         name: CString::new(name).unwrap_or_default(),
@@ -339,7 +341,9 @@ pub unsafe extern "C" fn lyte_compiler_compile_vm(ptr: *mut LyteCompiler) -> boo
         c.globals.clear();
         match c.compiler.compile_vm() {
             Ok(program) => {
-                c.globals = c.compiler.globals_info()
+                c.globals = c
+                    .compiler
+                    .globals_info()
                     .into_iter()
                     .map(|(name, offset, size, ty)| GlobalInfo {
                         name: CString::new(name).unwrap_or_default(),
@@ -389,9 +393,7 @@ pub unsafe extern "C" fn lyte_compiler_run_vm(ptr: *mut LyteCompiler) -> bool {
 /// The pointer is valid until the next call to lyte_compiler_run_vm
 /// or lyte_compiler_free.
 #[no_mangle]
-pub unsafe extern "C" fn lyte_compiler_get_vm_globals_ptr(
-    ptr: *mut LyteCompiler,
-) -> *mut u8 {
+pub unsafe extern "C" fn lyte_compiler_get_vm_globals_ptr(ptr: *mut LyteCompiler) -> *mut u8 {
     if ptr.is_null() {
         return ptr::null_mut();
     }
@@ -404,9 +406,7 @@ pub unsafe extern "C" fn lyte_compiler_get_vm_globals_ptr(
 /// Get the size in bytes of the VM globals buffer.
 /// Returns 0 if no VM program has been compiled.
 #[no_mangle]
-pub unsafe extern "C" fn lyte_compiler_get_vm_globals_size(
-    ptr: *const LyteCompiler,
-) -> usize {
+pub unsafe extern "C" fn lyte_compiler_get_vm_globals_size(ptr: *const LyteCompiler) -> usize {
     if ptr.is_null() {
         return 0;
     }

@@ -76,7 +76,12 @@ impl SafetyChecker {
     }
 
     fn add(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
-        self.constraints.push(IndexConstraint { name, min, max, non_zero: false })
+        self.constraints.push(IndexConstraint {
+            name,
+            min,
+            max,
+            non_zero: false,
+        })
     }
 
     fn replace(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
@@ -90,7 +95,12 @@ impl SafetyChecker {
         if let Some(c) = self.constraints.iter_mut().find(|c| c.name == name) {
             c.non_zero = true;
         } else {
-            self.constraints.push(IndexConstraint { name, min: None, max: None, non_zero: true });
+            self.constraints.push(IndexConstraint {
+                name,
+                min: None,
+                max: None,
+                non_zero: true,
+            });
         }
     }
 
@@ -183,8 +193,16 @@ impl SafetyChecker {
 
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
-            Expr::Int(x) => IndexInterval { min: *x, max: *x, non_zero: *x != 0 },
-            Expr::UInt(x) => IndexInterval { min: *x as i64, max: *x as i64, non_zero: *x != 0 },
+            Expr::Int(x) => IndexInterval {
+                min: *x,
+                max: *x,
+                non_zero: *x != 0,
+            },
+            Expr::UInt(x) => IndexInterval {
+                min: *x as i64,
+                max: *x as i64,
+                non_zero: *x != 0,
+            },
             Expr::Block(exprs) => {
                 let n = self.vars.len();
                 for e in exprs {
@@ -300,9 +318,10 @@ impl SafetyChecker {
                         None
                     };
                     let has_len_bound = match (index_name, array_name) {
-                        (Some(idx), Some(arr)) => {
-                            self.len_bounds.iter().any(|b| b.index == idx && b.array == arr)
-                        }
+                        (Some(idx), Some(arr)) => self
+                            .len_bounds
+                            .iter()
+                            .any(|b| b.index == idx && b.array == arr),
                         _ => false,
                     };
                     if !has_len_bound {
@@ -327,23 +346,22 @@ impl SafetyChecker {
                 IndexInterval::default()
             }
             Expr::Binop(op, lhs, rhs) => {
-
                 if *op == Binop::Plus {
                     let lhs_range = self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
-                    return lhs_range + rhs_range
+                    return lhs_range + rhs_range;
                 }
 
                 if *op == Binop::Minus {
                     let lhs_range = self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
-                    return lhs_range - rhs_range
+                    return lhs_range - rhs_range;
                 }
 
                 if *op == Binop::Mult {
                     let lhs_range = self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
-                    return lhs_range * rhs_range
+                    return lhs_range * rhs_range;
                 }
 
                 if *op == Binop::Div || *op == Binop::Mod {
@@ -353,7 +371,8 @@ impl SafetyChecker {
                     // Only check integer division — float div-by-zero produces Inf/NaN per IEEE 754.
                     if *rhs < decl.types.len() {
                         let ty = decl.types[*rhs];
-                        let is_int = matches!(*ty, Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8);
+                        let is_int =
+                            matches!(*ty, Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8);
                         if is_int && !rhs_range.excludes_zero() {
                             self.errors.push(SafetyError {
                                 location: decl.arena.locs[expr],
@@ -362,7 +381,7 @@ impl SafetyChecker {
                         }
                     }
 
-                    return lhs_range // approximate: ignore division for interval tracking
+                    return lhs_range; // approximate: ignore division for interval tracking
                 }
 
                 if *op == Binop::Assign {
@@ -375,7 +394,7 @@ impl SafetyChecker {
                         }
                     }
 
-                    return IndexInterval::default()
+                    return IndexInterval::default();
                 }
 
                 // For other binops (==, !=, <, >, etc.), still recurse
@@ -402,10 +421,18 @@ impl SafetyChecker {
                 self.check_expr(*expr, decl, decls);
                 IndexInterval::default()
             }
-            Expr::For { var, start, end, body } => {
+            Expr::For {
+                var,
+                start,
+                end,
+                body,
+            } => {
                 let start_r = self.check_expr(*start, decl, decls);
                 let end_r = self.check_expr(*end, decl, decls);
-                self.vars.push(Var { name: *var, ty: mk_type(Type::Int32) });
+                self.vars.push(Var {
+                    name: *var,
+                    ty: mk_type(Type::Int32),
+                });
                 self.add(*var, Some(start_r.min), Some(end_r.max.saturating_sub(1)));
                 // for i in 0 .. arr.len — record that i < arr.len
                 if let Expr::Field(arr_expr, field_name) = &decl.arena[*end] {
@@ -433,10 +460,12 @@ impl SafetyChecker {
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
         if let Some(body) = func_decl.body {
-
             for param in &func_decl.params {
                 if let Some(ty) = param.ty {
-                    self.vars.push(Var { name: param.name, ty });
+                    self.vars.push(Var {
+                        name: param.name,
+                        ty,
+                    });
                     if ty == mk_type(Type::UInt32) {
                         self.add(param.name, Some(0), None);
                     } else {
@@ -627,7 +656,7 @@ mod tests {
         let errors = check(s);
         assert_eq!(errors.len(), 1);
     }
- 
+
     #[test]
     pub fn test_add_unconstrained() {
         let s = "

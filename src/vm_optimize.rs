@@ -40,12 +40,20 @@ fn dead_code_elimination(code: &mut Vec<Opcode>) {
             if uses[dst as usize] == 0 {
                 // Don't eliminate instructions with side effects
                 match &code[i] {
-                    Opcode::Call { .. } | Opcode::CallIndirect { .. }
-                    | Opcode::Store8 { .. } | Opcode::Store32 { .. } | Opcode::Store64 { .. }
-                    | Opcode::Store8Off { .. } | Opcode::Store32Off { .. } | Opcode::Store64Off { .. }
-                    | Opcode::MemCopy { .. } | Opcode::MemZero { .. }
-                    | Opcode::PrintI32 { .. } | Opcode::PrintF32 { .. }
-                    | Opcode::Assert { .. } | Opcode::Putc { .. } => {}
+                    Opcode::Call { .. }
+                    | Opcode::CallIndirect { .. }
+                    | Opcode::Store8 { .. }
+                    | Opcode::Store32 { .. }
+                    | Opcode::Store64 { .. }
+                    | Opcode::Store8Off { .. }
+                    | Opcode::Store32Off { .. }
+                    | Opcode::Store64Off { .. }
+                    | Opcode::MemCopy { .. }
+                    | Opcode::MemZero { .. }
+                    | Opcode::PrintI32 { .. }
+                    | Opcode::PrintF32 { .. }
+                    | Opcode::Assert { .. }
+                    | Opcode::Putc { .. } => {}
                     _ => {
                         code[i] = Opcode::Nop;
                     }
@@ -335,50 +343,90 @@ fn set_dst(op: &mut Opcode, new_dst: Reg) -> bool {
 /// Check if an instruction reads the given register as a source operand.
 fn reads_reg(op: &Opcode, reg: Reg) -> bool {
     match op {
-        Opcode::Nop | Opcode::Halt | Opcode::Return | Opcode::AllocLocals { .. }
+        Opcode::Nop
+        | Opcode::Halt
+        | Opcode::Return
+        | Opcode::AllocLocals { .. }
         | Opcode::LoadSlot32 { .. } => false,
 
         Opcode::Move { src, .. } => *src == reg,
-        Opcode::LoadImm { .. } | Opcode::LoadF32 { .. } | Opcode::LoadF64 { .. }
-        | Opcode::LoadConst { .. } | Opcode::LocalAddr { .. } | Opcode::GlobalAddr { .. } => false,
+        Opcode::LoadImm { .. }
+        | Opcode::LoadF32 { .. }
+        | Opcode::LoadF64 { .. }
+        | Opcode::LoadConst { .. }
+        | Opcode::LocalAddr { .. }
+        | Opcode::GlobalAddr { .. } => false,
 
-        Opcode::IAdd { a, b, .. } | Opcode::ISub { a, b, .. } | Opcode::IMul { a, b, .. }
-        | Opcode::IDiv { a, b, .. } | Opcode::UDiv { a, b, .. } | Opcode::IRem { a, b, .. }
+        Opcode::IAdd { a, b, .. }
+        | Opcode::ISub { a, b, .. }
+        | Opcode::IMul { a, b, .. }
+        | Opcode::IDiv { a, b, .. }
+        | Opcode::UDiv { a, b, .. }
+        | Opcode::IRem { a, b, .. }
         | Opcode::IPow { a, b, .. } => *a == reg || *b == reg,
 
         Opcode::INeg { src, .. } => *src == reg,
         Opcode::IAddImm { src, .. } => *src == reg,
 
-        Opcode::FAdd { a, b, .. } | Opcode::FSub { a, b, .. } | Opcode::FMul { a, b, .. }
-        | Opcode::FDiv { a, b, .. } | Opcode::FPow { a, b, .. } => *a == reg || *b == reg,
+        Opcode::FAdd { a, b, .. }
+        | Opcode::FSub { a, b, .. }
+        | Opcode::FMul { a, b, .. }
+        | Opcode::FDiv { a, b, .. }
+        | Opcode::FPow { a, b, .. } => *a == reg || *b == reg,
         Opcode::FNeg { src, .. } => *src == reg,
-        Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => *a == reg || *b == reg || *c == reg,
+        Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => {
+            *a == reg || *b == reg || *c == reg
+        }
 
-        Opcode::DAdd { a, b, .. } | Opcode::DSub { a, b, .. } | Opcode::DMul { a, b, .. }
-        | Opcode::DDiv { a, b, .. } | Opcode::DPow { a, b, .. } => *a == reg || *b == reg,
+        Opcode::DAdd { a, b, .. }
+        | Opcode::DSub { a, b, .. }
+        | Opcode::DMul { a, b, .. }
+        | Opcode::DDiv { a, b, .. }
+        | Opcode::DPow { a, b, .. } => *a == reg || *b == reg,
         Opcode::DNeg { src, .. } => *src == reg,
-        Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => *a == reg || *b == reg || *c == reg,
+        Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => {
+            *a == reg || *b == reg || *c == reg
+        }
 
-        Opcode::And { a, b, .. } | Opcode::Or { a, b, .. } | Opcode::Xor { a, b, .. }
-        | Opcode::Shl { a, b, .. } | Opcode::Shr { a, b, .. } | Opcode::UShr { a, b, .. } => *a == reg || *b == reg,
+        Opcode::And { a, b, .. }
+        | Opcode::Or { a, b, .. }
+        | Opcode::Xor { a, b, .. }
+        | Opcode::Shl { a, b, .. }
+        | Opcode::Shr { a, b, .. }
+        | Opcode::UShr { a, b, .. } => *a == reg || *b == reg,
         Opcode::Not { src, .. } => *src == reg,
 
-        Opcode::IEq { a, b, .. } | Opcode::INe { a, b, .. } | Opcode::ILt { a, b, .. }
-        | Opcode::ILe { a, b, .. } | Opcode::ULt { a, b, .. } => *a == reg || *b == reg,
-        Opcode::FEq { a, b, .. } | Opcode::FNe { a, b, .. } | Opcode::FLt { a, b, .. }
+        Opcode::IEq { a, b, .. }
+        | Opcode::INe { a, b, .. }
+        | Opcode::ILt { a, b, .. }
+        | Opcode::ILe { a, b, .. }
+        | Opcode::ULt { a, b, .. } => *a == reg || *b == reg,
+        Opcode::FEq { a, b, .. }
+        | Opcode::FNe { a, b, .. }
+        | Opcode::FLt { a, b, .. }
         | Opcode::FLe { a, b, .. } => *a == reg || *b == reg,
         Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => *a == reg || *b == reg,
-        Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => *a == reg || *b == reg,
+        Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => {
+            *a == reg || *b == reg
+        }
 
-        Opcode::I32ToF32 { src, .. } | Opcode::F32ToI32 { src, .. }
-        | Opcode::I32ToF64 { src, .. } | Opcode::F64ToI32 { src, .. }
-        | Opcode::F32ToF64 { src, .. } | Opcode::F64ToF32 { src, .. } => *src == reg,
+        Opcode::I32ToF32 { src, .. }
+        | Opcode::F32ToI32 { src, .. }
+        | Opcode::I32ToF64 { src, .. }
+        | Opcode::F64ToI32 { src, .. }
+        | Opcode::F32ToF64 { src, .. }
+        | Opcode::F64ToF32 { src, .. } => *src == reg,
 
-        Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => *addr == reg,
+        Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
+            *addr == reg
+        }
         Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => *base == reg,
 
-        Opcode::Store8 { addr, src } | Opcode::Store32 { addr, src } | Opcode::Store64 { addr, src } => *addr == reg || *src == reg,
-        Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
+        Opcode::Store8 { addr, src }
+        | Opcode::Store32 { addr, src }
+        | Opcode::Store64 { addr, src } => *addr == reg || *src == reg,
+        Opcode::Store8Off { base, src, .. }
+        | Opcode::Store32Off { base, src, .. }
         | Opcode::Store64Off { base, src, .. } => *base == reg || *src == reg,
 
         Opcode::Jump { .. } => false,
@@ -386,12 +434,16 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
         Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => *a == reg || *b == reg,
 
         // Calls can read any register in the args range, be conservative
-        Opcode::Call { args_start, arg_count, .. } => {
-            reg >= *args_start && reg < *args_start + *arg_count
-        }
-        Opcode::CallIndirect { func_reg, args_start, arg_count } => {
-            *func_reg == reg || (reg >= *args_start && reg < *args_start + *arg_count)
-        }
+        Opcode::Call {
+            args_start,
+            arg_count,
+            ..
+        } => reg >= *args_start && reg < *args_start + *arg_count,
+        Opcode::CallIndirect {
+            func_reg,
+            args_start,
+            arg_count,
+        } => *func_reg == reg || (reg >= *args_start && reg < *args_start + *arg_count),
 
         Opcode::ReturnReg { src } => *src == reg,
 
@@ -402,19 +454,35 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
         Opcode::SaveRegs { .. } => false,
         Opcode::RestoreRegs { .. } => false,
 
-        Opcode::PrintI32 { src } | Opcode::PrintF32 { src } | Opcode::Assert { src }
+        Opcode::PrintI32 { src }
+        | Opcode::PrintF32 { src }
+        | Opcode::Assert { src }
         | Opcode::Putc { src } => *src == reg,
 
-        Opcode::SinF32 { src, .. } | Opcode::CosF32 { src, .. } | Opcode::TanF32 { src, .. }
-        | Opcode::LnF32 { src, .. } | Opcode::ExpF32 { src, .. } | Opcode::SqrtF32 { src, .. }
-        | Opcode::AbsF32 { src, .. } | Opcode::FloorF32 { src, .. } | Opcode::CeilF32 { src, .. } => *src == reg,
+        Opcode::SinF32 { src, .. }
+        | Opcode::CosF32 { src, .. }
+        | Opcode::TanF32 { src, .. }
+        | Opcode::LnF32 { src, .. }
+        | Opcode::ExpF32 { src, .. }
+        | Opcode::SqrtF32 { src, .. }
+        | Opcode::AbsF32 { src, .. }
+        | Opcode::FloorF32 { src, .. }
+        | Opcode::CeilF32 { src, .. } => *src == reg,
 
-        Opcode::SinF64 { src, .. } | Opcode::CosF64 { src, .. } | Opcode::TanF64 { src, .. }
-        | Opcode::LnF64 { src, .. } | Opcode::ExpF64 { src, .. } | Opcode::SqrtF64 { src, .. }
-        | Opcode::AbsF64 { src, .. } | Opcode::FloorF64 { src, .. } | Opcode::CeilF64 { src, .. } => *src == reg,
+        Opcode::SinF64 { src, .. }
+        | Opcode::CosF64 { src, .. }
+        | Opcode::TanF64 { src, .. }
+        | Opcode::LnF64 { src, .. }
+        | Opcode::ExpF64 { src, .. }
+        | Opcode::SqrtF64 { src, .. }
+        | Opcode::AbsF64 { src, .. }
+        | Opcode::FloorF64 { src, .. }
+        | Opcode::CeilF64 { src, .. } => *src == reg,
 
-        Opcode::PowF32 { a, b, .. } | Opcode::Atan2F32 { a, b, .. }
-        | Opcode::PowF64 { a, b, .. } | Opcode::Atan2F64 { a, b, .. } => *a == reg || *b == reg,
+        Opcode::PowF32 { a, b, .. }
+        | Opcode::Atan2F32 { a, b, .. }
+        | Opcode::PowF64 { a, b, .. }
+        | Opcode::Atan2F64 { a, b, .. } => *a == reg || *b == reg,
 
         Opcode::StoreSlot32 { src, .. } => *src == reg,
     }
@@ -440,61 +508,167 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
         // Extract source registers directly from each instruction
         match op {
             Opcode::Move { src, .. } => counts[*src as usize] += 1,
-            Opcode::IAdd { a, b, .. } | Opcode::ISub { a, b, .. } | Opcode::IMul { a, b, .. }
-            | Opcode::IDiv { a, b, .. } | Opcode::UDiv { a, b, .. } | Opcode::IRem { a, b, .. }
-            | Opcode::IPow { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => counts[*src as usize] += 1,
-            Opcode::FAdd { a, b, .. } | Opcode::FSub { a, b, .. } | Opcode::FMul { a, b, .. }
-            | Opcode::FDiv { a, b, .. } | Opcode::FPow { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::FNeg { src, .. } => counts[*src as usize] += 1,
-            Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; counts[*c as usize] += 1; }
-            Opcode::DAdd { a, b, .. } | Opcode::DSub { a, b, .. } | Opcode::DMul { a, b, .. }
-            | Opcode::DDiv { a, b, .. } | Opcode::DPow { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::DNeg { src, .. } => counts[*src as usize] += 1,
-            Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; counts[*c as usize] += 1; }
-            Opcode::And { a, b, .. } | Opcode::Or { a, b, .. } | Opcode::Xor { a, b, .. }
-            | Opcode::Shl { a, b, .. } | Opcode::Shr { a, b, .. } | Opcode::UShr { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::Not { src, .. } => counts[*src as usize] += 1,
-            Opcode::IEq { a, b, .. } | Opcode::INe { a, b, .. } | Opcode::ILt { a, b, .. }
-            | Opcode::ILe { a, b, .. } | Opcode::ULt { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::FEq { a, b, .. } | Opcode::FNe { a, b, .. } | Opcode::FLt { a, b, .. }
-            | Opcode::FLe { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::I32ToF32 { src, .. } | Opcode::F32ToI32 { src, .. }
-            | Opcode::I32ToF64 { src, .. } | Opcode::F64ToI32 { src, .. }
-            | Opcode::F32ToF64 { src, .. } | Opcode::F64ToF32 { src, .. } => counts[*src as usize] += 1,
-            Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => counts[*addr as usize] += 1,
-            Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => counts[*base as usize] += 1,
-            Opcode::Store8 { addr, src } | Opcode::Store32 { addr, src } | Opcode::Store64 { addr, src } => { counts[*addr as usize] += 1; counts[*src as usize] += 1; }
-            Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
-            | Opcode::Store64Off { base, src, .. } => { counts[*base as usize] += 1; counts[*src as usize] += 1; }
-            Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => counts[*cond as usize] += 1,
-            Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
-            Opcode::Call { args_start, arg_count, .. } => {
-                for r in *args_start..(*args_start + *arg_count) { counts[r as usize] += 1; }
+            Opcode::IAdd { a, b, .. }
+            | Opcode::ISub { a, b, .. }
+            | Opcode::IMul { a, b, .. }
+            | Opcode::IDiv { a, b, .. }
+            | Opcode::UDiv { a, b, .. }
+            | Opcode::IRem { a, b, .. }
+            | Opcode::IPow { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
             }
-            Opcode::CallIndirect { func_reg, args_start, arg_count } => {
+            Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => counts[*src as usize] += 1,
+            Opcode::FAdd { a, b, .. }
+            | Opcode::FSub { a, b, .. }
+            | Opcode::FMul { a, b, .. }
+            | Opcode::FDiv { a, b, .. }
+            | Opcode::FPow { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::FNeg { src, .. } => counts[*src as usize] += 1,
+            Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+                counts[*c as usize] += 1;
+            }
+            Opcode::DAdd { a, b, .. }
+            | Opcode::DSub { a, b, .. }
+            | Opcode::DMul { a, b, .. }
+            | Opcode::DDiv { a, b, .. }
+            | Opcode::DPow { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::DNeg { src, .. } => counts[*src as usize] += 1,
+            Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+                counts[*c as usize] += 1;
+            }
+            Opcode::And { a, b, .. }
+            | Opcode::Or { a, b, .. }
+            | Opcode::Xor { a, b, .. }
+            | Opcode::Shl { a, b, .. }
+            | Opcode::Shr { a, b, .. }
+            | Opcode::UShr { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::Not { src, .. } => counts[*src as usize] += 1,
+            Opcode::IEq { a, b, .. }
+            | Opcode::INe { a, b, .. }
+            | Opcode::ILt { a, b, .. }
+            | Opcode::ILe { a, b, .. }
+            | Opcode::ULt { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::FEq { a, b, .. }
+            | Opcode::FNe { a, b, .. }
+            | Opcode::FLt { a, b, .. }
+            | Opcode::FLe { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::I32ToF32 { src, .. }
+            | Opcode::F32ToI32 { src, .. }
+            | Opcode::I32ToF64 { src, .. }
+            | Opcode::F64ToI32 { src, .. }
+            | Opcode::F32ToF64 { src, .. }
+            | Opcode::F64ToF32 { src, .. } => counts[*src as usize] += 1,
+            Opcode::Load8 { addr, .. }
+            | Opcode::Load32 { addr, .. }
+            | Opcode::Load64 { addr, .. } => counts[*addr as usize] += 1,
+            Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => {
+                counts[*base as usize] += 1
+            }
+            Opcode::Store8 { addr, src }
+            | Opcode::Store32 { addr, src }
+            | Opcode::Store64 { addr, src } => {
+                counts[*addr as usize] += 1;
+                counts[*src as usize] += 1;
+            }
+            Opcode::Store8Off { base, src, .. }
+            | Opcode::Store32Off { base, src, .. }
+            | Opcode::Store64Off { base, src, .. } => {
+                counts[*base as usize] += 1;
+                counts[*src as usize] += 1;
+            }
+            Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => {
+                counts[*cond as usize] += 1
+            }
+            Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
+            Opcode::Call {
+                args_start,
+                arg_count,
+                ..
+            } => {
+                for r in *args_start..(*args_start + *arg_count) {
+                    counts[r as usize] += 1;
+                }
+            }
+            Opcode::CallIndirect {
+                func_reg,
+                args_start,
+                arg_count,
+            } => {
                 counts[*func_reg as usize] += 1;
-                for r in *args_start..(*args_start + *arg_count) { counts[r as usize] += 1; }
+                for r in *args_start..(*args_start + *arg_count) {
+                    counts[r as usize] += 1;
+                }
             }
             Opcode::ReturnReg { src } => counts[*src as usize] += 1,
-            Opcode::MemCopy { dst, src, .. } => { counts[*dst as usize] += 1; counts[*src as usize] += 1; }
+            Opcode::MemCopy { dst, src, .. } => {
+                counts[*dst as usize] += 1;
+                counts[*src as usize] += 1;
+            }
             Opcode::MemZero { dst, .. } => counts[*dst as usize] += 1,
             // SaveRegs/RestoreRegs are function-level bookkeeping, not data flow.
             // Exclude them from use counts so move forwarding works correctly.
             Opcode::SaveRegs { .. } => {}
             Opcode::RestoreRegs { .. } => {}
-            Opcode::PrintI32 { src } | Opcode::PrintF32 { src } | Opcode::Assert { src }
+            Opcode::PrintI32 { src }
+            | Opcode::PrintF32 { src }
+            | Opcode::Assert { src }
             | Opcode::Putc { src } => counts[*src as usize] += 1,
-            Opcode::SinF32 { src, .. } | Opcode::CosF32 { src, .. } | Opcode::TanF32 { src, .. }
-            | Opcode::LnF32 { src, .. } | Opcode::ExpF32 { src, .. } | Opcode::SqrtF32 { src, .. }
-            | Opcode::AbsF32 { src, .. } | Opcode::FloorF32 { src, .. } | Opcode::CeilF32 { src, .. } => counts[*src as usize] += 1,
-            Opcode::SinF64 { src, .. } | Opcode::CosF64 { src, .. } | Opcode::TanF64 { src, .. }
-            | Opcode::LnF64 { src, .. } | Opcode::ExpF64 { src, .. } | Opcode::SqrtF64 { src, .. }
-            | Opcode::AbsF64 { src, .. } | Opcode::FloorF64 { src, .. } | Opcode::CeilF64 { src, .. } => counts[*src as usize] += 1,
-            Opcode::PowF32 { a, b, .. } | Opcode::Atan2F32 { a, b, .. }
-            | Opcode::PowF64 { a, b, .. } | Opcode::Atan2F64 { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
+            Opcode::SinF32 { src, .. }
+            | Opcode::CosF32 { src, .. }
+            | Opcode::TanF32 { src, .. }
+            | Opcode::LnF32 { src, .. }
+            | Opcode::ExpF32 { src, .. }
+            | Opcode::SqrtF32 { src, .. }
+            | Opcode::AbsF32 { src, .. }
+            | Opcode::FloorF32 { src, .. }
+            | Opcode::CeilF32 { src, .. } => counts[*src as usize] += 1,
+            Opcode::SinF64 { src, .. }
+            | Opcode::CosF64 { src, .. }
+            | Opcode::TanF64 { src, .. }
+            | Opcode::LnF64 { src, .. }
+            | Opcode::ExpF64 { src, .. }
+            | Opcode::SqrtF64 { src, .. }
+            | Opcode::AbsF64 { src, .. }
+            | Opcode::FloorF64 { src, .. }
+            | Opcode::CeilF64 { src, .. } => counts[*src as usize] += 1,
+            Opcode::PowF32 { a, b, .. }
+            | Opcode::Atan2F32 { a, b, .. }
+            | Opcode::PowF64 { a, b, .. }
+            | Opcode::Atan2F64 { a, b, .. } => {
+                counts[*a as usize] += 1;
+                counts[*b as usize] += 1;
+            }
             Opcode::StoreSlot32 { src, .. } => counts[*src as usize] += 1,
             _ => {}
         }
@@ -511,7 +685,11 @@ fn move_forwarding(code: &mut [Opcode]) {
     let uses = compute_use_counts_fast(code);
 
     for i in 0..code.len().saturating_sub(1) {
-        if let Opcode::Move { dst: move_dst, src: move_src } = code[i + 1] {
+        if let Opcode::Move {
+            dst: move_dst,
+            src: move_src,
+        } = code[i + 1]
+        {
             // Check: instruction at i writes to move_src
             if let Some(prev_dst) = get_dst(&code[i]) {
                 if prev_dst == move_src {
@@ -544,8 +722,10 @@ fn redundant_local_addr(code: &mut [Opcode]) {
     let mut targets = HashSet::new();
     for (i, op) in code.iter().enumerate() {
         let offset = match op {
-            Opcode::Jump { offset } | Opcode::JumpIfZero { offset, .. }
-            | Opcode::JumpIfNotZero { offset, .. } | Opcode::ILtJump { offset, .. }
+            Opcode::Jump { offset }
+            | Opcode::JumpIfZero { offset, .. }
+            | Opcode::JumpIfNotZero { offset, .. }
+            | Opcode::ILtJump { offset, .. }
             | Opcode::FLtJump { offset, .. } => Some(*offset),
             _ => None,
         };
@@ -578,13 +758,17 @@ fn redundant_local_addr(code: &mut [Opcode]) {
                 }
             }
             // Instructions that can clobber registers: clear tracking
-            Opcode::Call { .. } | Opcode::CallIndirect { .. }
-            | Opcode::SaveRegs { .. } | Opcode::RestoreRegs { .. } => {
+            Opcode::Call { .. }
+            | Opcode::CallIndirect { .. }
+            | Opcode::SaveRegs { .. }
+            | Opcode::RestoreRegs { .. } => {
                 slot_reg.clear();
             }
             // Jumps: clear tracking (we're leaving this basic block)
-            Opcode::Jump { .. } | Opcode::JumpIfZero { .. }
-            | Opcode::JumpIfNotZero { .. } | Opcode::ILtJump { .. }
+            Opcode::Jump { .. }
+            | Opcode::JumpIfZero { .. }
+            | Opcode::JumpIfNotZero { .. }
+            | Opcode::ILtJump { .. }
             | Opcode::FLtJump { .. } => {
                 slot_reg.clear();
             }
@@ -613,11 +797,15 @@ fn replace_reg_uses_until_clobber(
             break;
         }
         match &code[i] {
-            Opcode::Jump { .. } | Opcode::JumpIfZero { .. }
-            | Opcode::JumpIfNotZero { .. } | Opcode::ILtJump { .. }
+            Opcode::Jump { .. }
+            | Opcode::JumpIfZero { .. }
+            | Opcode::JumpIfNotZero { .. }
+            | Opcode::ILtJump { .. }
             | Opcode::FLtJump { .. }
-            | Opcode::Call { .. } | Opcode::CallIndirect { .. }
-            | Opcode::SaveRegs { .. } | Opcode::RestoreRegs { .. } => break,
+            | Opcode::Call { .. }
+            | Opcode::CallIndirect { .. }
+            | Opcode::SaveRegs { .. }
+            | Opcode::RestoreRegs { .. } => break,
             _ => {}
         }
         // Stop if new_reg gets clobbered
@@ -634,61 +822,289 @@ fn replace_reg_uses_until_clobber(
 /// Replace all source register references of `old` with `new` in an instruction.
 fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
     match op {
-        Opcode::Move { src, .. } => { if *src == old { *src = new; } }
-        Opcode::IAdd { a, b, .. } | Opcode::ISub { a, b, .. } | Opcode::IMul { a, b, .. }
-        | Opcode::IDiv { a, b, .. } | Opcode::UDiv { a, b, .. } | Opcode::IRem { a, b, .. }
-        | Opcode::IPow { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => { if *src == old { *src = new; } }
-        Opcode::FAdd { a, b, .. } | Opcode::FSub { a, b, .. } | Opcode::FMul { a, b, .. }
-        | Opcode::FDiv { a, b, .. } | Opcode::FPow { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::FNeg { src, .. } => { if *src == old { *src = new; } }
-        Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } if *c == old { *c = new; } }
-        Opcode::DAdd { a, b, .. } | Opcode::DSub { a, b, .. } | Opcode::DMul { a, b, .. }
-        | Opcode::DDiv { a, b, .. } | Opcode::DPow { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::DNeg { src, .. } => { if *src == old { *src = new; } }
-        Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } if *c == old { *c = new; } }
-        Opcode::And { a, b, .. } | Opcode::Or { a, b, .. } | Opcode::Xor { a, b, .. }
-        | Opcode::Shl { a, b, .. } | Opcode::Shr { a, b, .. } | Opcode::UShr { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::Not { src, .. } => { if *src == old { *src = new; } }
-        Opcode::IEq { a, b, .. } | Opcode::INe { a, b, .. } | Opcode::ILt { a, b, .. }
-        | Opcode::ILe { a, b, .. } | Opcode::ULt { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::FEq { a, b, .. } | Opcode::FNe { a, b, .. } | Opcode::FLt { a, b, .. }
-        | Opcode::FLe { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::I32ToF32 { src, .. } | Opcode::F32ToI32 { src, .. }
-        | Opcode::I32ToF64 { src, .. } | Opcode::F64ToI32 { src, .. }
-        | Opcode::F32ToF64 { src, .. } | Opcode::F64ToF32 { src, .. } => { if *src == old { *src = new; } }
-        Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => { if *addr == old { *addr = new; } }
-        Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => { if *base == old { *base = new; } }
-        Opcode::Store8 { addr, src } | Opcode::Store32 { addr, src } | Opcode::Store64 { addr, src } => { if *addr == old { *addr = new; } if *src == old { *src = new; } }
-        Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
-        | Opcode::Store64Off { base, src, .. } => { if *base == old { *base = new; } if *src == old { *src = new; } }
-        Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => { if *cond == old { *cond = new; } }
-        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::ReturnReg { src } => { if *src == old { *src = new; } }
-        Opcode::MemCopy { dst, src, .. } => { if *dst == old { *dst = new; } if *src == old { *src = new; } }
-        Opcode::MemZero { dst, .. } => { if *dst == old { *dst = new; } }
-        Opcode::PrintI32 { src } | Opcode::PrintF32 { src } | Opcode::Assert { src }
-        | Opcode::Putc { src } => { if *src == old { *src = new; } }
-        Opcode::SinF32 { src, .. } | Opcode::CosF32 { src, .. } | Opcode::TanF32 { src, .. }
-        | Opcode::LnF32 { src, .. } | Opcode::ExpF32 { src, .. } | Opcode::SqrtF32 { src, .. }
-        | Opcode::AbsF32 { src, .. } | Opcode::FloorF32 { src, .. } | Opcode::CeilF32 { src, .. } => { if *src == old { *src = new; } }
-        Opcode::SinF64 { src, .. } | Opcode::CosF64 { src, .. } | Opcode::TanF64 { src, .. }
-        | Opcode::LnF64 { src, .. } | Opcode::ExpF64 { src, .. } | Opcode::SqrtF64 { src, .. }
-        | Opcode::AbsF64 { src, .. } | Opcode::FloorF64 { src, .. } | Opcode::CeilF64 { src, .. } => { if *src == old { *src = new; } }
-        Opcode::PowF32 { a, b, .. } | Opcode::Atan2F32 { a, b, .. }
-        | Opcode::PowF64 { a, b, .. } | Opcode::Atan2F64 { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
-        Opcode::StoreSlot32 { src, .. } => { if *src == old { *src = new; } }
-        Opcode::Call { args_start, arg_count, .. } => {
-            for r in *args_start..(*args_start + *arg_count) {
-                if r == old && r == *args_start { *args_start = new; break; }
+        Opcode::Move { src, .. } => {
+            if *src == old {
+                *src = new;
             }
         }
-        Opcode::CallIndirect { func_reg, args_start, arg_count } => {
-            if *func_reg == old { *func_reg = new; }
+        Opcode::IAdd { a, b, .. }
+        | Opcode::ISub { a, b, .. }
+        | Opcode::IMul { a, b, .. }
+        | Opcode::IDiv { a, b, .. }
+        | Opcode::UDiv { a, b, .. }
+        | Opcode::IRem { a, b, .. }
+        | Opcode::IPow { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::FAdd { a, b, .. }
+        | Opcode::FSub { a, b, .. }
+        | Opcode::FMul { a, b, .. }
+        | Opcode::FDiv { a, b, .. }
+        | Opcode::FPow { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::FNeg { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+            if *c == old {
+                *c = new;
+            }
+        }
+        Opcode::DAdd { a, b, .. }
+        | Opcode::DSub { a, b, .. }
+        | Opcode::DMul { a, b, .. }
+        | Opcode::DDiv { a, b, .. }
+        | Opcode::DPow { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::DNeg { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+            if *c == old {
+                *c = new;
+            }
+        }
+        Opcode::And { a, b, .. }
+        | Opcode::Or { a, b, .. }
+        | Opcode::Xor { a, b, .. }
+        | Opcode::Shl { a, b, .. }
+        | Opcode::Shr { a, b, .. }
+        | Opcode::UShr { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::Not { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::IEq { a, b, .. }
+        | Opcode::INe { a, b, .. }
+        | Opcode::ILt { a, b, .. }
+        | Opcode::ILe { a, b, .. }
+        | Opcode::ULt { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::FEq { a, b, .. }
+        | Opcode::FNe { a, b, .. }
+        | Opcode::FLt { a, b, .. }
+        | Opcode::FLe { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::I32ToF32 { src, .. }
+        | Opcode::F32ToI32 { src, .. }
+        | Opcode::I32ToF64 { src, .. }
+        | Opcode::F64ToI32 { src, .. }
+        | Opcode::F32ToF64 { src, .. }
+        | Opcode::F64ToF32 { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
+            if *addr == old {
+                *addr = new;
+            }
+        }
+        Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => {
+            if *base == old {
+                *base = new;
+            }
+        }
+        Opcode::Store8 { addr, src }
+        | Opcode::Store32 { addr, src }
+        | Opcode::Store64 { addr, src } => {
+            if *addr == old {
+                *addr = new;
+            }
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::Store8Off { base, src, .. }
+        | Opcode::Store32Off { base, src, .. }
+        | Opcode::Store64Off { base, src, .. } => {
+            if *base == old {
+                *base = new;
+            }
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => {
+            if *cond == old {
+                *cond = new;
+            }
+        }
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::ReturnReg { src } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::MemCopy { dst, src, .. } => {
+            if *dst == old {
+                *dst = new;
+            }
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::MemZero { dst, .. } => {
+            if *dst == old {
+                *dst = new;
+            }
+        }
+        Opcode::PrintI32 { src }
+        | Opcode::PrintF32 { src }
+        | Opcode::Assert { src }
+        | Opcode::Putc { src } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::SinF32 { src, .. }
+        | Opcode::CosF32 { src, .. }
+        | Opcode::TanF32 { src, .. }
+        | Opcode::LnF32 { src, .. }
+        | Opcode::ExpF32 { src, .. }
+        | Opcode::SqrtF32 { src, .. }
+        | Opcode::AbsF32 { src, .. }
+        | Opcode::FloorF32 { src, .. }
+        | Opcode::CeilF32 { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::SinF64 { src, .. }
+        | Opcode::CosF64 { src, .. }
+        | Opcode::TanF64 { src, .. }
+        | Opcode::LnF64 { src, .. }
+        | Opcode::ExpF64 { src, .. }
+        | Opcode::SqrtF64 { src, .. }
+        | Opcode::AbsF64 { src, .. }
+        | Opcode::FloorF64 { src, .. }
+        | Opcode::CeilF64 { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::PowF32 { a, b, .. }
+        | Opcode::Atan2F32 { a, b, .. }
+        | Opcode::PowF64 { a, b, .. }
+        | Opcode::Atan2F64 { a, b, .. } => {
+            if *a == old {
+                *a = new;
+            }
+            if *b == old {
+                *b = new;
+            }
+        }
+        Opcode::StoreSlot32 { src, .. } => {
+            if *src == old {
+                *src = new;
+            }
+        }
+        Opcode::Call {
+            args_start,
+            arg_count,
+            ..
+        } => {
             for r in *args_start..(*args_start + *arg_count) {
-                if r == old && r == *args_start { *args_start = new; break; }
+                if r == old && r == *args_start {
+                    *args_start = new;
+                    break;
+                }
+            }
+        }
+        Opcode::CallIndirect {
+            func_reg,
+            args_start,
+            arg_count,
+        } => {
+            if *func_reg == old {
+                *func_reg = new;
+            }
+            for r in *args_start..(*args_start + *arg_count) {
+                if r == old && r == *args_start {
+                    *args_start = new;
+                    break;
+                }
             }
         }
         _ => {}
@@ -704,7 +1120,11 @@ fn fuse_local_access(code: &mut Vec<Opcode>) {
     let uses = compute_use_counts_fast(code);
 
     for i in 0..code.len().saturating_sub(1) {
-        if let Opcode::LocalAddr { dst: addr_reg, slot } = code[i] {
+        if let Opcode::LocalAddr {
+            dst: addr_reg,
+            slot,
+        } = code[i]
+        {
             // Only fuse if the address register is used exactly once (by the next instruction)
             if uses[addr_reg as usize] != 1 {
                 continue;
@@ -733,7 +1153,12 @@ fn fuse_offset_access(code: &mut Vec<Opcode>) {
     let uses = compute_use_counts_fast(code);
 
     for i in 0..code.len().saturating_sub(1) {
-        if let Opcode::IAddImm { dst: addr_reg, src: base, imm } = code[i] {
+        if let Opcode::IAddImm {
+            dst: addr_reg,
+            src: base,
+            imm,
+        } = code[i]
+        {
             // Only fuse if the computed address register is used exactly once
             if uses[addr_reg as usize] != 1 {
                 continue;
@@ -781,7 +1206,11 @@ fn fuse_compare_branch(code: &mut Vec<Opcode>) {
                     if let Opcode::JumpIfZero { cond, offset } = code[i + 1] {
                         if cond == dst {
                             // offset was relative to JumpIfZero (i+1), now relative to ILt (i)
-                            code[i] = Opcode::ILtJump { a, b, offset: offset + 1 };
+                            code[i] = Opcode::ILtJump {
+                                a,
+                                b,
+                                offset: offset + 1,
+                            };
                             code[i + 1] = Opcode::Nop;
                         }
                     }
@@ -791,7 +1220,11 @@ fn fuse_compare_branch(code: &mut Vec<Opcode>) {
                 if uses[dst as usize] == 1 {
                     if let Opcode::JumpIfZero { cond, offset } = code[i + 1] {
                         if cond == dst {
-                            code[i] = Opcode::FLtJump { a, b, offset: offset + 1 };
+                            code[i] = Opcode::FLtJump {
+                                a,
+                                b,
+                                offset: offset + 1,
+                            };
                             code[i + 1] = Opcode::Nop;
                         }
                     }
@@ -831,8 +1264,10 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
     // Extend live ranges through loops (backward jumps).
     for (i, op) in code.iter().enumerate() {
         let offset = match op {
-            Opcode::Jump { offset } | Opcode::JumpIfZero { offset, .. }
-            | Opcode::JumpIfNotZero { offset, .. } | Opcode::ILtJump { offset, .. }
+            Opcode::Jump { offset }
+            | Opcode::JumpIfZero { offset, .. }
+            | Opcode::JumpIfNotZero { offset, .. }
+            | Opcode::ILtJump { offset, .. }
             | Opcode::FLtJump { offset, .. } => Some(*offset),
             _ => None,
         };
@@ -843,12 +1278,19 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
                 let loop_start = target;
                 let loop_end = i;
                 for r in 0..256 {
-                    if !is_used[r] { continue; }
-                    if def_point[r] < loop_start && last_use[r] >= loop_start && last_use[r] <= loop_end {
+                    if !is_used[r] {
+                        continue;
+                    }
+                    if def_point[r] < loop_start
+                        && last_use[r] >= loop_start
+                        && last_use[r] <= loop_end
+                    {
                         last_use[r] = loop_end;
                     }
-                    if def_point[r] >= loop_start && def_point[r] <= loop_end
-                        && last_use[r] >= loop_start && last_use[r] <= loop_end
+                    if def_point[r] >= loop_start
+                        && def_point[r] <= loop_end
+                        && last_use[r] >= loop_start
+                        && last_use[r] <= loop_end
                     {
                         for j in loop_start..def_point[r] {
                             if reads_reg(&code[j as usize], r as u8) {
@@ -898,8 +1340,16 @@ fn copy_coalesce(code: &mut [Opcode]) {
     let mut call_arg_reg = [false; 256];
     for op in code.iter() {
         let (args_start, arg_count) = match op {
-            Opcode::Call { args_start, arg_count, .. } => (*args_start, *arg_count),
-            Opcode::CallIndirect { args_start, arg_count, .. } => (*args_start, *arg_count),
+            Opcode::Call {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
+            Opcode::CallIndirect {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
             _ => continue,
         };
         for r in args_start..(args_start + arg_count) {
@@ -923,9 +1373,13 @@ fn copy_coalesce(code: &mut [Opcode]) {
 
                 let d = dst as usize;
                 let s = src as usize;
-                if !is_used[d] || !is_used[s] { continue; }
+                if !is_used[d] || !is_used[s] {
+                    continue;
+                }
                 // Skip registers involved in call arguments.
-                if call_arg_reg[d] || call_arg_reg[s] { continue; }
+                if call_arg_reg[d] || call_arg_reg[s] {
+                    continue;
+                }
 
                 let d_def = def_point[d];
                 let s_end = last_use[s].max(def_point[s]);
@@ -950,16 +1404,27 @@ fn copy_coalesce(code: &mut [Opcode]) {
                 }
             }
         }
-        if !coalesced { break; }
+        if !coalesced {
+            break;
+        }
     }
 }
 
 /// Rewrite all occurrences of `old` register to `new` in an instruction.
 fn rewrite_coalesced_reg(op: &mut Opcode, old: Reg, new: Reg) {
-    if old == new { return; }
+    if old == new {
+        return;
+    }
     // Rewrite dst
     match op {
-        Opcode::Move { dst, src } => { if *dst == old { *dst = new; } if *src == old { *src = new; } }
+        Opcode::Move { dst, src } => {
+            if *dst == old {
+                *dst = new;
+            }
+            if *src == old {
+                *src = new;
+            }
+        }
         _ => {
             if let Some(d) = get_dst(op) {
                 if d == old {
@@ -1005,7 +1470,9 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
     let mut pinned = [false; 256];
     for (i, op) in code.iter().enumerate() {
         let is_call = matches!(op, Opcode::Call { .. } | Opcode::CallIndirect { .. });
-        if !is_call { continue; }
+        if !is_call {
+            continue;
+        }
         let i = i as u32;
         for r in 0..256 {
             if is_used[r] && def_point[r] < i && last_use[r] > i {
@@ -1019,8 +1486,16 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
     let mut call_group: [Option<(u8, u8)>; 256] = [None; 256];
     for op in code.iter() {
         let (args_start, arg_count) = match op {
-            Opcode::Call { args_start, arg_count, .. } => (*args_start, *arg_count),
-            Opcode::CallIndirect { args_start, arg_count, .. } => (*args_start, *arg_count),
+            Opcode::Call {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
+            Opcode::CallIndirect {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
             _ => continue,
         };
         if arg_count >= 2 {
@@ -1044,7 +1519,7 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
 
     // Step 4: Linear scan — assign physical registers.
     let mut mapping = [255u8; 256]; // vreg -> preg (255 = unassigned)
-    // Track which physical registers are free. Use a simple bitset.
+                                    // Track which physical registers are free. Use a simple bitset.
     let mut preg_free = [true; 256];
     // Active intervals sorted by end point: (end, vreg, preg)
     let mut active: Vec<(u32, u8, u8)> = Vec::new();
@@ -1061,11 +1536,17 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
 
     for &(vreg, start, end) in &intervals {
         // Skip vreg 0 — already pinned
-        if vreg == 0 { continue; }
+        if vreg == 0 {
+            continue;
+        }
         // Skip cross-call registers — assigned later above the compacted range
-        if pinned[vreg as usize] { continue; }
+        if pinned[vreg as usize] {
+            continue;
+        }
         // Skip if already allocated (part of a group that was allocated earlier)
-        if mapping[vreg as usize] != 255 { continue; }
+        if mapping[vreg as usize] != 255 {
+            continue;
+        }
 
         // Expire intervals that ended before this one starts
         active.retain(|&(active_end, _vr, pr)| {
@@ -1090,7 +1571,8 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
             // Find a contiguous block of `group_size` free physical registers.
             let block_start = (0..=(255 - group_size + 1))
                 .find(|&p| (0..group_size).all(|j| preg_free[(p + j) as usize]))
-                .expect("register allocation: no contiguous block for call args") as u8;
+                .expect("register allocation: no contiguous block for call args")
+                as u8;
 
             // Assign the entire group.
             for j in 0..group_size {
@@ -1105,12 +1587,19 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
         } else {
             // Normal register — try hinted register first, then lowest free.
             let hinted_vreg = hint[vreg as usize];
-            let hinted_preg = if hinted_vreg != 255 { mapping[hinted_vreg as usize] } else { 255 };
+            let hinted_preg = if hinted_vreg != 255 {
+                mapping[hinted_vreg as usize]
+            } else {
+                255
+            };
             let preg = if hinted_preg != 255 && preg_free[hinted_preg as usize] {
                 hinted_preg
             } else {
-                preg_free.iter().position(|&free| free)
-                    .expect("register allocation: ran out of physical registers") as u8
+                preg_free
+                    .iter()
+                    .position(|&free| free)
+                    .expect("register allocation: ran out of physical registers")
+                    as u8
             };
             preg_free[preg as usize] = false;
             mapping[vreg as usize] = preg;
@@ -1141,7 +1630,9 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
             max_preg = max_preg.max(mapping[r]);
         }
     }
-    let new_count = max_preg.checked_add(1).expect("register allocation overflow: need >255 physical registers");
+    let new_count = max_preg
+        .checked_add(1)
+        .expect("register allocation overflow: need >255 physical registers");
 
     // Step 6: Patch SaveRegs/RestoreRegs BEFORE rewriting (start_reg still has virtual numbers).
     for op in code.iter_mut() {
@@ -1149,7 +1640,9 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
             Opcode::SaveRegs { count, .. } => {
                 *count = new_count;
             }
-            Opcode::RestoreRegs { start_reg, count, .. } => {
+            Opcode::RestoreRegs {
+                start_reg, count, ..
+            } => {
                 if *start_reg == 1 {
                     *count = if new_count > 1 { new_count - 1 } else { 0 };
                 } else {
@@ -1172,60 +1665,162 @@ fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
 fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
     match op {
         Opcode::Move { src, .. } => f(*src),
-        Opcode::IAdd { a, b, .. } | Opcode::ISub { a, b, .. } | Opcode::IMul { a, b, .. }
-        | Opcode::IDiv { a, b, .. } | Opcode::UDiv { a, b, .. } | Opcode::IRem { a, b, .. }
-        | Opcode::IPow { a, b, .. } => { f(*a); f(*b); }
-        Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => f(*src),
-        Opcode::FAdd { a, b, .. } | Opcode::FSub { a, b, .. } | Opcode::FMul { a, b, .. }
-        | Opcode::FDiv { a, b, .. } | Opcode::FPow { a, b, .. } => { f(*a); f(*b); }
-        Opcode::FNeg { src, .. } => f(*src),
-        Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => { f(*a); f(*b); f(*c); }
-        Opcode::DAdd { a, b, .. } | Opcode::DSub { a, b, .. } | Opcode::DMul { a, b, .. }
-        | Opcode::DDiv { a, b, .. } | Opcode::DPow { a, b, .. } => { f(*a); f(*b); }
-        Opcode::DNeg { src, .. } => f(*src),
-        Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => { f(*a); f(*b); f(*c); }
-        Opcode::And { a, b, .. } | Opcode::Or { a, b, .. } | Opcode::Xor { a, b, .. }
-        | Opcode::Shl { a, b, .. } | Opcode::Shr { a, b, .. } | Opcode::UShr { a, b, .. } => { f(*a); f(*b); }
-        Opcode::Not { src, .. } => f(*src),
-        Opcode::IEq { a, b, .. } | Opcode::INe { a, b, .. } | Opcode::ILt { a, b, .. }
-        | Opcode::ILe { a, b, .. } | Opcode::ULt { a, b, .. } => { f(*a); f(*b); }
-        Opcode::FEq { a, b, .. } | Opcode::FNe { a, b, .. } | Opcode::FLt { a, b, .. }
-        | Opcode::FLe { a, b, .. } => { f(*a); f(*b); }
-        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => { f(*a); f(*b); }
-        Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => { f(*a); f(*b); }
-        Opcode::I32ToF32 { src, .. } | Opcode::F32ToI32 { src, .. }
-        | Opcode::I32ToF64 { src, .. } | Opcode::F64ToI32 { src, .. }
-        | Opcode::F32ToF64 { src, .. } | Opcode::F64ToF32 { src, .. } => f(*src),
-        Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => f(*addr),
-        Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => f(*base),
-        Opcode::Store8 { addr, src } | Opcode::Store32 { addr, src } | Opcode::Store64 { addr, src } => { f(*addr); f(*src); }
-        Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
-        | Opcode::Store64Off { base, src, .. } => { f(*base); f(*src); }
-        Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => f(*cond),
-        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { f(*a); f(*b); }
-        Opcode::Call { args_start, arg_count, .. } => {
-            for r in *args_start..(*args_start + *arg_count) { f(r); }
+        Opcode::IAdd { a, b, .. }
+        | Opcode::ISub { a, b, .. }
+        | Opcode::IMul { a, b, .. }
+        | Opcode::IDiv { a, b, .. }
+        | Opcode::UDiv { a, b, .. }
+        | Opcode::IRem { a, b, .. }
+        | Opcode::IPow { a, b, .. } => {
+            f(*a);
+            f(*b);
         }
-        Opcode::CallIndirect { func_reg, args_start, arg_count } => {
+        Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => f(*src),
+        Opcode::FAdd { a, b, .. }
+        | Opcode::FSub { a, b, .. }
+        | Opcode::FMul { a, b, .. }
+        | Opcode::FDiv { a, b, .. }
+        | Opcode::FPow { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::FNeg { src, .. } => f(*src),
+        Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => {
+            f(*a);
+            f(*b);
+            f(*c);
+        }
+        Opcode::DAdd { a, b, .. }
+        | Opcode::DSub { a, b, .. }
+        | Opcode::DMul { a, b, .. }
+        | Opcode::DDiv { a, b, .. }
+        | Opcode::DPow { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::DNeg { src, .. } => f(*src),
+        Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => {
+            f(*a);
+            f(*b);
+            f(*c);
+        }
+        Opcode::And { a, b, .. }
+        | Opcode::Or { a, b, .. }
+        | Opcode::Xor { a, b, .. }
+        | Opcode::Shl { a, b, .. }
+        | Opcode::Shr { a, b, .. }
+        | Opcode::UShr { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::Not { src, .. } => f(*src),
+        Opcode::IEq { a, b, .. }
+        | Opcode::INe { a, b, .. }
+        | Opcode::ILt { a, b, .. }
+        | Opcode::ILe { a, b, .. }
+        | Opcode::ULt { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::FEq { a, b, .. }
+        | Opcode::FNe { a, b, .. }
+        | Opcode::FLt { a, b, .. }
+        | Opcode::FLe { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::I32ToF32 { src, .. }
+        | Opcode::F32ToI32 { src, .. }
+        | Opcode::I32ToF64 { src, .. }
+        | Opcode::F64ToI32 { src, .. }
+        | Opcode::F32ToF64 { src, .. }
+        | Opcode::F64ToF32 { src, .. } => f(*src),
+        Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
+            f(*addr)
+        }
+        Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => f(*base),
+        Opcode::Store8 { addr, src }
+        | Opcode::Store32 { addr, src }
+        | Opcode::Store64 { addr, src } => {
+            f(*addr);
+            f(*src);
+        }
+        Opcode::Store8Off { base, src, .. }
+        | Opcode::Store32Off { base, src, .. }
+        | Opcode::Store64Off { base, src, .. } => {
+            f(*base);
+            f(*src);
+        }
+        Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => f(*cond),
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
+        Opcode::Call {
+            args_start,
+            arg_count,
+            ..
+        } => {
+            for r in *args_start..(*args_start + *arg_count) {
+                f(r);
+            }
+        }
+        Opcode::CallIndirect {
+            func_reg,
+            args_start,
+            arg_count,
+        } => {
             f(*func_reg);
-            for r in *args_start..(*args_start + *arg_count) { f(r); }
+            for r in *args_start..(*args_start + *arg_count) {
+                f(r);
+            }
         }
         Opcode::ReturnReg { src } => f(*src),
-        Opcode::MemCopy { dst, src, .. } => { f(*dst); f(*src); }
+        Opcode::MemCopy { dst, src, .. } => {
+            f(*dst);
+            f(*src);
+        }
         Opcode::MemZero { dst, .. } => f(*dst),
         // SaveRegs/RestoreRegs are function-level bookkeeping, not data flow.
         Opcode::SaveRegs { .. } => {}
         Opcode::RestoreRegs { .. } => {}
-        Opcode::PrintI32 { src } | Opcode::PrintF32 { src } | Opcode::Assert { src }
+        Opcode::PrintI32 { src }
+        | Opcode::PrintF32 { src }
+        | Opcode::Assert { src }
         | Opcode::Putc { src } => f(*src),
-        Opcode::SinF32 { src, .. } | Opcode::CosF32 { src, .. } | Opcode::TanF32 { src, .. }
-        | Opcode::LnF32 { src, .. } | Opcode::ExpF32 { src, .. } | Opcode::SqrtF32 { src, .. }
-        | Opcode::AbsF32 { src, .. } | Opcode::FloorF32 { src, .. } | Opcode::CeilF32 { src, .. } => f(*src),
-        Opcode::SinF64 { src, .. } | Opcode::CosF64 { src, .. } | Opcode::TanF64 { src, .. }
-        | Opcode::LnF64 { src, .. } | Opcode::ExpF64 { src, .. } | Opcode::SqrtF64 { src, .. }
-        | Opcode::AbsF64 { src, .. } | Opcode::FloorF64 { src, .. } | Opcode::CeilF64 { src, .. } => f(*src),
-        Opcode::PowF32 { a, b, .. } | Opcode::Atan2F32 { a, b, .. }
-        | Opcode::PowF64 { a, b, .. } | Opcode::Atan2F64 { a, b, .. } => { f(*a); f(*b); }
+        Opcode::SinF32 { src, .. }
+        | Opcode::CosF32 { src, .. }
+        | Opcode::TanF32 { src, .. }
+        | Opcode::LnF32 { src, .. }
+        | Opcode::ExpF32 { src, .. }
+        | Opcode::SqrtF32 { src, .. }
+        | Opcode::AbsF32 { src, .. }
+        | Opcode::FloorF32 { src, .. }
+        | Opcode::CeilF32 { src, .. } => f(*src),
+        Opcode::SinF64 { src, .. }
+        | Opcode::CosF64 { src, .. }
+        | Opcode::TanF64 { src, .. }
+        | Opcode::LnF64 { src, .. }
+        | Opcode::ExpF64 { src, .. }
+        | Opcode::SqrtF64 { src, .. }
+        | Opcode::AbsF64 { src, .. }
+        | Opcode::FloorF64 { src, .. }
+        | Opcode::CeilF64 { src, .. } => f(*src),
+        Opcode::PowF32 { a, b, .. }
+        | Opcode::Atan2F32 { a, b, .. }
+        | Opcode::PowF64 { a, b, .. }
+        | Opcode::Atan2F64 { a, b, .. } => {
+            f(*a);
+            f(*b);
+        }
         Opcode::StoreSlot32 { src, .. } => f(*src),
         _ => {}
     }
@@ -1234,67 +1829,223 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
 /// Rewrite all register references in an instruction using a mapping table.
 fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
     match op {
-        Opcode::Move { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::LoadImm { dst, .. } | Opcode::LoadF32 { dst, .. } | Opcode::LoadF64 { dst, .. }
-        | Opcode::LoadConst { dst, .. } => { *dst = map[*dst as usize]; }
-        Opcode::IAdd { dst, a, b } | Opcode::ISub { dst, a, b } | Opcode::IMul { dst, a, b }
-        | Opcode::IDiv { dst, a, b } | Opcode::UDiv { dst, a, b } | Opcode::IRem { dst, a, b }
-        | Opcode::IPow { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::INeg { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::IAddImm { dst, src, .. } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::FAdd { dst, a, b } | Opcode::FSub { dst, a, b } | Opcode::FMul { dst, a, b }
-        | Opcode::FDiv { dst, a, b } | Opcode::FPow { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::FNeg { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::FMulAdd { dst, a, b, c } | Opcode::FMulSub { dst, a, b, c } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; *c = map[*c as usize]; }
-        Opcode::DAdd { dst, a, b } | Opcode::DSub { dst, a, b } | Opcode::DMul { dst, a, b }
-        | Opcode::DDiv { dst, a, b } | Opcode::DPow { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::DNeg { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::DMulAdd { dst, a, b, c } | Opcode::DMulSub { dst, a, b, c } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; *c = map[*c as usize]; }
-        Opcode::And { dst, a, b } | Opcode::Or { dst, a, b } | Opcode::Xor { dst, a, b }
-        | Opcode::Shl { dst, a, b } | Opcode::Shr { dst, a, b } | Opcode::UShr { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::Not { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::IEq { dst, a, b } | Opcode::INe { dst, a, b } | Opcode::ILt { dst, a, b }
-        | Opcode::ILe { dst, a, b } | Opcode::ULt { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::FEq { dst, a, b } | Opcode::FNe { dst, a, b } | Opcode::FLt { dst, a, b }
-        | Opcode::FLe { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::MemEq { dst, a, b, .. } | Opcode::MemNe { dst, a, b, .. } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::DEq { dst, a, b } | Opcode::DLt { dst, a, b } | Opcode::DLe { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::I32ToF32 { dst, src } | Opcode::F32ToI32 { dst, src }
-        | Opcode::I32ToF64 { dst, src } | Opcode::F64ToI32 { dst, src }
-        | Opcode::F32ToF64 { dst, src } | Opcode::F64ToF32 { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::Load8 { dst, addr } | Opcode::Load32 { dst, addr } | Opcode::Load64 { dst, addr } => { *dst = map[*dst as usize]; *addr = map[*addr as usize]; }
-        Opcode::Load32Off { dst, base, .. } | Opcode::Load64Off { dst, base, .. } => { *dst = map[*dst as usize]; *base = map[*base as usize]; }
-        Opcode::Store8 { addr, src } | Opcode::Store32 { addr, src } | Opcode::Store64 { addr, src } => { *addr = map[*addr as usize]; *src = map[*src as usize]; }
-        Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
-        | Opcode::Store64Off { base, src, .. } => { *base = map[*base as usize]; *src = map[*src as usize]; }
-        Opcode::LocalAddr { dst, .. } | Opcode::GlobalAddr { dst, .. } => { *dst = map[*dst as usize]; }
-        Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => { *cond = map[*cond as usize]; }
-        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { *a = map[*a as usize]; *b = map[*b as usize]; }
+        Opcode::Move { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::LoadImm { dst, .. }
+        | Opcode::LoadF32 { dst, .. }
+        | Opcode::LoadF64 { dst, .. }
+        | Opcode::LoadConst { dst, .. } => {
+            *dst = map[*dst as usize];
+        }
+        Opcode::IAdd { dst, a, b }
+        | Opcode::ISub { dst, a, b }
+        | Opcode::IMul { dst, a, b }
+        | Opcode::IDiv { dst, a, b }
+        | Opcode::UDiv { dst, a, b }
+        | Opcode::IRem { dst, a, b }
+        | Opcode::IPow { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::INeg { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::IAddImm { dst, src, .. } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::FAdd { dst, a, b }
+        | Opcode::FSub { dst, a, b }
+        | Opcode::FMul { dst, a, b }
+        | Opcode::FDiv { dst, a, b }
+        | Opcode::FPow { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::FNeg { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::FMulAdd { dst, a, b, c } | Opcode::FMulSub { dst, a, b, c } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+            *c = map[*c as usize];
+        }
+        Opcode::DAdd { dst, a, b }
+        | Opcode::DSub { dst, a, b }
+        | Opcode::DMul { dst, a, b }
+        | Opcode::DDiv { dst, a, b }
+        | Opcode::DPow { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::DNeg { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::DMulAdd { dst, a, b, c } | Opcode::DMulSub { dst, a, b, c } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+            *c = map[*c as usize];
+        }
+        Opcode::And { dst, a, b }
+        | Opcode::Or { dst, a, b }
+        | Opcode::Xor { dst, a, b }
+        | Opcode::Shl { dst, a, b }
+        | Opcode::Shr { dst, a, b }
+        | Opcode::UShr { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::Not { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::IEq { dst, a, b }
+        | Opcode::INe { dst, a, b }
+        | Opcode::ILt { dst, a, b }
+        | Opcode::ILe { dst, a, b }
+        | Opcode::ULt { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::FEq { dst, a, b }
+        | Opcode::FNe { dst, a, b }
+        | Opcode::FLt { dst, a, b }
+        | Opcode::FLe { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::MemEq { dst, a, b, .. } | Opcode::MemNe { dst, a, b, .. } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::DEq { dst, a, b } | Opcode::DLt { dst, a, b } | Opcode::DLe { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::I32ToF32 { dst, src }
+        | Opcode::F32ToI32 { dst, src }
+        | Opcode::I32ToF64 { dst, src }
+        | Opcode::F64ToI32 { dst, src }
+        | Opcode::F32ToF64 { dst, src }
+        | Opcode::F64ToF32 { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::Load8 { dst, addr }
+        | Opcode::Load32 { dst, addr }
+        | Opcode::Load64 { dst, addr } => {
+            *dst = map[*dst as usize];
+            *addr = map[*addr as usize];
+        }
+        Opcode::Load32Off { dst, base, .. } | Opcode::Load64Off { dst, base, .. } => {
+            *dst = map[*dst as usize];
+            *base = map[*base as usize];
+        }
+        Opcode::Store8 { addr, src }
+        | Opcode::Store32 { addr, src }
+        | Opcode::Store64 { addr, src } => {
+            *addr = map[*addr as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::Store8Off { base, src, .. }
+        | Opcode::Store32Off { base, src, .. }
+        | Opcode::Store64Off { base, src, .. } => {
+            *base = map[*base as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::LocalAddr { dst, .. } | Opcode::GlobalAddr { dst, .. } => {
+            *dst = map[*dst as usize];
+        }
+        Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => {
+            *cond = map[*cond as usize];
+        }
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => {
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
         Opcode::Call { args_start, .. } => {
             *args_start = map[*args_start as usize];
         }
-        Opcode::CallIndirect { func_reg, args_start, .. } => {
+        Opcode::CallIndirect {
+            func_reg,
+            args_start,
+            ..
+        } => {
             *func_reg = map[*func_reg as usize];
             *args_start = map[*args_start as usize];
         }
-        Opcode::ReturnReg { src } => { *src = map[*src as usize]; }
-        Opcode::MemCopy { dst, src, .. } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::MemZero { dst, .. } => { *dst = map[*dst as usize]; }
+        Opcode::ReturnReg { src } => {
+            *src = map[*src as usize];
+        }
+        Opcode::MemCopy { dst, src, .. } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::MemZero { dst, .. } => {
+            *dst = map[*dst as usize];
+        }
         // SaveRegs/RestoreRegs are patched separately (Step 6), not remapped.
         Opcode::SaveRegs { .. } => {}
         Opcode::RestoreRegs { .. } => {}
-        Opcode::PrintI32 { src } | Opcode::PrintF32 { src } | Opcode::Assert { src }
-        | Opcode::Putc { src } => { *src = map[*src as usize]; }
-        Opcode::SinF32 { dst, src } | Opcode::CosF32 { dst, src } | Opcode::TanF32 { dst, src }
-        | Opcode::LnF32 { dst, src } | Opcode::ExpF32 { dst, src } | Opcode::SqrtF32 { dst, src }
-        | Opcode::AbsF32 { dst, src } | Opcode::FloorF32 { dst, src } | Opcode::CeilF32 { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::SinF64 { dst, src } | Opcode::CosF64 { dst, src } | Opcode::TanF64 { dst, src }
-        | Opcode::LnF64 { dst, src } | Opcode::ExpF64 { dst, src } | Opcode::SqrtF64 { dst, src }
-        | Opcode::AbsF64 { dst, src } | Opcode::FloorF64 { dst, src } | Opcode::CeilF64 { dst, src } => { *dst = map[*dst as usize]; *src = map[*src as usize]; }
-        Opcode::PowF32 { dst, a, b } | Opcode::Atan2F32 { dst, a, b }
-        | Opcode::PowF64 { dst, a, b } | Opcode::Atan2F64 { dst, a, b } => { *dst = map[*dst as usize]; *a = map[*a as usize]; *b = map[*b as usize]; }
-        Opcode::LoadSlot32 { dst, .. } => { *dst = map[*dst as usize]; }
-        Opcode::StoreSlot32 { src, .. } => { *src = map[*src as usize]; }
+        Opcode::PrintI32 { src }
+        | Opcode::PrintF32 { src }
+        | Opcode::Assert { src }
+        | Opcode::Putc { src } => {
+            *src = map[*src as usize];
+        }
+        Opcode::SinF32 { dst, src }
+        | Opcode::CosF32 { dst, src }
+        | Opcode::TanF32 { dst, src }
+        | Opcode::LnF32 { dst, src }
+        | Opcode::ExpF32 { dst, src }
+        | Opcode::SqrtF32 { dst, src }
+        | Opcode::AbsF32 { dst, src }
+        | Opcode::FloorF32 { dst, src }
+        | Opcode::CeilF32 { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::SinF64 { dst, src }
+        | Opcode::CosF64 { dst, src }
+        | Opcode::TanF64 { dst, src }
+        | Opcode::LnF64 { dst, src }
+        | Opcode::ExpF64 { dst, src }
+        | Opcode::SqrtF64 { dst, src }
+        | Opcode::AbsF64 { dst, src }
+        | Opcode::FloorF64 { dst, src }
+        | Opcode::CeilF64 { dst, src } => {
+            *dst = map[*dst as usize];
+            *src = map[*src as usize];
+        }
+        Opcode::PowF32 { dst, a, b }
+        | Opcode::Atan2F32 { dst, a, b }
+        | Opcode::PowF64 { dst, a, b }
+        | Opcode::Atan2F64 { dst, a, b } => {
+            *dst = map[*dst as usize];
+            *a = map[*a as usize];
+            *b = map[*b as usize];
+        }
+        Opcode::LoadSlot32 { dst, .. } => {
+            *dst = map[*dst as usize];
+        }
+        Opcode::StoreSlot32 { src, .. } => {
+            *src = map[*src as usize];
+        }
         _ => {}
     }
 }

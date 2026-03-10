@@ -1,4 +1,4 @@
-use crate::vm::{VM, VMProgram};
+use crate::vm::{VMProgram, VM};
 use crate::vm_codegen::VMCodegen;
 use crate::*;
 use core::mem;
@@ -109,18 +109,21 @@ fn builtin_decls() -> Vec<Decl> {
     }
 
     // Math builtins: binary f32 and f64 variants.
-    let binary_math = [
-        ("powf", "powd"),
-        ("atan2f", "atan2d"),
-    ];
+    let binary_math = [("powf", "powd"), ("atan2f", "atan2d")];
     for (f32_name, f64_name) in binary_math {
         decls.push(Decl::Func(FuncDecl {
             name: Name::new(f32_name.into()),
             typevars: vec![],
             size_vars: vec![],
             params: vec![
-                Param { name: Name::new("x".into()), ty: Some(mk_type(Type::Float32)) },
-                Param { name: Name::new("y".into()), ty: Some(mk_type(Type::Float32)) },
+                Param {
+                    name: Name::new("x".into()),
+                    ty: Some(mk_type(Type::Float32)),
+                },
+                Param {
+                    name: Name::new("y".into()),
+                    ty: Some(mk_type(Type::Float32)),
+                },
             ],
             body: None,
             ret: mk_type(Type::Float32),
@@ -135,8 +138,14 @@ fn builtin_decls() -> Vec<Decl> {
             typevars: vec![],
             size_vars: vec![],
             params: vec![
-                Param { name: Name::new("x".into()), ty: Some(mk_type(Type::Float64)) },
-                Param { name: Name::new("y".into()), ty: Some(mk_type(Type::Float64)) },
+                Param {
+                    name: Name::new("x".into()),
+                    ty: Some(mk_type(Type::Float64)),
+                },
+                Param {
+                    name: Name::new("y".into()),
+                    ty: Some(mk_type(Type::Float64)),
+                },
             ],
             body: None,
             ret: mk_type(Type::Float64),
@@ -174,7 +183,12 @@ pub struct Compiler {
 
 impl Compiler {
     pub fn new() -> Self {
-        let mut c = Self { ast: Vec::new(), decls: DeclTable::new(vec![]), print_ir: false, stdlib_trees: 0 };
+        let mut c = Self {
+            ast: Vec::new(),
+            decls: DeclTable::new(vec![]),
+            print_ir: false,
+            stdlib_trees: 0,
+        };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
         c
@@ -189,7 +203,6 @@ impl Compiler {
             eprintln!("could not read file {:?}", path);
             std::process::exit(1)
         }
-
     }
 
     pub fn print_ast(&self) {
@@ -221,7 +234,6 @@ impl Compiler {
     }
 
     pub fn check(&mut self) -> bool {
-
         let mut decls = builtin_decls();
         for tree in &self.ast {
             decls.append(&mut tree.decls.clone());
@@ -295,7 +307,12 @@ impl Compiler {
 
     pub fn has_decls(&self) -> bool {
         // Check if there are any user declarations beyond the built-ins and stdlib
-        let stdlib_decl_count: usize = self.ast.iter().take(self.stdlib_trees).map(|t| t.decls.len()).sum();
+        let stdlib_decl_count: usize = self
+            .ast
+            .iter()
+            .take(self.stdlib_trees)
+            .map(|t| t.decls.len())
+            .sum();
         self.decls.decls.len() > builtin_decls().len() + stdlib_decl_count
     }
 
@@ -337,7 +354,9 @@ impl Compiler {
             let mut globals: Vec<u8> = vec![0u8; globals_size];
             let cancelled = unsafe {
                 // globals[0]: cancel flag; globals[8]: JmpBuf for longjmp target.
-                extern "C" { fn setjmp(env: *mut u8) -> i32; }
+                extern "C" {
+                    fn setjmp(env: *mut u8) -> i32;
+                }
                 let jmp_buf_ptr = globals.as_mut_ptr().add(8);
                 if setjmp(jmp_buf_ptr) == 0 {
                     let code_fn = mem::transmute::<_, Entry>(code_ptr);
@@ -378,7 +397,6 @@ mod tests {
     use super::*;
 
     fn jit(code: &str) {
-
         let mut compiler = Compiler::new();
         let paths = vec![String::from(".")];
 
@@ -420,7 +438,9 @@ mod tests {
         });
 
         let cancelled = unsafe {
-            extern "C" { fn setjmp(env: *mut u8) -> i32; }
+            extern "C" {
+                fn setjmp(env: *mut u8) -> i32;
+            }
             let jmp_buf_ptr = globals.as_mut_ptr().add(8);
             if setjmp(jmp_buf_ptr) == 0 {
                 type Entry = fn(*mut u8) -> ();

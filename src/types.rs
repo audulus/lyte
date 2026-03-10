@@ -203,13 +203,23 @@ impl TypeID {
                 }
                 match &decl[0] {
                     Decl::Struct(sdecl) => {
-                        let inst: Instance = sdecl.typevars.iter().zip(vars.iter())
+                        let inst: Instance = sdecl
+                            .typevars
+                            .iter()
+                            .zip(vars.iter())
                             .map(|(tv, ty)| (mk_type(Type::Var(*tv)), *ty))
                             .collect();
-                        sdecl.fields.iter().map(|field| field.ty.subst(&inst).size(decls)).sum()
+                        sdecl
+                            .fields
+                            .iter()
+                            .map(|field| field.ty.subst(&inst).size(decls))
+                            .sum()
                     }
                     Decl::Enum { .. } => 4, // i32 discriminant
-                    _ => panic!("expected struct or enum decl for type {}, got {:?}", name, decl[0])
+                    _ => panic!(
+                        "expected struct or enum decl for type {}, got {:?}",
+                        name, decl[0]
+                    ),
                 }
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),
@@ -598,7 +608,10 @@ mod tests {
         let arr_ty = mk_type(Type::Array(mk_type(Type::Int32), ArraySize::Known(10)));
         assert_eq!(arr_ty.pretty_print(), "[i32; 10]");
 
-        let nested = mk_type(Type::Array(mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(5))), ArraySize::Known(3)));
+        let nested = mk_type(Type::Array(
+            mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(5))),
+            ArraySize::Known(3),
+        ));
         assert_eq!(nested.pretty_print(), "[[f32; 5]; 3]");
     }
 
@@ -607,8 +620,7 @@ mod tests {
         let func_ty = mk_type(Type::Func(mk_type(Type::Int32), mk_type(Type::Bool)));
         assert_eq!(func_ty.pretty_print(), "i32 → bool");
 
-        let higher_order =
-            mk_type(Type::Func(func_ty, mk_type(Type::Float32)));
+        let higher_order = mk_type(Type::Func(func_ty, mk_type(Type::Float32)));
         assert_eq!(higher_order.pretty_print(), "i32 → bool → f32");
     }
 
@@ -630,10 +642,7 @@ mod tests {
         let named_ty = mk_type(Type::Name(Name::str("Point"), vec![]));
         assert_eq!(named_ty.pretty_print(), "Point");
 
-        let generic_ty = mk_type(Type::Name(
-            Name::str("Vec"),
-            vec![mk_type(Type::Int32)],
-        ));
+        let generic_ty = mk_type(Type::Name(Name::str("Vec"), vec![mk_type(Type::Int32)]));
         assert_eq!(generic_ty.pretty_print(), "Vec<i32>");
 
         let multi_param = mk_type(Type::Name(

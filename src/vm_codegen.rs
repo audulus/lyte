@@ -127,7 +127,10 @@ impl VMCodegen {
         for pending in &self.pending_calls {
             if let Some(&callee_idx) = self.func_indices.get(&pending.callee) {
                 let func = &mut self.program.functions[pending.func_idx as usize];
-                if let Opcode::Call { func: ref mut f, .. } = func.code[pending.instr_idx] {
+                if let Opcode::Call {
+                    func: ref mut f, ..
+                } = func.code[pending.instr_idx]
+                {
                     *f = callee_idx;
                 }
             }
@@ -156,7 +159,13 @@ impl VMCodegen {
         let mut func = VMFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
 
-        let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &mut self.lambda_counter, &self.globals);
+        let mut translator = FunctionTranslator::new(
+            decl,
+            decls,
+            &mut self.pending_functions,
+            &mut self.lambda_counter,
+            &self.globals,
+        );
         translator.translate(&mut func);
 
         // Extract debug info: register and slot names for disassembly.
@@ -325,7 +334,10 @@ struct FunctionTranslator<'a> {
 
 /// Check if a type should be returned via output pointer.
 fn returns_via_pointer(ty: TypeID) -> bool {
-    matches!(&*ty, Type::Array(_, _) | Type::Slice(_) | Type::Name(_, _) | Type::Tuple(_))
+    matches!(
+        &*ty,
+        Type::Array(_, _) | Type::Slice(_) | Type::Name(_, _) | Type::Tuple(_)
+    )
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -396,7 +408,11 @@ impl<'a> FunctionTranslator<'a> {
 
         // Handle parameters. Scalars stay in registers (SaveRegs preserves them
         // across calls). Pointer types are stored to local slots.
-        let param_offset = if returns_via_pointer(self.decl.ret) { 1u8 } else { 0u8 };
+        let param_offset = if returns_via_pointer(self.decl.ret) {
+            1u8
+        } else {
+            0u8
+        };
         for (i, param) in self.decl.params.iter().enumerate() {
             let src_reg = i as Reg + param_offset;
             let ty = param.ty.expect("parameter must have type");
@@ -406,7 +422,10 @@ impl<'a> FunctionTranslator<'a> {
                 // register can be reused. The copy will be eliminated by
                 // move forwarding if possible.
                 let reg = self.alloc_reg();
-                func.emit(Opcode::Move { dst: reg, src: src_reg });
+                func.emit(Opcode::Move {
+                    dst: reg,
+                    src: src_reg,
+                });
                 self.variables.insert(param.name, reg);
                 self.reg_promoted.insert(param.name);
             } else {
@@ -414,7 +433,10 @@ impl<'a> FunctionTranslator<'a> {
                 let slot = self.alloc_local(size);
                 self.local_slots.insert(param.name, slot);
                 let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                func.emit(Opcode::LocalAddr {
+                    dst: addr_reg,
+                    slot,
+                });
                 self.emit_store(&ty, addr_reg, src_reg, func);
                 self.variables.insert(param.name, addr_reg);
             }
@@ -447,7 +469,10 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     // Move result to r0, restore r1..N, return
                     if result_reg != 0 {
-                        func.emit(Opcode::Move { dst: 0, src: result_reg });
+                        func.emit(Opcode::Move {
+                            dst: 0,
+                            src: result_reg,
+                        });
                     }
                     func.emit(Opcode::RestoreRegs {
                         start_reg: 1, // Skip r0 which has the return value
@@ -479,7 +504,12 @@ impl<'a> FunctionTranslator<'a> {
                     *count = reg_count;
                     *slot = self.save_regs_offset;
                 }
-                Opcode::RestoreRegs { start_reg, count, slot, .. } => {
+                Opcode::RestoreRegs {
+                    start_reg,
+                    count,
+                    slot,
+                    ..
+                } => {
                     if *start_reg == 1 {
                         *count = if reg_count > 1 { reg_count - 1 } else { 0 };
                         *slot = self.save_regs_offset + 8;
@@ -635,9 +665,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
-            Expr::Binop(op, lhs_id, rhs_id) => {
-                self.translate_binop(*op, *lhs_id, *rhs_id, func)
-            }
+            Expr::Binop(op, lhs_id, rhs_id) => self.translate_binop(*op, *lhs_id, *rhs_id, func),
 
             Expr::Unop(op, arg_id) => self.translate_unop(*op, *arg_id, func),
 
@@ -650,7 +678,10 @@ impl<'a> FunctionTranslator<'a> {
                 if !self.is_ptr_type(&ty) {
                     // Scalar: keep value in a register (SaveRegs preserves it across calls).
                     let reg = self.alloc_reg();
-                    func.emit(Opcode::Move { dst: reg, src: init_reg });
+                    func.emit(Opcode::Move {
+                        dst: reg,
+                        src: init_reg,
+                    });
                     self.variables.insert(*name, reg);
                     self.reg_promoted.insert(*name);
                 } else {
@@ -660,7 +691,10 @@ impl<'a> FunctionTranslator<'a> {
                     self.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
-                    func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                    func.emit(Opcode::LocalAddr {
+                        dst: addr_reg,
+                        slot,
+                    });
                     self.emit_store(&ty, addr_reg, init_reg, func);
                     self.variables.insert(*name, addr_reg);
                 }
@@ -675,7 +709,10 @@ impl<'a> FunctionTranslator<'a> {
                     let reg = self.alloc_reg();
                     if let Some(init_id) = init {
                         let init_reg = self.translate_expr(*init_id, func);
-                        func.emit(Opcode::Move { dst: reg, src: init_reg });
+                        func.emit(Opcode::Move {
+                            dst: reg,
+                            src: init_reg,
+                        });
                     } else {
                         func.emit(Opcode::LoadImm { dst: reg, value: 0 });
                     }
@@ -688,21 +725,33 @@ impl<'a> FunctionTranslator<'a> {
                     self.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
-                    func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                    func.emit(Opcode::LocalAddr {
+                        dst: addr_reg,
+                        slot,
+                    });
                     self.variables.insert(*name, addr_reg);
 
                     if let Some(init_id) = init {
                         let init_reg = self.translate_expr(*init_id, func);
-                        func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                        func.emit(Opcode::LocalAddr {
+                            dst: addr_reg,
+                            slot,
+                        });
                         self.emit_store(&ty, addr_reg, init_reg, func);
                     } else {
-                        func.emit(Opcode::MemZero { dst: addr_reg, size: size as u32 });
+                        func.emit(Opcode::MemZero {
+                            dst: addr_reg,
+                            size: size as u32,
+                        });
                     }
                 }
 
                 // Return 0 for void-like expression.
                 let result = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst: result, value: 0 });
+                func.emit(Opcode::LoadImm {
+                    dst: result,
+                    value: 0,
+                });
                 result
             }
 
@@ -757,12 +806,15 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     // Move result to r0 before restoring (it will be preserved).
                     if result != 0 {
-                        func.emit(Opcode::Move { dst: 0, src: result });
+                        func.emit(Opcode::Move {
+                            dst: 0,
+                            src: result,
+                        });
                     }
                     // Restore caller's registers, but skip r0 which has return value.
                     func.emit(Opcode::RestoreRegs {
-                        start_reg: 1, // Skip r0
-                        count: 0,     // Will be patched to next_reg - 1
+                        start_reg: 1,                    // Skip r0
+                        count: 0,                        // Will be patched to next_reg - 1
                         slot: self.save_regs_offset + 8, // Skip first 8 bytes (r0's slot)
                     });
                     func.emit(Opcode::Return);
@@ -773,9 +825,7 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Field(lhs_id, name) => self.translate_field(*lhs_id, *name, func),
 
-            Expr::ArrayIndex(arr_id, idx_id) => {
-                self.translate_array_index(*arr_id, *idx_id, func)
-            }
+            Expr::ArrayIndex(arr_id, idx_id) => self.translate_array_index(*arr_id, *idx_id, func),
 
             Expr::ArrayLiteral(elements) => self.translate_array_literal(elements, expr, func),
 
@@ -784,24 +834,31 @@ impl<'a> FunctionTranslator<'a> {
                 let total_size = bytes.len() as u32 + 1;
                 let slot = self.alloc_local(total_size);
                 let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                func.emit(Opcode::LocalAddr {
+                    dst: addr_reg,
+                    slot,
+                });
                 let int8_ty = mk_type(Type::Int8);
                 for (i, &b) in bytes.iter().enumerate() {
                     let val_reg = self.alloc_reg();
-                    func.emit(Opcode::LoadImm { dst: val_reg, value: b as i64 });
+                    func.emit(Opcode::LoadImm {
+                        dst: val_reg,
+                        value: b as i64,
+                    });
                     self.emit_store_offset(&int8_ty, addr_reg, i as i32, val_reg, func);
                 }
                 let null_reg = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst: null_reg, value: 0 });
+                func.emit(Opcode::LoadImm {
+                    dst: null_reg,
+                    value: 0,
+                });
                 self.emit_store_offset(&int8_ty, addr_reg, bytes.len() as i32, null_reg, func);
                 addr_reg
             }
 
             Expr::Tuple(elements) => self.translate_tuple(elements, expr, func),
 
-            Expr::AsTy(expr_id, target_ty) => {
-                self.translate_cast(*expr_id, *target_ty, func)
-            }
+            Expr::AsTy(expr_id, target_ty) => self.translate_cast(*expr_id, *target_ty, func),
 
             Expr::Lambda { params, body } => {
                 let lambda_ty = self.expr_type(expr);
@@ -814,7 +871,10 @@ impl<'a> FunctionTranslator<'a> {
                         let lambda_params: Vec<Param> = params
                             .iter()
                             .zip(param_types.iter())
-                            .map(|(p, ty)| Param { name: p.name, ty: Some(*ty) })
+                            .map(|(p, ty)| Param {
+                                name: p.name,
+                                ty: Some(*ty),
+                            })
                             .collect();
 
                         let lambda_decl = FuncDecl {
@@ -839,23 +899,35 @@ impl<'a> FunctionTranslator<'a> {
                         self.lambda_patches.push((instr_idx, lambda_name));
                         dst
                     } else {
-                        panic!("VM codegen lambda: expected tuple domain type, got {:?}", dom);
+                        panic!(
+                            "VM codegen lambda: expected tuple domain type, got {:?}",
+                            dom
+                        );
                     }
                 } else {
-                    panic!("VM codegen lambda: expected function type, got {:?}", lambda_ty);
+                    panic!(
+                        "VM codegen lambda: expected function type, got {:?}",
+                        lambda_ty
+                    );
                 }
             }
 
             Expr::Char(c) => {
                 let dst = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst, value: *c as i64 });
+                func.emit(Opcode::LoadImm {
+                    dst,
+                    value: *c as i64,
+                });
                 dst
             }
 
             Expr::Enum(case_name) => {
                 let index = if let crate::Type::Name(enum_name, _) = &*self.decl.types[expr] {
                     let enum_decls = self.decls.find(*enum_name);
-                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls.iter().find(|d| matches!(d, crate::Decl::Enum { .. })) {
+                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls
+                        .iter()
+                        .find(|d| matches!(d, crate::Decl::Enum { .. }))
+                    {
                         cases.iter().position(|c| c == case_name).unwrap_or(0) as i64
                     } else {
                         0
@@ -869,7 +941,10 @@ impl<'a> FunctionTranslator<'a> {
                 let addr = self.alloc_reg();
                 func.emit(Opcode::LocalAddr { dst: addr, slot });
                 let val = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst: val, value: index });
+                func.emit(Opcode::LoadImm {
+                    dst: val,
+                    value: index,
+                });
                 func.emit(Opcode::Store32 { addr, src: val });
                 addr
             }
@@ -907,180 +982,358 @@ impl<'a> FunctionTranslator<'a> {
         match op {
             Binop::Plus => match &*ty {
                 Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8 => {
-                    func.emit(Opcode::IAdd { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IAdd {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float32 => {
-                    func.emit(Opcode::FAdd { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FAdd {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DAdd { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DAdd {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::IAdd { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IAdd {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Minus => match &*ty {
                 Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8 => {
-                    func.emit(Opcode::ISub { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::ISub {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float32 => {
-                    func.emit(Opcode::FSub { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FSub {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DSub { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DSub {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::ISub { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::ISub {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Mult => match &*ty {
                 Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8 => {
-                    func.emit(Opcode::IMul { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IMul {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float32 => {
-                    func.emit(Opcode::FMul { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FMul {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DMul { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DMul {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::IMul { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IMul {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Div => match &*ty {
                 Type::Int32 | Type::Int8 => {
-                    func.emit(Opcode::IDiv { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IDiv {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::UInt32 | Type::UInt8 => {
-                    func.emit(Opcode::UDiv { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::UDiv {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float32 => {
-                    func.emit(Opcode::FDiv { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FDiv {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DDiv { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DDiv {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::IDiv { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IDiv {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Mod => {
-                func.emit(Opcode::IRem { dst, a: lhs, b: rhs });
+                func.emit(Opcode::IRem {
+                    dst,
+                    a: lhs,
+                    b: rhs,
+                });
             }
 
             Binop::Equal => match &*ty {
                 Type::Float32 => {
-                    func.emit(Opcode::FEq { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FEq {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DEq { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DEq {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
-                    func.emit(Opcode::MemEq { dst, a: lhs, b: rhs, size });
+                    func.emit(Opcode::MemEq {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                        size,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::IEq { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IEq {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::NotEqual => match &*ty {
                 Type::Float32 => {
-                    func.emit(Opcode::FNe { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FNe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
-                    func.emit(Opcode::MemNe { dst, a: lhs, b: rhs, size });
+                    func.emit(Opcode::MemNe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                        size,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::INe { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::INe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Less => match &*ty {
                 Type::Float32 => {
-                    func.emit(Opcode::FLt { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FLt {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DLt { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DLt {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::UInt32 | Type::UInt8 => {
-                    func.emit(Opcode::ULt { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::ULt {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::ILt { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::ILt {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Greater => match &*ty {
                 Type::Float32 => {
                     // a > b ≡ b < a
-                    func.emit(Opcode::FLt { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::FLt {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
                 Type::Float64 => {
                     // a > b ≡ b < a
-                    func.emit(Opcode::DLt { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::DLt {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
                 Type::UInt32 | Type::UInt8 => {
                     // a > b ≡ b < a
-                    func.emit(Opcode::ULt { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::ULt {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
                 _ => {
                     // a > b ≡ b < a
-                    func.emit(Opcode::ILt { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::ILt {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
             },
 
             Binop::Leq => match &*ty {
                 Type::Float32 => {
-                    func.emit(Opcode::FLe { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FLe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DLe { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DLe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::ILe { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::ILe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
             },
 
             Binop::Geq => match &*ty {
                 Type::Float32 => {
                     // a >= b ≡ b <= a
-                    func.emit(Opcode::FLe { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::FLe {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
                 Type::Float64 => {
                     // a >= b ≡ b <= a
-                    func.emit(Opcode::DLe { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::DLe {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
                 _ => {
                     // a >= b ≡ b <= a
-                    func.emit(Opcode::ILe { dst, a: rhs, b: lhs });
+                    func.emit(Opcode::ILe {
+                        dst,
+                        a: rhs,
+                        b: lhs,
+                    });
                 }
-            }
+            },
 
             Binop::And => {
-                func.emit(Opcode::And { dst, a: lhs, b: rhs });
+                func.emit(Opcode::And {
+                    dst,
+                    a: lhs,
+                    b: rhs,
+                });
             }
 
             Binop::Or => {
-                func.emit(Opcode::Or { dst, a: lhs, b: rhs });
+                func.emit(Opcode::Or {
+                    dst,
+                    a: lhs,
+                    b: rhs,
+                });
             }
 
             Binop::Pow => match &*ty {
                 Type::Float32 => {
-                    func.emit(Opcode::FPow { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::FPow {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 Type::Float64 => {
-                    func.emit(Opcode::DPow { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::DPow {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
                 _ => {
-                    func.emit(Opcode::IPow { dst, a: lhs, b: rhs });
+                    func.emit(Opcode::IPow {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
                 }
-            }
+            },
 
             Binop::Assign => {
                 // Handled above.
@@ -1092,12 +1345,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate an assignment expression.
-    fn translate_assign(
-        &mut self,
-        lhs_id: ExprID,
-        rhs_id: ExprID,
-        func: &mut VMFunction,
-    ) -> Reg {
+    fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut VMFunction) -> Reg {
         // Check for direct register-promoted scalar assignment (e.g., `x = expr`).
         if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
             if self.reg_promoted.contains(name) {
@@ -1169,7 +1417,10 @@ impl<'a> FunctionTranslator<'a> {
                 // For slices, load the data pointer from the fat pointer.
                 let base = if is_slice {
                     let data_ptr = self.alloc_reg();
-                    func.emit(Opcode::Load64 { dst: data_ptr, addr: arr_addr });
+                    func.emit(Opcode::Load64 {
+                        dst: data_ptr,
+                        addr: arr_addr,
+                    });
                     data_ptr
                 } else {
                     arr_addr
@@ -1230,7 +1481,11 @@ impl<'a> FunctionTranslator<'a> {
                 // Mask to 1 bit for boolean.
                 let one = self.alloc_reg();
                 func.emit(Opcode::LoadImm { dst: one, value: 1 });
-                func.emit(Opcode::And { dst, a: dst, b: one });
+                func.emit(Opcode::And {
+                    dst,
+                    a: dst,
+                    b: one,
+                });
             }
         }
 
@@ -1265,7 +1520,10 @@ impl<'a> FunctionTranslator<'a> {
                 let target = args_start + i as u8;
                 let _ = self.alloc_reg();
                 if arg_reg != target {
-                    func.emit(Opcode::Move { dst: target, src: arg_reg });
+                    func.emit(Opcode::Move {
+                        dst: target,
+                        src: arg_reg,
+                    });
                 }
             }
 
@@ -1275,7 +1533,10 @@ impl<'a> FunctionTranslator<'a> {
                 arg_count: arg_ids.len() as u8,
             });
             let result_reg = self.alloc_reg();
-            func.emit(Opcode::Move { dst: result_reg, src: 0 });
+            func.emit(Opcode::Move {
+                dst: result_reg,
+                src: 0,
+            });
             return result_reg;
         }
 
@@ -1384,7 +1645,11 @@ impl<'a> FunctionTranslator<'a> {
             // Get the callee's parameter types to detect slice params.
             let fn_ty = self.expr_type(fn_id);
             let param_types: Vec<TypeID> = if let Type::Func(from, _) = &*fn_ty {
-                if let Type::Tuple(pts) = &**from { pts.clone() } else { vec![] }
+                if let Type::Tuple(pts) = &**from {
+                    pts.clone()
+                } else {
+                    vec![]
+                }
             } else {
                 vec![]
             };
@@ -1412,7 +1677,10 @@ impl<'a> FunctionTranslator<'a> {
             if let Some(slot) = output_slot {
                 // Allocate register for output pointer.
                 let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                func.emit(Opcode::LocalAddr {
+                    dst: addr_reg,
+                    slot,
+                });
             }
 
             // Move argument values to consecutive registers starting at args_start
@@ -1428,7 +1696,10 @@ impl<'a> FunctionTranslator<'a> {
                 // Allocate the target register (to keep next_reg in sync).
                 let _ = self.alloc_reg();
                 if arg_reg != target_reg {
-                    func.emit(Opcode::Move { dst: target_reg, src: arg_reg });
+                    func.emit(Opcode::Move {
+                        dst: target_reg,
+                        src: arg_reg,
+                    });
                 }
             }
 
@@ -1459,14 +1730,20 @@ impl<'a> FunctionTranslator<'a> {
             // If returning pointer type, return the address of the output storage.
             if let Some(slot) = output_slot {
                 let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr { dst: addr_reg, slot });
+                func.emit(Opcode::LocalAddr {
+                    dst: addr_reg,
+                    slot,
+                });
                 return addr_reg;
             }
 
             // Result is in register 0. Move it to a fresh register so it doesn't
             // get clobbered by subsequent operations that might use register 0.
             let result_reg = self.alloc_reg();
-            func.emit(Opcode::Move { dst: result_reg, src: 0 });
+            func.emit(Opcode::Move {
+                dst: result_reg,
+                src: 0,
+            });
             result_reg
         } else {
             // Indirect call via expression (e.g. lambda literal in call position).
@@ -1482,7 +1759,10 @@ impl<'a> FunctionTranslator<'a> {
                 let target = args_start + i as u8;
                 let _ = self.alloc_reg();
                 if arg_reg != target {
-                    func.emit(Opcode::Move { dst: target, src: arg_reg });
+                    func.emit(Opcode::Move {
+                        dst: target,
+                        src: arg_reg,
+                    });
                 }
             }
 
@@ -1493,7 +1773,10 @@ impl<'a> FunctionTranslator<'a> {
             });
 
             let result_reg = self.alloc_reg();
-            func.emit(Opcode::Move { dst: result_reg, src: 0 });
+            func.emit(Opcode::Move {
+                dst: result_reg,
+                src: 0,
+            });
             result_reg
         }
     }
@@ -1544,12 +1827,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate a while loop.
-    fn translate_while(
-        &mut self,
-        cond_id: ExprID,
-        body_id: ExprID,
-        func: &mut VMFunction,
-    ) -> Reg {
+    fn translate_while(&mut self, cond_id: ExprID, body_id: ExprID, func: &mut VMFunction) -> Reg {
         let loop_start = func.code.len();
 
         // Evaluate condition.
@@ -1651,12 +1929,19 @@ impl<'a> FunctionTranslator<'a> {
                     // Slice: load length from fat pointer at offset 8.
                     let lhs = self.translate_expr(lhs_id, func);
                     let dst = self.alloc_reg();
-                    func.emit(Opcode::Load32Off { dst, base: lhs, offset: 8 });
+                    func.emit(Opcode::Load32Off {
+                        dst,
+                        base: lhs,
+                        offset: 8,
+                    });
                     return dst;
                 }
                 Type::Array(_, len) => {
                     let dst = self.alloc_reg();
-                    func.emit(Opcode::LoadImm { dst, value: len.known() as i64 });
+                    func.emit(Opcode::LoadImm {
+                        dst,
+                        value: len.known() as i64,
+                    });
                     return dst;
                 }
                 _ => {}
@@ -1738,7 +2023,10 @@ impl<'a> FunctionTranslator<'a> {
         // For slices, load the data pointer from the fat pointer.
         let base = if is_slice {
             let data_ptr = self.alloc_reg();
-            func.emit(Opcode::Load64 { dst: data_ptr, addr: arr });
+            func.emit(Opcode::Load64 {
+                dst: data_ptr,
+                addr: arr,
+            });
             data_ptr
         } else {
             arr
@@ -1811,12 +2099,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate a tuple literal.
-    fn translate_tuple(
-        &mut self,
-        elements: &[ExprID],
-        expr: ExprID,
-        func: &mut VMFunction,
-    ) -> Reg {
+    fn translate_tuple(&mut self, elements: &[ExprID], expr: ExprID, func: &mut VMFunction) -> Reg {
         let ty = self.expr_type(expr);
         let size = ty.size(self.decls);
 
@@ -1842,12 +2125,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate a type cast.
-    fn translate_cast(
-        &mut self,
-        expr_id: ExprID,
-        target_ty: TypeID,
-        func: &mut VMFunction,
-    ) -> Reg {
+    fn translate_cast(&mut self, expr_id: ExprID, target_ty: TypeID, func: &mut VMFunction) -> Reg {
         let src = self.translate_expr(expr_id, func);
         let src_ty = self.expr_type(expr_id);
         let dst = self.alloc_reg();
@@ -1889,22 +2167,41 @@ impl<'a> FunctionTranslator<'a> {
                 // Allocate 12 bytes for fat pointer {data_ptr: i64, len: i32}.
                 let slot = self.alloc_local(12);
                 let fat_addr = self.alloc_reg();
-                func.emit(Opcode::LocalAddr { dst: fat_addr, slot });
+                func.emit(Opcode::LocalAddr {
+                    dst: fat_addr,
+                    slot,
+                });
                 // Store data_ptr at offset 0.
-                func.emit(Opcode::Store64 { addr: fat_addr, src: val });
+                func.emit(Opcode::Store64 {
+                    addr: fat_addr,
+                    src: val,
+                });
                 // Store len at offset 8.
                 let len_reg = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst: len_reg, value: sz.known() as i64 });
-                func.emit(Opcode::Store32Off { base: fat_addr, offset: 8, src: len_reg });
+                func.emit(Opcode::LoadImm {
+                    dst: len_reg,
+                    value: sz.known() as i64,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: fat_addr,
+                    offset: 8,
+                    src: len_reg,
+                });
                 fat_addr
             }
-            _ => panic!("VM codegen wrap_as_slice: expected array type, got {:?}", actual_ty),
+            _ => panic!(
+                "VM codegen wrap_as_slice: expected array type, got {:?}",
+                actual_ty
+            ),
         }
     }
 
     /// Check if a type is represented as a pointer.
     fn is_ptr_type(&self, ty: &TypeID) -> bool {
-        matches!(&**ty, Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_))
+        matches!(
+            &**ty,
+            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
+        )
     }
 
     /// Emit a load instruction based on type.
@@ -1945,35 +2242,26 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(Opcode::Load8 { dst, addr });
             }
             Type::Int32 | Type::UInt32 | Type::Float32 => {
-                func.emit(Opcode::Load32Off {
-                    dst,
-                    base,
-                    offset,
-                });
+                func.emit(Opcode::Load32Off { dst, base, offset });
             }
             Type::Float64 => {
-                func.emit(Opcode::Load64Off {
-                    dst,
-                    base,
-                    offset,
-                });
+                func.emit(Opcode::Load64Off { dst, base, offset });
             }
             _ => {
-                func.emit(Opcode::Load64Off {
-                    dst,
-                    base,
-                    offset,
-                });
+                func.emit(Opcode::Load64Off { dst, base, offset });
             }
         }
     }
-
 
     /// Emit a store instruction based on type.
     fn emit_store(&self, ty: &TypeID, addr: Reg, src: Reg, func: &mut VMFunction) {
         if self.is_ptr_type(ty) {
             let size = ty.size(self.decls) as u32;
-            func.emit(Opcode::MemCopy { dst: addr, src, size });
+            func.emit(Opcode::MemCopy {
+                dst: addr,
+                src,
+                size,
+            });
         } else {
             match &**ty {
                 Type::Bool | Type::Int8 | Type::UInt8 => {
@@ -2144,10 +2432,7 @@ mod tests {
         let cond = arena.add(Expr::True, crate::test_loc());
         let then_val = arena.add(Expr::Int(100), crate::test_loc());
         let else_val = arena.add(Expr::Int(200), crate::test_loc());
-        let if_expr = arena.add(
-            Expr::If(cond, then_val, Some(else_val)),
-            crate::test_loc(),
-        );
+        let if_expr = arena.add(Expr::If(cond, then_val, Some(else_val)), crate::test_loc());
 
         let int32 = mk_type(Type::Int32);
         let bool_ty = mk_type(Type::Bool);
@@ -2183,10 +2468,7 @@ mod tests {
         let body = arena.add(Expr::Int(1), crate::test_loc());
         let while_expr = arena.add(Expr::While(cond, body), crate::test_loc());
         let result = arena.add(Expr::Int(42), crate::test_loc());
-        let block = arena.add(
-            Expr::Block(vec![while_expr, result]),
-            crate::test_loc(),
-        );
+        let block = arena.add(Expr::Block(vec![while_expr, result]), crate::test_loc());
 
         let int32 = mk_type(Type::Int32);
         let bool_ty = mk_type(Type::Bool);

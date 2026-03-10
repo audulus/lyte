@@ -57,10 +57,7 @@ impl MonomorphPass {
             self.process_function(&mut fdecl, decls)?;
             self.out_decls.push(Decl::Func(fdecl));
         } else {
-            return Err(format!(
-                "Entry point '{}' is not a function",
-                entry_point
-            ));
+            return Err(format!("Entry point '{}' is not a function", entry_point));
         }
 
         for decl in decls.decls.iter() {
@@ -77,11 +74,7 @@ impl MonomorphPass {
     }
 
     /// Process a single function, finding all generic calls within it
-    fn process_function(
-        &mut self,
-        fdecl: &mut FuncDecl,
-        decls: &DeclTable,
-    ) -> Result<(), String> {
+    fn process_function(&mut self, fdecl: &mut FuncDecl, decls: &DeclTable) -> Result<(), String> {
         if let Some(body) = fdecl.body {
             self.process_expr(body, fdecl, decls)?;
         }
@@ -110,15 +103,17 @@ impl MonomorphPass {
                     if let Decl::Func(target_fdecl) = decl {
                         if !target_fdecl.typevars.is_empty() {
                             // This is a generic function - compute type arguments from solved type
-                            let type_args = self.infer_type_arguments(
-                                target_fdecl,
-                                solved_type,
-                                fdecl,
-                            )?;
+                            let type_args =
+                                self.infer_type_arguments(target_fdecl, solved_type, fdecl)?;
 
                             if !type_args.is_empty() {
                                 // Create a specialized version
-                                let mangled_name = self.instantiate_function(*name, type_args, target_fdecl, decls)?;
+                                let mangled_name = self.instantiate_function(
+                                    *name,
+                                    type_args,
+                                    target_fdecl,
+                                    decls,
+                                )?;
 
                                 // Rewrite the identifier to use the mangled name
                                 fdecl.arena.exprs[expr_id] = Expr::Id(mangled_name);
@@ -150,14 +145,22 @@ impl MonomorphPass {
                     let fn_decls = decls.find(fn_name);
                     let size_var_func = fn_decls.iter().find_map(|d| {
                         if let Decl::Func(f) = d {
-                            if !f.size_vars.is_empty() { Some(f.clone()) } else { None }
-                        } else { None }
+                            if !f.size_vars.is_empty() {
+                                Some(f.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     });
                     if let Some(target_fdecl) = size_var_func {
                         // Infer size bindings from argument types vs generic param types.
                         let size_bindings = infer_size_bindings(&target_fdecl, &arg_ids, fdecl);
                         if !size_bindings.is_empty() {
-                            let size_args: Vec<i32> = target_fdecl.size_vars.iter()
+                            let size_args: Vec<i32> = target_fdecl
+                                .size_vars
+                                .iter()
                                 .map(|sv| size_bindings.get(sv).copied().unwrap_or(0))
                                 .collect();
                             // Also infer type arguments if the function has type vars.
@@ -168,7 +171,11 @@ impl MonomorphPass {
                                 vec![]
                             };
                             let mangled = self.instantiate_function_with_sizes(
-                                fn_name, type_args, size_args, &target_fdecl, decls,
+                                fn_name,
+                                type_args,
+                                size_args,
+                                &target_fdecl,
+                                decls,
                             )?;
                             fdecl.arena.exprs[fn_id] = Expr::Id(mangled);
                             // Update ALL caller types to substitute the resolved size vars.
@@ -232,7 +239,9 @@ impl MonomorphPass {
             Expr::Return(inner) => {
                 self.process_expr(*inner, fdecl, decls)?;
             }
-            Expr::For { start, end, body, .. } => {
+            Expr::For {
+                start, end, body, ..
+            } => {
                 let (start, end, body) = (*start, *end, *body);
                 self.process_expr(start, fdecl, decls)?;
                 self.process_expr(end, fdecl, decls)?;
@@ -255,9 +264,16 @@ impl MonomorphPass {
                 self.process_expr(sz, fdecl, decls)?;
             }
             // True leaves
-            Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) |
-            Expr::String(_) | Expr::Char(_) | Expr::True | Expr::False |
-            Expr::Enum(_) | Expr::Error | Expr::Macro(_, _) => {}
+            Expr::Int(_)
+            | Expr::UInt(_)
+            | Expr::Real(_)
+            | Expr::String(_)
+            | Expr::Char(_)
+            | Expr::True
+            | Expr::False
+            | Expr::Enum(_)
+            | Expr::Error
+            | Expr::Macro(_, _) => {}
         }
         Ok(())
     }
@@ -355,7 +371,9 @@ impl MonomorphPass {
         }
 
         // Create size substitution map: Name -> i32
-        let size_bindings: HashMap<Name, i32> = generic_fdecl.size_vars.iter()
+        let size_bindings: HashMap<Name, i32> = generic_fdecl
+            .size_vars
+            .iter()
             .zip(size_args.iter())
             .map(|(sv, &n)| (*sv, n))
             .collect();
@@ -421,15 +439,25 @@ fn subst_size_vars(ty: TypeID, bindings: &HashMap<Name, i32>) -> TypeID {
     match &*ty {
         Type::Array(elem, ArraySize::Var(name)) => {
             let elem2 = subst_size_vars(*elem, bindings);
-            let size = bindings.get(name).copied()
+            let size = bindings
+                .get(name)
+                .copied()
                 .map(ArraySize::Known)
                 .unwrap_or_else(|| ArraySize::Var(*name));
             mk_type(Type::Array(elem2, size))
         }
         Type::Array(elem, sz) => mk_type(Type::Array(subst_size_vars(*elem, bindings), sz.clone())),
-        Type::Tuple(vs) => mk_type(Type::Tuple(vs.iter().map(|t| subst_size_vars(*t, bindings)).collect())),
-        Type::Func(a, b) => mk_type(Type::Func(subst_size_vars(*a, bindings), subst_size_vars(*b, bindings))),
-        Type::Name(n, ps) => mk_type(Type::Name(*n, ps.iter().map(|t| subst_size_vars(*t, bindings)).collect())),
+        Type::Tuple(vs) => mk_type(Type::Tuple(
+            vs.iter().map(|t| subst_size_vars(*t, bindings)).collect(),
+        )),
+        Type::Func(a, b) => mk_type(Type::Func(
+            subst_size_vars(*a, bindings),
+            subst_size_vars(*b, bindings),
+        )),
+        Type::Name(n, ps) => mk_type(Type::Name(
+            *n,
+            ps.iter().map(|t| subst_size_vars(*t, bindings)).collect(),
+        )),
         _ => ty,
     }
 }
@@ -448,7 +476,9 @@ fn substitute_size_var_exprs(arena: &mut ExprArena, bindings: &HashMap<Name, i32
 /// Walk a type pair (generic param type vs concrete arg type) to extract size var bindings.
 fn infer_size_bindings_pair(generic: TypeID, concrete: TypeID, out: &mut HashMap<Name, i32>) {
     match (&*generic, &*concrete) {
-        (Type::Array(ge, ArraySize::Var(name)), Type::Array(ce, ArraySize::Known(n))) if *n != 0 => {
+        (Type::Array(ge, ArraySize::Var(name)), Type::Array(ce, ArraySize::Known(n)))
+            if *n != 0 =>
+        {
             out.insert(*name, *n);
             infer_size_bindings_pair(*ge, *ce, out);
         }
@@ -519,12 +549,7 @@ mod tests {
         let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32)];
-        let result = pass.instantiate_function(
-            Name::str("id"),
-            type_args,
-            &generic_func,
-            &decls,
-        );
+        let result = pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls);
 
         assert!(result.is_ok());
         let mangled = result.unwrap();
@@ -541,21 +566,12 @@ mod tests {
         let type_args = vec![mk_type(Type::Int32)];
 
         // First instantiation
-        let result1 = pass.instantiate_function(
-            Name::str("id"),
-            type_args.clone(),
-            &generic_func,
-            &decls,
-        );
+        let result1 =
+            pass.instantiate_function(Name::str("id"), type_args.clone(), &generic_func, &decls);
         assert!(result1.is_ok());
 
         // Second instantiation - should reuse
-        let result2 = pass.instantiate_function(
-            Name::str("id"),
-            type_args,
-            &generic_func,
-            &decls,
-        );
+        let result2 = pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls);
         assert!(result2.is_ok());
         assert_eq!(result1.unwrap(), result2.unwrap());
 
@@ -600,12 +616,7 @@ mod tests {
         let decls = DeclTable::new(vec![]);
 
         let type_args = vec![mk_type(Type::Int32), mk_type(Type::Bool)];
-        let result = pass.instantiate_function(
-            Name::str("map"),
-            type_args,
-            &generic_func,
-            &decls,
-        );
+        let result = pass.instantiate_function(Name::str("map"), type_args, &generic_func, &decls);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Name::str("map$i32$bool"));
@@ -635,10 +646,7 @@ mod tests {
         let pass = MonomorphPass::new();
         let mut result = Vec::new();
 
-        let tuple_ty = mk_type(Type::Tuple(vec![
-            mk_type(Type::Int32),
-            mk_type(Type::Bool),
-        ]));
+        let tuple_ty = mk_type(Type::Tuple(vec![mk_type(Type::Int32), mk_type(Type::Bool)]));
 
         pass.collect_concrete_types(tuple_ty, &mut result);
         assert_eq!(result.len(), 2);
@@ -661,10 +669,7 @@ mod tests {
         let pass = MonomorphPass::new();
         let mut result = Vec::new();
 
-        let named_ty = mk_type(Type::Name(
-            Name::str("Vec"),
-            vec![mk_type(Type::Int32)],
-        ));
+        let named_ty = mk_type(Type::Name(Name::str("Vec"), vec![mk_type(Type::Int32)]));
 
         pass.collect_concrete_types(named_ty, &mut result);
         // Should collect both the named type and its parameter
@@ -786,7 +791,8 @@ mod tests {
             vec![mk_type(Type::Int32)],
             &generic_func,
             &decls,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(pass.specialized_declarations().len(), 1);
     }
@@ -811,7 +817,8 @@ mod tests {
             vec![mk_type(Type::Int32)],
             &generic_func,
             &decls,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Check the specialized declaration
         let specialized = &pass.out_decls[0];
@@ -840,7 +847,6 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no main function found"));
     }
-
 
     #[test]
     fn test_instantiate_with_nested_generic() {
@@ -896,12 +902,8 @@ mod tests {
         ];
 
         for ty in types {
-            pass.instantiate_function(
-                Name::str("id"),
-                vec![ty],
-                &generic_func,
-                &decls,
-            ).unwrap();
+            pass.instantiate_function(Name::str("id"), vec![ty], &generic_func, &decls)
+                .unwrap();
         }
 
         // Should have 3 specialized versions
@@ -944,10 +946,7 @@ mod tests {
         let pass = MonomorphPass::new();
         let mut result = Vec::new();
 
-        let func_ty = mk_type(Type::Func(
-            mk_type(Type::Int32),
-            mk_type(Type::Bool),
-        ));
+        let func_ty = mk_type(Type::Func(mk_type(Type::Int32), mk_type(Type::Bool)));
 
         pass.collect_concrete_types(func_ty, &mut result);
         assert_eq!(result.len(), 2);
@@ -965,22 +964,14 @@ mod tests {
 
         // First instantiation
         let key1 = MonomorphKey::new(Name::str("id"), type_args.clone());
-        pass.instantiate_function(
-            Name::str("id"),
-            type_args.clone(),
-            &generic_func,
-            &decls,
-        ).unwrap();
+        pass.instantiate_function(Name::str("id"), type_args.clone(), &generic_func, &decls)
+            .unwrap();
 
         assert_eq!(pass.out_decls.len(), 1);
 
         // Same instantiation again - should not create duplicate
-        pass.instantiate_function(
-            Name::str("id"),
-            type_args.clone(),
-            &generic_func,
-            &decls,
-        ).unwrap();
+        pass.instantiate_function(Name::str("id"), type_args.clone(), &generic_func, &decls)
+            .unwrap();
 
         assert_eq!(pass.out_decls.len(), 1);
         assert!(pass.instantiations.contains_key(&key1));
@@ -1007,7 +998,12 @@ mod tests {
             ret: mk_type(Type::Void),
             body: Some(if_expr),
             arena,
-            types: vec![mk_type(Type::Bool), mk_type(Type::Int32), mk_type(Type::Int32), mk_type(Type::Int32)],
+            types: vec![
+                mk_type(Type::Bool),
+                mk_type(Type::Int32),
+                mk_type(Type::Int32),
+                mk_type(Type::Int32),
+            ],
             loc: test_loc(),
             closure_vars: vec![],
         };
@@ -1101,10 +1097,7 @@ mod tests {
             closure_vars: vec![],
         };
 
-        let decls = DeclTable::new(vec![
-            Decl::Func(id_func),
-            Decl::Func(main_func),
-        ]);
+        let decls = DeclTable::new(vec![Decl::Func(id_func), Decl::Func(main_func)]);
 
         // Monomorphize starting from "main"
         let result = pass.monomorphize(&decls, Name::str("main"));

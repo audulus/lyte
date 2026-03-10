@@ -350,7 +350,10 @@ impl Checker {
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
                 let int8 = mk_type(Type::Int8);
-                mk_type(Type::Array(int8, ArraySize::Known(s.bytes().len() as i32 + 1)))
+                mk_type(Type::Array(
+                    int8,
+                    ArraySize::Known(s.bytes().len() as i32 + 1),
+                ))
             }
             Expr::Id(name) => {
                 // Local variables will override all declarations.
@@ -606,11 +609,7 @@ impl Checker {
 
                 self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr]));
 
-                self.add_constraint(Constraint::ArrayOf(
-                    array_t,
-                    t,
-                    arena.locs[*array_expr],
-                ));
+                self.add_constraint(Constraint::ArrayOf(array_t, t, arena.locs[*array_expr]));
                 t
             }
             Expr::Array(value, size) => {
@@ -932,8 +931,12 @@ impl Checker {
 /// function) escapes the function, either directly returned or via a variable.
 /// Such a closure would capture stack addresses that dangle after the frame exits.
 fn check_escape_in_func(func_decl: &FuncDecl, errors: &mut Vec<TypeError>) {
-    let Some(body) = func_decl.body else { return; };
-    let mut scope: HashSet<String> = func_decl.params.iter()
+    let Some(body) = func_decl.body else {
+        return;
+    };
+    let mut scope: HashSet<String> = func_decl
+        .params
+        .iter()
         .map(|p| p.name.to_string())
         .collect();
     let mut tainted: HashSet<String> = HashSet::new();
@@ -1000,7 +1003,9 @@ fn escape_walk(
             escape_walk(*cond, arena, scope, tainted, errors);
             escape_walk(*body, arena, scope, tainted, errors);
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             escape_walk(*start, arena, scope, tainted, errors);
             escape_walk(*end, arena, scope, tainted, errors);
             escape_walk(*body, arena, scope, tainted, errors);
@@ -1049,13 +1054,13 @@ fn expr_is_tainted(
 ) -> bool {
     match &arena[expr] {
         Expr::Lambda { params, body } => {
-            let lambda_params: HashSet<String> = params.iter()
-                .map(|p| p.name.to_string())
-                .collect();
+            let lambda_params: HashSet<String> =
+                params.iter().map(|p| p.name.to_string()).collect();
             lambda_has_captures(*body, arena, &lambda_params, scope)
         }
         Expr::Id(name) => tainted.contains(&name.to_string()),
-        Expr::Block(exprs) => exprs.last()
+        Expr::Block(exprs) => exprs
+            .last()
             .map_or(false, |e| expr_is_tainted(*e, arena, scope, tainted)),
         Expr::If(_, then, else_) => {
             expr_is_tainted(*then, arena, scope, tainted)
@@ -1067,7 +1072,9 @@ fn expr_is_tainted(
         // a capturing lambda.
         Expr::Call(fn_expr, args) => {
             expr_is_tainted(*fn_expr, arena, scope, tainted)
-                || args.iter().any(|a| expr_is_tainted(*a, arena, scope, tainted))
+                || args
+                    .iter()
+                    .any(|a| expr_is_tainted(*a, arena, scope, tainted))
         }
         _ => false,
     }
@@ -1093,16 +1100,19 @@ fn lambda_has_captures(
         Expr::Unop(_, arg) => lambda_has_captures(*arg, arena, lambda_params, outer_scope),
         Expr::Call(f, args) => {
             lambda_has_captures(*f, arena, lambda_params, outer_scope)
-                || args.iter().any(|a| lambda_has_captures(*a, arena, lambda_params, outer_scope))
+                || args
+                    .iter()
+                    .any(|a| lambda_has_captures(*a, arena, lambda_params, outer_scope))
         }
-        Expr::Block(exprs) => {
-            exprs.iter().any(|e| lambda_has_captures(*e, arena, lambda_params, outer_scope))
-        }
+        Expr::Block(exprs) => exprs
+            .iter()
+            .any(|e| lambda_has_captures(*e, arena, lambda_params, outer_scope)),
         Expr::If(cond, then, else_) => {
             lambda_has_captures(*cond, arena, lambda_params, outer_scope)
                 || lambda_has_captures(*then, arena, lambda_params, outer_scope)
-                || else_.map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
-                       .unwrap_or(false)
+                || else_
+                    .map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
+                    .unwrap_or(false)
         }
         Expr::Return(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
             lambda_has_captures(*e, arena, lambda_params, outer_scope)
@@ -1111,7 +1121,9 @@ fn lambda_has_captures(
             lambda_has_captures(*cond, arena, lambda_params, outer_scope)
                 || lambda_has_captures(*body, arena, lambda_params, outer_scope)
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             lambda_has_captures(*start, arena, lambda_params, outer_scope)
                 || lambda_has_captures(*end, arena, lambda_params, outer_scope)
                 || lambda_has_captures(*body, arena, lambda_params, outer_scope)
@@ -1174,7 +1186,10 @@ mod tests {
         // struct A { b: B }  struct B { a: A } — mutual recursion
         let s = "struct A { b: B }\nstruct B { a: A }";
         let errors = check(s);
-        assert!(!errors.is_empty(), "expected an error for mutually recursive structs");
+        assert!(
+            !errors.is_empty(),
+            "expected an error for mutually recursive structs"
+        );
     }
 
     #[test]
@@ -1182,7 +1197,10 @@ mod tests {
         // struct A { x: [A; 5] } — self-reference inside a fixed-size array
         let s = "struct A { x: [A; 5] }";
         let errors = check(s);
-        assert!(!errors.is_empty(), "expected an error for recursive struct via array");
+        assert!(
+            !errors.is_empty(),
+            "expected an error for recursive struct via array"
+        );
         assert!(errors[0].message.contains("recursive"));
     }
 
@@ -1191,7 +1209,10 @@ mod tests {
         // struct Point { x: i32, y: i32 } — not recursive
         let s = "struct Point { x: i32, y: i32 }";
         let errors = check(s);
-        assert!(errors.is_empty(), "expected no errors for non-recursive struct");
+        assert!(
+            errors.is_empty(),
+            "expected no errors for non-recursive struct"
+        );
     }
 
     #[test]
@@ -1199,7 +1220,10 @@ mod tests {
         // struct A { b: B }  struct B { x: i32 } — not recursive
         let s = "struct A { b: B }\nstruct B { x: i32 }";
         let errors = check(s);
-        assert!(errors.is_empty(), "expected no errors for non-recursive struct chain");
+        assert!(
+            errors.is_empty(),
+            "expected no errors for non-recursive struct chain"
+        );
     }
 
     #[test]
@@ -1234,7 +1258,10 @@ mod tests {
     pub fn test_slice_in_struct_field() {
         let s = "struct Bad { x: [i32] }";
         let errors = check(s);
-        assert!(!errors.is_empty(), "expected an error for slice in struct field");
+        assert!(
+            !errors.is_empty(),
+            "expected an error for slice in struct field"
+        );
         assert!(errors[0].message.contains("slice type"));
     }
 
@@ -1242,7 +1269,10 @@ mod tests {
     pub fn test_slice_return_type() {
         let s = "f(a: [i32]) -> [i32] { a }";
         let errors = check(s);
-        assert!(!errors.is_empty(), "expected an error for slice return type");
+        assert!(
+            !errors.is_empty(),
+            "expected an error for slice return type"
+        );
         assert!(errors[0].message.contains("slice type"));
     }
 
@@ -1257,7 +1287,10 @@ mod tests {
     pub fn test_nested_slice_in_struct() {
         let s = "struct Bad { x: [[i32]; 5] }";
         let errors = check(s);
-        assert!(!errors.is_empty(), "expected an error for nested slice in struct field");
+        assert!(
+            !errors.is_empty(),
+            "expected an error for nested slice in struct field"
+        );
         assert!(errors[0].message.contains("slice type"));
     }
 }

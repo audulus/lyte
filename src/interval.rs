@@ -38,7 +38,11 @@ impl std::ops::Add<IndexInterval> for IndexInterval {
             }
         };
 
-        IndexInterval { min, max, non_zero: false }
+        IndexInterval {
+            min,
+            max,
+            non_zero: false,
+        }
     }
 }
 
@@ -71,7 +75,11 @@ impl std::ops::Sub<IndexInterval> for IndexInterval {
             }
         };
 
-        IndexInterval { min, max, non_zero: false }
+        IndexInterval {
+            min,
+            max,
+            non_zero: false,
+        }
     }
 }
 
@@ -129,8 +137,16 @@ mod tests {
 
     #[test]
     fn test_index_interval_add() {
-        let a = IndexInterval { min: 0, max: 10, non_zero: false };
-        let b = IndexInterval { min: 5, max: 15, non_zero: false };
+        let a = IndexInterval {
+            min: 0,
+            max: 10,
+            non_zero: false,
+        };
+        let b = IndexInterval {
+            min: 5,
+            max: 15,
+            non_zero: false,
+        };
         let c = a + b;
         assert_eq!(c.min, 5);
         assert_eq!(c.max, 25);
@@ -144,15 +160,31 @@ mod tests {
     #[test]
     fn test_index_interval_sub() {
         // [0, 10] - [5, 15] = [0 - 15, 10 - 5] = [-15, 5]
-        let a = IndexInterval { min: 0, max: 10, non_zero: false };
-        let b = IndexInterval { min: 5, max: 15, non_zero: false };
+        let a = IndexInterval {
+            min: 0,
+            max: 10,
+            non_zero: false,
+        };
+        let b = IndexInterval {
+            min: 5,
+            max: 15,
+            non_zero: false,
+        };
         let c = a - b;
         assert_eq!(c.min, -15);
         assert_eq!(c.max, 5);
 
         // [10, 20] - [2, 3] = [10 - 3, 20 - 2] = [7, 18]
-        let d = IndexInterval { min: 10, max: 20, non_zero: false };
-        let e = IndexInterval { min: 2, max: 3, non_zero: false };
+        let d = IndexInterval {
+            min: 10,
+            max: 20,
+            non_zero: false,
+        };
+        let e = IndexInterval {
+            min: 2,
+            max: 3,
+            non_zero: false,
+        };
         let f = d - e;
         assert_eq!(f.min, 7);
         assert_eq!(f.max, 18);
@@ -161,22 +193,46 @@ mod tests {
     #[test]
     fn test_index_interval_mul() {
         // [2, 3] * [4, 5] = [8, 15]
-        let a = IndexInterval { min: 2, max: 3, non_zero: false };
-        let b = IndexInterval { min: 4, max: 5, non_zero: false };
+        let a = IndexInterval {
+            min: 2,
+            max: 3,
+            non_zero: false,
+        };
+        let b = IndexInterval {
+            min: 4,
+            max: 5,
+            non_zero: false,
+        };
         let c = a * b;
         assert_eq!(c.min, 8);
         assert_eq!(c.max, 15);
 
         // [-2, 3] * [1, 4] = [-8, 12]
-        let d = IndexInterval { min: -2, max: 3, non_zero: false };
-        let e = IndexInterval { min: 1, max: 4, non_zero: false };
+        let d = IndexInterval {
+            min: -2,
+            max: 3,
+            non_zero: false,
+        };
+        let e = IndexInterval {
+            min: 1,
+            max: 4,
+            non_zero: false,
+        };
         let f = d * e;
         assert_eq!(f.min, -8);
         assert_eq!(f.max, 12);
 
         // [-3, -1] * [-2, 4] = [-12, 6]
-        let g = IndexInterval { min: -3, max: -1, non_zero: false };
-        let h = IndexInterval { min: -2, max: 4, non_zero: false };
+        let g = IndexInterval {
+            min: -3,
+            max: -1,
+            non_zero: false,
+        };
+        let h = IndexInterval {
+            min: -2,
+            max: 4,
+            non_zero: false,
+        };
         let i = g * h;
         assert_eq!(i.min, -12);
         assert_eq!(i.max, 6);
@@ -184,8 +240,16 @@ mod tests {
 
     #[test]
     fn test_enclose() {
-        let a = IndexInterval { min: 0, max: 10, non_zero: false };
-        let b = IndexInterval { min: 5, max: 15, non_zero: false };
+        let a = IndexInterval {
+            min: 0,
+            max: 10,
+            non_zero: false,
+        };
+        let b = IndexInterval {
+            min: 5,
+            max: 15,
+            non_zero: false,
+        };
         let c = enclose(a, b);
         assert_eq!(c.min, 0);
         assert_eq!(c.max, 15);

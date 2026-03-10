@@ -115,7 +115,11 @@ impl Binop {
     }
 
     pub fn arithmetic(self) -> bool {
-        self == Binop::Plus || self == Binop::Minus || self == Binop::Mult || self == Binop::Div || self == Binop::Mod
+        self == Binop::Plus
+            || self == Binop::Minus
+            || self == Binop::Mult
+            || self == Binop::Div
+            || self == Binop::Mod
     }
 
     pub fn overload_name(self) -> &'static str {

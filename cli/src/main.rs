@@ -122,10 +122,12 @@ fn run(args: Args) -> i32 {
             };
             let vm_compile_elapsed = vm_compile_start.elapsed();
             if args.timing {
-                eprintln!("compile: {:.0}µs (front {:.0}µs + vm codegen {:.0}µs)",
+                eprintln!(
+                    "compile: {:.0}µs (front {:.0}µs + vm codegen {:.0}µs)",
                     compile_elapsed.as_micros() as f64 + vm_compile_elapsed.as_micros() as f64,
                     compile_elapsed.as_micros(),
-                    vm_compile_elapsed.as_micros());
+                    vm_compile_elapsed.as_micros()
+                );
             }
 
             let start = Instant::now();

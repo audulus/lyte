@@ -35,7 +35,6 @@ pub struct ClosureVar {
 /// Function declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FuncDecl {
-
     /// Function name.
     pub name: Name,
 
@@ -94,7 +93,9 @@ impl FuncDecl {
             if let Expr::Macro(name, ref args) = self.arena.exprs[i] {
                 let args = args.clone();
                 if let Some(mac) = macros.get(&name) {
-                    let subst: Vec<(Name, ExprID)> = mac.params.iter()
+                    let subst: Vec<(Name, ExprID)> = mac
+                        .params
+                        .iter()
                         .zip(args.iter())
                         .map(|(p, a)| (p.name, *a))
                         .collect();
@@ -220,7 +221,14 @@ fn format_typevars(typevars: &[Name]) -> String {
     if typevars.is_empty() {
         String::new()
     } else {
-        format!("<{}>", typevars.iter().map(|tv| tv.to_string()).collect::<Vec<_>>().join(", "))
+        format!(
+            "<{}>",
+            typevars
+                .iter()
+                .map(|tv| tv.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
@@ -248,7 +256,15 @@ fn format_constraints(constraints: &[InterfaceConstraint]) -> String {
                 if c.typevars.is_empty() {
                     c.interface_name.to_string()
                 } else {
-                    format!("{}<{}>", c.interface_name, c.typevars.iter().map(|tv| tv.to_string()).collect::<Vec<_>>().join(", "))
+                    format!(
+                        "{}<{}>",
+                        c.interface_name,
+                        c.typevars
+                            .iter()
+                            .map(|tv| tv.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
                 }
             })
             .collect::<Vec<_>>()
@@ -278,7 +294,10 @@ fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
 
     if let Some(body_id) = func.body {
         let body_str = func.arena.exprs[body_id].pretty_print(&func.arena, 0);
-        format!("{}({}){}{} {}", signature, params, ret_type, constraints, body_str)
+        format!(
+            "{}({}){}{} {}",
+            signature, params, ret_type, constraints, body_str
+        )
     } else {
         format!("{}({}){}{}", signature, params, ret_type, constraints)
     }
@@ -336,7 +355,6 @@ mod tests {
 
     #[test]
     fn test_pretty_print_func() {
-
         let func = FuncDecl {
             name: Name::str("add"),
             typevars: vec![],
@@ -367,7 +385,6 @@ mod tests {
 
     #[test]
     fn test_pretty_print_generic_func() {
-
         let mut arena = ExprArena::new();
         let body_id = arena.add(Expr::Id(Name::str("x")), test_loc());
 
@@ -395,7 +412,6 @@ mod tests {
 
     #[test]
     fn test_pretty_print_struct() {
-
         let st = StructDecl {
             name: Name::str("Point"),
             typevars: vec![],
@@ -420,7 +436,6 @@ mod tests {
 
     #[test]
     fn test_pretty_print_interface() {
-
         let iface = Interface {
             name: Name::str("Compare"),
             typevars: vec![Name::str("A")],
@@ -451,12 +466,14 @@ mod tests {
 
         let decl = Decl::Interface(iface);
         let output = decl.pretty_print();
-        assert_eq!(output, "interface Compare<A> {\n    cmp(lhs: A, rhs: A) → i32\n}");
+        assert_eq!(
+            output,
+            "interface Compare<A> {\n    cmp(lhs: A, rhs: A) → i32\n}"
+        );
     }
 
     #[test]
     fn test_pretty_print_global() {
-
         let decl = Decl::Global {
             name: Name::str("counter"),
             ty: mk_type(Type::Int32),
@@ -468,7 +485,6 @@ mod tests {
 
     #[test]
     fn test_pretty_print_enum() {
-
         let decl = Decl::Enum {
             name: Name::str("Status"),
             cases: vec![Name::str("Active"), Name::str("Inactive")],
