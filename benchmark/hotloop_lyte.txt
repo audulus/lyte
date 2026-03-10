@@ -1,43 +1,39 @@
-; Lyte VM — biquad hot loop (41 instructions)
-; r0=bq addr, r1=n, r2=phase, r3=i, r4=x, r5=freq, r6=two_pi, r8=y
+; Lyte VM — biquad hot loop (37 instructions)
+; r0=bq addr, r1=n, r2=phase, r5=freq, r6=two_pi, r7=x, r8=y
 =>  22: ILt { dst: 4, a: 3, b: 1 }
-    23: JumpIfZero { cond: 4, offset: 39 }
-    24: Move { dst: 4, src: 2 }
-    25: FMul { dst: 7, a: 4, b: 6 }
-    26: SinF32 { dst: 4, src: 7 }
-    27: Move { dst: 7, src: 2 }
-    28: FAdd { dst: 2, a: 7, b: 5 }
-    29: Move { dst: 7, src: 2 }
-    30: LoadF32 { dst: 8, value: 1.0 }
-    31: FLt { dst: 9, a: 8, b: 7 }
-    32: JumpIfZero { cond: 9, offset: 3 }
-    33: Move { dst: 7, src: 2 }
-    34: LoadF32 { dst: 8, value: 1.0 }
-    35: FSub { dst: 2, a: 7, b: 8 }
-=>  36: LocalAddr { dst: 0, slot: 0 }  ; bq
-    37: Load32Off { dst: 7, base: 0, offset: 0 }
-    38: FMul { dst: 8, a: 7, b: 4 }
-    39: Load32Off { dst: 7, base: 0, offset: 4 }
-    40: Load32Off { dst: 9, base: 0, offset: 20 }
-    41: FMul { dst: 10, a: 7, b: 9 }
-    42: FAdd { dst: 7, a: 8, b: 10 }
-    43: Load32Off { dst: 8, base: 0, offset: 8 }
-    44: Load32Off { dst: 9, base: 0, offset: 24 }
-    45: FMul { dst: 10, a: 8, b: 9 }
-    46: FAdd { dst: 8, a: 7, b: 10 }
-    47: Load32Off { dst: 7, base: 0, offset: 12 }
-    48: Load32Off { dst: 9, base: 0, offset: 28 }
-    49: FMul { dst: 10, a: 7, b: 9 }
-    50: FSub { dst: 7, a: 8, b: 10 }
-    51: Load32Off { dst: 8, base: 0, offset: 16 }
-    52: Load32Off { dst: 9, base: 0, offset: 32 }
-    53: FMul { dst: 10, a: 8, b: 9 }
-    54: FSub { dst: 8, a: 7, b: 10 }
-    55: Load32Off { dst: 7, base: 0, offset: 20 }
-    56: Store32Off { base: 0, offset: 24, src: 7 }
-    57: Store32Off { base: 0, offset: 20, src: 4 }
-    58: Load32Off { dst: 4, base: 0, offset: 28 }
-    59: Store32Off { base: 0, offset: 32, src: 4 }
-    60: Store32Off { base: 0, offset: 28, src: 8 }
-    61: IAddImm { dst: 3, src: 3, imm: 1 }
-    62: Jump { offset: -41 }
+    23: JumpIfZero { cond: 4, offset: 35 }
+    24: FMul { dst: 4, a: 2, b: 6 }
+    25: SinF32 { dst: 7, src: 4 }
+    26: FAdd { dst: 2, a: 2, b: 5 }
+    27: LoadF32 { dst: 4, value: 1.0 }
+    28: FLt { dst: 8, a: 4, b: 2 }
+    29: JumpIfZero { cond: 8, offset: 2 }
+    30: LoadF32 { dst: 4, value: 1.0 }
+    31: FSub { dst: 2, a: 2, b: 4 }
+=>  32: LocalAddr { dst: 0, slot: 0 }  ; bq
+    33: Load32Off { dst: 4, base: 0, offset: 0 }
+    34: FMul { dst: 8, a: 4, b: 7 }
+    35: Load32Off { dst: 4, base: 0, offset: 4 }
+    36: Load32Off { dst: 9, base: 0, offset: 20 }
+    37: FMul { dst: 10, a: 4, b: 9 }
+    38: FAdd { dst: 4, a: 8, b: 10 }
+    39: Load32Off { dst: 8, base: 0, offset: 8 }
+    40: Load32Off { dst: 9, base: 0, offset: 24 }
+    41: FMul { dst: 10, a: 8, b: 9 }
+    42: FAdd { dst: 8, a: 4, b: 10 }
+    43: Load32Off { dst: 4, base: 0, offset: 12 }
+    44: Load32Off { dst: 9, base: 0, offset: 28 }
+    45: FMul { dst: 10, a: 4, b: 9 }
+    46: FSub { dst: 4, a: 8, b: 10 }
+    47: Load32Off { dst: 8, base: 0, offset: 16 }
+    48: Load32Off { dst: 9, base: 0, offset: 32 }
+    49: FMul { dst: 10, a: 8, b: 9 }
+    50: FSub { dst: 8, a: 4, b: 10 }
+    51: Load32Off { dst: 4, base: 0, offset: 20 }
+    52: Store32Off { base: 0, offset: 24, src: 4 }
+    53: Store32Off { base: 0, offset: 20, src: 7 }
+    54: Load32Off { dst: 4, base: 0, offset: 28 }
+    55: Store32Off { base: 0, offset: 32, src: 4 }
+    56: Store32Off { base: 0, offset: 28, src: 8 }
+    57: IAddImm { dst: 3, src: 3, imm: 1 }
+    58: Jump { offset: -37 }

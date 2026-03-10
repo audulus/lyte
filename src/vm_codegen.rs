@@ -898,13 +898,7 @@ impl<'a> FunctionTranslator<'a> {
             return self.translate_assign(lhs_id, rhs_id, func);
         }
 
-        let lhs_result = self.translate_expr(lhs_id, func);
-        // Save lhs to a fresh register before evaluating rhs, in case rhs
-        // contains a function call that clobbers registers (calls copy args
-        // to registers 0..N and return in register 0).
-        let lhs = self.alloc_reg();
-        func.emit(Opcode::Move { dst: lhs, src: lhs_result });
-
+        let lhs = self.translate_expr(lhs_id, func);
         let rhs = self.translate_expr(rhs_id, func);
         let dst = self.alloc_reg();
 
