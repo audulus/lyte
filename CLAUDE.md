@@ -112,6 +112,24 @@ Test cases are organized in `tests/cases/` by feature:
 - `slices/` - Slice operations
 - `structs/` - Structure definitions and usage
 
+### Benchmarks (`benchmark/`)
+Biquad filter DSP benchmark comparing Lyte (JIT and VM) against C, Lua 5.5, and LuaJIT (JIT and interpreter). Processes 10M samples of a 440Hz sine wave through a 1kHz lowpass filter.
+
+```bash
+# Run the full benchmark suite (requires lua and luajit installed)
+./benchmark/run.sh        # defaults to 5 runs averaged
+./benchmark/run.sh 3      # 3 runs averaged
+```
+
+Files:
+- `run.sh` — benchmark runner, builds everything and prints a comparison table
+- `biquad.lyte` — Lyte version of the benchmark
+- `biquad.lua` — Lua/LuaJIT version
+- `biquad.c` — C reference implementation
+- `hotloop_lyte.txt` / `hotloop_luajit.txt` — annotated bytecode for the hot loop (35 instructions each)
+- `vm_arm64.dasc` — LuaJIT's hand-written ARM64 interpreter (reference for VM optimization)
+- `LuaJIT_Instructions.md` — LuaJIT bytecode format reference
+
 ### Workspace Structure
 - Root crate: Core lyte compiler library
 - `cli/`: Command-line interface binary
