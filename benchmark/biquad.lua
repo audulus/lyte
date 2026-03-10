@@ -24,26 +24,31 @@ local function lpf(fc, fs, q)
     }
 end
 
-local bq = lpf(1000.0, 44100.0, 0.707)
+local function run()
+    local bq = lpf(1000.0, 44100.0, 0.707)
 
-local n = 10000000
-local phase = 0.0
-local freq = 440.0 / 44100.0
-local last_y = 0.0
-local two_pi = 2.0 * pi
+    local n = 10000000
+    local phase = 0.0
+    local freq = 440.0 / 44100.0
+    local last_y = 0.0
+    local two_pi = 2.0 * pi
 
--- Process a 440 Hz sine wave through the filter
-for i = 1, n do
-    local x = sin(phase * two_pi)
-    phase = phase + freq
-    if phase > 1.0 then phase = phase - 1.0 end
+    -- Process a 440 Hz sine wave through the filter
+    for i = 1, n do
+        local x = sin(phase * two_pi)
+        phase = phase + freq
+        if phase > 1.0 then phase = phase - 1.0 end
 
-    local y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2
-    bq.x2 = bq.x1
-    bq.x1 = x
-    bq.y2 = bq.y1
-    bq.y1 = y
-    last_y = y
+        local y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2
+        bq.x2 = bq.x1
+        bq.x1 = x
+        bq.y2 = bq.y1
+        bq.y1 = y
+        last_y = y
+    end
 end
 
-print(n .. " samples processed")
+local t0 = os.clock()
+run()
+local elapsed = os.clock() - t0
+io.stderr:write(string.format("exec: %.3fs\n", elapsed))
