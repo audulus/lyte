@@ -685,6 +685,12 @@ pub struct VMFunction {
 
     /// The instruction stream
     pub code: Vec<Opcode>,
+
+    /// Debug info: register → variable name (for register-promoted scalars)
+    pub reg_names: Vec<(Reg, String)>,
+
+    /// Debug info: local slot → variable name (for slot-based variables)
+    pub slot_names: Vec<(u16, String)>,
 }
 
 impl VMFunction {
@@ -695,6 +701,8 @@ impl VMFunction {
             local_slots: 0,
             locals_size: 0,
             code: Vec::new(),
+            reg_names: Vec::new(),
+            slot_names: Vec::new(),
         }
     }
 
@@ -1462,9 +1470,49 @@ impl fmt::Display for VMFunction {
             }
         }
 
+        // Build slot → name map.
+        let mut slot_name: std::collections::HashMap<u16, &str> = std::collections::HashMap::new();
+        for (slot, name) in &self.slot_names {
+            slot_name.insert(*slot, name);
+        }
+
         for (i, op) in self.code.iter().enumerate() {
             let marker = if targets.contains(&i) { "=>" } else { "  " };
-            writeln!(f, "{}{:4}: {:?}", marker, i, op)?;
+            let comment = match op {
+                Opcode::LocalAddr { slot, .. } => slot_name.get(&(*slot as u16)).copied(),
+                _ => None,
+            };
+            match comment {
+                Some(name) => writeln!(f, "{}{:4}: {:?}  ; {}", marker, i, op, name)?,
+                None => writeln!(f, "{}{:4}: {:?}", marker, i, op)?,
+            }
+        }
+
+        // Print locals table (only registers that appear in the code).
+        if !self.slot_names.is_empty() || !self.reg_names.is_empty() {
+            let mut used_regs = std::collections::HashSet::new();
+            for op in &self.code {
+                if let Some(dst) = crate::vm_optimize::get_dst(op) {
+                    used_regs.insert(dst);
+                }
+            }
+
+            let mut entries: Vec<(String, &str)> = Vec::new();
+            for (slot, name) in &self.slot_names {
+                entries.push((format!("slot {}", slot), name));
+            }
+            for (reg, name) in &self.reg_names {
+                if used_regs.contains(reg) {
+                    entries.push((format!("r{}", reg), name));
+                }
+            }
+            entries.sort();
+            if !entries.is_empty() {
+                writeln!(f, "locals:")?;
+                for (loc, name) in &entries {
+                    writeln!(f, "  {}\t{}", loc, name)?;
+                }
+            }
         }
 
         Ok(())

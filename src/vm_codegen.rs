@@ -159,11 +159,30 @@ impl VMCodegen {
         let mut translator = FunctionTranslator::new(decl, decls, &mut self.pending_functions, &mut self.lambda_counter, &self.globals);
         translator.translate(&mut func);
 
+        // Extract debug info: register and slot names for disassembly.
+        for (&name, &reg) in &translator.variables {
+            if translator.reg_promoted.contains(&name) {
+                func.reg_names.push((reg, format!("{}", name)));
+            }
+        }
+        for (&name, &slot) in &translator.local_slots {
+            func.slot_names.push((slot, format!("{}", name)));
+        }
+
         // Peephole optimize: eliminate redundant instructions + register allocation.
-        if let Some(new_reg_count) = crate::vm_optimize::optimize(&mut func.code) {
+        if let Some((new_reg_count, mapping)) = crate::vm_optimize::optimize(&mut func.code) {
             // Register allocation compacted the register numbering.
             // Update locals_size: slot area stays the same, register save area shrinks.
             func.locals_size = func.local_slots as u32 * 8 + new_reg_count as u32 * 8;
+            // Update debug register names with the new physical register numbers.
+            for entry in &mut func.reg_names {
+                let preg = mapping[entry.0 as usize];
+                if preg != 255 {
+                    entry.0 = preg;
+                }
+            }
+            // Remove entries where the register was optimized away.
+            func.reg_names.retain(|&(reg, _)| reg != 255);
         }
 
         let idx = self.program.add_function(func);

@@ -7,6 +7,8 @@
 //      2: LoadImm { dst: 0, value: 0 }
 //      3: RestoreRegs { start_reg: 1, count: 0, slot: 8 }
 //      4: Return
+// locals:
+//   r0	x
 
 main {
     var x = 42

@@ -7,8 +7,8 @@ use crate::vm::{Opcode, Reg};
 use std::collections::HashSet;
 
 /// Phase 1: Peephole optimizations (NOP-safe, preserves instruction indices).
-/// Returns the new max register count after register allocation (if any).
-pub fn optimize(code: &mut Vec<Opcode>) -> Option<u8> {
+/// Returns (new_reg_count, vreg_to_preg_mapping) after register allocation.
+pub fn optimize(code: &mut Vec<Opcode>) -> Option<(u8, [u8; 256])> {
     if code.is_empty() {
         return None;
     }
@@ -23,7 +23,8 @@ pub fn optimize(code: &mut Vec<Opcode>) -> Option<u8> {
     // Fuse IAddImm+Load/Store into offset-addressing superinstructions
     fuse_offset_access(code);
     // Register allocation: compact register numbering via linear scan
-    Some(register_allocation(code))
+    let (count, mapping) = register_allocation(code);
+    Some((count, mapping))
 }
 
 /// Dead code elimination: NOP any instruction that writes to a register
@@ -110,7 +111,7 @@ fn strip_nops(code: &mut Vec<Opcode>) {
 }
 
 /// Get the destination register of an instruction, if it has one.
-fn get_dst(op: &Opcode) -> Option<Reg> {
+pub fn get_dst(op: &Opcode) -> Option<Reg> {
     match op {
         Opcode::Move { dst, .. }
         | Opcode::LoadImm { dst, .. }
@@ -931,9 +932,9 @@ fn rewrite_coalesced_reg(op: &mut Opcode, old: Reg, new: Reg) {
 /// Maps virtual registers (0..N, potentially sparse and high-numbered) to
 /// compacted physical registers (0..M where M << N). This reduces SaveRegs
 /// count and improves cache utilization of the register file.
-fn register_allocation(code: &mut Vec<Opcode>) -> u8 {
+fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
     if code.is_empty() {
-        return 0;
+        return (0, [255; 256]);
     }
 
     // Pre-pass: copy coalescing to eliminate moves.
@@ -1120,7 +1121,7 @@ fn register_allocation(code: &mut Vec<Opcode>) -> u8 {
         rewrite_regs(op, &mapping);
     }
 
-    new_count
+    (new_count, mapping)
 }
 
 /// Call `f` for each source register read by the instruction.
