@@ -971,10 +971,10 @@ impl VM {
             self.ip += 1;
 
             macro_rules! r {
-                ($idx:expr) => { unsafe { *regs.add($idx as usize) } }
+                ($idx:expr) => { *regs.add($idx as usize) }
             }
             macro_rules! r_set {
-                ($idx:expr, $val:expr) => { unsafe { *regs.add($idx as usize) = $val } }
+                ($idx:expr, $val:expr) => { *regs.add($idx as usize) = $val }
             }
             macro_rules! r_f32 {
                 ($idx:expr) => { f32::from_bits(r!($idx) as u32) }
@@ -995,7 +995,7 @@ impl VM {
                 ($idx:expr) => { r!($idx) as i64 }
             }
 
-            match op.tag {
+            unsafe { match op.tag {
                 tags::NOP => {}
 
                 tags::HALT => {
@@ -1097,20 +1097,16 @@ impl VM {
                 tags::MEM_EQ => {
                     let pa = r!(op.r2) as *const u8;
                     let pb = r!(op.r3) as *const u8;
-                    let eq = unsafe {
-                        std::slice::from_raw_parts(pa, op.imm as usize)
-                            == std::slice::from_raw_parts(pb, op.imm as usize)
-                    };
+                    let eq = std::slice::from_raw_parts(pa, op.imm as usize)
+                            == std::slice::from_raw_parts(pb, op.imm as usize);
                     r_set!(op.r1, eq as u64);
                 }
 
                 tags::MEM_NE => {
                     let pa = r!(op.r2) as *const u8;
                     let pb = r!(op.r3) as *const u8;
-                    let ne = unsafe {
-                        std::slice::from_raw_parts(pa, op.imm as usize)
-                            != std::slice::from_raw_parts(pb, op.imm as usize)
-                    };
+                    let ne = std::slice::from_raw_parts(pa, op.imm as usize)
+                            != std::slice::from_raw_parts(pb, op.imm as usize);
                     r_set!(op.r1, ne as u64);
                 }
 
@@ -1126,76 +1122,76 @@ impl VM {
                 tags::LOAD8 => {
                     let ptr = r!(op.r2);
                     self.check_ptr(ptr, 1);
-                    set_i64!(op.r1, unsafe { *(ptr as *const u8) } as i64);
+                    set_i64!(op.r1, *(ptr as *const u8) as i64);
                 }
                 tags::LOAD32 => {
                     let ptr = r!(op.r2);
                     self.check_ptr(ptr, 4);
-                    set_i64!(op.r1, unsafe { *(ptr as *const i32) } as i64);
+                    set_i64!(op.r1, *(ptr as *const i32) as i64);
                 }
                 tags::LOAD64 => {
                     let ptr = r!(op.r2);
                     self.check_ptr(ptr, 8);
-                    set_i64!(op.r1, unsafe { *(ptr as *const i64) });
+                    set_i64!(op.r1, *(ptr as *const i64));
                 }
                 tags::LOAD32_OFF => {
                     let ptr = (r!(op.r2) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 4);
-                    set_i64!(op.r1, unsafe { *(ptr as *const i32) } as i64);
+                    set_i64!(op.r1, *(ptr as *const i32) as i64);
                 }
                 tags::LOAD64_OFF => {
                     let ptr = (r!(op.r2) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 8);
-                    set_i64!(op.r1, unsafe { *(ptr as *const i64) });
+                    set_i64!(op.r1, *(ptr as *const i64));
                 }
                 tags::STORE8 => {
                     let ptr = r!(op.r1);
                     self.check_ptr(ptr, 1);
-                    unsafe { *(ptr as *mut u8) = r!(op.r2) as u8; }
+                    *(ptr as *mut u8) = r!(op.r2) as u8;
                 }
                 tags::STORE32 => {
                     let ptr = r!(op.r1);
                     self.check_ptr(ptr, 4);
-                    unsafe { *(ptr as *mut i32) = get_i64!(op.r2) as i32; }
+                    *(ptr as *mut i32) = get_i64!(op.r2) as i32;
                 }
                 tags::STORE64 => {
                     let ptr = r!(op.r1);
                     self.check_ptr(ptr, 8);
-                    unsafe { *(ptr as *mut i64) = get_i64!(op.r2); }
+                    *(ptr as *mut i64) = get_i64!(op.r2);
                 }
                 tags::STORE8_OFF => {
                     let ptr = (r!(op.r1) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 1);
-                    unsafe { *(ptr as *mut u8) = r!(op.r2) as u8; }
+                    *(ptr as *mut u8) = r!(op.r2) as u8;
                 }
                 tags::STORE32_OFF => {
                     let ptr = (r!(op.r1) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 4);
-                    unsafe { *(ptr as *mut i32) = get_i64!(op.r2) as i32; }
+                    *(ptr as *mut i32) = get_i64!(op.r2) as i32;
                 }
                 tags::STORE64_OFF => {
                     let ptr = (r!(op.r1) as i64 + op.imm as i64) as u64;
                     self.check_ptr(ptr, 8);
-                    unsafe { *(ptr as *mut i64) = get_i64!(op.r2); }
+                    *(ptr as *mut i64) = get_i64!(op.r2);
                 }
 
                 tags::LOCAL_ADDR => {
                     let offset = self.locals_base + (op.imm as usize) * 8;
-                    r_set!(op.r1, unsafe { self.locals.as_ptr().add(offset) } as u64);
+                    r_set!(op.r1, self.locals.as_ptr().add(offset) as u64);
                 }
                 tags::LOAD_SLOT32 => {
                     let offset = self.locals_base + (op.imm as usize) * 8;
-                    let ptr = unsafe { self.locals.as_ptr().add(offset) };
-                    set_i64!(op.r1, unsafe { *(ptr as *const i32) } as i64);
+                    let ptr = self.locals.as_ptr().add(offset);
+                    set_i64!(op.r1, *(ptr as *const i32) as i64);
                 }
                 tags::STORE_SLOT32 => {
                     let offset = self.locals_base + (op.imm as usize) * 8;
-                    let ptr = unsafe { self.locals.as_mut_ptr().add(offset) };
-                    unsafe { *(ptr as *mut i32) = get_i64!(op.r1) as i32; }
+                    let ptr = self.locals.as_mut_ptr().add(offset);
+                    *(ptr as *mut i32) = get_i64!(op.r1) as i32;
                 }
 
                 tags::GLOBAL_ADDR => {
-                    r_set!(op.r1, unsafe { self.globals.as_ptr().add(op.imm as usize) } as u64);
+                    r_set!(op.r1, self.globals.as_ptr().add(op.imm as usize) as u64);
                 }
 
                 // Control flow
@@ -1350,16 +1346,14 @@ impl VM {
                     let size = op.imm as usize;
                     self.check_ptr(dst_ptr, size);
                     self.check_ptr(src_ptr, size);
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size);
-                    }
+                    std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size);
                 }
 
                 tags::MEM_ZERO => {
                     let ptr = r!(op.r1);
                     let size = op.imm as usize;
                     self.check_ptr(ptr, size);
-                    unsafe { std::ptr::write_bytes(ptr as *mut u8, 0, size); }
+                    std::ptr::write_bytes(ptr as *mut u8, 0, size);
                 }
 
                 tags::SAVE_REGS => {
@@ -1427,7 +1421,7 @@ impl VM {
                 tags::ATAN2_F64 => { set_f64!(op.r1, r_f64!(op.r2).atan2(r_f64!(op.r3))); }
 
                 _ => { panic!("VM: unknown opcode tag {}", op.tag); }
-            }
+            } }
         }
     }
     /// Only valid after `run` has been called.
