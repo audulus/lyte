@@ -1,0 +1,49 @@
+; Lyte VM — biquad hot loop (47 instructions)
+; r0=bq addr, r1=n, r2=phase, r3=i, r4=x, r5=freq, r7=y
+=>  19: Move { dst: 4, src: 3 }
+    20: ILt { dst: 6, a: 4, b: 1 }
+    21: JumpIfZero { cond: 6, offset: 44 }
+    22: Move { dst: 4, src: 2 }
+    23: LoadF32 { dst: 6, value: 2.0 }
+    24: FMul { dst: 7, a: 4, b: 6 }
+    25: LoadF32 { dst: 4, value: 3.1415927 }
+    26: FMul { dst: 6, a: 7, b: 4 }
+    27: SinF32 { dst: 4, src: 6 }
+    28: Move { dst: 6, src: 2 }
+    29: FAdd { dst: 2, a: 6, b: 5 }
+    30: Move { dst: 6, src: 2 }
+    31: LoadF32 { dst: 7, value: 1.0 }
+    32: FLt { dst: 8, a: 7, b: 6 }
+    33: JumpIfZero { cond: 8, offset: 3 }
+    34: Move { dst: 6, src: 2 }
+    35: LoadF32 { dst: 7, value: 1.0 }
+    36: FSub { dst: 2, a: 6, b: 7 }
+=>  37: LocalAddr { dst: 0, slot: 0 }  ; bq
+    38: Load32Off { dst: 6, base: 0, offset: 0 }
+    39: FMul { dst: 7, a: 6, b: 4 }
+    40: Load32Off { dst: 6, base: 0, offset: 4 }
+    41: Load32Off { dst: 8, base: 0, offset: 20 }
+    42: FMul { dst: 9, a: 6, b: 8 }
+    43: FAdd { dst: 6, a: 7, b: 9 }
+    44: Load32Off { dst: 7, base: 0, offset: 8 }
+    45: Load32Off { dst: 8, base: 0, offset: 24 }
+    46: FMul { dst: 9, a: 7, b: 8 }
+    47: FAdd { dst: 7, a: 6, b: 9 }
+    48: Load32Off { dst: 6, base: 0, offset: 12 }
+    49: Load32Off { dst: 8, base: 0, offset: 28 }
+    50: FMul { dst: 9, a: 6, b: 8 }
+    51: FSub { dst: 6, a: 7, b: 9 }
+    52: Load32Off { dst: 7, base: 0, offset: 16 }
+    53: Load32Off { dst: 8, base: 0, offset: 32 }
+    54: FMul { dst: 9, a: 7, b: 8 }
+    55: FSub { dst: 7, a: 6, b: 9 }
+    56: Load32Off { dst: 6, base: 0, offset: 20 }
+    57: Store32Off { base: 0, offset: 24, src: 6 }
+    58: Store32Off { base: 0, offset: 20, src: 4 }
+    59: Load32Off { dst: 4, base: 0, offset: 28 }
+    60: Store32Off { base: 0, offset: 32, src: 4 }
+    61: Store32Off { base: 0, offset: 28, src: 7 }
+    62: Move { dst: 4, src: 3 }
+    63: LoadImm { dst: 6, value: 1 }
+    64: IAdd { dst: 3, a: 4, b: 6 }
+    65: Jump { offset: -47 }

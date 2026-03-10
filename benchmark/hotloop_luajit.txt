@@ -1,0 +1,38 @@
+; LuaJIT — biquad hot loop (35 instructions)
+; r0=bq, r1=n, r2=phase, r3=freq, r4=last_y, r5=two_pi
+; r6-r8=(for state), r10=x, r11=y
+0015    FORI     6 => 0050
+0016 => UGET    10   2      ; sin
+0017    MULVV   12   2   5
+0018    CALL    10   2   2
+0019    ADDVV    2   2   3
+0020    KSHORT  11   1
+0021    ISGE    11   2
+0022    JMP     11 => 0024
+0023    SUBVN    2   2   5  ; 1
+0024 => TGETS   11   0   0  ; "b0"
+0025    MULVV   11  11  10
+0026    TGETS   12   0   1  ; "b1"
+0027    TGETS   13   0   2  ; "x1"
+0028    MULVV   12  12  13
+0029    ADDVV   11  11  12
+0030    TGETS   12   0   3  ; "b2"
+0031    TGETS   13   0   4  ; "x2"
+0032    MULVV   12  12  13
+0033    ADDVV   11  11  12
+0034    TGETS   12   0   5  ; "a1"
+0035    TGETS   13   0   6  ; "y1"
+0036    MULVV   12  12  13
+0037    SUBVV   11  11  12
+0038    TGETS   12   0   7  ; "a2"
+0039    TGETS   13   0   8  ; "y2"
+0040    MULVV   12  12  13
+0041    SUBVV   11  11  12
+0042    TGETS   12   0   2  ; "x1"
+0043    TSETS   12   0   4  ; "x2"
+0044    TSETS   10   0   2  ; "x1"
+0045    TGETS   12   0   6  ; "y1"
+0046    TSETS   12   0   8  ; "y2"
+0047    TSETS   11   0   6  ; "y1"
+0048    MOV      4  11
+0049    FORL     6 => 0016

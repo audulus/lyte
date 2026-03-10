@@ -1,0 +1,49 @@
+; Lua 5.5 — biquad hot loop (46 instructions)
+; r0=bq, r1=n, r2=phase, r3=freq, r4=last_y, r5=two_pi
+; r6-r8=(for state), r9=x, r10=y
+	16	[37]	FORPREP  	6 44	; exit to 62
+	17	[38]	GETUPVAL 	9   2	; sin
+	18	[38]	MUL      	10  2   5
+	19	[38]	MMBIN    	2   5   8	; __mul
+	20	[38]	CALL     	9   2   2	; 1 in 1 out
+	21	[39]	ADD      	2   2   3
+	22	[39]	MMBIN    	2   3   6	; __add
+	23	[40]	GTI      	2   1   0
+	24	[40]	JMP      	2	; to 27
+	25	[40]	SUBK     	2   2   4	; 1.0
+	26	[40]	MMBINK   	2   4   7   0	; __sub 1.0
+	27	[42]	GETFIELD 	10  0   5	; "b0"
+	28	[42]	MUL      	10 10   9
+	29	[42]	MMBIN    	10  9   8	; __mul
+	30	[42]	GETFIELD 	11  0   6	; "b1"
+	31	[42]	GETFIELD 	12  0   7	; "x1"
+	32	[42]	MUL      	11 11  12
+	33	[42]	MMBIN    	11 12   8	; __mul
+	34	[42]	ADD      	10 10  11
+	35	[42]	MMBIN    	10 11   6	; __add
+	36	[42]	GETFIELD 	11  0   8	; "b2"
+	37	[42]	GETFIELD 	12  0   9	; "x2"
+	38	[42]	MUL      	11 11  12
+	39	[42]	MMBIN    	11 12   8	; __mul
+	40	[42]	ADD      	10 10  11
+	41	[42]	MMBIN    	10 11   6	; __add
+	42	[42]	GETFIELD 	11  0  10	; "a1"
+	43	[42]	GETFIELD 	12  0  11	; "y1"
+	44	[42]	MUL      	11 11  12
+	45	[42]	MMBIN    	11 12   8	; __mul
+	46	[42]	SUB      	10 10  11
+	47	[42]	MMBIN    	10 11   7	; __sub
+	48	[42]	GETFIELD 	11  0  12	; "a2"
+	49	[42]	GETFIELD 	12  0  13	; "y2"
+	50	[42]	MUL      	11 11  12
+	51	[42]	MMBIN    	11 12   8	; __mul
+	52	[42]	SUB      	10 10  11
+	53	[42]	MMBIN    	10 11   7	; __sub
+	54	[43]	GETFIELD 	11  0   7	; "x1"
+	55	[43]	SETFIELD 	0   9  11	; "x2"
+	56	[44]	SETFIELD 	0   7   9	; "x1"
+	57	[45]	GETFIELD 	11  0  11	; "y1"
+	58	[45]	SETFIELD 	0  13  11	; "y2"
+	59	[46]	SETFIELD 	0  11  10	; "y1"
+	60	[47]	MOVE     	4  10
+	61	[37]	FORLOOP  	6  45	; to 17
