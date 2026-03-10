@@ -40,8 +40,7 @@ main {
     var two_pi = 2.0 * 3.14159265
 
     // Process a 440 Hz sine wave through the filter
-    var i = 0
-    while i < n {
+    for i in 0 .. n {
         var x = sinf(phase * two_pi)
         phase = phase + freq
         if phase > 1.0 { phase = phase - 1.0 }
@@ -52,8 +51,6 @@ main {
         bq.y2 = bq.y1
         bq.y1 = y
         last_y = y
-
-        i = i + 1
     }
 
     print(n)
