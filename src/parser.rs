@@ -158,6 +158,16 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
         Token::Lparen => {
             cx.next();
             let t = parse_type(typevars, cx);
+            if cx.lex.tok == Token::Comma {
+                // Tuple type: (T1, T2, ...)
+                let mut types = vec![t];
+                while cx.lex.tok == Token::Comma {
+                    cx.next();
+                    types.push(parse_type(typevars, cx));
+                }
+                expect(Token::Rparen, cx);
+                return mk_type(Type::Tuple(types));
+            }
             expect(Token::Rparen, cx);
             return t;
         }
@@ -246,7 +256,12 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
 }
 
 fn parse_lambda(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
-    if cx.lex.tok == Token::Pipe {
+    if cx.lex.tok == Token::Or {
+        // || is a zero-arg lambda
+        cx.next();
+        let body = parse_lambda(arena, typevars, cx);
+        arena.add(Expr::Lambda { params: vec![], body }, cx.lex.loc)
+    } else if cx.lex.tok == Token::Pipe {
         cx.next();
         let params = parse_paramlist(typevars, cx);
         expect(Token::Pipe, cx);

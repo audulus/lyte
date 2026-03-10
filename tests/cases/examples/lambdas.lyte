@@ -1,0 +1,24 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+apply(x: i32, f: i32 -> i32) -> i32 {
+    f(x)
+}
+
+main {
+    var f = |x| x * 2
+    assert(f(3) == 6)
+
+    assert(apply(5, |x| x + 1) == 6)
+
+    // closures capture variables by reference
+    var count = 0
+    var inc = || count = count + 1
+    inc()
+    inc()
+    assert(count == 2)
+}

@@ -1,0 +1,24 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// executing VM code
+// assert(true)
+// vm execution successful
+
+struct Point {
+    x: f32,
+    y: f32
+}
+
+length(p: Point) -> f32 {
+    sqrtf(p.x * p.x + p.y * p.y)
+}
+
+main {
+    var p: Point
+    p.x = 3.0
+    p.y = 4.0
+    assert(length(p) == 5.0)
+}

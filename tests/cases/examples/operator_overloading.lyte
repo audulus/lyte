@@ -1,0 +1,51 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+struct Point {
+    x: f32,
+    y: f32
+}
+
+__add(lhs: Point, rhs: Point) -> Point {
+    var p: Point
+    p.x = lhs.x + rhs.x
+    p.y = lhs.y + rhs.y
+    p
+}
+
+__mul(lhs: Point, rhs: f32) -> Point {
+    var p: Point
+    p.x = lhs.x * rhs
+    p.y = lhs.y * rhs
+    p
+}
+
+main {
+    var a: Point
+    a.x = 1.0
+    a.y = 2.0
+
+    var b: Point
+    b.x = 3.0
+    b.y = 4.0
+
+    var c = a + b
+    assert(c.x == 4.0)
+    assert(c.y == 6.0)
+
+    var d = a * 2.0
+    assert(d.x == 2.0)
+    assert(d.y == 4.0)
+}

@@ -1,0 +1,24 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// positive
+// executing VM code
+// positive
+// vm execution successful
+
+main {
+    var x = 42
+    let y = x + 1    // immutable binding
+
+    if x > 0 {
+        println("positive")
+    } else {
+        println("non-positive")
+    }
+
+    var sum = 0
+    for i in 0 .. 10 {
+        sum = sum + i
+    }
+}

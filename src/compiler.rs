@@ -173,6 +173,141 @@ pub struct Tree {
 
 const STDLIB: &str = include_str!("../stdlib.lyte");
 
+/// Rewrite qualified enum accesses like `Direction.Up` into `Expr::Enum`
+/// nodes. The parser produces `Expr::Field(Expr::Id("Direction"), "Up")`
+/// for this syntax because it doesn't know about declarations. This pass
+/// detects when the LHS identifier names an enum type that contains the
+/// field name as a case, and rewrites the node so that the checker and
+/// code-generation passes handle it as a plain enum literal.
+fn rewrite_qualified_enums(arena: &mut ExprArena, decls: &DeclTable) {
+    for i in 0..arena.exprs.len() {
+        if let Expr::Field(lhs, case_name) = arena.exprs[i].clone() {
+            if let Expr::Id(id_name) = &arena.exprs[lhs] {
+                let found = decls.find(*id_name);
+                if let Some(Decl::Enum { cases, .. }) = found
+                    .iter()
+                    .find(|d| matches!(d, Decl::Enum { .. }))
+                {
+                    if cases.contains(&case_name) {
+                        arena.exprs[i] = Expr::Enum(case_name);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// After type-checking, rewrite `Binop(op, lhs, rhs)` into
+/// `Call(__add/__sub/__mul/__div, [lhs, rhs])` when the operand type is a
+/// named (struct) type. The checker resolves the overload through its Or
+/// constraint, but the JIT/VM only handle primitive types in binop codegen.
+fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
+    let n = fdecl.arena.exprs.len();
+    for i in 0..n {
+        if let Expr::Binop(op, lhs, rhs) = fdecl.arena.exprs[i].clone() {
+            if !op.arithmetic() {
+                continue;
+            }
+            let lhs_ty = fdecl.types[lhs];
+            if matches!(*lhs_ty, Type::Name(_, _)) {
+                let result_ty = fdecl.types[i];
+                let rhs_ty = fdecl.types[rhs];
+                // Build the function type: (lhs_ty, rhs_ty) -> result_ty
+                let fn_ty = func(tuple(vec![lhs_ty, rhs_ty]), result_ty);
+
+                let overload = Name::new(op.overload_name().into());
+                let fn_id = fdecl.arena.add(Expr::Id(overload), fdecl.arena.locs[i]);
+                // Extend types array to cover the new expression
+                while fdecl.types.len() <= fn_id {
+                    fdecl.types.push(mk_type(Type::Void));
+                }
+                fdecl.types[fn_id] = fn_ty;
+                fdecl.arena.exprs[i] = Expr::Call(fn_id, vec![lhs, rhs]);
+            }
+        }
+    }
+}
+
+/// Rename non-generic overloaded functions (both declarations and call sites)
+/// so each overload gets a unique symbol. e.g. two `add` overloads with
+/// different param types become `add$i32$i32` and `add$f32$f32`.
+fn rename_overloaded_functions(decls: &mut DeclTable) {
+    // Count non-generic overloads per name.
+    let mut counts: HashMap<Name, usize> = HashMap::new();
+    for d in &decls.decls {
+        if let Decl::Func(f) = d {
+            if f.typevars.is_empty() {
+                *counts.entry(f.name).or_default() += 1;
+            }
+        }
+    }
+
+    // Build a mapping from (original_name, param_types) -> mangled_name
+    // for overloaded functions.
+    let mut overload_map: HashMap<Name, Vec<(Vec<TypeID>, Name)>> = HashMap::new();
+    for d in &decls.decls {
+        if let Decl::Func(f) = d {
+            if f.typevars.is_empty() && counts.get(&f.name).copied().unwrap_or(0) > 1 {
+                let param_types: Vec<TypeID> = f.params.iter().filter_map(|p| p.ty).collect();
+                let mangled = mangle::mangle_overload(f.name, &param_types);
+                overload_map
+                    .entry(f.name)
+                    .or_default()
+                    .push((param_types, mangled));
+            }
+        }
+    }
+
+    if overload_map.is_empty() {
+        return;
+    }
+
+    // Rename function declarations.
+    for d in &mut decls.decls {
+        if let Decl::Func(ref mut f) = d {
+            if let Some(overloads) = overload_map.get(&f.name) {
+                let param_types: Vec<TypeID> = f.params.iter().filter_map(|p| p.ty).collect();
+                for (pts, mangled) in overloads {
+                    if *pts == param_types {
+                        f.name = *mangled;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Rename call-site references in all function bodies.
+    // For each Expr::Id that matches an overloaded name, look at its resolved
+    // type to determine which overload it refers to.
+    for d in &mut decls.decls {
+        if let Decl::Func(ref mut f) = d {
+            for i in 0..f.arena.exprs.len() {
+                if let Expr::Id(name) = &f.arena.exprs[i] {
+                    if let Some(overloads) = overload_map.get(name) {
+                        if let Some(&call_ty) = f.types.get(i) {
+                            // The call-site type is the function type.
+                            // Extract param types from it.
+                            if let Type::Func(dom, _) = &*call_ty {
+                                let call_params = match &**dom {
+                                    Type::Tuple(ts) => ts.clone(),
+                                    _ => vec![*dom],
+                                };
+                                for (pts, mangled) in overloads {
+                                    if *pts == call_params {
+                                        f.arena.exprs[i] = Expr::Id(*mangled);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct Compiler {
     ast: Vec<Tree>,
     decls: DeclTable,
@@ -266,6 +401,15 @@ impl Compiler {
         self.decls = DeclTable::new(decls);
         let orig_decls = self.decls.clone();
 
+        // Rewrite qualified enum accesses (e.g. Direction.Up -> .Up)
+        // before type-checking, so the checker and downstream passes
+        // see them as Expr::Enum nodes.
+        for decl in &mut self.decls.decls {
+            if let Decl::Func(ref mut fdecl) | Decl::Macro(ref mut fdecl) = decl {
+                rewrite_qualified_enums(&mut fdecl.arena, &orig_decls);
+            }
+        }
+
         for decl in &mut self.decls.decls {
             // Skip type-checking macro declarations (they are untyped templates).
             if matches!(decl, Decl::Macro(_)) {
@@ -284,6 +428,18 @@ impl Compiler {
                 fdecl.types = checker.solved_types();
             }
         }
+
+        // Rewrite overloaded binary ops (e.g. Point + Point) to function calls.
+        for decl in &mut self.decls.decls {
+            if let Decl::Func(ref mut fdecl) = decl {
+                rewrite_overloaded_binops(fdecl);
+            }
+        }
+
+        // Rename non-generic overloaded functions to unique symbols.
+        rename_overloaded_functions(&mut self.decls);
+        // Re-sort the decl table since renaming changes the sort order.
+        self.decls = DeclTable::new(self.decls.decls.clone());
 
         // Static safety checks (array bounds, division by zero).
         let mut safety_checker = SafetyChecker::new();

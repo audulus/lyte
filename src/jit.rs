@@ -202,7 +202,9 @@ impl JIT {
                 continue;
             }
 
-            let decl = if let Decl::Func(d) = &decls.find(name)[0] {
+            let found = decls.find(name);
+            assert!(!found.is_empty(), "called function '{}' not found", name);
+            let decl = if let Decl::Func(d) = &found[0] {
                 d
             } else {
                 panic!()
@@ -541,10 +543,13 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.types[*lhs];
                 let lhs_value = self.translate_lvalue(*lhs, decl, decls);
-                if let crate::Type::Name(struct_name, _) = &*lhs_ty {
+                if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &struct_decl[0] {
-                        let off = s.field_offset(name, decls, &self.current_instance);
+                        let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                            .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
+                            .collect();
+                        let off = s.field_offset(name, decls, &inst);
                         let off_value = self.builder.ins().iconst(I64, off as i64);
                         self.builder.ins().iadd(lhs_value, off_value)
                     } else {
@@ -777,10 +782,13 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 }
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
-                if let crate::Type::Name(struct_name, _) = &*lhs_ty {
+                if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &struct_decl[0] {
-                        let off = s.field_offset(name, decls, &self.current_instance);
+                        let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                            .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
+                            .collect();
+                        let off = s.field_offset(name, decls, &inst);
                         let field_ty = &decl.types[expr];
                         // Arrays are stored inline, so return the address of the field
                         if field_ty.is_ptr() {

@@ -25,6 +25,16 @@ pub fn mangle_name(base: Name, type_args: &[TypeID]) -> Name {
     Name::new(mangled)
 }
 
+/// Generates a unique mangled name for an overloaded (non-generic) function
+/// by appending the parameter types to distinguish overloads.
+///
+/// # Examples
+/// - `add` with params `(i32, i32)` becomes `add$i32$i32`
+/// - `add` with params `(f32, f32)` becomes `add$f32$f32`
+pub fn mangle_overload(base: Name, param_types: &[TypeID]) -> Name {
+    mangle_name(base, param_types)
+}
+
 /// Converts a TypeID to a string representation for name mangling.
 /// Uses a compact, unambiguous format.
 fn type_to_string(ty: TypeID) -> String {

@@ -120,11 +120,40 @@ impl MonomorphPass {
                             }
                         } else {
                             // Non-generic function - include it and recursively process its body.
-                            if !self.processed_non_generic.contains(&target_fdecl.name) {
-                                self.processed_non_generic.insert(target_fdecl.name);
-                                let mut func = target_fdecl.clone();
-                                self.process_function(&mut func, decls)?;
-                                self.out_decls.push(Decl::Func(func));
+                            let non_generic_overload_count = fn_decls
+                                .iter()
+                                .filter(|d| matches!(d, Decl::Func(f) if f.typevars.is_empty()))
+                                .count();
+
+                            if non_generic_overload_count > 1 {
+                                let func_ty = TypeID::new(Type::Func(
+                                    target_fdecl.domain(),
+                                    target_fdecl.ret,
+                                ));
+                                if func_ty == solved_type {
+                                    let param_types = target_fdecl.param_types();
+                                    let mangled = crate::mangle::mangle_overload(
+                                        *name,
+                                        &param_types,
+                                    );
+
+                                    if !self.processed_non_generic.contains(&mangled) {
+                                        self.processed_non_generic.insert(mangled);
+                                        let mut func = target_fdecl.clone();
+                                        func.name = mangled;
+                                        self.process_function(&mut func, decls)?;
+                                        self.out_decls.push(Decl::Func(func));
+                                    }
+
+                                    fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
+                                }
+                            } else {
+                                if !self.processed_non_generic.contains(&target_fdecl.name) {
+                                    self.processed_non_generic.insert(target_fdecl.name);
+                                    let mut func = target_fdecl.clone();
+                                    self.process_function(&mut func, decls)?;
+                                    self.out_decls.push(Decl::Func(func));
+                                }
                             }
                         }
                     }
@@ -278,55 +307,41 @@ impl MonomorphPass {
         Ok(())
     }
 
-    /// Infer concrete type arguments for a generic function call
+    /// Infer concrete type arguments for a generic function call.
     fn infer_type_arguments(
         &self,
-        _generic_fdecl: &FuncDecl,
+        generic_fdecl: &FuncDecl,
         call_site_type: TypeID,
         _caller_fdecl: &FuncDecl,
     ) -> Result<Vec<TypeID>, String> {
-        // Extract concrete types from the call site
-        // For now, we'll extract types from a function type
-        if let Type::Func(dom, rng) = &*call_site_type {
-            // Collect all concrete types mentioned in domain and range
-            let mut type_args = Vec::new();
-            self.collect_concrete_types(*dom, &mut type_args);
-            self.collect_concrete_types(*rng, &mut type_args);
-            return Ok(type_args);
+        if generic_fdecl.typevars.is_empty() {
+            return Ok(Vec::new());
         }
-
-        Ok(Vec::new())
-    }
-
-    /// Collect all non-variable types from a type expression
-    fn collect_concrete_types(&self, ty: TypeID, result: &mut Vec<TypeID>) {
-        match &*ty {
-            Type::Var(_) | Type::Anon(_) => {
-                // Skip type variables
-            }
-            Type::Tuple(types) => {
-                for t in types {
-                    self.collect_concrete_types(*t, result);
-                }
-            }
-            Type::Array(elem, _) => {
-                self.collect_concrete_types(*elem, result);
-            }
-            Type::Func(dom, rng) => {
-                self.collect_concrete_types(*dom, result);
-                self.collect_concrete_types(*rng, result);
-            }
-            Type::Name(_, params) => {
-                result.push(ty);
-                for param in params {
-                    self.collect_concrete_types(*param, result);
-                }
-            }
-            _ => {
-                // Concrete primitive type
-                result.push(ty);
-            }
+        // Build the generic function type using the same convention as the
+        // type checker: domain is always a tuple of parameter types.
+        let generic_func_type = generic_fdecl.ty();
+        // Convert named type variables (Var) to anonymous (Anon) for unification.
+        let mut fresh_index = 1000;
+        let mut fresh_inst = Instance::new();
+        let fresh_func_type = generic_func_type.fresh_aux(&mut fresh_index, &mut fresh_inst);
+        // Build map from typevar name to its Anon type.
+        let var_to_anon: Vec<(Name, TypeID)> = generic_fdecl.typevars.iter().map(|tv_name| {
+            let tv = typevar(&tv_name.to_string());
+            let anon_ty = fresh_inst.get(&tv).copied().unwrap_or(tv);
+            (*tv_name, anon_ty)
+        }).collect();
+        // Unify the fresh generic type with the call-site type.
+        let mut unify_inst = Instance::new();
+        if !unify(fresh_func_type, call_site_type, &mut unify_inst) {
+            return Err(format!("Cannot infer type arguments for {}", generic_fdecl.name));
         }
+        // Extract type arguments: look up what each Anon resolved to.
+        let mut type_args = Vec::new();
+        for (_tv_name, anon_ty) in &var_to_anon {
+            let resolved = find(*anon_ty, &unify_inst);
+            type_args.push(resolved);
+        }
+        Ok(type_args)
     }
 
     /// Create a specialized version of a generic function (type vars only).
@@ -622,59 +637,10 @@ mod tests {
         assert_eq!(result.unwrap(), Name::str("map$i32$bool"));
     }
 
-    #[test]
-    fn test_collect_concrete_types_primitive() {
-        let pass = MonomorphPass::new();
-        let mut result = Vec::new();
 
-        pass.collect_concrete_types(mk_type(Type::Int32), &mut result);
-        assert_eq!(result.len(), 1);
-        assert_eq!(*result[0], Type::Int32);
-    }
 
-    #[test]
-    fn test_collect_concrete_types_ignores_type_vars() {
-        let pass = MonomorphPass::new();
-        let mut result = Vec::new();
 
-        pass.collect_concrete_types(typevar("T"), &mut result);
-        assert_eq!(result.len(), 0);
-    }
 
-    #[test]
-    fn test_collect_concrete_types_tuple() {
-        let pass = MonomorphPass::new();
-        let mut result = Vec::new();
-
-        let tuple_ty = mk_type(Type::Tuple(vec![mk_type(Type::Int32), mk_type(Type::Bool)]));
-
-        pass.collect_concrete_types(tuple_ty, &mut result);
-        assert_eq!(result.len(), 2);
-    }
-
-    #[test]
-    fn test_collect_concrete_types_array() {
-        let pass = MonomorphPass::new();
-        let mut result = Vec::new();
-
-        let array_ty = mk_type(Type::Array(mk_type(Type::Float32), ArraySize::Known(10)));
-
-        pass.collect_concrete_types(array_ty, &mut result);
-        assert_eq!(result.len(), 1);
-        assert_eq!(*result[0], Type::Float32);
-    }
-
-    #[test]
-    fn test_collect_concrete_types_named() {
-        let pass = MonomorphPass::new();
-        let mut result = Vec::new();
-
-        let named_ty = mk_type(Type::Name(Name::str("Vec"), vec![mk_type(Type::Int32)]));
-
-        pass.collect_concrete_types(named_ty, &mut result);
-        // Should collect both the named type and its parameter
-        assert!(result.len() >= 1);
-    }
 
     #[test]
     fn test_process_expr_block() {
@@ -941,18 +907,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_collect_concrete_types_function_type() {
-        let pass = MonomorphPass::new();
-        let mut result = Vec::new();
-
-        let func_ty = mk_type(Type::Func(mk_type(Type::Int32), mk_type(Type::Bool)));
-
-        pass.collect_concrete_types(func_ty, &mut result);
-        assert_eq!(result.len(), 2);
-        assert_eq!(*result[0], Type::Int32);
-        assert_eq!(*result[1], Type::Bool);
-    }
 
     #[test]
     fn test_instantiation_deduplication() {
@@ -1081,7 +1035,7 @@ mod tests {
         let call_expr = main_arena.add(Expr::Call(fn_expr, vec![arg_expr]), test_loc());
 
         let i32_type = mk_type(Type::Int32);
-        let func_type = mk_type(Type::Func(i32_type, i32_type));
+        let func_type = mk_type(Type::Func(tuple(vec![i32_type]), i32_type));
 
         let main_func = FuncDecl {
             name: Name::str("main"),
@@ -1129,7 +1083,7 @@ mod tests {
             panic!("Expected function declaration");
         }
 
-        assert_eq!(all_decls[0].pretty_print(), "id$i32$i32(x: i32) → i32 x");
-        assert_eq!(all_decls[1].pretty_print(), "main() → i32 id$i32$i32(42)");
+        assert_eq!(all_decls[0].pretty_print(), "id$i32(x: i32) → i32 x");
+        assert_eq!(all_decls[1].pretty_print(), "main() → i32 id$i32(42)");
     }
 }

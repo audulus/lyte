@@ -1,0 +1,25 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+add(a: f32, b: f32) -> f32 {
+    a + b
+}
+
+fact(x: i32) -> i32 {
+    if x == 1 { return 1 }
+    x * fact(x - 1)
+}
+
+main {
+    assert(add(2, 3) == 5)
+    assert(add(1.0, 2.0) == 3.0)
+    assert(fact(5) == 120)
+}

@@ -1,0 +1,21 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    var a = [1, 2, 3, 4, 5]
+    assert(a[0] == 1)
+    assert(a.len == 5)
+
+    var grid: [f32; 64]
+    for i in 0 .. 64 {
+        grid[i] = 0.0
+    }
+}

@@ -1386,10 +1386,12 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_addr = self.translate_lvalue(*lhs_id, func);
                 let lhs_ty = self.expr_type(*lhs_id);
 
-                if let Type::Name(struct_name, _) = &*lhs_ty {
+                if let Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = self.decls.find(*struct_name);
                     if let Decl::Struct(s) = &struct_decl[0] {
-                        let inst = crate::Instance::new();
+                        let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                            .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
+                            .collect();
                         let offset = s.field_offset(name, self.decls, &inst);
                         let dst = self.alloc_reg();
                         func.emit(Opcode::IAddImm {
@@ -1950,18 +1952,21 @@ impl<'a> FunctionTranslator<'a> {
 
         let lhs = self.translate_expr(lhs_id, func);
 
-        if let Type::Name(struct_name, _) = &*lhs_ty {
+        if let Type::Name(struct_name, type_args) = &*lhs_ty {
             let struct_decl = self.decls.find(*struct_name);
             if let Decl::Struct(s) = &struct_decl[0] {
-                let inst = crate::Instance::new();
+                let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                    .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
+                    .collect();
                 let offset = s.field_offset(&name, self.decls, &inst);
 
-                // Find field type.
+                // Find field type and substitute type variables.
                 let field = s.find_field(&name);
                 if let Some(field) = field {
+                    let field_ty = field.ty.subst(&inst);
                     // Arrays and other pointer types are stored inline,
                     // so return the address of the field instead of loading.
-                    if self.is_ptr_type(&field.ty) {
+                    if self.is_ptr_type(&field_ty) {
                         let dst = self.alloc_reg();
                         func.emit(Opcode::IAddImm {
                             dst,
@@ -1971,7 +1976,7 @@ impl<'a> FunctionTranslator<'a> {
                         return dst;
                     } else {
                         let dst = self.alloc_reg();
-                        self.emit_load_offset(&field.ty, dst, lhs, offset, func);
+                        self.emit_load_offset(&field_ty, dst, lhs, offset, func);
                         return dst;
                     }
                 }

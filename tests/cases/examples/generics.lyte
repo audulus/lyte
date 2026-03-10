@@ -1,0 +1,30 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+id<T>(x: T) -> T { x }
+
+map<T0, T1, N>(a: [T0; N], f: T0 -> T1) -> [T1; N] {
+    var i = 0
+    var b: [T1; N]
+    while i < a.len {
+        b[i] = f(a[i])
+        i = i + 1
+    }
+    b
+}
+
+main {
+    assert(id(42) == 42)
+    assert(id("hello") == "hello")
+    assert(map([1, 2, 3], |x| x + 1) == [2, 3, 4])
+}
