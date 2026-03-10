@@ -19,8 +19,12 @@ extract_exec() {
     grep -oE '[0-9]+\.[0-9]+s' | head -1 | sed 's/s$//'
 }
 
+echo "Building C benchmark..."
+cc -O2 -o benchmark/biquad_c benchmark/biquad.c -lm
+
 echo "Running benchmarks..."
 
+C_TIME=$(benchmark/biquad_c 2>&1 | extract_exec)
 LYTE_JIT=$($LYTE benchmark/biquad.lyte -c --timing 2>&1 | grep "jit exec:" | extract_exec)
 LYTE_VM=$($LYTE benchmark/biquad.lyte -r --timing 2>&1 | grep "vm exec:" | extract_exec)
 
@@ -57,3 +61,4 @@ row "LuaJIT (interp)"   "$LUAJIT_INT" "$LUA"
 row "Lyte VM"           "$LYTE_VM"    "$LUA"
 row "LuaJIT (JIT)"      "$LUAJIT_JIT" "$LUA"
 row "Lyte JIT"          "$LYTE_JIT"   "$LUA"
+row "C (-O2)"           "$C_TIME"     "$LUA"
