@@ -171,6 +171,27 @@ main {
 }
 ```
 
+### Slices
+
+Slices are dynamically-sized views into arrays, passed by reference:
+
+```rust
+sum(a: [i32]) -> i32 {
+    var s = 0
+    for i in 0 .. a.len {
+        s = s + a[i]
+    }
+    s
+}
+
+main {
+    assert(sum([1, 2, 3]) == 6)
+
+    var data = [10, 20, 30, 40, 50]
+    assert(sum(data) == 150)
+}
+```
+
 ### Lambdas and Closures
 
 ```rust
