@@ -1137,8 +1137,6 @@ impl VM {
 
         // === Initialize VM state ===
         self.current_func = program.entry;
-        self.ip = linked.func_offsets[program.entry as usize];
-        self.locals_base = 0;
         self.registers = [0; 256];
         self.globals = vec![0u8; program.globals_size];
         self.cancelled = false;
@@ -1149,12 +1147,17 @@ impl VM {
         // === Dispatch loop: match on raw u8 tag → LLVM compiles to jump table ===
         // PackedOp is 4 bytes (matching LuaJIT), quartering cache footprint vs Opcode enum.
         // Raw pointer access to registers avoids &mut self borrow conflicts.
+        //
+        // Hot state kept in locals so LLVM can register-allocate them (like LuaJIT's
+        // PC=x21, BASE=x19). Going through `self.field` forces a pointer load each time.
         let ops = linked.ops.as_ptr();
         let regs = self.registers.as_mut_ptr();
+        let mut ip: usize = linked.func_offsets[program.entry as usize];
+        let mut locals_base: usize = 0;
 
         loop {
-            let op = unsafe { *ops.add(self.ip) };
-            self.ip += 1;
+            let op = unsafe { *ops.add(ip) };
+            ip += 1;
 
             macro_rules! r {
                 ($idx:expr) => { *regs.add($idx as usize) }
@@ -1281,8 +1284,8 @@ impl VM {
                 tags::MEM_EQ => {
                     let pa = r!(op.b()) as *const u8;
                     let pb = r!(op.c()) as *const u8;
-                    let size = (*ops.add(self.ip)).0 as usize;
-                    self.ip += 1;
+                    let size = (*ops.add(ip)).0 as usize;
+                    ip += 1;
                     let eq = std::slice::from_raw_parts(pa, size)
                             == std::slice::from_raw_parts(pb, size);
                     r_set!(op.a(), eq as u64);
@@ -1291,8 +1294,8 @@ impl VM {
                 tags::MEM_NE => {
                     let pa = r!(op.b()) as *const u8;
                     let pb = r!(op.c()) as *const u8;
-                    let size = (*ops.add(self.ip)).0 as usize;
-                    self.ip += 1;
+                    let size = (*ops.add(ip)).0 as usize;
+                    ip += 1;
                     let ne = std::slice::from_raw_parts(pa, size)
                             != std::slice::from_raw_parts(pb, size);
                     r_set!(op.a(), ne as u64);
@@ -1328,8 +1331,8 @@ impl VM {
                     set_i64!(op.a(), *(ptr as *const i32) as i64);
                 }
                 tags::LOAD32_OFF_WIDE => {
-                    let off = (*ops.add(self.ip)).0 as i64;
-                    self.ip += 1;
+                    let off = (*ops.add(ip)).0 as i64;
+                    ip += 1;
                     let ptr = (r!(op.b()) as i64 + off) as u64;
                     self.check_ptr(ptr, 4);
                     set_i64!(op.a(), *(ptr as *const i32) as i64);
@@ -1340,8 +1343,8 @@ impl VM {
                     set_i64!(op.a(), *(ptr as *const i64));
                 }
                 tags::LOAD64_OFF_WIDE => {
-                    let off = (*ops.add(self.ip)).0 as i64;
-                    self.ip += 1;
+                    let off = (*ops.add(ip)).0 as i64;
+                    ip += 1;
                     let ptr = (r!(op.b()) as i64 + off) as u64;
                     self.check_ptr(ptr, 8);
                     set_i64!(op.a(), *(ptr as *const i64));
@@ -1367,8 +1370,8 @@ impl VM {
                     *(ptr as *mut u8) = r!(op.b()) as u8;
                 }
                 tags::STORE8_OFF_WIDE => {
-                    let off = (*ops.add(self.ip)).0 as i64;
-                    self.ip += 1;
+                    let off = (*ops.add(ip)).0 as i64;
+                    ip += 1;
                     let ptr = (r!(op.a()) as i64 + off) as u64;
                     self.check_ptr(ptr, 1);
                     *(ptr as *mut u8) = r!(op.b()) as u8;
@@ -1379,8 +1382,8 @@ impl VM {
                     *(ptr as *mut i32) = get_i64!(op.b()) as i32;
                 }
                 tags::STORE32_OFF_WIDE => {
-                    let off = (*ops.add(self.ip)).0 as i64;
-                    self.ip += 1;
+                    let off = (*ops.add(ip)).0 as i64;
+                    ip += 1;
                     let ptr = (r!(op.a()) as i64 + off) as u64;
                     self.check_ptr(ptr, 4);
                     *(ptr as *mut i32) = get_i64!(op.b()) as i32;
@@ -1391,24 +1394,24 @@ impl VM {
                     *(ptr as *mut i64) = get_i64!(op.b());
                 }
                 tags::STORE64_OFF_WIDE => {
-                    let off = (*ops.add(self.ip)).0 as i64;
-                    self.ip += 1;
+                    let off = (*ops.add(ip)).0 as i64;
+                    ip += 1;
                     let ptr = (r!(op.a()) as i64 + off) as u64;
                     self.check_ptr(ptr, 8);
                     *(ptr as *mut i64) = get_i64!(op.b());
                 }
 
                 tags::LOCAL_ADDR => {
-                    let offset = self.locals_base + (op.d_u16() as usize) * 8;
+                    let offset = locals_base + (op.d_u16() as usize) * 8;
                     r_set!(op.a(), self.locals.as_ptr().add(offset) as u64);
                 }
                 tags::LOAD_SLOT32 => {
-                    let offset = self.locals_base + (op.d_u16() as usize) * 8;
+                    let offset = locals_base + (op.d_u16() as usize) * 8;
                     let ptr = self.locals.as_ptr().add(offset);
                     set_i64!(op.a(), *(ptr as *const i32) as i64);
                 }
                 tags::STORE_SLOT32 => {
-                    let offset = self.locals_base + (op.d_u16() as usize) * 8;
+                    let offset = locals_base + (op.d_u16() as usize) * 8;
                     let ptr = self.locals.as_mut_ptr().add(offset);
                     *(ptr as *mut i32) = get_i64!(op.a()) as i32;
                 }
@@ -1420,7 +1423,7 @@ impl VM {
                 // Control flow — AD format (i16 offset)
                 tags::JUMP => {
                     let off = op.d();
-                    self.ip = (self.ip as i32 + off as i32) as usize;
+                    ip = (ip as i32 + off as i32) as usize;
                     if off < 0 && self.cancel_flag() {
                         self.cancelled = true;
                         return 0;
@@ -1430,7 +1433,7 @@ impl VM {
                 tags::JUMP_IF_ZERO => {
                     if r!(op.a()) == 0 {
                         let off = op.d();
-                        self.ip = (self.ip as i32 + off as i32) as usize;
+                        ip = (ip as i32 + off as i32) as usize;
                         if off < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
@@ -1441,7 +1444,7 @@ impl VM {
                 tags::JUMP_IF_NOT_ZERO => {
                     if r!(op.a()) != 0 {
                         let off = op.d();
-                        self.ip = (self.ip as i32 + off as i32) as usize;
+                        ip = (ip as i32 + off as i32) as usize;
                         if off < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
@@ -1453,7 +1456,7 @@ impl VM {
                 tags::ILT_JUMP => {
                     if get_i64!(op.a()) >= get_i64!(op.b()) {
                         let off = op.c_i8();
-                        self.ip = (self.ip as i32 + off as i32) as usize;
+                        ip = (ip as i32 + off as i32) as usize;
                         if off < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
@@ -1464,7 +1467,7 @@ impl VM {
                 tags::FLT_JUMP => {
                     if r_f32!(op.a()) >= r_f32!(op.b()) {
                         let off = op.c_i8();
-                        self.ip = (self.ip as i32 + off as i32) as usize;
+                        ip = (ip as i32 + off as i32) as usize;
                         if off < 0 && self.cancel_flag() {
                             self.cancelled = true;
                             return 0;
@@ -1480,8 +1483,8 @@ impl VM {
 
                     let frame = CallFrame {
                         func_idx: self.current_func,
-                        ip: self.ip,
-                        locals_base: self.locals_base,
+                        ip: ip,
+                        locals_base: locals_base,
                         return_reg: 0,
                     };
                     self.call_stack.push(frame);
@@ -1492,14 +1495,14 @@ impl VM {
                         }
                     }
 
-                    self.locals_base += linked.func_locals[self.current_func as usize] as usize;
+                    locals_base += linked.func_locals[self.current_func as usize] as usize;
                     self.current_func = func;
-                    self.ip = linked.func_offsets[func as usize];
+                    ip = linked.func_offsets[func as usize];
 
                     #[cfg(debug_assertions)]
                     { self.debug_func_name = program.functions[func as usize].name.clone(); }
 
-                    let needed = self.locals_base + linked.func_locals[func as usize] as usize;
+                    let needed = locals_base + linked.func_locals[func as usize] as usize;
                     if needed > self.locals.len() {
                         self.locals.resize(needed * 2, 0);
                     }
@@ -1513,8 +1516,8 @@ impl VM {
 
                     let frame = CallFrame {
                         func_idx: self.current_func,
-                        ip: self.ip,
-                        locals_base: self.locals_base,
+                        ip: ip,
+                        locals_base: locals_base,
                         return_reg: 0,
                     };
                     self.call_stack.push(frame);
@@ -1525,9 +1528,9 @@ impl VM {
                         }
                     }
 
-                    self.locals_base += linked.func_locals[self.current_func as usize] as usize;
+                    locals_base += linked.func_locals[self.current_func as usize] as usize;
                     self.current_func = func_idx;
-                    self.ip = linked.func_offsets[func_idx as usize];
+                    ip = linked.func_offsets[func_idx as usize];
 
                     #[cfg(debug_assertions)]
                     { self.debug_func_name = program.functions[func_idx as usize].name.clone(); }
@@ -1539,8 +1542,8 @@ impl VM {
                     }
                     let frame = self.call_stack.pop().unwrap();
                     self.current_func = frame.func_idx;
-                    self.ip = frame.ip;
-                    self.locals_base = frame.locals_base;
+                    ip = frame.ip;
+                    locals_base = frame.locals_base;
 
                     #[cfg(debug_assertions)]
                     { self.debug_func_name = program.functions[frame.func_idx as usize].name.clone(); }
@@ -1553,8 +1556,8 @@ impl VM {
                     }
                     let frame = self.call_stack.pop().unwrap();
                     self.current_func = frame.func_idx;
-                    self.ip = frame.ip;
-                    self.locals_base = frame.locals_base;
+                    ip = frame.ip;
+                    locals_base = frame.locals_base;
 
                     #[cfg(debug_assertions)]
                     { self.debug_func_name = program.functions[frame.func_idx as usize].name.clone(); }
@@ -1562,12 +1565,12 @@ impl VM {
 
                 tags::ALLOC_LOCALS => {
                     let size = op.d_u16() as usize;
-                    let needed = self.locals_base + size;
+                    let needed = locals_base + size;
                     if needed > self.locals.len() {
                         self.locals.resize(needed * 2, 0);
                     }
                     for i in 0..size {
-                        self.locals[self.locals_base + i] = 0;
+                        self.locals[locals_base + i] = 0;
                     }
                 }
 
@@ -1583,8 +1586,8 @@ impl VM {
                 tags::MEM_COPY_WIDE => {
                     let dst_ptr = r!(op.a());
                     let src_ptr = r!(op.b());
-                    let size = (*ops.add(self.ip)).0 as usize;
-                    self.ip += 1;
+                    let size = (*ops.add(ip)).0 as usize;
+                    ip += 1;
                     self.check_ptr(dst_ptr, size);
                     self.check_ptr(src_ptr, size);
                     std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size);
@@ -1598,7 +1601,7 @@ impl VM {
                 }
 
                 tags::SAVE_REGS => {
-                    let base = self.locals_base + (op.c() as usize) * 8;
+                    let base = locals_base + (op.c() as usize) * 8;
                     for i in 0..op.b() as usize {
                         let reg_val = self.registers[op.a() as usize + i];
                         let offset = base + i * 8;
@@ -1607,8 +1610,8 @@ impl VM {
                 }
 
                 tags::SAVE_REGS_WIDE => {
-                    let base = self.locals_base + (*ops.add(self.ip)).0 as usize;
-                    self.ip += 1;
+                    let base = locals_base + (*ops.add(ip)).0 as usize;
+                    ip += 1;
                     for i in 0..op.b() as usize {
                         let reg_val = self.registers[op.a() as usize + i];
                         let offset = base + i * 8;
@@ -1617,7 +1620,7 @@ impl VM {
                 }
 
                 tags::RESTORE_REGS => {
-                    let base = self.locals_base + (op.c() as usize) * 8;
+                    let base = locals_base + (op.c() as usize) * 8;
                     for i in 0..op.b() as usize {
                         let offset = base + i * 8;
                         let bytes: [u8; 8] = self.locals[offset..offset + 8].try_into().unwrap();
@@ -1626,8 +1629,8 @@ impl VM {
                 }
 
                 tags::RESTORE_REGS_WIDE => {
-                    let base = self.locals_base + (*ops.add(self.ip)).0 as usize;
-                    self.ip += 1;
+                    let base = locals_base + (*ops.add(ip)).0 as usize;
+                    ip += 1;
                     for i in 0..op.b() as usize {
                         let offset = base + i * 8;
                         let bytes: [u8; 8] = self.locals[offset..offset + 8].try_into().unwrap();
@@ -1644,7 +1647,7 @@ impl VM {
                     if !val {
                         panic!("Assertion failed at {}:{}",
                             program.functions[self.current_func as usize].name,
-                            self.ip - 1);
+                            ip - 1);
                     }
                 }
                 tags::PUTC => {
@@ -1681,7 +1684,12 @@ impl VM {
                 tags::POW_F64 => { set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c()))); }
                 tags::ATAN2_F64 => { set_f64!(op.a(), r_f64!(op.b()).atan2(r_f64!(op.c()))); }
 
-                _ => { panic!("VM: unknown opcode tag {}", op.tag()); }
+                _ => {
+                    #[cfg(debug_assertions)]
+                    panic!("VM: unknown opcode tag {}", op.tag());
+                    #[cfg(not(debug_assertions))]
+                    core::hint::unreachable_unchecked();
+                }
             } }
         }
     }
