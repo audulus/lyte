@@ -37,7 +37,7 @@ cargo test --workspace
 
 ### Hello World
 
-```
+```rust
 main {
     println("hello world")
 }
@@ -45,7 +45,7 @@ main {
 
 ### Variables and Control Flow
 
-```
+```rust
 main {
     var x = 42
     let y = x + 1    // immutable binding
@@ -67,7 +67,7 @@ main {
 
 Functions support type annotations, overloading, and implicit returns (the last expression is the return value).
 
-```
+```rust
 add(a: i32, b: i32) -> i32 {
     a + b
 }
@@ -90,7 +90,7 @@ main {
 
 ### Structs
 
-```
+```rust
 struct Point {
     x: f32,
     y: f32
@@ -112,7 +112,7 @@ main {
 
 Define `__add`, `__sub`, `__mul`, etc. for custom types:
 
-```
+```rust
 __add(lhs: Point, rhs: Point) -> Point {
     var p: Point
     p.x = lhs.x + rhs.x
@@ -130,7 +130,7 @@ __mul(lhs: Point, rhs: f32) -> Point {
 
 ### Enums
 
-```
+```rust
 enum Direction { Up, Down, Left, Right }
 
 is_vertical(d: Direction) -> bool {
@@ -148,7 +148,7 @@ main {
 
 Fixed-size arrays with static bounds checking:
 
-```
+```rust
 main {
     var a = [1, 2, 3, 4, 5]
     assert(a[0] == 1)
@@ -163,7 +163,7 @@ main {
 
 ### Tuples
 
-```
+```rust
 main {
     var pair = (1, 2)
     assert(pair.0 == 1)
@@ -173,7 +173,7 @@ main {
 
 ### Lambdas and Closures
 
-```
+```rust
 apply(x: i32, f: i32 -> i32) -> i32 {
     f(x)
 }
@@ -197,7 +197,7 @@ main {
 
 Generic functions infer type parameters from arguments:
 
-```
+```rust
 id<T>(x: T) -> T { x }
 
 map<T0, T1, N>(a: [T0; N], f: T0 -> T1) -> [T1; N] {
@@ -219,7 +219,7 @@ main {
 
 ### Generic Structs
 
-```
+```rust
 struct Pair<A, B> {
     first: A,
     second: B
@@ -236,7 +236,7 @@ main {
 
 Interfaces constrain generics and enable static dispatch:
 
-```
+```rust
 interface Compare<A> {
     cmp(lhs: A, rhs: A) -> i32
 }
@@ -269,7 +269,7 @@ main {
 
 ### A Real-World Example: Biquad Filter
 
-```
+```rust
 struct Biquad {
     b0: f32, b1: f32, b2: f32,
     a1: f32, a2: f32,
