@@ -37,11 +37,12 @@ main {
     var phase = 0.0
     var freq = 440.0 / 44100.0
     var last_y = 0.0
+    var two_pi = 2.0 * 3.14159265
 
     // Process a 440 Hz sine wave through the filter
     var i = 0
     while i < n {
-        var x = sinf(phase * 2.0 * 3.14159265)
+        var x = sinf(phase * two_pi)
         phase = phase + freq
         if phase > 1.0 { phase = phase - 1.0 }
 
