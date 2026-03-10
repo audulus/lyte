@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::fs;
 use std::panic;
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -24,6 +25,9 @@ struct Args {
 
     #[clap(short, long)]
     test: bool,
+
+    #[clap(long)]
+    timing: bool,
 }
 
 fn run(args: Args) -> i32 {
@@ -67,6 +71,7 @@ fn run(args: Args) -> i32 {
             return 1;
         }
 
+        let compile_start = Instant::now();
         if let Err(e) = compiler.specialize() {
             eprintln!("{}", e);
             return 1;
@@ -86,24 +91,51 @@ fn run(args: Args) -> i32 {
             }
         }
 
+        let compile_elapsed = compile_start.elapsed();
+
         if args.c || args.test {
             if args.test {
                 println!("executing compiled code");
             }
+            if args.timing {
+                eprintln!("compile: {:.0}µs", compile_elapsed.as_micros());
+            }
+            let start = Instant::now();
             compiler.run();
+            let elapsed = start.elapsed();
+            if args.timing {
+                eprintln!("jit exec: {:.3}s", elapsed.as_secs_f64());
+            }
         }
 
         if args.r || args.test {
             if args.test {
                 println!("executing VM code");
             }
-            match compiler.run_vm() {
-                Ok(_) => println!("vm execution successful"),
+            let vm_compile_start = Instant::now();
+            let program = match compiler.compile_vm() {
+                Ok(p) => p,
                 Err(e) => {
-                    eprintln!("VM error: {}", e);
+                    eprintln!("VM compilation error: {}", e);
                     return 1;
                 }
+            };
+            let vm_compile_elapsed = vm_compile_start.elapsed();
+            if args.timing {
+                eprintln!("compile: {:.0}µs (front {:.0}µs + vm codegen {:.0}µs)",
+                    compile_elapsed.as_micros() as f64 + vm_compile_elapsed.as_micros() as f64,
+                    compile_elapsed.as_micros(),
+                    vm_compile_elapsed.as_micros());
             }
+
+            let start = Instant::now();
+            let mut vm = lyte::vm::VM::new();
+            let _result = vm.run(&program);
+            let elapsed = start.elapsed();
+            if args.timing {
+                eprintln!("vm exec: {:.3}s", elapsed.as_secs_f64());
+            }
+            println!("vm execution successful");
         }
     }
 

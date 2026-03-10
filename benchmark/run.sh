@@ -15,11 +15,11 @@ cargo build -p lyte-cli --release --quiet 2>/dev/null
 LYTE=./target/release/lyte
 
 echo "--- Lyte (JIT) ---"
-time $LYTE benchmark/biquad.lyte -c
+$LYTE benchmark/biquad.lyte -c --timing 2>&1 | grep -E "compile:|exec:"
 echo ""
 
 echo "--- Lyte (VM) ---"
-time $LYTE benchmark/biquad.lyte -r
+$LYTE benchmark/biquad.lyte -r --timing 2>&1 | grep -E "compile:|exec:"
 echo ""
 
 echo "--- Lua $(lua -v 2>&1 | head -1) ---"
