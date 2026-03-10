@@ -99,47 +99,48 @@ mod tags {
     pub const JUMP_IF_ZERO: u8 = 73;
     pub const JUMP_IF_NOT_ZERO: u8 = 74;
     pub const ILT_JUMP: u8 = 75;
-    pub const CALL: u8 = 76;
-    pub const CALL_INDIRECT: u8 = 77;
-    pub const RETURN: u8 = 78;
-    pub const RETURN_REG: u8 = 79;
-    pub const ALLOC_LOCALS: u8 = 80;
-    pub const MEM_COPY: u8 = 81;
-    pub const MEM_ZERO: u8 = 82;
-    pub const SAVE_REGS: u8 = 83;
-    pub const RESTORE_REGS: u8 = 84;
-    pub const PRINT_I32: u8 = 85;
-    pub const PRINT_F32: u8 = 86;
-    pub const ASSERT: u8 = 87;
-    pub const PUTC: u8 = 88;
-    pub const SIN_F32: u8 = 89;
-    pub const COS_F32: u8 = 90;
-    pub const TAN_F32: u8 = 91;
-    pub const LN_F32: u8 = 92;
-    pub const EXP_F32: u8 = 93;
-    pub const SQRT_F32: u8 = 94;
-    pub const ABS_F32: u8 = 95;
-    pub const FLOOR_F32: u8 = 96;
-    pub const CEIL_F32: u8 = 97;
-    pub const SIN_F64: u8 = 98;
-    pub const COS_F64: u8 = 99;
-    pub const TAN_F64: u8 = 100;
-    pub const LN_F64: u8 = 101;
-    pub const EXP_F64: u8 = 102;
-    pub const SQRT_F64: u8 = 103;
-    pub const ABS_F64: u8 = 104;
-    pub const FLOOR_F64: u8 = 105;
-    pub const CEIL_F64: u8 = 106;
-    pub const POW_F32: u8 = 107;
-    pub const ATAN2_F32: u8 = 108;
-    pub const POW_F64: u8 = 109;
-    pub const ATAN2_F64: u8 = 110;
+    pub const FLT_JUMP: u8 = 76;
+    pub const CALL: u8 = 77;
+    pub const CALL_INDIRECT: u8 = 78;
+    pub const RETURN: u8 = 79;
+    pub const RETURN_REG: u8 = 80;
+    pub const ALLOC_LOCALS: u8 = 81;
+    pub const MEM_COPY: u8 = 82;
+    pub const MEM_ZERO: u8 = 83;
+    pub const SAVE_REGS: u8 = 84;
+    pub const RESTORE_REGS: u8 = 85;
+    pub const PRINT_I32: u8 = 86;
+    pub const PRINT_F32: u8 = 87;
+    pub const ASSERT: u8 = 88;
+    pub const PUTC: u8 = 89;
+    pub const SIN_F32: u8 = 90;
+    pub const COS_F32: u8 = 91;
+    pub const TAN_F32: u8 = 92;
+    pub const LN_F32: u8 = 93;
+    pub const EXP_F32: u8 = 94;
+    pub const SQRT_F32: u8 = 95;
+    pub const ABS_F32: u8 = 96;
+    pub const FLOOR_F32: u8 = 97;
+    pub const CEIL_F32: u8 = 98;
+    pub const SIN_F64: u8 = 99;
+    pub const COS_F64: u8 = 100;
+    pub const TAN_F64: u8 = 101;
+    pub const LN_F64: u8 = 102;
+    pub const EXP_F64: u8 = 103;
+    pub const SQRT_F64: u8 = 104;
+    pub const ABS_F64: u8 = 105;
+    pub const FLOOR_F64: u8 = 106;
+    pub const CEIL_F64: u8 = 107;
+    pub const POW_F32: u8 = 108;
+    pub const ATAN2_F32: u8 = 109;
+    pub const POW_F64: u8 = 110;
+    pub const ATAN2_F64: u8 = 111;
     // Superinstructions: fused LocalAddr+Load/Store
-    pub const LOAD_SLOT32: u8 = 111;
-    pub const STORE_SLOT32: u8 = 112;
+    pub const LOAD_SLOT32: u8 = 112;
+    pub const STORE_SLOT32: u8 = 113;
     // For i64/f64 immediates that don't fit in 32 bits
-    pub const LOAD_IMM_WIDE: u8 = 113;
-    pub const LOAD_F64_WIDE: u8 = 114;
+    pub const LOAD_IMM_WIDE: u8 = 114;
+    pub const LOAD_F64_WIDE: u8 = 115;
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -271,6 +272,7 @@ impl LinkedProgram {
             Opcode::JumpIfZero { cond, offset } => PackedOp { tag: tags::JUMP_IF_ZERO, r1: cond, r2: 0, r3: 0, imm: offset },
             Opcode::JumpIfNotZero { cond, offset } => PackedOp { tag: tags::JUMP_IF_NOT_ZERO, r1: cond, r2: 0, r3: 0, imm: offset },
             Opcode::ILtJump { a, b, offset } => PackedOp { tag: tags::ILT_JUMP, r1: a, r2: b, r3: 0, imm: offset },
+            Opcode::FLtJump { a, b, offset } => PackedOp { tag: tags::FLT_JUMP, r1: a, r2: b, r3: 0, imm: offset },
             Opcode::LoadSlot32 { dst, slot } => PackedOp { tag: tags::LOAD_SLOT32, r1: dst, r2: 0, r3: 0, imm: slot as i32 },
             Opcode::StoreSlot32 { slot, src } => PackedOp { tag: tags::STORE_SLOT32, r1: src, r2: 0, r3: 0, imm: slot as i32 },
             Opcode::Call { func, args_start, arg_count } => PackedOp { tag: tags::CALL, r1: args_start, r2: arg_count, r3: 0, imm: func as i32 },
@@ -580,6 +582,9 @@ pub enum Opcode {
     /// Jump if a < b (signed): if !(a < b) jump
     ILtJump { a: Reg, b: Reg, offset: Offset },
 
+    /// Jump if a < b (f32): if !(a < b) jump
+    FLtJump { a: Reg, b: Reg, offset: Offset },
+
     // ============ Superinstructions: Fused Local Slot Access ============
 
     /// Fused LocalAddr + Load32: load 32-bit value from local slot into register
@@ -723,7 +728,8 @@ impl VMFunction {
             Opcode::Jump { offset: off } |
             Opcode::JumpIfZero { offset: off, .. } |
             Opcode::JumpIfNotZero { offset: off, .. } |
-            Opcode::ILtJump { offset: off, .. } => {
+            Opcode::ILtJump { offset: off, .. } |
+            Opcode::FLtJump { offset: off, .. } => {
                 *off = offset;
             }
             _ => panic!("patch_jump called on non-jump instruction at index {}: {:?}", idx, &self.code[idx]),
@@ -1231,6 +1237,16 @@ impl VM {
                     }
                 }
 
+                tags::FLT_JUMP => {
+                    if r_f32!(op.r1) >= r_f32!(op.r2) {
+                        self.ip = (self.ip as i32 + op.imm) as usize;
+                        if op.imm < 0 && self.cancel_flag() {
+                            self.cancelled = true;
+                            return 0;
+                        }
+                    }
+                }
+
                 tags::CALL => {
                     let func = op.imm as u32;
                     let args_start = op.r1 as usize;
@@ -1462,7 +1478,8 @@ impl fmt::Display for VMFunction {
                 Opcode::Jump { offset } |
                 Opcode::JumpIfZero { offset, .. } |
                 Opcode::JumpIfNotZero { offset, .. } |
-                Opcode::ILtJump { offset, .. } => Some(*offset),
+                Opcode::ILtJump { offset, .. } |
+                Opcode::FLtJump { offset, .. } => Some(*offset),
                 _ => None,
             };
             if let Some(off) = offset {

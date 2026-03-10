@@ -22,6 +22,8 @@ pub fn optimize(code: &mut Vec<Opcode>) -> Option<(u8, [u8; 256])> {
     fuse_local_access(code);
     // Fuse IAddImm+Load/Store into offset-addressing superinstructions
     fuse_offset_access(code);
+    // Fuse compare+branch into single instructions
+    fuse_compare_branch(code);
     // Register allocation: compact register numbering via linear scan
     let (count, mapping) = register_allocation(code);
     Some((count, mapping))
@@ -89,7 +91,8 @@ fn strip_nops(code: &mut Vec<Opcode>) {
             }
             Opcode::JumpIfZero { offset, .. }
             | Opcode::JumpIfNotZero { offset, .. }
-            | Opcode::ILtJump { offset, .. } => {
+            | Opcode::ILtJump { offset, .. }
+            | Opcode::FLtJump { offset, .. } => {
                 let old_target = (i as i32 + 1 + *offset) as usize;
                 let new_src = new_index[i] as i32;
                 let new_tgt = new_index[old_target] as i32;
@@ -214,6 +217,7 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::JumpIfZero { .. }
         | Opcode::JumpIfNotZero { .. }
         | Opcode::ILtJump { .. }
+        | Opcode::FLtJump { .. }
         | Opcode::Call { .. }
         | Opcode::CallIndirect { .. }
         | Opcode::Return
@@ -379,7 +383,7 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
 
         Opcode::Jump { .. } => false,
         Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => *cond == reg,
-        Opcode::ILtJump { a, b, .. } => *a == reg || *b == reg,
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => *a == reg || *b == reg,
 
         // Calls can read any register in the args range, be conservative
         Opcode::Call { args_start, arg_count, .. } => {
@@ -466,7 +470,7 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
             Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
             | Opcode::Store64Off { base, src, .. } => { counts[*base as usize] += 1; counts[*src as usize] += 1; }
             Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => counts[*cond as usize] += 1,
-            Opcode::ILtJump { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
+            Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { counts[*a as usize] += 1; counts[*b as usize] += 1; }
             Opcode::Call { args_start, arg_count, .. } => {
                 for r in *args_start..(*args_start + *arg_count) { counts[r as usize] += 1; }
             }
@@ -541,7 +545,8 @@ fn redundant_local_addr(code: &mut [Opcode]) {
     for (i, op) in code.iter().enumerate() {
         let offset = match op {
             Opcode::Jump { offset } | Opcode::JumpIfZero { offset, .. }
-            | Opcode::JumpIfNotZero { offset, .. } | Opcode::ILtJump { offset, .. } => Some(*offset),
+            | Opcode::JumpIfNotZero { offset, .. } | Opcode::ILtJump { offset, .. }
+            | Opcode::FLtJump { offset, .. } => Some(*offset),
             _ => None,
         };
         if let Some(off) = offset {
@@ -579,7 +584,8 @@ fn redundant_local_addr(code: &mut [Opcode]) {
             }
             // Jumps: clear tracking (we're leaving this basic block)
             Opcode::Jump { .. } | Opcode::JumpIfZero { .. }
-            | Opcode::JumpIfNotZero { .. } | Opcode::ILtJump { .. } => {
+            | Opcode::JumpIfNotZero { .. } | Opcode::ILtJump { .. }
+            | Opcode::FLtJump { .. } => {
                 slot_reg.clear();
             }
             // If something else writes to a register that's tracked, invalidate
@@ -609,6 +615,7 @@ fn replace_reg_uses_until_clobber(
         match &code[i] {
             Opcode::Jump { .. } | Opcode::JumpIfZero { .. }
             | Opcode::JumpIfNotZero { .. } | Opcode::ILtJump { .. }
+            | Opcode::FLtJump { .. }
             | Opcode::Call { .. } | Opcode::CallIndirect { .. }
             | Opcode::SaveRegs { .. } | Opcode::RestoreRegs { .. } => break,
             _ => {}
@@ -658,7 +665,7 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
         Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
         | Opcode::Store64Off { base, src, .. } => { if *base == old { *base = new; } if *src == old { *src = new; } }
         Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => { if *cond == old { *cond = new; } }
-        Opcode::ILtJump { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { if *a == old { *a = new; } if *b == old { *b = new; } }
         Opcode::ReturnReg { src } => { if *src == old { *src = new; } }
         Opcode::MemCopy { dst, src, .. } => { if *dst == old { *dst = new; } if *src == old { *src = new; } }
         Opcode::MemZero { dst, .. } => { if *dst == old { *dst = new; } }
@@ -759,6 +766,42 @@ fn fuse_offset_access(code: &mut Vec<Opcode>) {
     }
 }
 
+/// Fuse compare + branch into single superinstructions.
+///
+/// Patterns:
+///   ILt { dst, a, b } + JumpIfZero { cond: dst, offset } → ILtJump { a, b, offset }
+///   FLt { dst, a, b } + JumpIfZero { cond: dst, offset } → FLtJump { a, b, offset }
+fn fuse_compare_branch(code: &mut Vec<Opcode>) {
+    let uses = compute_use_counts_fast(code);
+
+    for i in 0..code.len().saturating_sub(1) {
+        match code[i] {
+            Opcode::ILt { dst, a, b } => {
+                if uses[dst as usize] == 1 {
+                    if let Opcode::JumpIfZero { cond, offset } = code[i + 1] {
+                        if cond == dst {
+                            // offset was relative to JumpIfZero (i+1), now relative to ILt (i)
+                            code[i] = Opcode::ILtJump { a, b, offset: offset + 1 };
+                            code[i + 1] = Opcode::Nop;
+                        }
+                    }
+                }
+            }
+            Opcode::FLt { dst, a, b } => {
+                if uses[dst as usize] == 1 {
+                    if let Opcode::JumpIfZero { cond, offset } = code[i + 1] {
+                        if cond == dst {
+                            code[i] = Opcode::FLtJump { a, b, offset: offset + 1 };
+                            code[i + 1] = Opcode::Nop;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Compute live ranges for all virtual registers.
 /// Returns (def_point, last_use, is_used) arrays indexed by register number.
 fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256]) {
@@ -789,7 +832,8 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
     for (i, op) in code.iter().enumerate() {
         let offset = match op {
             Opcode::Jump { offset } | Opcode::JumpIfZero { offset, .. }
-            | Opcode::JumpIfNotZero { offset, .. } | Opcode::ILtJump { offset, .. } => Some(*offset),
+            | Opcode::JumpIfNotZero { offset, .. } | Opcode::ILtJump { offset, .. }
+            | Opcode::FLtJump { offset, .. } => Some(*offset),
             _ => None,
         };
         if let Some(off) = offset {
@@ -1158,7 +1202,7 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
         Opcode::Store8Off { base, src, .. } | Opcode::Store32Off { base, src, .. }
         | Opcode::Store64Off { base, src, .. } => { f(*base); f(*src); }
         Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => f(*cond),
-        Opcode::ILtJump { a, b, .. } => { f(*a); f(*b); }
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { f(*a); f(*b); }
         Opcode::Call { args_start, arg_count, .. } => {
             for r in *args_start..(*args_start + *arg_count) { f(r); }
         }
@@ -1225,7 +1269,7 @@ fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
         | Opcode::Store64Off { base, src, .. } => { *base = map[*base as usize]; *src = map[*src as usize]; }
         Opcode::LocalAddr { dst, .. } | Opcode::GlobalAddr { dst, .. } => { *dst = map[*dst as usize]; }
         Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => { *cond = map[*cond as usize]; }
-        Opcode::ILtJump { a, b, .. } => { *a = map[*a as usize]; *b = map[*b as usize]; }
+        Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => { *a = map[*a as usize]; *b = map[*b as usize]; }
         Opcode::Call { args_start, .. } => {
             *args_start = map[*args_start as usize];
         }
