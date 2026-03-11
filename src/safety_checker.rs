@@ -258,8 +258,16 @@ impl SafetyChecker {
                 self.vars.push(Var { name: *name, ty });
 
                 // Track the interval from the initializer.
-                let mut min = if init_r.min != i64::MIN { Some(init_r.min) } else { None };
-                let max = if init_r.max != i64::MAX { Some(init_r.max) } else { None };
+                let mut min = if init_r.min != i64::MIN {
+                    Some(init_r.min)
+                } else {
+                    None
+                };
+                let max = if init_r.max != i64::MAX {
+                    Some(init_r.max)
+                } else {
+                    None
+                };
                 if ty == mk_type(Type::UInt32) {
                     min = Some(min.unwrap_or(0).max(0));
                 }
@@ -278,8 +286,16 @@ impl SafetyChecker {
                 };
                 let ty = decl.types[expr];
 
-                let mut min = if init_r.min != i64::MIN { Some(init_r.min) } else { None };
-                let max = if init_r.max != i64::MAX { Some(init_r.max) } else { None };
+                let mut min = if init_r.min != i64::MIN {
+                    Some(init_r.min)
+                } else {
+                    None
+                };
+                let max = if init_r.max != i64::MAX {
+                    Some(init_r.max)
+                } else {
+                    None
+                };
                 if ty == mk_type(Type::UInt32) {
                     min = Some(min.unwrap_or(0).max(0));
                 }
@@ -438,14 +454,30 @@ impl SafetyChecker {
                     // Compute division interval if the divisor doesn't span zero.
                     if rhs_range.excludes_zero() {
                         let quotients = [
-                            lhs_range.min.checked_div(rhs_range.min).unwrap_or(lhs_range.min),
-                            lhs_range.min.checked_div(rhs_range.max).unwrap_or(lhs_range.min),
-                            lhs_range.max.checked_div(rhs_range.min).unwrap_or(lhs_range.max),
-                            lhs_range.max.checked_div(rhs_range.max).unwrap_or(lhs_range.max),
+                            lhs_range
+                                .min
+                                .checked_div(rhs_range.min)
+                                .unwrap_or(lhs_range.min),
+                            lhs_range
+                                .min
+                                .checked_div(rhs_range.max)
+                                .unwrap_or(lhs_range.min),
+                            lhs_range
+                                .max
+                                .checked_div(rhs_range.min)
+                                .unwrap_or(lhs_range.max),
+                            lhs_range
+                                .max
+                                .checked_div(rhs_range.max)
+                                .unwrap_or(lhs_range.max),
                         ];
                         let min = *quotients.iter().min().unwrap();
                         let max = *quotients.iter().max().unwrap();
-                        return IndexInterval { min, max, non_zero: min > 0 || max < 0 };
+                        return IndexInterval {
+                            min,
+                            max,
+                            non_zero: min > 0 || max < 0,
+                        };
                     }
                     return lhs_range; // divisor spans zero — can't narrow
                 }

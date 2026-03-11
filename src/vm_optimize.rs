@@ -2846,7 +2846,7 @@ mod tests {
         // offset = target - (pos+1) = 1 - 4 = -3
         let mut code = vec![
             Opcode::LoadImm { dst: 0, value: 0 },
-            Opcode::LoadImm { dst: 1, value: 1 },   // loop start
+            Opcode::LoadImm { dst: 1, value: 1 }, // loop start
             Opcode::Nop,
             Opcode::IAdd { dst: 0, a: 0, b: 1 },
             Opcode::Nop,
@@ -2883,9 +2883,9 @@ mod tests {
     #[test]
     fn test_live_ranges_basic() {
         let code = vec![
-            Opcode::LoadImm { dst: 0, value: 1 },  // def r0 at 0
-            Opcode::LoadImm { dst: 1, value: 2 },  // def r1 at 1
-            Opcode::IAdd { dst: 2, a: 0, b: 1 },   // use r0,r1 at 2; def r2 at 2
+            Opcode::LoadImm { dst: 0, value: 1 }, // def r0 at 0
+            Opcode::LoadImm { dst: 1, value: 2 }, // def r1 at 1
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },  // use r0,r1 at 2; def r2 at 2
         ];
         let (def_point, last_use, is_used) = compute_live_ranges(&code);
         assert!(is_used[0] && is_used[1] && is_used[2]);
@@ -2900,22 +2900,26 @@ mod tests {
     fn test_live_ranges_loop_extension() {
         // Backward jump extends live ranges of registers used in the loop
         let code = vec![
-            Opcode::LoadImm { dst: 0, value: 0 },    // 0: def r0
-            Opcode::LoadImm { dst: 1, value: 10 },   // 1: def r1
-            Opcode::IAdd { dst: 0, a: 0, b: 1 },     // 2: use r0,r1 (loop body)
-            Opcode::Jump { offset: -2 },              // 3: jump to index 2 (offset = 2 - 3 - 1 = -2)
+            Opcode::LoadImm { dst: 0, value: 0 },  // 0: def r0
+            Opcode::LoadImm { dst: 1, value: 10 }, // 1: def r1
+            Opcode::IAdd { dst: 0, a: 0, b: 1 },   // 2: use r0,r1 (loop body)
+            Opcode::Jump { offset: -2 },           // 3: jump to index 2 (offset = 2 - 3 - 1 = -2)
         ];
         let (def_point, last_use, _is_used) = compute_live_ranges(&code);
         // r1 is defined before loop (at 1), used in loop body (at 2).
         // Backward jump from 3 to 2 should extend r1's last_use to 3 (loop end).
         assert_eq!(def_point[1], 1);
-        assert!(last_use[1] >= 3, "r1 last_use should be extended to loop end, got {}", last_use[1]);
+        assert!(
+            last_use[1] >= 3,
+            "r1 last_use should be extended to loop end, got {}",
+            last_use[1]
+        );
     }
 
     #[test]
     fn test_live_ranges_unused_register() {
         let code = vec![
-            Opcode::LoadImm { dst: 5, value: 42 },  // r5 defined but never used
+            Opcode::LoadImm { dst: 5, value: 42 }, // r5 defined but never used
         ];
         let (_def_point, _last_use, is_used) = compute_live_ranges(&code);
         // r5 is "used" because it has a def point (get_dst returns it)
@@ -2978,7 +2982,7 @@ mod tests {
         let mut code = vec![
             Opcode::LoadImm { dst: 1, value: 1 },
             Opcode::LoadImm { dst: 2, value: 2 },
-            Opcode::Move { dst: 3, src: 1 },   // r1 still live (used below)
+            Opcode::Move { dst: 3, src: 1 }, // r1 still live (used below)
             Opcode::IAdd { dst: 0, a: 1, b: 2 },
         ];
         copy_coalesce(&mut code);
@@ -2994,7 +2998,11 @@ mod tests {
         let mut code = vec![
             Opcode::LoadImm { dst: 5, value: 1 },
             Opcode::LoadImm { dst: 10, value: 2 },
-            Opcode::IAdd { dst: 0, a: 5, b: 10 },
+            Opcode::IAdd {
+                dst: 0,
+                a: 5,
+                b: 10,
+            },
         ];
         let (count, mapping) = register_allocation(&mut code);
         // r0 pinned to preg 0
@@ -3019,9 +3027,9 @@ mod tests {
         // r1 used then dead, r2 used then dead → should reuse same preg
         let mut code = vec![
             Opcode::LoadImm { dst: 1, value: 1 },
-            Opcode::Move { dst: 0, src: 1 },       // r1 dies here
+            Opcode::Move { dst: 0, src: 1 }, // r1 dies here
             Opcode::LoadImm { dst: 2, value: 2 },
-            Opcode::IAdd { dst: 0, a: 0, b: 2 },   // r2 dies here
+            Opcode::IAdd { dst: 0, a: 0, b: 2 }, // r2 dies here
         ];
         let (count, _mapping) = register_allocation(&mut code);
         // r0 always needed; r1 and r2 don't overlap, so can share → 2 pregs total
@@ -3133,8 +3141,8 @@ mod tests {
         let targets = HashSet::new();
         let mut code = vec![
             Opcode::IAdd { dst: 2, a: 0, b: 1 },   // uses r1
-            Opcode::LoadImm { dst: 0, value: 99 },  // clobbers r0 (the new_reg)
-            Opcode::ISub { dst: 3, a: 0, b: 1 },    // should NOT be rewritten
+            Opcode::LoadImm { dst: 0, value: 99 }, // clobbers r0 (the new_reg)
+            Opcode::ISub { dst: 3, a: 0, b: 1 },   // should NOT be rewritten
         ];
         // Replace r1 with r0, starting from index 0
         replace_reg_uses_until_clobber(&mut code, 0, 1, 0, &targets);
@@ -3149,8 +3157,8 @@ mod tests {
         let mut targets = HashSet::new();
         targets.insert(1usize); // index 1 is a jump target
         let mut code = vec![
-            Opcode::IAdd { dst: 2, a: 0, b: 1 },   // uses r1
-            Opcode::ISub { dst: 3, a: 0, b: 1 },    // at jump target → stop before this
+            Opcode::IAdd { dst: 2, a: 0, b: 1 }, // uses r1
+            Opcode::ISub { dst: 3, a: 0, b: 1 }, // at jump target → stop before this
         ];
         replace_reg_uses_until_clobber(&mut code, 0, 1, 0, &targets);
         // Replacement should stop at index 1 (jump target), but index 0 is before it

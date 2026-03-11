@@ -107,10 +107,9 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
                     let field_type = find_field_type(var_type, *field_name, decls);
                     fdecl.types.push(field_type); // type for the Field expr
 
-                    let let_expr =
-                        fdecl
-                            .arena
-                            .add(Expr::Let(hoisted_name, field_expr, None), loc);
+                    let let_expr = fdecl
+                        .arena
+                        .add(Expr::Let(hoisted_name, field_expr, None), loc);
                     fdecl.types.push(field_type); // type for the Let expr (must match init)
 
                     new_stmts.push(let_expr);
@@ -134,11 +133,7 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
 }
 
 /// Collect all (variable_name, field_name) pairs that are written to in the expression tree.
-fn collect_written_fields(
-    expr_id: ExprID,
-    fdecl: &FuncDecl,
-    written: &mut HashSet<(Name, Name)>,
-) {
+fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashSet<(Name, Name)>) {
     match &fdecl.arena.exprs[expr_id] {
         Expr::Binop(Binop::Assign, lhs, rhs) => {
             // Check if LHS is a field access: var.field = ...
@@ -170,7 +165,9 @@ fn collect_written_fields(
             collect_written_fields(*cond, fdecl, written);
             collect_written_fields(*body, fdecl, written);
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             collect_written_fields(*start, fdecl, written);
             collect_written_fields(*end, fdecl, written);
             collect_written_fields(*body, fdecl, written);
@@ -285,7 +282,9 @@ fn collect_invariant_field_reads(
             collect_invariant_field_reads(*cond, fdecl, decls, written, reads);
             collect_invariant_field_reads(*body, fdecl, decls, written, reads);
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             collect_invariant_field_reads(*start, fdecl, decls, written, reads);
             collect_invariant_field_reads(*end, fdecl, decls, written, reads);
             collect_invariant_field_reads(*body, fdecl, decls, written, reads);
@@ -318,11 +317,7 @@ fn collect_invariant_field_reads(
 }
 
 /// Replace field accesses in the expression tree with references to hoisted variables.
-fn replace_field_reads(
-    expr_id: ExprID,
-    fdecl: &mut FuncDecl,
-    subst: &HashMap<(Name, Name), Name>,
-) {
+fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(Name, Name), Name>) {
     match fdecl.arena.exprs[expr_id].clone() {
         Expr::Field(base, field_name) => {
             if let Expr::Id(var_name) = &fdecl.arena.exprs[base] {
@@ -368,7 +363,9 @@ fn replace_field_reads(
             replace_field_reads(cond, fdecl, subst);
             replace_field_reads(body, fdecl, subst);
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             replace_field_reads(start, fdecl, subst);
             replace_field_reads(end, fdecl, subst);
             replace_field_reads(body, fdecl, subst);
@@ -406,8 +403,8 @@ fn find_var_type(var_name: Name, fdecl: &FuncDecl) -> TypeID {
     for param in &fdecl.params {
         if param.name == var_name {
             if let Some(ty) = param.ty {
-                    return ty;
-                }
+                return ty;
+            }
         }
     }
 

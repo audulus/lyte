@@ -519,7 +519,8 @@ impl LinkedProgram {
             Opcode::AllocLocals { size } => {
                 assert!(
                     size <= u16::MAX as u32,
-                    "AllocLocals size {} out of u16 range", size
+                    "AllocLocals size {} out of u16 range",
+                    size
                 );
                 PackedOp::ad(tags::ALLOC_LOCALS, 0, size as u16 as i16)
             }
@@ -535,7 +536,8 @@ impl LinkedProgram {
             Opcode::MemZero { dst, size } => {
                 assert!(
                     size <= u16::MAX as u32,
-                    "MemZero size {} out of u16 range", size
+                    "MemZero size {} out of u16 range",
+                    size
                 );
                 PackedOp::ad(tags::MEM_ZERO, dst, size as u16 as i16)
             }

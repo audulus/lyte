@@ -391,7 +391,6 @@ impl crate::Type {
             crate::Type::Var(_) => panic!("type variable should not be seen by codegen!"),
         }
     }
-
 }
 
 /// Returns true if this type is returned via an output pointer parameter.
@@ -509,7 +508,10 @@ impl<'a> FunctionTranslator<'a> {
 
         self.builder.switch_to_block(cancel_block);
         self.builder.seal_block(cancel_block);
-        let fn_ptr = self.builder.ins().iconst(I64, lyte_abort as *const () as usize as i64);
+        let fn_ptr = self
+            .builder
+            .ins()
+            .iconst(I64, lyte_abort as *const () as usize as i64);
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(I64)); // globals_base
         let sref = self.builder.import_signature(sig);
@@ -1703,7 +1705,10 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn debug_print_i64(&mut self, value: Value) {
-        let f_ptr = self.builder.ins().iconst(I64, lyte_print_i64 as *const () as i64);
+        let f_ptr = self
+            .builder
+            .ins()
+            .iconst(I64, lyte_print_i64 as *const () as i64);
 
         let mut sig = Signature::new(CallConv::Fast);
         sig.params = vec![AbiParam::new(I64)];
@@ -1714,15 +1719,24 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_func(&mut self, name: &Name, ty: &crate::Type) -> Value {
         if *name == Name::str("assert") {
-            return self.builder.ins().iconst(I64, lyte_assert as *const () as i64);
+            return self
+                .builder
+                .ins()
+                .iconst(I64, lyte_assert as *const () as i64);
         }
 
         if *name == Name::str("print") {
-            return self.builder.ins().iconst(I64, lyte_print_i32 as *const () as i64);
+            return self
+                .builder
+                .ins()
+                .iconst(I64, lyte_print_i32 as *const () as i64);
         }
 
         if *name == Name::str("putc") {
-            return self.builder.ins().iconst(I64, lyte_putc as *const () as i64);
+            return self
+                .builder
+                .ins()
+                .iconst(I64, lyte_putc as *const () as i64);
         }
 
         if let Some(ptr) = math_builtin_ptr(name) {

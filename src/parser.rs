@@ -1032,7 +1032,11 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
         }
         Token::Interface => parse_interface(cx),
         Token::Defer | Token::Arena => {
-            let name = if cx.lex.tok == Token::Defer { "defer" } else { "arena" };
+            let name = if cx.lex.tok == Token::Defer {
+                "defer"
+            } else {
+                "arena"
+            };
             cx.err(format!("{} is reserved for future use", name));
             skip_reserved(cx);
             return None;

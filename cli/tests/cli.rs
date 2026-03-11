@@ -93,7 +93,11 @@ fn run_llvm_golden_tests() {
         passed += 1;
     }
 
-    println!("\nLLVM golden tests: {} passed, {} failed", passed, failures.len());
+    println!(
+        "\nLLVM golden tests: {} passed, {} failed",
+        passed,
+        failures.len()
+    );
     if !failures.is_empty() {
         for f in &failures {
             println!("{}", f);

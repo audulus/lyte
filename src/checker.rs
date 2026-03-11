@@ -1009,7 +1009,10 @@ fn escape_walk(
             escape_walk(*body, arena, scope, tainted, errors);
         }
         Expr::For {
-            var, start, end, body,
+            var,
+            start,
+            end,
+            body,
         } => {
             escape_walk(*start, arena, scope, tainted, errors);
             escape_walk(*end, arena, scope, tainted, errors);
