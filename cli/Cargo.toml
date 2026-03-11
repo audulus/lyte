@@ -9,6 +9,9 @@ edition = "2021"
 name = "lyte"
 path = "src/main.rs"
 
+[features]
+llvm = ["lyte/llvm"]
+
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
 lyte = { path = "../" }

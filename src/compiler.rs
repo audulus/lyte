@@ -493,6 +493,24 @@ impl Compiler {
         result
     }
 
+    #[cfg(feature = "llvm")]
+    pub fn run_llvm(&mut self) {
+        let mut jit = LLVMJIT::new();
+        jit.print_ir = self.print_ir;
+        match jit.compile_and_run(&self.decls) {
+            Ok(cancelled) => {
+                println!("compilation successful");
+                if cancelled {
+                    println!("execution cancelled");
+                }
+            }
+            Err(e) => {
+                println!("{}", e);
+                panic!();
+            }
+        }
+    }
+
     pub fn jit(&self) -> Result<(*const u8, usize), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;

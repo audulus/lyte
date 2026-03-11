@@ -26,6 +26,10 @@ struct Args {
     #[clap(short, long)]
     test: bool,
 
+    #[cfg(feature = "llvm")]
+    #[clap(short)]
+    l: bool,
+
     #[clap(long)]
     timing: bool,
 }
@@ -65,7 +69,12 @@ fn run(args: Args) -> i32 {
     compiler.print_ir = args.ir;
 
     // Only specialize when compiling or running - specialize requires a main function
-    if args.c || args.r || args.test || args.bytecode {
+    #[cfg(feature = "llvm")]
+    let use_llvm = args.l;
+    #[cfg(not(feature = "llvm"))]
+    let use_llvm = false;
+
+    if args.c || args.r || args.test || args.bytecode || use_llvm {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -92,6 +101,11 @@ fn run(args: Args) -> i32 {
         }
 
         let compile_elapsed = compile_start.elapsed();
+
+        #[cfg(feature = "llvm")]
+        if args.l {
+            compiler.run_llvm();
+        }
 
         if args.c || args.test {
             if args.test {

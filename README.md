@@ -33,6 +33,25 @@ cargo run --bin lyte hello.lyte -r
 cargo test --workspace
 ```
 
+### LLVM JIT Backend (Optional)
+
+Lyte includes an optional LLVM JIT backend alongside the default Cranelift backend. To use it, you need LLVM 18 installed:
+
+```bash
+# macOS (Homebrew)
+brew install llvm@18
+
+# Build with LLVM support (requires the "llvm" feature)
+LLVM_SYS_180_PREFIX=/opt/homebrew/opt/llvm@18 LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" \
+  cargo build --features llvm
+
+# Run a file with the LLVM backend
+LLVM_SYS_180_PREFIX=/opt/homebrew/opt/llvm@18 LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" \
+  cargo run -p lyte-cli --features llvm -- hello.lyte -l
+```
+
+On Linux, install LLVM 18 via your package manager (e.g. `apt install llvm-18-dev libzstd-dev`) and set `LLVM_SYS_180_PREFIX` to the install prefix (e.g. `/usr/lib/llvm-18`).
+
 ## Language Tour
 
 ### Hello World
@@ -333,7 +352,7 @@ The compiler pipeline:
 2. **Parser** — builds an AST
 3. **Type Checker** — Hindley-Milner inference with constraint solving
 4. **Safety Checker** — static bounds checking and division-by-zero detection via abstract interpretation
-5. **Code Generation** — Cranelift JIT or VM bytecode
+5. **Code Generation** — Cranelift JIT, LLVM JIT, or VM bytecode
 
 See [`src/README.md`](src/README.md) for detailed design notes.
 

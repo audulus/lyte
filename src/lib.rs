@@ -36,6 +36,11 @@ pub use decl_table::*;
 mod jit;
 pub use jit::*;
 
+#[cfg(feature = "llvm")]
+mod llvm_jit;
+#[cfg(feature = "llvm")]
+pub use llvm_jit::*;
+
 pub mod mangle;
 
 mod hoist;
