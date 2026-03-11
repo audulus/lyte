@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests
@@ -30,7 +30,7 @@ jobs:
       LIBRARY_PATH: /usr/lib/llvm-18/lib
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install LLVM 18
       run: |
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
@@ -38,6 +38,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y llvm-18-dev libpolly-18-dev libzstd-dev
     - name: Build with LLVM
-      run: cargo build --workspace --features llvm --verbose
+      run: cargo build -p lyte -p lyte-cli --features llvm --verbose
     - name: Run tests with LLVM
-      run: cargo test --workspace --features llvm --verbose
+      run: cargo test -p lyte -p lyte-cli --features llvm --verbose
