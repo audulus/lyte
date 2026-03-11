@@ -1,0 +1,29 @@
+// expected stdout:
+// ❌ ../tests/cases/generics/interface_missing_impl.lyte:28:5: interface constraint "Compare" not satisfied
+//         bigger(a, b)
+//         ^
+
+interface Compare<A> {
+    cmp(lhs: A, rhs: A) -> i32
+}
+
+struct Foo {
+    val: i32
+}
+
+bigger<T>(a: T, b: T) -> T where Compare<T> {
+    if cmp(a, b) > 0 { return a }
+    return b
+}
+
+make_foo(v: i32) -> Foo {
+    var f: Foo
+    f.val = v
+    return f
+}
+
+main {
+    var a = make_foo(1)
+    var b = make_foo(2)
+    bigger(a, b)
+}

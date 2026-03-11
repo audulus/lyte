@@ -1,0 +1,39 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+// Interface with multiple methods
+interface Printable<A> {
+    to_int(a: A) -> i32
+    from_int(x: i32) -> A
+}
+
+// Implement for i32 (identity)
+to_int(a: i32) -> i32 { a }
+from_int(x: i32) -> i32 { x }
+
+round_trip<T>(val: T) -> T where Printable<T> {
+    from_int(to_int(val))
+}
+
+double_via_int<T>(val: T) -> T where Printable<T> {
+    from_int(to_int(val) * 2)
+}
+
+main {
+    assert(round_trip(42) == 42)
+    assert(double_via_int(5) == 10)
+    assert(to_int(7) == 7)
+    assert(from_int(99) == 99)
+}

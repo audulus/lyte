@@ -1,0 +1,27 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
+
+// Non-capturing lambda can be returned
+make_doubler() -> i32 -> i32 {
+    return (|x| x * 2)
+}
+
+make_adder_fixed() -> i32 -> i32 {
+    return (|x| x + 10)
+}
+
+main {
+    var d = make_doubler()
+    assert(d(5) == 10)
+
+    var a = make_adder_fixed()
+    assert(a(7) == 17)
+}

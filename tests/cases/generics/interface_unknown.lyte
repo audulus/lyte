@@ -1,0 +1,12 @@
+// expected stdout:
+// ❌ ../tests/cases/generics/interface_unknown.lyte:6:4: unknown interface: Nonexistent
+//     foo<T>(a: T) -> T where Nonexistent<T> {
+//        ^
+
+foo<T>(a: T) -> T where Nonexistent<T> {
+    a
+}
+
+main {
+    foo(1)
+}

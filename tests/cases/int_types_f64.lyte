@@ -1,0 +1,38 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+approx(a: f64, b: f64) -> bool {
+    var d = a - b
+    if d < 0.0 as f64 { d = 0.0 as f64 - d }
+    return d < 0.0001 as f64
+}
+
+main {
+    var x: f64
+    x = 3.0 as f64
+    var y: f64
+    y = 2.0 as f64
+
+    // f64 arithmetic with helper function
+    assert(approx(x + y, 5.0 as f64))
+    assert(approx(x - y, 1.0 as f64))
+    assert(approx(x * y, 6.0 as f64))
+
+    // f64 comparisons
+    assert(x > y)
+    assert(y < x)
+}

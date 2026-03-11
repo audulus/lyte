@@ -387,6 +387,13 @@ impl<'a> FunctionTranslator<'a> {
             self.alloc_reg();
         }
 
+        // Ensure r0 is reserved even for 0-parameter functions.
+        // r0 is the return value register and is clobbered by every Call instruction.
+        // Variables must never live in r0 across calls.
+        if self.next_reg == 0 {
+            self.alloc_reg();
+        }
+
         // Emit SaveRegs with placeholders. Both count and slot will be patched
         // after translation when we know how many registers are used.
         // The save area is placed after all local variable slots to avoid

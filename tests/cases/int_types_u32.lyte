@@ -1,0 +1,31 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // u32 arithmetic
+    var a: u32
+    a = 100 as u32
+    var b: u32
+    b = 40 as u32
+    assert((a + b) as i32 == 140)
+    assert((a - b) as i32 == 60)
+    assert((a * b) as i32 == 4000)
+
+    // u32 comparisons
+    assert(a > b)
+    assert(b < a)
+}

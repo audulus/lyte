@@ -818,6 +818,12 @@ fn move_forwarding(code: &mut [Opcode]) {
             src: move_src,
         } = code[i + 1]
         {
+            // Never forward into r0. It is the return value register and is
+            // clobbered by every Call instruction, so no variable should live
+            // there across calls.
+            if move_dst == 0 {
+                continue;
+            }
             // Check: instruction at i writes to move_src
             if let Some(prev_dst) = get_dst(&code[i]) {
                 if prev_dst == move_src {
@@ -1538,6 +1544,11 @@ fn copy_coalesce(code: &mut [Opcode]) {
                 }
                 // Skip registers involved in call arguments.
                 if call_arg_reg[d] || call_arg_reg[s] {
+                    continue;
+                }
+                // Never coalesce into r0. It is the return value register
+                // and is clobbered by every Call instruction.
+                if dst == 0 || src == 0 {
                     continue;
                 }
 
@@ -2695,17 +2706,15 @@ mod tests {
 
     #[test]
     fn test_move_forwarding_self_move() {
-        // Move { dst: 0, src: 0 } — trivial, shouldn't crash
+        // Move { dst: 0, src: 0 } — trivial self-move, but dst is r0 so
+        // move forwarding skips it (r0 is reserved for return values).
         let mut code = vec![
             Opcode::LoadImm { dst: 0, value: 1 },
             Opcode::Move { dst: 0, src: 0 },
         ];
         move_forwarding(&mut code);
-        // src==dst, but r0 use count is 1 (the Move reads it)
-        // get_dst of LoadImm returns 0, prev_dst==move_src==0, uses[0]==1 → forward
-        // set_dst of LoadImm to move_dst=0 (no-op), Nop the Move
         assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 1 });
-        assert_eq!(code[1], Opcode::Nop);
+        assert_eq!(code[1], Opcode::Move { dst: 0, src: 0 });
     }
 
     // ========== DCE edge cases ==========
@@ -3102,16 +3111,19 @@ mod tests {
 
     #[test]
     fn test_move_forwarding_then_dce() {
-        // After move forwarding, the move becomes Nop; r0 stays live as return reg
+        // Move into r0 is not forwarded (r0 is reserved for return values).
+        // The Move stays, and DCE preserves both since r0 is implicitly live.
         let mut code = vec![
             Opcode::LoadImm { dst: 2, value: 42 },
             Opcode::Move { dst: 0, src: 2 }, // r0 is return, r2 only used here
         ];
         move_forwarding(&mut code);
-        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 42 });
-        assert_eq!(code[1], Opcode::Nop);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 2, value: 42 });
+        assert_eq!(code[1], Opcode::Move { dst: 0, src: 2 });
         dead_code_elimination(&mut code);
-        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 42 });
+        // Both survive: r2 is used by Move, r0 is implicitly live (return value).
+        assert_eq!(code[0], Opcode::LoadImm { dst: 2, value: 42 });
+        assert_eq!(code[1], Opcode::Move { dst: 0, src: 2 });
     }
 
     // ========== replace_reg_uses_until_clobber tests ==========

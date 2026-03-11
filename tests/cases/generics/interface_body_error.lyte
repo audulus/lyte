@@ -1,0 +1,10 @@
+// expected stdout:
+// ❌ ../tests/cases/generics/interface_body_error.lyte:7:8: interface function can't have body: foo
+//         foo(a: A) -> A { a }
+//            ^
+
+interface Bad<A> {
+    foo(a: A) -> A { a }
+}
+
+main { }

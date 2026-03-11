@@ -1,0 +1,31 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
+
+add_one(x: i32) -> i32 { x + 1 }
+double(x: i32) -> i32 { x * 2 }
+
+struct Op { f: i32 -> i32 }
+
+apply_op(op: Op, x: i32) -> i32 { op.f(x) }
+
+make_op(f: i32 -> i32) -> Op {
+    var o: Op
+    o.f = f
+    return o
+}
+
+main {
+    var op1 = make_op(add_one)
+    var op2 = make_op(double)
+
+    assert(apply_op(op1, 10) == 11)
+    assert(apply_op(op2, 10) == 20)
+}

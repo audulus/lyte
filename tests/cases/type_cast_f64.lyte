@@ -1,0 +1,32 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // i32 to f64
+    assert(100 as f64 == 100.0 as f64)
+
+    // f64 to i32 (truncates)
+    assert((3.9 as f64) as i32 == 3)
+
+    // f32 to f64 promotion
+    var x: f32
+    x = 2.5
+    assert(x as f64 == 2.5 as f64)
+
+    // f64 to f32 demotion
+    var y: f64
+    y = 1.25 as f64
+    assert(y as f32 == 1.25)
+}

@@ -1,0 +1,17 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // i32 to i8 truncation (256 -> 0 in i8)
+    assert((256 as i8) as i32 == 0)
+
+    // i8 max value
+    assert((127 as i8) as i32 == 127)
+
+    // u32 round-trip
+    assert((1000 as u32) as i32 == 1000)
+}

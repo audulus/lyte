@@ -1,0 +1,45 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// vm execution successful
+
+struct Point {
+    x: i32,
+    y: i32
+}
+
+interface Compare<A> {
+    cmp(lhs: A, rhs: A) -> i32
+}
+
+cmp(lhs: Point, rhs: Point) -> i32 {
+    lhs.x - rhs.x
+}
+
+bigger<T>(a: T, b: T) -> T where Compare<T> {
+    if cmp(a, b) > 0 { return a }
+    return b
+}
+
+make_point(x: i32, y: i32) -> Point {
+    var p: Point
+    p.x = x
+    p.y = y
+    return p
+}
+
+main {
+    var p1 = make_point(1, 5)
+    var p2 = make_point(3, 2)
+
+    var r = bigger(p1, p2)
+    assert(r.x == 3)
+
+    assert(cmp(p2, p1) > 0)
+}
