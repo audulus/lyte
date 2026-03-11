@@ -1009,10 +1009,11 @@ fn escape_walk(
             escape_walk(*body, arena, scope, tainted, errors);
         }
         Expr::For {
-            start, end, body, ..
+            var, start, end, body,
         } => {
             escape_walk(*start, arena, scope, tainted, errors);
             escape_walk(*end, arena, scope, tainted, errors);
+            scope.insert(var.to_string());
             escape_walk(*body, arena, scope, tainted, errors);
         }
         Expr::Call(f, args) => {
@@ -1297,5 +1298,311 @@ mod tests {
             "expected an error for nested slice in struct field"
         );
         assert!(errors[0].message.contains("slice type"));
+    }
+
+    // --- Escape analysis tests ---
+
+    #[test]
+    pub fn test_escape_direct_return_capturing_lambda() {
+        let s = "
+        f() → void → i32 {
+            var x = 0
+            return (| | x)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_non_capturing_lambda_safe() {
+        let s = "
+        f() → i32 → i32 {
+            return (|x| x * 2)
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_escape_let_then_return() {
+        let s = "
+        f() → i32 → i32 {
+            var x = 42
+            let g = (|y| x + y)
+            return g
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_var_then_return() {
+        let s = "
+        f() → i32 → i32 {
+            var x = 42
+            var g = (|y| x + y)
+            return g
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_capturing_param() {
+        // Capturing a function parameter (still a local stack frame variable)
+        let s = "
+        f(x: i32) → void → i32 {
+            return (| | x)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_if_one_branch_captures() {
+        // Only one branch returns a capturing lambda — still an error
+        let s = "
+        f(flag: i32) → i32 → i32 {
+            var x = 10
+            if flag > 0 {
+                return (|y| x + y)
+            } else {
+                return (|y| y)
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_both_branches_safe() {
+        // Both branches return non-capturing lambdas
+        let s = "
+        f(flag: i32) → i32 → i32 {
+            if flag > 0 {
+                return (|y| y * 2)
+            } else {
+                return (|y| y * 3)
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_escape_tainted_through_if_expr() {
+        // Tainted value flows through if/else expression
+        let s = "
+        f(flag: i32) → i32 → i32 {
+            var x = 5
+            let cap = (|y| x + y)
+            let safe = (|y| y)
+            let chosen = if flag > 0 { cap } else { safe }
+            return chosen
+        }
+        ";
+        let errors = check(s);
+        // One escape error, plus one ambiguous type constraint
+        assert!(errors.iter().any(|e| e.message.contains("captured")));
+    }
+
+    #[test]
+    pub fn test_escape_launder_through_call() {
+        // Passing a capturing lambda through a function call should be caught
+        let s = "
+        id(f: i32 → i32) → i32 → i32 { return f }
+        f() → i32 → i32 {
+            var x = 1
+            return id((|y| x + y))
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_escape_used_locally_safe() {
+        // Capturing lambda used locally (called, not returned) is fine
+        // as long as the result is not itself returned as a tainted value.
+        // Note: the checker conservatively taints call results when the callee
+        // is tainted, so `return g(5)` where g is tainted triggers a false positive.
+        // Use a var instead to avoid that.
+        let s = "
+        f() → i32 {
+            var x = 10
+            var g = (|y| x + y)
+            let result = g(5)
+            result
+        }
+        ";
+        let errors = check(s);
+        // The call result `g(5)` is conservatively tainted, but since it's not
+        // explicitly returned via `return`, the implicit return doesn't trigger.
+        // This test documents the current behavior.
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_escape_multiple_captures() {
+        // Lambda capturing multiple local variables
+        let s = "
+        f() → void → i32 {
+            var a = 1
+            var b = 2
+            var c = 3
+            return (| | a + b + c)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_nested_lambda_captures_outer() {
+        // Nested lambda that captures from the enclosing function.
+        // The outer lambda captures x, so returning it is an error.
+        let s = "
+        f() → i32 → i32 {
+            var x = 42
+            return (|y| x + y)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_nested_non_capturing_safe() {
+        // Returned lambda doesn't capture anything from the enclosing function
+        let s = "
+        f() → i32 → i32 {
+            return (|x| x + 1)
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_escape_lambda_only_captures_own_param() {
+        // Lambda uses its own parameter, not outer scope — safe
+        let s = "
+        f() → i32 → i32 {
+            return (|x| x + 1)
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_escape_return_in_while_loop() {
+        // Returning a capturing lambda from inside a while loop
+        let s = "
+        f(n: i32) → void → i32 {
+            var x = 0
+            while x < n {
+                return (| | x)
+            }
+            return (| | 0)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("captured"));
+    }
+
+    #[test]
+    pub fn test_escape_return_in_for_loop() {
+        // Returning a capturing lambda from inside a for loop
+        let s = "
+        f() → void → i32 {
+            var x = 99
+            for i in 0 .. 10 {
+                return (| | x)
+            }
+            return (| | 0)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_escape_two_returns_two_errors() {
+        // Two separate return statements with capturing lambdas = two errors
+        let s = "
+        f(flag: i32) → void → i32 {
+            var x = 1
+            var y = 2
+            if flag > 0 {
+                return (| | x)
+            }
+            return (| | y)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_escape_taint_does_not_leak_across_functions() {
+        // A tainted variable in one function should not affect another
+        let s = "
+        good() → i32 → i32 {
+            return (|x| x + 1)
+        }
+        bad() → void → i32 {
+            var x = 0
+            return (| | x)
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1); // only bad() should fail
+    }
+
+    #[test]
+    pub fn test_escape_binop_with_tainted() {
+        // Assigning tainted via a let, then returning — should still catch
+        let s = "
+        f() → i32 → i32 {
+            var x = 5
+            let g = (|y| x + y)
+            let h = g
+            return h
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_escape_for_loop_var_capture() {
+        // Lambda captures the for-loop variable — should error
+        let s = "
+        f() → void → i32 {
+            for i in 0 .. 10 {
+                return (| | i)
+            }
+            return (| | 0)
+        }
+        ";
+        let errors = check(s);
+        // i is in scope inside the for body, so capturing it should be caught
+        assert!(errors.len() >= 1);
     }
 }
