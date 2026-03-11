@@ -11,9 +11,7 @@ use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
-use inkwell::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue,
-};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
@@ -225,60 +223,60 @@ fn is_builtin_name(name: &Name) -> bool {
 /// Return the function pointer for a math builtin, if any.
 fn math_builtin_ptr(name: &Name) -> Option<usize> {
     let pairs: &[(&str, usize)] = &[
-        ("sin$f32", llvm_lyte_sinf as usize),
-        ("cos$f32", llvm_lyte_cosf as usize),
-        ("tan$f32", llvm_lyte_tanf as usize),
-        ("asin$f32", llvm_lyte_asinf as usize),
-        ("acos$f32", llvm_lyte_acosf as usize),
-        ("atan$f32", llvm_lyte_atanf as usize),
-        ("sinh$f32", llvm_lyte_sinhf as usize),
-        ("cosh$f32", llvm_lyte_coshf as usize),
-        ("tanh$f32", llvm_lyte_tanhf as usize),
-        ("asinh$f32", llvm_lyte_asinhf as usize),
-        ("acosh$f32", llvm_lyte_acoshf as usize),
-        ("atanh$f32", llvm_lyte_atanhf as usize),
-        ("ln$f32", llvm_lyte_lnf as usize),
-        ("exp$f32", llvm_lyte_expf as usize),
-        ("exp2$f32", llvm_lyte_exp2f as usize),
-        ("log10$f32", llvm_lyte_log10f as usize),
-        ("log2$f32", llvm_lyte_log2f as usize),
-        ("sqrt$f32", llvm_lyte_sqrtf as usize),
-        ("abs$f32", llvm_lyte_absf as usize),
-        ("floor$f32", llvm_lyte_floorf as usize),
-        ("ceil$f32", llvm_lyte_ceilf as usize),
-        ("sin$f64", llvm_lyte_sind as usize),
-        ("cos$f64", llvm_lyte_cosd as usize),
-        ("tan$f64", llvm_lyte_tand as usize),
-        ("asin$f64", llvm_lyte_asind as usize),
-        ("acos$f64", llvm_lyte_acosd as usize),
-        ("atan$f64", llvm_lyte_atand as usize),
-        ("sinh$f64", llvm_lyte_sinhd as usize),
-        ("cosh$f64", llvm_lyte_coshd as usize),
-        ("tanh$f64", llvm_lyte_tanhd as usize),
-        ("asinh$f64", llvm_lyte_asinhd as usize),
-        ("acosh$f64", llvm_lyte_acoshd as usize),
-        ("atanh$f64", llvm_lyte_atanhd as usize),
-        ("ln$f64", llvm_lyte_lnd as usize),
-        ("exp$f64", llvm_lyte_expd as usize),
-        ("exp2$f64", llvm_lyte_exp2d as usize),
-        ("log10$f64", llvm_lyte_log10d as usize),
-        ("log2$f64", llvm_lyte_log2d as usize),
-        ("sqrt$f64", llvm_lyte_sqrtd as usize),
-        ("abs$f64", llvm_lyte_absd as usize),
-        ("floor$f64", llvm_lyte_floord as usize),
-        ("ceil$f64", llvm_lyte_ceild as usize),
-        ("isinf$f32", llvm_lyte_isinff as usize),
-        ("isinf$f64", llvm_lyte_isinfd as usize),
-        ("isnan$f32", llvm_lyte_isnanf as usize),
-        ("isnan$f64", llvm_lyte_isnand as usize),
-        ("pow$f32$f32", llvm_lyte_powf as usize),
-        ("atan2$f32$f32", llvm_lyte_atan2f as usize),
-        ("min$f32$f32", llvm_lyte_minf as usize),
-        ("max$f32$f32", llvm_lyte_maxf as usize),
-        ("pow$f64$f64", llvm_lyte_powd as usize),
-        ("atan2$f64$f64", llvm_lyte_atan2d as usize),
-        ("min$f64$f64", llvm_lyte_mind as usize),
-        ("max$f64$f64", llvm_lyte_maxd as usize),
+        ("sin$f32", llvm_lyte_sinf as *const () as usize),
+        ("cos$f32", llvm_lyte_cosf as *const () as usize),
+        ("tan$f32", llvm_lyte_tanf as *const () as usize),
+        ("asin$f32", llvm_lyte_asinf as *const () as usize),
+        ("acos$f32", llvm_lyte_acosf as *const () as usize),
+        ("atan$f32", llvm_lyte_atanf as *const () as usize),
+        ("sinh$f32", llvm_lyte_sinhf as *const () as usize),
+        ("cosh$f32", llvm_lyte_coshf as *const () as usize),
+        ("tanh$f32", llvm_lyte_tanhf as *const () as usize),
+        ("asinh$f32", llvm_lyte_asinhf as *const () as usize),
+        ("acosh$f32", llvm_lyte_acoshf as *const () as usize),
+        ("atanh$f32", llvm_lyte_atanhf as *const () as usize),
+        ("ln$f32", llvm_lyte_lnf as *const () as usize),
+        ("exp$f32", llvm_lyte_expf as *const () as usize),
+        ("exp2$f32", llvm_lyte_exp2f as *const () as usize),
+        ("log10$f32", llvm_lyte_log10f as *const () as usize),
+        ("log2$f32", llvm_lyte_log2f as *const () as usize),
+        ("sqrt$f32", llvm_lyte_sqrtf as *const () as usize),
+        ("abs$f32", llvm_lyte_absf as *const () as usize),
+        ("floor$f32", llvm_lyte_floorf as *const () as usize),
+        ("ceil$f32", llvm_lyte_ceilf as *const () as usize),
+        ("sin$f64", llvm_lyte_sind as *const () as usize),
+        ("cos$f64", llvm_lyte_cosd as *const () as usize),
+        ("tan$f64", llvm_lyte_tand as *const () as usize),
+        ("asin$f64", llvm_lyte_asind as *const () as usize),
+        ("acos$f64", llvm_lyte_acosd as *const () as usize),
+        ("atan$f64", llvm_lyte_atand as *const () as usize),
+        ("sinh$f64", llvm_lyte_sinhd as *const () as usize),
+        ("cosh$f64", llvm_lyte_coshd as *const () as usize),
+        ("tanh$f64", llvm_lyte_tanhd as *const () as usize),
+        ("asinh$f64", llvm_lyte_asinhd as *const () as usize),
+        ("acosh$f64", llvm_lyte_acoshd as *const () as usize),
+        ("atanh$f64", llvm_lyte_atanhd as *const () as usize),
+        ("ln$f64", llvm_lyte_lnd as *const () as usize),
+        ("exp$f64", llvm_lyte_expd as *const () as usize),
+        ("exp2$f64", llvm_lyte_exp2d as *const () as usize),
+        ("log10$f64", llvm_lyte_log10d as *const () as usize),
+        ("log2$f64", llvm_lyte_log2d as *const () as usize),
+        ("sqrt$f64", llvm_lyte_sqrtd as *const () as usize),
+        ("abs$f64", llvm_lyte_absd as *const () as usize),
+        ("floor$f64", llvm_lyte_floord as *const () as usize),
+        ("ceil$f64", llvm_lyte_ceild as *const () as usize),
+        ("isinf$f32", llvm_lyte_isinff as *const () as usize),
+        ("isinf$f64", llvm_lyte_isinfd as *const () as usize),
+        ("isnan$f32", llvm_lyte_isnanf as *const () as usize),
+        ("isnan$f64", llvm_lyte_isnand as *const () as usize),
+        ("pow$f32$f32", llvm_lyte_powf as *const () as usize),
+        ("atan2$f32$f32", llvm_lyte_atan2f as *const () as usize),
+        ("min$f32$f32", llvm_lyte_minf as *const () as usize),
+        ("max$f32$f32", llvm_lyte_maxf as *const () as usize),
+        ("pow$f64$f64", llvm_lyte_powd as *const () as usize),
+        ("atan2$f64$f64", llvm_lyte_atan2d as *const () as usize),
+        ("min$f64$f64", llvm_lyte_mind as *const () as usize),
+        ("max$f64$f64", llvm_lyte_maxd as *const () as usize),
     ];
     for &(n, ptr) in pairs {
         if *name == Name::str(n) {
@@ -857,7 +855,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         let abort_fn = self.state.get_or_declare_extern(
             "__llvm_lyte_abort",
             abort_ty,
-            llvm_lyte_abort as usize,
+            llvm_lyte_abort as *const () as usize,
         );
         self.builder()
             .build_call(abort_fn, &[self.globals_base.into()], "")
@@ -893,7 +891,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     /// Get the address of a variable (for lvalue use or closure capture).
-    fn get_var_addr(&mut self, name: &str, ty: crate::TypeID) -> PointerValue<'ctx> {
+    fn get_var_addr(&mut self, name: &str, _ty: crate::TypeID) -> PointerValue<'ctx> {
         if let Some(&alloca) = self.variables.get(name) {
             if self.let_bindings.contains(name) {
                 // let binding: alloca holds the value — alloca itself is the address.
@@ -974,9 +972,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 ],
                 false,
             );
-            let memcmp_fn =
-                self.state
-                    .get_or_declare_extern("memcmp", memcmp_ty, libc::memcmp as usize);
+            let memcmp_fn = self.state.get_or_declare_extern(
+                "memcmp",
+                memcmp_ty,
+                libc::memcmp as *const () as usize,
+            );
             let size_val = self.i64_ty().const_int(size, false);
             let result = self
                 .builder()
@@ -1087,7 +1087,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         base: PointerValue<'ctx>,
         lhs_ty: crate::TypeID,
         field_name: &Name,
-        decl: &FuncDecl,
+        _decl: &FuncDecl,
     ) -> PointerValue<'ctx> {
         if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
             let struct_decl = self.decls.find(*struct_name);
@@ -2033,7 +2033,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         &mut self,
         fn_id: ExprID,
         arg_ids: &[ExprID],
-        call_expr_id: ExprID,
+        _call_expr_id: ExprID,
         decl: &FuncDecl,
     ) -> BasicValueEnum<'ctx> {
         let is_builtin = if let Expr::Id(name) = &decl.arena[fn_id] {
@@ -2300,7 +2300,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             let f = self.state.get_or_declare_extern(
                 "__llvm_lyte_assert",
                 fn_ty,
-                llvm_lyte_assert as usize,
+                llvm_lyte_assert as *const () as usize,
             );
             let ptr = f.as_global_value().as_pointer_value();
             return self.make_fat_ptr(ptr, None);
@@ -2313,7 +2313,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             let f = self.state.get_or_declare_extern(
                 "__llvm_lyte_print",
                 fn_ty,
-                llvm_lyte_print_i32 as usize,
+                llvm_lyte_print_i32 as *const () as usize,
             );
             let ptr = f.as_global_value().as_pointer_value();
             return self.make_fat_ptr(ptr, None);
@@ -2326,7 +2326,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             let f = self.state.get_or_declare_extern(
                 "__llvm_lyte_putc",
                 fn_ty,
-                llvm_lyte_putc as usize,
+                llvm_lyte_putc as *const () as usize,
             );
             let ptr = f.as_global_value().as_pointer_value();
             return self.make_fat_ptr(ptr, None);
