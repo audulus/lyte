@@ -91,6 +91,7 @@ impl Default for JIT {
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         builder.symbol("__lyte_abort", lyte_abort as *const u8);
+        register_math_symbols(&mut builder);
 
         let module = JITModule::new(builder);
         Self {
@@ -675,8 +676,32 @@ impl<'a> FunctionTranslator<'a> {
                         vec![]
                     };
 
-                    let call = if is_builtin {
-                        // Builtin: evaluate as raw fn_ptr, no globals/closure params.
+                    // Check if this is a math builtin that can use a direct call.
+                    let math_sym = if let Expr::Id(name) = &decl.arena[*fn_id] {
+                        math_builtin_symbol(name)
+                    } else {
+                        None
+                    };
+
+                    let call = if let Some(sym) = math_sym {
+                        // Math builtin: use a direct call via declared function.
+                        let sig = fn_sig(&self.module, from, to);
+                        let callee = self
+                            .module
+                            .declare_function(sym, Linkage::Import, &sig)
+                            .expect("problem declaring math builtin");
+                        let local_callee =
+                            self.module.declare_func_in_func(callee, self.builder.func);
+                        let mut args = vec![];
+                        if let Some(addr) = output_slot {
+                            args.push(addr);
+                        }
+                        for arg_id in arg_ids {
+                            args.push(self.translate_expr(*arg_id, decl, decls));
+                        }
+                        self.builder.ins().call(local_callee, &args)
+                    } else if is_builtin {
+                        // Other builtins (assert, print, putc): indirect call.
                         let f = self.translate_expr(*fn_id, decl, decls);
                         let mut args = vec![];
                         if let Some(addr) = output_slot {
@@ -2314,4 +2339,134 @@ fn math_builtin_ptr(name: &Name) -> Option<i64> {
         }
     }
     None
+}
+
+/// Return the JIT symbol name for a math builtin, if applicable.
+fn math_builtin_symbol(name: &Name) -> Option<&'static str> {
+    // Same list as math_builtin_ptr but returns the symbol name for direct calls.
+    let syms: &[(&str, &str)] = &[
+        ("sin$f32", "__lyte_sinf"),
+        ("cos$f32", "__lyte_cosf"),
+        ("tan$f32", "__lyte_tanf"),
+        ("asin$f32", "__lyte_asinf"),
+        ("acos$f32", "__lyte_acosf"),
+        ("atan$f32", "__lyte_atanf"),
+        ("sinh$f32", "__lyte_sinhf"),
+        ("cosh$f32", "__lyte_coshf"),
+        ("tanh$f32", "__lyte_tanhf"),
+        ("asinh$f32", "__lyte_asinhf"),
+        ("acosh$f32", "__lyte_acoshf"),
+        ("atanh$f32", "__lyte_atanhf"),
+        ("ln$f32", "__lyte_lnf"),
+        ("exp$f32", "__lyte_expf"),
+        ("exp2$f32", "__lyte_exp2f"),
+        ("log10$f32", "__lyte_log10f"),
+        ("log2$f32", "__lyte_log2f"),
+        ("sqrt$f32", "__lyte_sqrtf"),
+        ("abs$f32", "__lyte_absf"),
+        ("floor$f32", "__lyte_floorf"),
+        ("ceil$f32", "__lyte_ceilf"),
+        ("sin$f64", "__lyte_sind"),
+        ("cos$f64", "__lyte_cosd"),
+        ("tan$f64", "__lyte_tand"),
+        ("asin$f64", "__lyte_asind"),
+        ("acos$f64", "__lyte_acosd"),
+        ("atan$f64", "__lyte_atand"),
+        ("sinh$f64", "__lyte_sinhd"),
+        ("cosh$f64", "__lyte_coshd"),
+        ("tanh$f64", "__lyte_tanhd"),
+        ("asinh$f64", "__lyte_asinhd"),
+        ("acosh$f64", "__lyte_acoshd"),
+        ("atanh$f64", "__lyte_atanhd"),
+        ("ln$f64", "__lyte_lnd"),
+        ("exp$f64", "__lyte_expd"),
+        ("exp2$f64", "__lyte_exp2d"),
+        ("log10$f64", "__lyte_log10d"),
+        ("log2$f64", "__lyte_log2d"),
+        ("sqrt$f64", "__lyte_sqrtd"),
+        ("abs$f64", "__lyte_absd"),
+        ("floor$f64", "__lyte_floord"),
+        ("ceil$f64", "__lyte_ceild"),
+        ("isinf$f32", "__lyte_isinff"),
+        ("isinf$f64", "__lyte_isinfd"),
+        ("isnan$f32", "__lyte_isnanf"),
+        ("isnan$f64", "__lyte_isnand"),
+        ("pow$f32$f32", "__lyte_powf"),
+        ("atan2$f32$f32", "__lyte_atan2f"),
+        ("min$f32$f32", "__lyte_minf"),
+        ("max$f32$f32", "__lyte_maxf"),
+        ("pow$f64$f64", "__lyte_powd"),
+        ("atan2$f64$f64", "__lyte_atan2d"),
+        ("min$f64$f64", "__lyte_mind"),
+        ("max$f64$f64", "__lyte_maxd"),
+    ];
+    for &(n, sym) in syms {
+        if *name == Name::str(n) {
+            return Some(sym);
+        }
+    }
+    None
+}
+
+/// Register all math builtin symbols on the JIT builder for direct calls.
+fn register_math_symbols(builder: &mut JITBuilder) {
+    let syms: &[(&str, *const u8)] = &[
+        ("__lyte_sinf", lyte_sinf as *const u8),
+        ("__lyte_cosf", lyte_cosf as *const u8),
+        ("__lyte_tanf", lyte_tanf as *const u8),
+        ("__lyte_asinf", lyte_asinf as *const u8),
+        ("__lyte_acosf", lyte_acosf as *const u8),
+        ("__lyte_atanf", lyte_atanf as *const u8),
+        ("__lyte_sinhf", lyte_sinhf as *const u8),
+        ("__lyte_coshf", lyte_coshf as *const u8),
+        ("__lyte_tanhf", lyte_tanhf as *const u8),
+        ("__lyte_asinhf", lyte_asinhf as *const u8),
+        ("__lyte_acoshf", lyte_acoshf as *const u8),
+        ("__lyte_atanhf", lyte_atanhf as *const u8),
+        ("__lyte_lnf", lyte_lnf as *const u8),
+        ("__lyte_expf", lyte_expf as *const u8),
+        ("__lyte_exp2f", lyte_exp2f as *const u8),
+        ("__lyte_log10f", lyte_log10f as *const u8),
+        ("__lyte_log2f", lyte_log2f as *const u8),
+        ("__lyte_sqrtf", lyte_sqrtf as *const u8),
+        ("__lyte_absf", lyte_absf as *const u8),
+        ("__lyte_floorf", lyte_floorf as *const u8),
+        ("__lyte_ceilf", lyte_ceilf as *const u8),
+        ("__lyte_sind", lyte_sind as *const u8),
+        ("__lyte_cosd", lyte_cosd as *const u8),
+        ("__lyte_tand", lyte_tand as *const u8),
+        ("__lyte_asind", lyte_asind as *const u8),
+        ("__lyte_acosd", lyte_acosd as *const u8),
+        ("__lyte_atand", lyte_atand as *const u8),
+        ("__lyte_sinhd", lyte_sinhd as *const u8),
+        ("__lyte_coshd", lyte_coshd as *const u8),
+        ("__lyte_tanhd", lyte_tanhd as *const u8),
+        ("__lyte_asinhd", lyte_asinhd as *const u8),
+        ("__lyte_acoshd", lyte_acoshd as *const u8),
+        ("__lyte_atanhd", lyte_atanhd as *const u8),
+        ("__lyte_lnd", lyte_lnd as *const u8),
+        ("__lyte_expd", lyte_expd as *const u8),
+        ("__lyte_exp2d", lyte_exp2d as *const u8),
+        ("__lyte_log10d", lyte_log10d as *const u8),
+        ("__lyte_log2d", lyte_log2d as *const u8),
+        ("__lyte_sqrtd", lyte_sqrtd as *const u8),
+        ("__lyte_absd", lyte_absd as *const u8),
+        ("__lyte_floord", lyte_floord as *const u8),
+        ("__lyte_ceild", lyte_ceild as *const u8),
+        ("__lyte_isinff", lyte_isinff as *const u8),
+        ("__lyte_isinfd", lyte_isinfd as *const u8),
+        ("__lyte_isnanf", lyte_isnanf as *const u8),
+        ("__lyte_isnand", lyte_isnand as *const u8),
+        ("__lyte_powf", lyte_powf as *const u8),
+        ("__lyte_atan2f", lyte_atan2f as *const u8),
+        ("__lyte_minf", lyte_minf as *const u8),
+        ("__lyte_maxf", lyte_maxf as *const u8),
+        ("__lyte_powd", lyte_powd as *const u8),
+        ("__lyte_atan2d", lyte_atan2d as *const u8),
+        ("__lyte_mind", lyte_mind as *const u8),
+        ("__lyte_maxd", lyte_maxd as *const u8),
+    ];
+    for &(name, ptr) in syms {
+        builder.symbol(name, ptr);
+    }
 }
