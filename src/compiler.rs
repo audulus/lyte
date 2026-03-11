@@ -63,8 +63,10 @@ fn builtin_decls() -> Vec<Decl> {
 
     // Math builtins: unary, overloaded for f32 and f64.
     let unary_math = [
-        "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh",
-        "atanh", "ln", "exp", "exp2", "log10", "log2", "sqrt", "abs", "floor", "ceil",
+        "sin", "cos", "tan", "asin", "acos", "atan",
+        "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+        "ln", "exp", "exp2", "log10", "log2",
+        "sqrt", "abs", "floor", "ceil",
     ];
     for name in unary_math {
         for (ty, ret_ty) in [
@@ -173,8 +175,9 @@ fn rewrite_qualified_enums(arena: &mut ExprArena, decls: &DeclTable) {
         if let Expr::Field(lhs, case_name) = arena.exprs[i].clone() {
             if let Expr::Id(id_name) = &arena.exprs[lhs] {
                 let found = decls.find(*id_name);
-                if let Some(Decl::Enum { cases, .. }) =
-                    found.iter().find(|d| matches!(d, Decl::Enum { .. }))
+                if let Some(Decl::Enum { cases, .. }) = found
+                    .iter()
+                    .find(|d| matches!(d, Decl::Enum { .. }))
                 {
                     if cases.contains(&case_name) {
                         arena.exprs[i] = Expr::Enum(case_name);

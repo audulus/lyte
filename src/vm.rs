@@ -505,7 +505,7 @@ impl LinkedProgram {
                 args_start,
                 arg_count,
             } => {
-                assert!(func <= 255, "Call func index {func} out of u8 range");
+                assert!(func <= 255, "Call func index {} out of u8 range", func);
                 PackedOp::abc(tags::CALL, args_start, arg_count, func as u8)
             }
             Opcode::CallIndirect {
@@ -519,7 +519,7 @@ impl LinkedProgram {
             Opcode::AllocLocals { size } => {
                 assert!(
                     size <= u16::MAX as u32,
-                    "AllocLocals size {size} out of u16 range"
+                    "AllocLocals size {} out of u16 range", size
                 );
                 PackedOp::ad(tags::ALLOC_LOCALS, 0, size as u16 as i16)
             }
@@ -535,7 +535,7 @@ impl LinkedProgram {
             Opcode::MemZero { dst, size } => {
                 assert!(
                     size <= u16::MAX as u32,
-                    "MemZero size {size} out of u16 range"
+                    "MemZero size {} out of u16 range", size
                 );
                 PackedOp::ad(tags::MEM_ZERO, dst, size as u16 as i16)
             }
