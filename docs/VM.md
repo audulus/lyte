@@ -174,10 +174,64 @@ ILtJump { a: 0, b: 2, offset: 5 }
 
 ## Calling Convention
 
-- Arguments passed in registers starting at `args_start`
-- Return value in r0
-- Callee-saved: none (registers are shared)
-- Stack frame allocated via `AllocLocals`
+### Registers
+
+All functions share a single flat register file (r0–r255). There is no per-function register scope — a callee's writes are visible to the caller.
+
+**r0 is the return value register.** Every `Call` instruction clobbers r0 (the callee's return value lands there), so no variable should live in r0 across a call. The codegen reserves r0 even for 0-parameter functions, and the optimizer refuses to forward or coalesce into r0.
+
+### Scalar Returns (r0)
+
+For types that fit in a register (integers, floats, booleans), the callee moves the result into r0 before returning:
+
+```
+Move { dst: 0, src: result }      // put result in r0
+RestoreRegs { start_reg: 1, ... } // restore r1..rN (skip r0)
+Return
+```
+
+`RestoreRegs` starts at r1 so r0 keeps the return value.
+
+### Large Returns (output pointer)
+
+Structs, arrays, tuples, and slices are returned via a hidden output pointer — the same sret convention used by C/LLVM. The caller allocates space and passes a pointer as an extra first argument (r0). The callee writes the result via `MemCopy` and restores all registers including r0:
+
+```
+// Caller side:
+LocalAddr { dst: 4, slot: 5 }          // r4 = &temp_space
+Move { dst: 5, src: 1 }                // shift visible args up
+Call { func: 1, args_start: 4, ... }   // r4 (output ptr) becomes r0 in callee
+
+// Callee side:
+SaveRegs { start_reg: 0, count: N, ... }  // save all regs including r0
+Store64 { addr: slot, src: 0 }             // save output ptr to local slot
+...                                        // compute result
+Load64 { dst: tmp, addr: slot }            // reload output ptr (r0 was clobbered)
+MemCopy { dst: tmp, src: result, size: S } // write result through pointer
+RestoreRegs { start_reg: 0, ... }          // restore ALL regs (no r0 return value)
+Return
+```
+
+The output pointer is saved to a local slot immediately on entry because subcalls will clobber r0.
+
+### SaveRegs / RestoreRegs
+
+The VM uses a callee-save convention implemented with `SaveRegs` and `RestoreRegs`. On function entry, all registers the function will touch are saved to the locals area. On exit, they are restored — minus r0 for scalar returns.
+
+```
+SaveRegs { start_reg: 0, count: N, slot: S }
+// Saves registers [start_reg .. start_reg+count) to locals at byte offset S
+
+RestoreRegs { start_reg: 1, count: M, slot: S+8 }
+// Restores registers [1 .. 1+M) from locals at byte offset S+8
+// start_reg=1 skips r0 (scalar return); start_reg=0 restores everything (pointer return)
+```
+
+The save area is placed after all local variable slots. Its size and offset are patched after translation, once the final register count is known.
+
+### Call Mechanics
+
+`Call { func, args_start, arg_count }` shifts registers from `[args_start .. args_start+arg_count)` down to `[r0 .. r0+arg_count)`, pushes a call frame, and jumps to the target function. `Return` pops the frame and resumes the caller.
 
 ## Usage
 
