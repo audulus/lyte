@@ -248,7 +248,23 @@ impl Lexer {
             self.i += 1;
             let mut s = String::new();
             while self.i < n && bytes[self.i] != b'"' {
-                s.push(bytes[self.i] as char);
+                if bytes[self.i] == b'\\' {
+                    self.i += 1;
+                    if self.i >= n {
+                        return Token::Error;
+                    }
+                    match bytes[self.i] {
+                        b'\\' => s.push('\\'),
+                        b'n' => s.push('\n'),
+                        b't' => s.push('\t'),
+                        b'r' => s.push('\r'),
+                        b'0' => s.push('\0'),
+                        b'"' => s.push('"'),
+                        _ => return Token::Error,
+                    }
+                } else {
+                    s.push(bytes[self.i] as char);
+                }
                 self.i += 1;
             }
 
@@ -271,10 +287,14 @@ impl Lexer {
 
             if bytes[self.i] == b'\\' {
                 self.i += 1;
-                if bytes[self.i] == b'\\' {
-                    tok = Token::Char('\\');
-                } else if bytes[self.i] == b'n' {
-                    tok = Token::Char('\n');
+                match bytes[self.i] {
+                    b'\\' => tok = Token::Char('\\'),
+                    b'n' => tok = Token::Char('\n'),
+                    b't' => tok = Token::Char('\t'),
+                    b'r' => tok = Token::Char('\r'),
+                    b'0' => tok = Token::Char('\0'),
+                    b'\'' => tok = Token::Char('\''),
+                    _ => {}
                 }
             } else {
                 tok = Token::Char(bytes[self.i] as char);
