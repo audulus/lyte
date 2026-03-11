@@ -10,6 +10,16 @@
 // assert(true)
 // assert(true)
 // assert(true)
+// executing LLVM code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 // executing VM code
 // assert(true)
 // assert(true)

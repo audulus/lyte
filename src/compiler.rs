@@ -496,7 +496,6 @@ impl Compiler {
         jit.print_ir = self.print_ir;
         match jit.compile_and_run(&self.decls) {
             Ok(cancelled) => {
-                println!("compilation successful");
                 if cancelled {
                     println!("execution cancelled");
                 }

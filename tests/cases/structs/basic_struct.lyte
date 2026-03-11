@@ -2,6 +2,8 @@
 // expected stdout:
 // executing compiled code
 // compilation successful
+// executing LLVM code
+// compilation successful
 // executing VM code
 // vm execution successful
 

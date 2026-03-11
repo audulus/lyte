@@ -6,6 +6,12 @@
 // -1.500000
 // 0.250000
 // 42.000000
+// executing LLVM code
+// compilation successful
+// 3.141592
+// -1.500000
+// 0.250000
+// 42.000000
 // executing VM code
 // 3.141592
 // -1.500000

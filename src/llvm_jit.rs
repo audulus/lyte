@@ -420,6 +420,8 @@ fn compile_and_run_with_context(
         .get_function_address(name)
         .map_err(|e| format!("function '{}' not found in JIT: {:?}", name, e))?;
 
+    println!("compilation successful");
+
     // Execute while the EE and context are still alive.
     type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
     let mut globals: Vec<u8> = vec![0u8; state.globals_size];

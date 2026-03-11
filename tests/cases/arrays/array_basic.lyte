@@ -3,6 +3,9 @@
 // executing compiled code
 // compilation successful
 // assert(true)
+// executing LLVM code
+// compilation successful
+// assert(true)
 // executing VM code
 // assert(true)
 // vm execution successful

@@ -118,7 +118,10 @@ fn run(args: Args) -> i32 {
         }
 
         #[cfg(feature = "llvm")]
-        if args.l {
+        if args.l || args.test {
+            if args.test {
+                println!("executing LLVM code");
+            }
             compiler.run_llvm();
         }
 

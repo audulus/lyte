@@ -3,6 +3,9 @@
 // executing compiled code
 // compilation successful
 // positive
+// executing LLVM code
+// compilation successful
+// positive
 // executing VM code
 // positive
 // vm execution successful
