@@ -41,7 +41,7 @@ impl std::ops::Add<IndexInterval> for IndexInterval {
         IndexInterval {
             min,
             max,
-            non_zero: false,
+            non_zero: min > 0 || max < 0,
         }
     }
 }
@@ -78,7 +78,7 @@ impl std::ops::Sub<IndexInterval> for IndexInterval {
         IndexInterval {
             min,
             max,
-            non_zero: false,
+            non_zero: min > 0 || max < 0,
         }
     }
 }
@@ -97,10 +97,12 @@ impl std::ops::Mul<IndexInterval> for IndexInterval {
             self.max.saturating_mul(rhs.max),
         ];
 
+        let min = *products.iter().min().unwrap();
+        let max = *products.iter().max().unwrap();
         IndexInterval {
-            min: *products.iter().min().unwrap(),
-            max: *products.iter().max().unwrap(),
-            non_zero: false,
+            min,
+            max,
+            non_zero: min > 0 || max < 0,
         }
     }
 }

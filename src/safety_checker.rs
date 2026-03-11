@@ -131,8 +131,9 @@ impl SafetyChecker {
 
         if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
-                if let Expr::Int(n) = &decl.arena[*rhs] {
-                    self.add(*name, Some(*n), None);
+                let ival = self.check_expr(*rhs, decl, decls);
+                if ival.min != i64::MIN {
+                    self.add(*name, Some(ival.min), None);
                 }
             }
         }
@@ -176,11 +177,49 @@ impl SafetyChecker {
             }
         }
 
-        // match `x > 0` — min is 1, which also implies non-zero
+        // match `x > n` — x.min = n + 1
         if let Expr::Binop(Binop::Greater, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Id(name) = &decl.arena[*lhs] {
-                if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*rhs] {
-                    self.add(*name, Some(1), None);
+                let ival = self.check_expr(*rhs, decl, decls);
+                if ival.min != i64::MAX {
+                    self.add(*name, Some(ival.min + 1), None);
+                }
+            }
+            // reversed: `n > i` means i < n
+            if let Expr::Id(name) = &decl.arena[*rhs] {
+                let ival = self.check_expr(*lhs, decl, decls);
+                if ival.max != i64::MAX {
+                    self.add(*name, None, Some(ival.max - 1));
+                }
+            }
+        }
+
+        // reversed: `n < i` means i > n
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*rhs] {
+                let ival = self.check_expr(*lhs, decl, decls);
+                if ival.min != i64::MIN {
+                    self.add(*name, Some(ival.min + 1), None);
+                }
+            }
+        }
+
+        // reversed: `n >= i` means i <= n
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*rhs] {
+                let ival = self.check_expr(*lhs, decl, decls);
+                if ival.max != i64::MAX {
+                    self.add(*name, None, Some(ival.max));
+                }
+            }
+        }
+
+        // reversed: `n <= i` means i >= n
+        if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Id(name) = &decl.arena[*rhs] {
+                let ival = self.check_expr(*lhs, decl, decls);
+                if ival.min != i64::MIN {
+                    self.add(*name, Some(ival.min), None);
                 }
             }
         }
@@ -214,24 +253,39 @@ impl SafetyChecker {
                 IndexInterval::default()
             }
             Expr::Let(name, init, _) => {
-                self.check_expr(*init, decl, decls);
+                let init_r = self.check_expr(*init, decl, decls);
                 let ty = decl.types[expr];
                 self.vars.push(Var { name: *name, ty });
 
+                // Track the interval from the initializer.
+                let mut min = if init_r.min != i64::MIN { Some(init_r.min) } else { None };
+                let max = if init_r.max != i64::MAX { Some(init_r.max) } else { None };
                 if ty == mk_type(Type::UInt32) {
-                    self.add(*name, Some(0), None);
+                    min = Some(min.unwrap_or(0).max(0));
+                }
+                self.add(*name, min, max);
+                if init_r.non_zero {
+                    self.add_non_zero(*name);
                 }
 
                 IndexInterval::default()
             }
             Expr::Var(name, init, _) => {
-                if let Some(init) = init {
-                    self.check_expr(*init, decl, decls);
-                }
+                let init_r = if let Some(init) = init {
+                    self.check_expr(*init, decl, decls)
+                } else {
+                    IndexInterval::default()
+                };
                 let ty = decl.types[expr];
 
+                let mut min = if init_r.min != i64::MIN { Some(init_r.min) } else { None };
+                let max = if init_r.max != i64::MAX { Some(init_r.max) } else { None };
                 if ty == mk_type(Type::UInt32) {
-                    self.add(*name, Some(0), None);
+                    min = Some(min.unwrap_or(0).max(0));
+                }
+                self.add(*name, min, max);
+                if init_r.non_zero {
+                    self.add_non_zero(*name);
                 }
                 IndexInterval::default()
             }
@@ -381,7 +435,19 @@ impl SafetyChecker {
                         }
                     }
 
-                    return lhs_range; // approximate: ignore division for interval tracking
+                    // Compute division interval if the divisor doesn't span zero.
+                    if rhs_range.excludes_zero() {
+                        let quotients = [
+                            lhs_range.min.checked_div(rhs_range.min).unwrap_or(lhs_range.min),
+                            lhs_range.min.checked_div(rhs_range.max).unwrap_or(lhs_range.min),
+                            lhs_range.max.checked_div(rhs_range.min).unwrap_or(lhs_range.max),
+                            lhs_range.max.checked_div(rhs_range.max).unwrap_or(lhs_range.max),
+                        ];
+                        let min = *quotients.iter().min().unwrap();
+                        let max = *quotients.iter().max().unwrap();
+                        return IndexInterval { min, max, non_zero: min > 0 || max < 0 };
+                    }
+                    return lhs_range; // divisor spans zero — can't narrow
                 }
 
                 if *op == Binop::Assign {
@@ -941,5 +1007,305 @@ mod tests {
         let errors = check(s);
         // The a[i] after the if/else should fail (constraints popped)
         assert_eq!(errors.len(), 2); // can't prove >= 0 and can't prove < length
+    }
+
+    // --- Edge cases for interval arithmetic gaps ---
+
+    #[test]
+    pub fn test_let_tracks_init_interval() {
+        // let x = 5 should track x in [5, 5], so a[x] in [i32; 10] is safe
+        let s = "
+        f {
+            var a: [i32; 10]
+            let x = 5
+            a[x]
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_var_tracks_init_interval() {
+        // var x = 3 should track x in [3, 3], so a[x] in [i32; 5] is safe
+        let s = "
+        f {
+            var a: [i32; 5]
+            var x = 3
+            a[x]
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_let_init_out_of_bounds() {
+        // let x = 10 should fail for [i32; 10] (max index is 9)
+        let s = "
+        f {
+            var a: [i32; 10]
+            let x = 10
+            a[x]
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_division_narrows_interval() {
+        // x in [0, 99], x / 10 should be in [0, 9], safe for [i32; 10]
+        let s = "
+        f(x: i32) {
+            var a: [i32; 10]
+            if x >= 0 && x < 100 {
+                a[x / 10]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_division_still_catches_unsafe() {
+        // x in [0, 199], x / 10 is [0, 19], NOT safe for [i32; 10]
+        let s = "
+        f(x: i32) {
+            var a: [i32; 10]
+            if x >= 0 && x < 200 {
+                a[x / 10]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_greater_arbitrary_value() {
+        // if x > 5, then x >= 6, so x is safe as index for [i32; 100]
+        // and x - 6 is safe as index for [i32; 100]
+        let s = "
+        f(x: i32) {
+            var a: [i32; 100]
+            if x > 5 && x < 100 {
+                a[x]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_reversed_greater() {
+        // 100 > i means i < 100
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && 100 > i {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_reversed_less() {
+        // 0 < i means i > 0, so i >= 1
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if 0 < i && i < 100 {
+                a[i - 1]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_reversed_geq() {
+        // 99 >= i means i <= 99
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && 99 >= i {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_reversed_leq() {
+        // 0 <= i means i >= 0
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if 0 <= i && i < 100 {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_nonzero_through_addition() {
+        // x >= 0 means x + 1 >= 1, which is non-zero
+        let s = "
+        f(a: i32, x: i32) → i32 {
+            if x >= 0 {
+                a / (x + 1)
+            } else {
+                0
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_nonzero_through_multiplication() {
+        // x > 0 and y > 0 means x * y > 0
+        let s = "
+        f(a: i32, x: i32, y: i32) → i32 {
+            if x > 0 && y > 0 {
+                a / (x * y)
+            } else {
+                0
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_geq_with_variable() {
+        // if i >= start where start is constrained
+        let s = "
+        f(start: i32, i: i32) {
+            var a: [i32; 100]
+            if start >= 0 && i >= start && i < 100 {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_computed_let_bounds() {
+        // let y = x + 1, where x is in [0, 8] means y is in [1, 9]
+        let s = "
+        f(x: i32) {
+            var a: [i32; 10]
+            if x >= 0 && x < 9 {
+                let y = x + 1
+                a[y]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_div_by_literal_nonzero_via_interval() {
+        // 2 is in [2, 2], which excludes zero — should be safe
+        let s = "
+        f(x: i32) → i32 { x / 5 }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_div_nonzero_via_greater() {
+        // if b > 5, then b >= 6, excludes zero
+        let s = "
+        f(a: i32, b: i32) → i32 {
+            if b > 5 {
+                a / b
+            } else {
+                0
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_negative_interval_division() {
+        // x in [-10, -1], x / 2 is in [-5, 0] — that's safe for non-zero
+        // but NOT safe for array indexing (negative)
+        let s = "
+        f(x: i32) {
+            var a: [i32; 10]
+            if x >= -10 && x < 0 {
+                a[x / 2]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1); // can't prove >= 0
+    }
+
+    #[test]
+    pub fn test_var_reassignment_updates_interval() {
+        // var x = 50; x = 3 should update x to [3, 3]
+        let s = "
+        f {
+            var a: [i32; 5]
+            var x = 50
+            x = 3
+            a[x]
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_let_arithmetic_propagation() {
+        // let x = 2 * 3 should give x = [6, 6]
+        let s = "
+        f {
+            var a: [i32; 10]
+            let x = 2 * 3
+            a[x]
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_subtraction_nonzero() {
+        // x in [5, 10], 1 in [1, 1] → x - 1 in [4, 9], which is non-zero
+        let s = "
+        f(a: i32, x: i32) → i32 {
+            if x > 4 {
+                a / (x - 1)
+            } else {
+                0
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
     }
 }
