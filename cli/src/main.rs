@@ -102,11 +102,6 @@ fn run(args: Args) -> i32 {
 
         let compile_elapsed = compile_start.elapsed();
 
-        #[cfg(feature = "llvm")]
-        if args.l {
-            compiler.run_llvm();
-        }
-
         if args.c || args.test {
             if args.test {
                 println!("executing compiled code");
@@ -120,6 +115,11 @@ fn run(args: Args) -> i32 {
             if args.timing {
                 eprintln!("jit exec: {:.3}s", elapsed.as_secs_f64());
             }
+        }
+
+        #[cfg(feature = "llvm")]
+        if args.l {
+            compiler.run_llvm();
         }
 
         if args.r || args.test {

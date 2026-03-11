@@ -75,6 +75,16 @@ pub enum Type {
     Name(Name, Vec<TypeID>),
 }
 
+impl Type {
+    /// Is this type represented as a pointer in codegen (struct, tuple, array, slice)?
+    pub fn is_ptr(&self) -> bool {
+        matches!(
+            self,
+            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
+        )
+    }
+}
+
 /// An interned type.
 ///
 /// Newtyped so we can implement more traits.

@@ -392,17 +392,6 @@ impl crate::Type {
         }
     }
 
-    // Are we representing values of this type
-    // using a pointer or is the value in the register?
-    fn is_ptr(&self) -> bool {
-        match self {
-            crate::Type::Name(_, _)
-            | crate::Type::Tuple(_)
-            | crate::Type::Array(_, _)
-            | crate::Type::Slice(_) => true,
-            _ => false,
-        }
-    }
 }
 
 /// Returns true if this type is returned via an output pointer parameter.

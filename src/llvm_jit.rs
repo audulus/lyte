@@ -26,6 +26,7 @@ pub use crate::jit::CANCEL_FLAG_RESERVED;
 
 // External builtins (same implementations as in jit.rs).
 extern "C" fn llvm_lyte_assert(val: i8) {
+    println!("assert({})", val != 0);
     assert!(val != 0, "lyte assertion failed");
 }
 
@@ -505,11 +506,10 @@ impl<'ctx> LLVMJITState<'ctx> {
                 trans.emit_memcpy(out, result.into_pointer_value(), size);
                 trans.state.builder.build_return(None).unwrap();
             } else if *decl.ret == crate::Type::Void || returns_via_pointer(decl.ret) {
-                // Void return, or returns_via_pointer but body already handled
-                // the copy (e.g. explicit return statement left us in a dead block).
                 trans.state.builder.build_return(None).unwrap();
             } else {
-                trans.state.builder.build_return(Some(&result)).unwrap();
+                let coerced = trans.coerce_return(result, decl.ret);
+                trans.state.builder.build_return(Some(&coerced)).unwrap();
             }
         }
 
@@ -592,6 +592,24 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
         }
         val
+    }
+
+    /// Ensure value is i1 for use as a branch condition.
+    fn to_i1(&self, val: inkwell::values::IntValue<'ctx>) -> inkwell::values::IntValue<'ctx> {
+        if val.get_type().get_bit_width() == 1 {
+            return val;
+        }
+        let zero = val.get_type().const_int(0, false);
+        self.builder().build_int_compare(IntPredicate::NE, val, zero, "tobool").unwrap()
+    }
+
+    /// Coerce a return value to match the function's LLVM return type.
+    fn coerce_return(&self, val: BasicValueEnum<'ctx>, ret_ty: crate::TypeID) -> BasicValueEnum<'ctx> {
+        if *ret_ty == crate::Type::Void || returns_via_pointer(ret_ty) {
+            return val;
+        }
+        let expected = ret_ty.llvm_basic_type(self.ctx());
+        self.coerce_to_type(val, expected)
     }
 
     fn is_block_terminated(&self) -> bool {
@@ -832,7 +850,17 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::Id(name) => {
                 if let Some(&alloca) = self.variables.get(&**name) {
                     if self.let_bindings.contains(&**name) {
-                        alloca
+                        let ty = decl.types[expr];
+                        if ty.is_ptr() || matches!(&*ty, crate::Type::Slice(_)) {
+                            // Pointer-type let binding (e.g. slice/array/struct param):
+                            // alloca holds a pointer to the data, load it.
+                            self.builder()
+                                .build_load(self.ptr_ty(), alloca, "let_ptr")
+                                .unwrap()
+                                .into_pointer_value()
+                        } else {
+                            alloca
+                        }
                     } else {
                         self.builder()
                             .build_load(self.ptr_ty(), alloca, "var_addr")
@@ -1100,7 +1128,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         );
                         let is_var = !self.let_bindings.contains(&var_name.to_string());
                         if is_scalar_float && is_var && self.variables.contains_key(&var_name.to_string()) {
-                            let cond_val = self.translate_expr(cond_id, decl).into_int_value();
+                            let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
+                            let cond_val = self.to_i1(cond_raw);
                             let alloca = self.variables[&var_name.to_string()];
                             // load current value from slot
                             let slot_ptr = self.builder()
@@ -1120,7 +1149,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     }
                 }
 
-                let cond_val = self.translate_expr(cond_id, decl).into_int_value();
+                let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
+                let cond_val = self.to_i1(cond_raw);
                 let then_bb = self.append_bb("then");
                 let else_bb = self.append_bb("else");
                 let merge_bb = self.append_bb("merge");
@@ -1157,7 +1187,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.builder().build_unconditional_branch(header_bb).unwrap();
 
                 self.builder().position_at_end(header_bb);
-                let cond_val = self.translate_expr(cond_id, decl).into_int_value();
+                let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
+                let cond_val = self.to_i1(cond_raw);
                 self.builder()
                     .build_conditional_branch(cond_val, body_bb, exit_bb)
                     .unwrap();
@@ -1236,12 +1267,14 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 } else if *ret_ty == crate::Type::Void {
                     self.builder().build_return(None).unwrap();
                 } else {
-                    self.builder().build_return(Some(&result)).unwrap();
+                    let coerced = self.coerce_return(result, decl.ret);
+                    self.builder().build_return(Some(&coerced)).unwrap();
                 }
 
-                // Unreachable block after return.
+                // Unreachable block after return — add terminator so epilogue is skipped.
                 let dead_bb = self.append_bb("dead");
                 self.builder().position_at_end(dead_bb);
+                self.builder().build_unreachable().unwrap();
                 self.zero_i32()
             }
             Expr::Tuple(elements) => {
