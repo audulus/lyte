@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests
@@ -30,7 +30,7 @@ jobs:
       LIBRARY_PATH: /usr/lib/llvm-18/lib
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Install LLVM 18
       run: |
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
