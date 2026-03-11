@@ -1,9 +1,5 @@
+// expected stdout:
+// ../tests/cases/arenas.lyte:4: arena is reserved for future use
 main {
-
-   var outer = 0
-   arena {
-      var x = 42
-      outer = x
-   }
-   assert(outer == 42)
+    arena {}
 }

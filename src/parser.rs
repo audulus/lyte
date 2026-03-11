@@ -632,6 +632,30 @@ fn parse_array_literal(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseC
     arena.add(Expr::ArrayLiteral(r), loc)
 }
 
+/// Skip past a reserved keyword and any following braced block.
+fn skip_reserved(cx: &mut ParseContext) {
+    cx.next();
+    let mut depth = 0;
+    loop {
+        match cx.lex.tok {
+            Token::Lbrace => {
+                depth += 1;
+                cx.next();
+            }
+            Token::Rbrace if depth > 0 => {
+                depth -= 1;
+                cx.next();
+                if depth == 0 {
+                    break;
+                }
+            }
+            Token::Endl | Token::End if depth == 0 => break,
+            Token::End => break,
+            _ => cx.next(),
+        }
+    }
+}
+
 fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     match &cx.lex.tok {
         Token::Var => {
@@ -665,9 +689,9 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             }
         }
         Token::Arena => {
-            cx.next();
-            let e = parse_block(arena, typevars, cx);
-            arena.add(Expr::Arena(e), cx.lex.loc)
+            cx.err(String::from("arena is reserved for future use"));
+            skip_reserved(cx);
+            arena.add(Expr::Error, cx.lex.loc)
         }
         Token::While => {
             cx.next();
@@ -682,7 +706,7 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
         }
         Token::Defer => {
             cx.err(String::from("defer is reserved for future use"));
-            cx.next();
+            skip_reserved(cx);
             arena.add(Expr::Error, cx.lex.loc)
         }
         Token::For => {
@@ -1007,29 +1031,10 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
             Decl::Global { name, ty }
         }
         Token::Interface => parse_interface(cx),
-        Token::Defer => {
-            cx.err(String::from("defer is reserved for future use"));
-            // Skip past the defer statement.
-            cx.next();
-            let mut depth = 0;
-            loop {
-                match cx.lex.tok {
-                    Token::Lbrace => {
-                        depth += 1;
-                        cx.next();
-                    }
-                    Token::Rbrace if depth > 0 => {
-                        depth -= 1;
-                        cx.next();
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    Token::Endl | Token::End if depth == 0 => break,
-                    Token::End => break,
-                    _ => cx.next(),
-                }
-            }
+        Token::Defer | Token::Arena => {
+            let name = if cx.lex.tok == Token::Defer { "defer" } else { "arena" };
+            cx.err(format!("{} is reserved for future use", name));
+            skip_reserved(cx);
             return None;
         }
         _ => {
