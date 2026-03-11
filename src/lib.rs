@@ -38,6 +38,9 @@ pub use jit::*;
 
 pub mod mangle;
 
+mod hoist;
+use hoist::*;
+
 mod monomorph;
 pub use monomorph::*;
 
