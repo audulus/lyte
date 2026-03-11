@@ -197,6 +197,20 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::AbsF32 { dst, .. }
         | Opcode::FloorF32 { dst, .. }
         | Opcode::CeilF32 { dst, .. }
+        | Opcode::AsinF32 { dst, .. }
+        | Opcode::AcosF32 { dst, .. }
+        | Opcode::AtanF32 { dst, .. }
+        | Opcode::SinhF32 { dst, .. }
+        | Opcode::CoshF32 { dst, .. }
+        | Opcode::TanhF32 { dst, .. }
+        | Opcode::AsinhF32 { dst, .. }
+        | Opcode::AcoshF32 { dst, .. }
+        | Opcode::AtanhF32 { dst, .. }
+        | Opcode::Exp2F32 { dst, .. }
+        | Opcode::Log10F32 { dst, .. }
+        | Opcode::Log2F32 { dst, .. }
+        | Opcode::IsinfF32 { dst, .. }
+        | Opcode::IsnanF32 { dst, .. }
         | Opcode::SinF64 { dst, .. }
         | Opcode::CosF64 { dst, .. }
         | Opcode::TanF64 { dst, .. }
@@ -206,10 +220,28 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::AbsF64 { dst, .. }
         | Opcode::FloorF64 { dst, .. }
         | Opcode::CeilF64 { dst, .. }
+        | Opcode::AsinF64 { dst, .. }
+        | Opcode::AcosF64 { dst, .. }
+        | Opcode::AtanF64 { dst, .. }
+        | Opcode::SinhF64 { dst, .. }
+        | Opcode::CoshF64 { dst, .. }
+        | Opcode::TanhF64 { dst, .. }
+        | Opcode::AsinhF64 { dst, .. }
+        | Opcode::AcoshF64 { dst, .. }
+        | Opcode::AtanhF64 { dst, .. }
+        | Opcode::Exp2F64 { dst, .. }
+        | Opcode::Log10F64 { dst, .. }
+        | Opcode::Log2F64 { dst, .. }
+        | Opcode::IsinfF64 { dst, .. }
+        | Opcode::IsnanF64 { dst, .. }
         | Opcode::PowF32 { dst, .. }
         | Opcode::Atan2F32 { dst, .. }
+        | Opcode::MinF32 { dst, .. }
+        | Opcode::MaxF32 { dst, .. }
         | Opcode::PowF64 { dst, .. }
         | Opcode::Atan2F64 { dst, .. }
+        | Opcode::MinF64 { dst, .. }
+        | Opcode::MaxF64 { dst, .. }
         | Opcode::LoadSlot32 { dst, .. } => Some(*dst),
 
         Opcode::Nop
@@ -319,6 +351,20 @@ fn set_dst(op: &mut Opcode, new_dst: Reg) -> bool {
         | Opcode::AbsF32 { dst, .. }
         | Opcode::FloorF32 { dst, .. }
         | Opcode::CeilF32 { dst, .. }
+        | Opcode::AsinF32 { dst, .. }
+        | Opcode::AcosF32 { dst, .. }
+        | Opcode::AtanF32 { dst, .. }
+        | Opcode::SinhF32 { dst, .. }
+        | Opcode::CoshF32 { dst, .. }
+        | Opcode::TanhF32 { dst, .. }
+        | Opcode::AsinhF32 { dst, .. }
+        | Opcode::AcoshF32 { dst, .. }
+        | Opcode::AtanhF32 { dst, .. }
+        | Opcode::Exp2F32 { dst, .. }
+        | Opcode::Log10F32 { dst, .. }
+        | Opcode::Log2F32 { dst, .. }
+        | Opcode::IsinfF32 { dst, .. }
+        | Opcode::IsnanF32 { dst, .. }
         | Opcode::SinF64 { dst, .. }
         | Opcode::CosF64 { dst, .. }
         | Opcode::TanF64 { dst, .. }
@@ -328,10 +374,28 @@ fn set_dst(op: &mut Opcode, new_dst: Reg) -> bool {
         | Opcode::AbsF64 { dst, .. }
         | Opcode::FloorF64 { dst, .. }
         | Opcode::CeilF64 { dst, .. }
+        | Opcode::AsinF64 { dst, .. }
+        | Opcode::AcosF64 { dst, .. }
+        | Opcode::AtanF64 { dst, .. }
+        | Opcode::SinhF64 { dst, .. }
+        | Opcode::CoshF64 { dst, .. }
+        | Opcode::TanhF64 { dst, .. }
+        | Opcode::AsinhF64 { dst, .. }
+        | Opcode::AcoshF64 { dst, .. }
+        | Opcode::AtanhF64 { dst, .. }
+        | Opcode::Exp2F64 { dst, .. }
+        | Opcode::Log10F64 { dst, .. }
+        | Opcode::Log2F64 { dst, .. }
+        | Opcode::IsinfF64 { dst, .. }
+        | Opcode::IsnanF64 { dst, .. }
         | Opcode::PowF32 { dst, .. }
         | Opcode::Atan2F32 { dst, .. }
+        | Opcode::MinF32 { dst, .. }
+        | Opcode::MaxF32 { dst, .. }
         | Opcode::PowF64 { dst, .. }
         | Opcode::Atan2F64 { dst, .. }
+        | Opcode::MinF64 { dst, .. }
+        | Opcode::MaxF64 { dst, .. }
         | Opcode::LoadSlot32 { dst, .. } => {
             *dst = new_dst;
             true
@@ -467,7 +531,21 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
         | Opcode::SqrtF32 { src, .. }
         | Opcode::AbsF32 { src, .. }
         | Opcode::FloorF32 { src, .. }
-        | Opcode::CeilF32 { src, .. } => *src == reg,
+        | Opcode::CeilF32 { src, .. }
+        | Opcode::AsinF32 { src, .. }
+        | Opcode::AcosF32 { src, .. }
+        | Opcode::AtanF32 { src, .. }
+        | Opcode::SinhF32 { src, .. }
+        | Opcode::CoshF32 { src, .. }
+        | Opcode::TanhF32 { src, .. }
+        | Opcode::AsinhF32 { src, .. }
+        | Opcode::AcoshF32 { src, .. }
+        | Opcode::AtanhF32 { src, .. }
+        | Opcode::Exp2F32 { src, .. }
+        | Opcode::Log10F32 { src, .. }
+        | Opcode::Log2F32 { src, .. }
+        | Opcode::IsinfF32 { src, .. }
+        | Opcode::IsnanF32 { src, .. } => *src == reg,
 
         Opcode::SinF64 { src, .. }
         | Opcode::CosF64 { src, .. }
@@ -477,12 +555,30 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
         | Opcode::SqrtF64 { src, .. }
         | Opcode::AbsF64 { src, .. }
         | Opcode::FloorF64 { src, .. }
-        | Opcode::CeilF64 { src, .. } => *src == reg,
+        | Opcode::CeilF64 { src, .. }
+        | Opcode::AsinF64 { src, .. }
+        | Opcode::AcosF64 { src, .. }
+        | Opcode::AtanF64 { src, .. }
+        | Opcode::SinhF64 { src, .. }
+        | Opcode::CoshF64 { src, .. }
+        | Opcode::TanhF64 { src, .. }
+        | Opcode::AsinhF64 { src, .. }
+        | Opcode::AcoshF64 { src, .. }
+        | Opcode::AtanhF64 { src, .. }
+        | Opcode::Exp2F64 { src, .. }
+        | Opcode::Log10F64 { src, .. }
+        | Opcode::Log2F64 { src, .. }
+        | Opcode::IsinfF64 { src, .. }
+        | Opcode::IsnanF64 { src, .. } => *src == reg,
 
         Opcode::PowF32 { a, b, .. }
         | Opcode::Atan2F32 { a, b, .. }
+        | Opcode::MinF32 { a, b, .. }
+        | Opcode::MaxF32 { a, b, .. }
         | Opcode::PowF64 { a, b, .. }
-        | Opcode::Atan2F64 { a, b, .. } => *a == reg || *b == reg,
+        | Opcode::Atan2F64 { a, b, .. }
+        | Opcode::MinF64 { a, b, .. }
+        | Opcode::MaxF64 { a, b, .. } => *a == reg || *b == reg,
 
         Opcode::StoreSlot32 { src, .. } => *src == reg,
     }
@@ -652,7 +748,21 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
             | Opcode::SqrtF32 { src, .. }
             | Opcode::AbsF32 { src, .. }
             | Opcode::FloorF32 { src, .. }
-            | Opcode::CeilF32 { src, .. } => counts[*src as usize] += 1,
+            | Opcode::CeilF32 { src, .. }
+            | Opcode::AsinF32 { src, .. }
+            | Opcode::AcosF32 { src, .. }
+            | Opcode::AtanF32 { src, .. }
+            | Opcode::SinhF32 { src, .. }
+            | Opcode::CoshF32 { src, .. }
+            | Opcode::TanhF32 { src, .. }
+            | Opcode::AsinhF32 { src, .. }
+            | Opcode::AcoshF32 { src, .. }
+            | Opcode::AtanhF32 { src, .. }
+            | Opcode::Exp2F32 { src, .. }
+            | Opcode::Log10F32 { src, .. }
+            | Opcode::Log2F32 { src, .. }
+            | Opcode::IsinfF32 { src, .. }
+            | Opcode::IsnanF32 { src, .. } => counts[*src as usize] += 1,
             Opcode::SinF64 { src, .. }
             | Opcode::CosF64 { src, .. }
             | Opcode::TanF64 { src, .. }
@@ -661,11 +771,29 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
             | Opcode::SqrtF64 { src, .. }
             | Opcode::AbsF64 { src, .. }
             | Opcode::FloorF64 { src, .. }
-            | Opcode::CeilF64 { src, .. } => counts[*src as usize] += 1,
+            | Opcode::CeilF64 { src, .. }
+            | Opcode::AsinF64 { src, .. }
+            | Opcode::AcosF64 { src, .. }
+            | Opcode::AtanF64 { src, .. }
+            | Opcode::SinhF64 { src, .. }
+            | Opcode::CoshF64 { src, .. }
+            | Opcode::TanhF64 { src, .. }
+            | Opcode::AsinhF64 { src, .. }
+            | Opcode::AcoshF64 { src, .. }
+            | Opcode::AtanhF64 { src, .. }
+            | Opcode::Exp2F64 { src, .. }
+            | Opcode::Log10F64 { src, .. }
+            | Opcode::Log2F64 { src, .. }
+            | Opcode::IsinfF64 { src, .. }
+            | Opcode::IsnanF64 { src, .. } => counts[*src as usize] += 1,
             Opcode::PowF32 { a, b, .. }
             | Opcode::Atan2F32 { a, b, .. }
+            | Opcode::MinF32 { a, b, .. }
+            | Opcode::MaxF32 { a, b, .. }
             | Opcode::PowF64 { a, b, .. }
-            | Opcode::Atan2F64 { a, b, .. } => {
+            | Opcode::Atan2F64 { a, b, .. }
+            | Opcode::MinF64 { a, b, .. }
+            | Opcode::MaxF64 { a, b, .. } => {
                 counts[*a as usize] += 1;
                 counts[*b as usize] += 1;
             }
@@ -1046,7 +1174,21 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
         | Opcode::SqrtF32 { src, .. }
         | Opcode::AbsF32 { src, .. }
         | Opcode::FloorF32 { src, .. }
-        | Opcode::CeilF32 { src, .. } => {
+        | Opcode::CeilF32 { src, .. }
+        | Opcode::AsinF32 { src, .. }
+        | Opcode::AcosF32 { src, .. }
+        | Opcode::AtanF32 { src, .. }
+        | Opcode::SinhF32 { src, .. }
+        | Opcode::CoshF32 { src, .. }
+        | Opcode::TanhF32 { src, .. }
+        | Opcode::AsinhF32 { src, .. }
+        | Opcode::AcoshF32 { src, .. }
+        | Opcode::AtanhF32 { src, .. }
+        | Opcode::Exp2F32 { src, .. }
+        | Opcode::Log10F32 { src, .. }
+        | Opcode::Log2F32 { src, .. }
+        | Opcode::IsinfF32 { src, .. }
+        | Opcode::IsnanF32 { src, .. } => {
             if *src == old {
                 *src = new;
             }
@@ -1059,15 +1201,33 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
         | Opcode::SqrtF64 { src, .. }
         | Opcode::AbsF64 { src, .. }
         | Opcode::FloorF64 { src, .. }
-        | Opcode::CeilF64 { src, .. } => {
+        | Opcode::CeilF64 { src, .. }
+        | Opcode::AsinF64 { src, .. }
+        | Opcode::AcosF64 { src, .. }
+        | Opcode::AtanF64 { src, .. }
+        | Opcode::SinhF64 { src, .. }
+        | Opcode::CoshF64 { src, .. }
+        | Opcode::TanhF64 { src, .. }
+        | Opcode::AsinhF64 { src, .. }
+        | Opcode::AcoshF64 { src, .. }
+        | Opcode::AtanhF64 { src, .. }
+        | Opcode::Exp2F64 { src, .. }
+        | Opcode::Log10F64 { src, .. }
+        | Opcode::Log2F64 { src, .. }
+        | Opcode::IsinfF64 { src, .. }
+        | Opcode::IsnanF64 { src, .. } => {
             if *src == old {
                 *src = new;
             }
         }
         Opcode::PowF32 { a, b, .. }
         | Opcode::Atan2F32 { a, b, .. }
+        | Opcode::MinF32 { a, b, .. }
+        | Opcode::MaxF32 { a, b, .. }
         | Opcode::PowF64 { a, b, .. }
-        | Opcode::Atan2F64 { a, b, .. } => {
+        | Opcode::Atan2F64 { a, b, .. }
+        | Opcode::MinF64 { a, b, .. }
+        | Opcode::MaxF64 { a, b, .. } => {
             if *a == old {
                 *a = new;
             }
@@ -1804,7 +1964,21 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
         | Opcode::SqrtF32 { src, .. }
         | Opcode::AbsF32 { src, .. }
         | Opcode::FloorF32 { src, .. }
-        | Opcode::CeilF32 { src, .. } => f(*src),
+        | Opcode::CeilF32 { src, .. }
+        | Opcode::AsinF32 { src, .. }
+        | Opcode::AcosF32 { src, .. }
+        | Opcode::AtanF32 { src, .. }
+        | Opcode::SinhF32 { src, .. }
+        | Opcode::CoshF32 { src, .. }
+        | Opcode::TanhF32 { src, .. }
+        | Opcode::AsinhF32 { src, .. }
+        | Opcode::AcoshF32 { src, .. }
+        | Opcode::AtanhF32 { src, .. }
+        | Opcode::Exp2F32 { src, .. }
+        | Opcode::Log10F32 { src, .. }
+        | Opcode::Log2F32 { src, .. }
+        | Opcode::IsinfF32 { src, .. }
+        | Opcode::IsnanF32 { src, .. } => f(*src),
         Opcode::SinF64 { src, .. }
         | Opcode::CosF64 { src, .. }
         | Opcode::TanF64 { src, .. }
@@ -1813,11 +1987,29 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
         | Opcode::SqrtF64 { src, .. }
         | Opcode::AbsF64 { src, .. }
         | Opcode::FloorF64 { src, .. }
-        | Opcode::CeilF64 { src, .. } => f(*src),
+        | Opcode::CeilF64 { src, .. }
+        | Opcode::AsinF64 { src, .. }
+        | Opcode::AcosF64 { src, .. }
+        | Opcode::AtanF64 { src, .. }
+        | Opcode::SinhF64 { src, .. }
+        | Opcode::CoshF64 { src, .. }
+        | Opcode::TanhF64 { src, .. }
+        | Opcode::AsinhF64 { src, .. }
+        | Opcode::AcoshF64 { src, .. }
+        | Opcode::AtanhF64 { src, .. }
+        | Opcode::Exp2F64 { src, .. }
+        | Opcode::Log10F64 { src, .. }
+        | Opcode::Log2F64 { src, .. }
+        | Opcode::IsinfF64 { src, .. }
+        | Opcode::IsnanF64 { src, .. } => f(*src),
         Opcode::PowF32 { a, b, .. }
         | Opcode::Atan2F32 { a, b, .. }
+        | Opcode::MinF32 { a, b, .. }
+        | Opcode::MaxF32 { a, b, .. }
         | Opcode::PowF64 { a, b, .. }
-        | Opcode::Atan2F64 { a, b, .. } => {
+        | Opcode::Atan2F64 { a, b, .. }
+        | Opcode::MinF64 { a, b, .. }
+        | Opcode::MaxF64 { a, b, .. } => {
             f(*a);
             f(*b);
         }
@@ -2016,7 +2208,21 @@ fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
         | Opcode::SqrtF32 { dst, src }
         | Opcode::AbsF32 { dst, src }
         | Opcode::FloorF32 { dst, src }
-        | Opcode::CeilF32 { dst, src } => {
+        | Opcode::CeilF32 { dst, src }
+        | Opcode::AsinF32 { dst, src }
+        | Opcode::AcosF32 { dst, src }
+        | Opcode::AtanF32 { dst, src }
+        | Opcode::SinhF32 { dst, src }
+        | Opcode::CoshF32 { dst, src }
+        | Opcode::TanhF32 { dst, src }
+        | Opcode::AsinhF32 { dst, src }
+        | Opcode::AcoshF32 { dst, src }
+        | Opcode::AtanhF32 { dst, src }
+        | Opcode::Exp2F32 { dst, src }
+        | Opcode::Log10F32 { dst, src }
+        | Opcode::Log2F32 { dst, src }
+        | Opcode::IsinfF32 { dst, src }
+        | Opcode::IsnanF32 { dst, src } => {
             *dst = map[*dst as usize];
             *src = map[*src as usize];
         }
@@ -2028,14 +2234,32 @@ fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
         | Opcode::SqrtF64 { dst, src }
         | Opcode::AbsF64 { dst, src }
         | Opcode::FloorF64 { dst, src }
-        | Opcode::CeilF64 { dst, src } => {
+        | Opcode::CeilF64 { dst, src }
+        | Opcode::AsinF64 { dst, src }
+        | Opcode::AcosF64 { dst, src }
+        | Opcode::AtanF64 { dst, src }
+        | Opcode::SinhF64 { dst, src }
+        | Opcode::CoshF64 { dst, src }
+        | Opcode::TanhF64 { dst, src }
+        | Opcode::AsinhF64 { dst, src }
+        | Opcode::AcoshF64 { dst, src }
+        | Opcode::AtanhF64 { dst, src }
+        | Opcode::Exp2F64 { dst, src }
+        | Opcode::Log10F64 { dst, src }
+        | Opcode::Log2F64 { dst, src }
+        | Opcode::IsinfF64 { dst, src }
+        | Opcode::IsnanF64 { dst, src } => {
             *dst = map[*dst as usize];
             *src = map[*src as usize];
         }
         Opcode::PowF32 { dst, a, b }
         | Opcode::Atan2F32 { dst, a, b }
+        | Opcode::MinF32 { dst, a, b }
+        | Opcode::MaxF32 { dst, a, b }
         | Opcode::PowF64 { dst, a, b }
-        | Opcode::Atan2F64 { dst, a, b } => {
+        | Opcode::Atan2F64 { dst, a, b }
+        | Opcode::MinF64 { dst, a, b }
+        | Opcode::MaxF64 { dst, a, b } => {
             *dst = map[*dst as usize];
             *a = map[*a as usize];
             *b = map[*b as usize];

@@ -1,5 +1,41 @@
 // Lyte standard library
 
+// --- Math utility functions ---
+
+fract(x: f32) -> f32 { x - floor(x) }
+fract(x: f64) -> f64 { x - floor(x) }
+
+mod(x: f32, y: f32) -> f32 { x - y * floor(x / y) }
+mod(x: f64, y: f64) -> f64 { x - y * floor(x / y) }
+
+clamp(x: f32, lo: f32, hi: f32) -> f32 { min(max(x, lo), hi) }
+clamp(x: f64, lo: f64, hi: f64) -> f64 { min(max(x, lo), hi) }
+
+step(edge: f32, x: f32) -> f32 {
+    if x < edge { return 0.0 }
+    return 1.0
+}
+
+step(edge: f64, x: f64) -> f64 {
+    if x < edge { return 0.0 as f64 }
+    return 1.0 as f64
+}
+
+smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    var t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+    t * t * (3.0 - 2.0 * t)
+}
+
+smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
+    var t = clamp((x - edge0) / (edge1 - edge0), 0.0 as f64, 1.0 as f64)
+    t * t * ((3.0 as f64) - (2.0 as f64) * t)
+}
+
+mix(a: f32, b: f32, t: f32) -> f32 { a + t * (b - a) }
+mix(a: f64, b: f64, t: f64) -> f64 { a + t * (b - a) }
+
+// --- String functions ---
+
 println(s: [i8]) {
     for i in 0 .. s.len {
         if s[i] != 0 as i8 {

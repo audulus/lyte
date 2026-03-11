@@ -121,7 +121,7 @@ impl Checker {
         let int8 = mk_type(Type::Int8);
         let int32: TypeID = mk_type(Type::Int32);
         let uint32: TypeID = mk_type(Type::UInt32);
-        let types = [Type::Int32, Type::UInt32, Type::Float32];
+        let types = [Type::Int32, Type::UInt32, Type::Float32, Type::Float64];
         let mut arith_overloads = vec![];
         let mut rel_overloads = vec![];
         let mut neg_overloads = vec![];
@@ -136,6 +136,7 @@ impl Checker {
         }
 
         let float32 = mk_type(Type::Float32);
+        let float64 = mk_type(Type::Float64);
         let cast_overloads = vec![
             func(int8, int32),
             func(int32, int8),
@@ -143,6 +144,10 @@ impl Checker {
             func(uint32, int32),
             func(int32, float32),
             func(float32, int32),
+            func(int32, float64),
+            func(float64, int32),
+            func(float32, float64),
+            func(float64, float32),
         ];
 
         Self {

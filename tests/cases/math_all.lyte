@@ -1,0 +1,111 @@
+// Test all math builtins and stdlib math functions (JIT only).
+// The VM register allocator can't handle this many calls in one function.
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+approx(a: f32, b: f32) -> bool {
+    var d = a - b
+    if d < 0.0 { d = 0.0 - d }
+    return d < 0.001
+}
+
+main {
+    var pi = 3.14159265
+
+    // --- Trig ---
+    assert(approx(sin(0.0), 0.0))
+    assert(approx(cos(0.0), 1.0))
+    assert(approx(tan(0.0), 0.0))
+
+    // --- Inverse trig ---
+    assert(approx(asin(1.0), pi / 2.0))
+    assert(approx(acos(1.0), 0.0))
+    assert(approx(atan(1.0), pi / 4.0))
+
+    // --- Hyperbolic ---
+    assert(approx(sinh(0.0), 0.0))
+    assert(approx(cosh(0.0), 1.0))
+    assert(approx(tanh(0.0), 0.0))
+
+    // --- Inverse hyperbolic ---
+    assert(approx(asinh(0.0), 0.0))
+    assert(approx(acosh(1.0), 0.0))
+    assert(approx(atanh(0.0), 0.0))
+
+    // --- atan2 ---
+    assert(approx(atan2(1.0, 1.0), pi / 4.0))
+
+    // --- Exponential / logarithmic ---
+    assert(approx(exp(0.0), 1.0))
+    assert(approx(exp2(3.0), 8.0))
+    assert(approx(ln(exp(2.0)), 2.0))
+    assert(approx(log10(100.0), 2.0))
+    assert(approx(log2(8.0), 3.0))
+
+    // --- Power / root ---
+    assert(approx(pow(2.0, 3.0), 8.0))
+    assert(approx(sqrt(9.0), 3.0))
+
+    // --- Rounding ---
+    assert(approx(floor(2.7), 2.0))
+    assert(approx(ceil(2.3), 3.0))
+    assert(approx(abs(-3.5), 3.5))
+
+    // --- Predicates ---
+    assert(isnan(sqrt(-1.0)) != 0)
+    assert(isinf(1.0 / 0.0) != 0)
+    assert(isnan(1.0) == 0)
+    assert(isinf(1.0) == 0)
+
+    // --- min / max ---
+    assert(approx(min(3.0, 5.0), 3.0))
+    assert(approx(max(3.0, 5.0), 5.0))
+
+    // --- stdlib: fract, mod, clamp, step, smoothstep, mix ---
+    assert(approx(fract(3.75), 0.75))
+    assert(approx(mod(7.0, 3.0), 1.0))
+    assert(approx(clamp(-1.0, 0.0, 1.0), 0.0))
+    assert(approx(clamp(5.0, 0.0, 1.0), 1.0))
+    assert(approx(step(0.5, 0.3), 0.0))
+    assert(approx(step(0.5, 0.7), 1.0))
+    assert(approx(smoothstep(0.0, 1.0, 0.5), 0.5))
+    assert(approx(mix(0.0, 10.0, 0.3), 3.0))
+}

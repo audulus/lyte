@@ -137,44 +137,81 @@ mod tags {
     pub const PRINT_F32: u8 = 82;
     pub const ASSERT: u8 = 83;
     pub const PUTC: u8 = 84;
+    // Unary f32 math
     pub const SIN_F32: u8 = 85;
     pub const COS_F32: u8 = 86;
     pub const TAN_F32: u8 = 87;
-    pub const LN_F32: u8 = 88;
-    pub const EXP_F32: u8 = 89;
-    pub const SQRT_F32: u8 = 90;
-    pub const ABS_F32: u8 = 91;
-    pub const FLOOR_F32: u8 = 92;
-    pub const CEIL_F32: u8 = 93;
-    pub const SIN_F64: u8 = 94;
-    pub const COS_F64: u8 = 95;
-    pub const TAN_F64: u8 = 96;
-    pub const LN_F64: u8 = 97;
-    pub const EXP_F64: u8 = 98;
-    pub const SQRT_F64: u8 = 99;
-    pub const ABS_F64: u8 = 100;
-    pub const FLOOR_F64: u8 = 101;
-    pub const CEIL_F64: u8 = 102;
-    pub const POW_F32: u8 = 103;
-    pub const ATAN2_F32: u8 = 104;
-    pub const POW_F64: u8 = 105;
-    pub const ATAN2_F64: u8 = 106;
+    pub const ASIN_F32: u8 = 88;
+    pub const ACOS_F32: u8 = 89;
+    pub const ATAN_F32: u8 = 90;
+    pub const SINH_F32: u8 = 91;
+    pub const COSH_F32: u8 = 92;
+    pub const TANH_F32: u8 = 93;
+    pub const ASINH_F32: u8 = 94;
+    pub const ACOSH_F32: u8 = 95;
+    pub const ATANH_F32: u8 = 96;
+    pub const LN_F32: u8 = 97;
+    pub const EXP_F32: u8 = 98;
+    pub const EXP2_F32: u8 = 99;
+    pub const LOG10_F32: u8 = 100;
+    pub const LOG2_F32: u8 = 101;
+    pub const SQRT_F32: u8 = 102;
+    pub const ABS_F32: u8 = 103;
+    pub const FLOOR_F32: u8 = 104;
+    pub const CEIL_F32: u8 = 105;
+    // Unary f64 math
+    pub const SIN_F64: u8 = 106;
+    pub const COS_F64: u8 = 107;
+    pub const TAN_F64: u8 = 108;
+    pub const ASIN_F64: u8 = 109;
+    pub const ACOS_F64: u8 = 110;
+    pub const ATAN_F64: u8 = 111;
+    pub const SINH_F64: u8 = 112;
+    pub const COSH_F64: u8 = 113;
+    pub const TANH_F64: u8 = 114;
+    pub const ASINH_F64: u8 = 115;
+    pub const ACOSH_F64: u8 = 116;
+    pub const ATANH_F64: u8 = 117;
+    pub const LN_F64: u8 = 118;
+    pub const EXP_F64: u8 = 119;
+    pub const EXP2_F64: u8 = 120;
+    pub const LOG10_F64: u8 = 121;
+    pub const LOG2_F64: u8 = 122;
+    pub const SQRT_F64: u8 = 123;
+    pub const ABS_F64: u8 = 124;
+    pub const FLOOR_F64: u8 = 125;
+    pub const CEIL_F64: u8 = 126;
+    // Predicates
+    pub const ISINF_F32: u8 = 127;
+    pub const ISINF_F64: u8 = 128;
+    pub const ISNAN_F32: u8 = 129;
+    pub const ISNAN_F64: u8 = 130;
+    // Binary f32 math
+    pub const POW_F32: u8 = 131;
+    pub const ATAN2_F32: u8 = 132;
+    pub const MIN_F32: u8 = 133;
+    pub const MAX_F32: u8 = 134;
+    // Binary f64 math
+    pub const POW_F64: u8 = 135;
+    pub const ATAN2_F64: u8 = 136;
+    pub const MIN_F64: u8 = 137;
+    pub const MAX_F64: u8 = 138;
     // Superinstructions: fused LocalAddr+Load/Store
-    pub const LOAD_SLOT32: u8 = 107;   // AD: A=dst, D=slot (u16)
-    pub const STORE_SLOT32: u8 = 108;  // AD: A=src, D=slot (u16)
+    pub const LOAD_SLOT32: u8 = 139;   // AD: A=dst, D=slot (u16)
+    pub const STORE_SLOT32: u8 = 140;  // AD: A=src, D=slot (u16)
     // For values that don't fit inline
-    pub const LOAD_IMM_WIDE: u8 = 109; // AD: A=dst, D=wide_i64 pool index
-    pub const LOAD_F64_WIDE: u8 = 110; // AD: A=dst, D=wide_f64 pool index
+    pub const LOAD_IMM_WIDE: u8 = 141; // AD: A=dst, D=wide_i64 pool index
+    pub const LOAD_F64_WIDE: u8 = 142; // AD: A=dst, D=wide_f64 pool index
     // Extended instructions (AB + data word) for large offsets
-    pub const LOAD32_OFF_WIDE: u8 = 111; // AB+data: A=dst, B=base, next word=offset
-    pub const LOAD64_OFF_WIDE: u8 = 112; // AB+data: A=dst, B=base, next word=offset
-    pub const STORE8_OFF_WIDE: u8 = 113; // AB+data: A=base, B=src, next word=offset
-    pub const STORE32_OFF_WIDE: u8 = 114; // AB+data: A=base, B=src, next word=offset
-    pub const STORE64_OFF_WIDE: u8 = 115; // AB+data: A=base, B=src, next word=offset
+    pub const LOAD32_OFF_WIDE: u8 = 143; // AB+data: A=dst, B=base, next word=offset
+    pub const LOAD64_OFF_WIDE: u8 = 144; // AB+data: A=dst, B=base, next word=offset
+    pub const STORE8_OFF_WIDE: u8 = 145; // AB+data: A=base, B=src, next word=offset
+    pub const STORE32_OFF_WIDE: u8 = 146; // AB+data: A=base, B=src, next word=offset
+    pub const STORE64_OFF_WIDE: u8 = 147; // AB+data: A=base, B=src, next word=offset
     // Extended instructions (ABC + data word) for large operands
-    pub const MEM_COPY_WIDE: u8 = 116; // ABC+data: A=dst, B=src, next word=size
-    pub const SAVE_REGS_WIDE: u8 = 117;   // ABC+data: A=start_reg, B=count, next word=slot
-    pub const RESTORE_REGS_WIDE: u8 = 118; // ABC+data: A=start_reg, B=count, next word=slot
+    pub const MEM_COPY_WIDE: u8 = 148; // ABC+data: A=dst, B=src, next word=size
+    pub const SAVE_REGS_WIDE: u8 = 149;   // ABC+data: A=start_reg, B=count, next word=slot
+    pub const RESTORE_REGS_WIDE: u8 = 150; // ABC+data: A=start_reg, B=count, next word=slot
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -471,30 +508,65 @@ impl LinkedProgram {
             Opcode::PrintF32 { src } => PackedOp::abc(tags::PRINT_F32, src, 0, 0),
             Opcode::Assert { src } => PackedOp::abc(tags::ASSERT, src, 0, 0),
             Opcode::Putc { src } => PackedOp::abc(tags::PUTC, src, 0, 0),
-            // Math builtins — AB
+            // Math builtins — unary f32
             Opcode::SinF32 { dst, src } => PackedOp::abc(tags::SIN_F32, dst, src, 0),
             Opcode::CosF32 { dst, src } => PackedOp::abc(tags::COS_F32, dst, src, 0),
             Opcode::TanF32 { dst, src } => PackedOp::abc(tags::TAN_F32, dst, src, 0),
+            Opcode::AsinF32 { dst, src } => PackedOp::abc(tags::ASIN_F32, dst, src, 0),
+            Opcode::AcosF32 { dst, src } => PackedOp::abc(tags::ACOS_F32, dst, src, 0),
+            Opcode::AtanF32 { dst, src } => PackedOp::abc(tags::ATAN_F32, dst, src, 0),
+            Opcode::SinhF32 { dst, src } => PackedOp::abc(tags::SINH_F32, dst, src, 0),
+            Opcode::CoshF32 { dst, src } => PackedOp::abc(tags::COSH_F32, dst, src, 0),
+            Opcode::TanhF32 { dst, src } => PackedOp::abc(tags::TANH_F32, dst, src, 0),
+            Opcode::AsinhF32 { dst, src } => PackedOp::abc(tags::ASINH_F32, dst, src, 0),
+            Opcode::AcoshF32 { dst, src } => PackedOp::abc(tags::ACOSH_F32, dst, src, 0),
+            Opcode::AtanhF32 { dst, src } => PackedOp::abc(tags::ATANH_F32, dst, src, 0),
             Opcode::LnF32 { dst, src } => PackedOp::abc(tags::LN_F32, dst, src, 0),
             Opcode::ExpF32 { dst, src } => PackedOp::abc(tags::EXP_F32, dst, src, 0),
+            Opcode::Exp2F32 { dst, src } => PackedOp::abc(tags::EXP2_F32, dst, src, 0),
+            Opcode::Log10F32 { dst, src } => PackedOp::abc(tags::LOG10_F32, dst, src, 0),
+            Opcode::Log2F32 { dst, src } => PackedOp::abc(tags::LOG2_F32, dst, src, 0),
             Opcode::SqrtF32 { dst, src } => PackedOp::abc(tags::SQRT_F32, dst, src, 0),
             Opcode::AbsF32 { dst, src } => PackedOp::abc(tags::ABS_F32, dst, src, 0),
             Opcode::FloorF32 { dst, src } => PackedOp::abc(tags::FLOOR_F32, dst, src, 0),
             Opcode::CeilF32 { dst, src } => PackedOp::abc(tags::CEIL_F32, dst, src, 0),
+            // Math builtins — unary f64
             Opcode::SinF64 { dst, src } => PackedOp::abc(tags::SIN_F64, dst, src, 0),
             Opcode::CosF64 { dst, src } => PackedOp::abc(tags::COS_F64, dst, src, 0),
             Opcode::TanF64 { dst, src } => PackedOp::abc(tags::TAN_F64, dst, src, 0),
+            Opcode::AsinF64 { dst, src } => PackedOp::abc(tags::ASIN_F64, dst, src, 0),
+            Opcode::AcosF64 { dst, src } => PackedOp::abc(tags::ACOS_F64, dst, src, 0),
+            Opcode::AtanF64 { dst, src } => PackedOp::abc(tags::ATAN_F64, dst, src, 0),
+            Opcode::SinhF64 { dst, src } => PackedOp::abc(tags::SINH_F64, dst, src, 0),
+            Opcode::CoshF64 { dst, src } => PackedOp::abc(tags::COSH_F64, dst, src, 0),
+            Opcode::TanhF64 { dst, src } => PackedOp::abc(tags::TANH_F64, dst, src, 0),
+            Opcode::AsinhF64 { dst, src } => PackedOp::abc(tags::ASINH_F64, dst, src, 0),
+            Opcode::AcoshF64 { dst, src } => PackedOp::abc(tags::ACOSH_F64, dst, src, 0),
+            Opcode::AtanhF64 { dst, src } => PackedOp::abc(tags::ATANH_F64, dst, src, 0),
             Opcode::LnF64 { dst, src } => PackedOp::abc(tags::LN_F64, dst, src, 0),
             Opcode::ExpF64 { dst, src } => PackedOp::abc(tags::EXP_F64, dst, src, 0),
+            Opcode::Exp2F64 { dst, src } => PackedOp::abc(tags::EXP2_F64, dst, src, 0),
+            Opcode::Log10F64 { dst, src } => PackedOp::abc(tags::LOG10_F64, dst, src, 0),
+            Opcode::Log2F64 { dst, src } => PackedOp::abc(tags::LOG2_F64, dst, src, 0),
             Opcode::SqrtF64 { dst, src } => PackedOp::abc(tags::SQRT_F64, dst, src, 0),
             Opcode::AbsF64 { dst, src } => PackedOp::abc(tags::ABS_F64, dst, src, 0),
             Opcode::FloorF64 { dst, src } => PackedOp::abc(tags::FLOOR_F64, dst, src, 0),
             Opcode::CeilF64 { dst, src } => PackedOp::abc(tags::CEIL_F64, dst, src, 0),
-            // Math builtins — ABC (binary)
+            // Math builtins — predicates
+            Opcode::IsinfF32 { dst, src } => PackedOp::abc(tags::ISINF_F32, dst, src, 0),
+            Opcode::IsinfF64 { dst, src } => PackedOp::abc(tags::ISINF_F64, dst, src, 0),
+            Opcode::IsnanF32 { dst, src } => PackedOp::abc(tags::ISNAN_F32, dst, src, 0),
+            Opcode::IsnanF64 { dst, src } => PackedOp::abc(tags::ISNAN_F64, dst, src, 0),
+            // Math builtins — binary f32
             Opcode::PowF32 { dst, a, b } => PackedOp::abc(tags::POW_F32, dst, a, b),
             Opcode::Atan2F32 { dst, a, b } => PackedOp::abc(tags::ATAN2_F32, dst, a, b),
+            Opcode::MinF32 { dst, a, b } => PackedOp::abc(tags::MIN_F32, dst, a, b),
+            Opcode::MaxF32 { dst, a, b } => PackedOp::abc(tags::MAX_F32, dst, a, b),
+            // Math builtins — binary f64
             Opcode::PowF64 { dst, a, b } => PackedOp::abc(tags::POW_F64, dst, a, b),
             Opcode::Atan2F64 { dst, a, b } => PackedOp::abc(tags::ATAN2_F64, dst, a, b),
+            Opcode::MinF64 { dst, a, b } => PackedOp::abc(tags::MIN_F64, dst, a, b),
+            Opcode::MaxF64 { dst, a, b } => PackedOp::abc(tags::MAX_F64, dst, a, b),
         };
         ops.push(packed);
     }
@@ -832,8 +904,20 @@ pub enum Opcode {
     SinF32 { dst: Reg, src: Reg },
     CosF32 { dst: Reg, src: Reg },
     TanF32 { dst: Reg, src: Reg },
+    AsinF32 { dst: Reg, src: Reg },
+    AcosF32 { dst: Reg, src: Reg },
+    AtanF32 { dst: Reg, src: Reg },
+    SinhF32 { dst: Reg, src: Reg },
+    CoshF32 { dst: Reg, src: Reg },
+    TanhF32 { dst: Reg, src: Reg },
+    AsinhF32 { dst: Reg, src: Reg },
+    AcoshF32 { dst: Reg, src: Reg },
+    AtanhF32 { dst: Reg, src: Reg },
     LnF32 { dst: Reg, src: Reg },
     ExpF32 { dst: Reg, src: Reg },
+    Exp2F32 { dst: Reg, src: Reg },
+    Log10F32 { dst: Reg, src: Reg },
+    Log2F32 { dst: Reg, src: Reg },
     SqrtF32 { dst: Reg, src: Reg },
     AbsF32 { dst: Reg, src: Reg },
     FloorF32 { dst: Reg, src: Reg },
@@ -843,20 +927,42 @@ pub enum Opcode {
     SinF64 { dst: Reg, src: Reg },
     CosF64 { dst: Reg, src: Reg },
     TanF64 { dst: Reg, src: Reg },
+    AsinF64 { dst: Reg, src: Reg },
+    AcosF64 { dst: Reg, src: Reg },
+    AtanF64 { dst: Reg, src: Reg },
+    SinhF64 { dst: Reg, src: Reg },
+    CoshF64 { dst: Reg, src: Reg },
+    TanhF64 { dst: Reg, src: Reg },
+    AsinhF64 { dst: Reg, src: Reg },
+    AcoshF64 { dst: Reg, src: Reg },
+    AtanhF64 { dst: Reg, src: Reg },
     LnF64 { dst: Reg, src: Reg },
     ExpF64 { dst: Reg, src: Reg },
+    Exp2F64 { dst: Reg, src: Reg },
+    Log10F64 { dst: Reg, src: Reg },
+    Log2F64 { dst: Reg, src: Reg },
     SqrtF64 { dst: Reg, src: Reg },
     AbsF64 { dst: Reg, src: Reg },
     FloorF64 { dst: Reg, src: Reg },
     CeilF64 { dst: Reg, src: Reg },
 
+    /// Predicate math (return i32): dst = op(src)
+    IsinfF32 { dst: Reg, src: Reg },
+    IsinfF64 { dst: Reg, src: Reg },
+    IsnanF32 { dst: Reg, src: Reg },
+    IsnanF64 { dst: Reg, src: Reg },
+
     /// Binary f32 math: dst = op(a, b)
     PowF32 { dst: Reg, a: Reg, b: Reg },
     Atan2F32 { dst: Reg, a: Reg, b: Reg },
+    MinF32 { dst: Reg, a: Reg, b: Reg },
+    MaxF32 { dst: Reg, a: Reg, b: Reg },
 
     /// Binary f64 math: dst = op(a, b)
     PowF64 { dst: Reg, a: Reg, b: Reg },
     Atan2F64 { dst: Reg, a: Reg, b: Reg },
+    MinF64 { dst: Reg, a: Reg, b: Reg },
+    MaxF64 { dst: Reg, a: Reg, b: Reg },
 }
 
 /// A compiled function for the VM
@@ -1660,8 +1766,20 @@ impl VM {
                 tags::SIN_F32 => { set_f32!(op.a(), r_f32!(op.b()).sin()); }
                 tags::COS_F32 => { set_f32!(op.a(), r_f32!(op.b()).cos()); }
                 tags::TAN_F32 => { set_f32!(op.a(), r_f32!(op.b()).tan()); }
+                tags::ASIN_F32 => { set_f32!(op.a(), r_f32!(op.b()).asin()); }
+                tags::ACOS_F32 => { set_f32!(op.a(), r_f32!(op.b()).acos()); }
+                tags::ATAN_F32 => { set_f32!(op.a(), r_f32!(op.b()).atan()); }
+                tags::SINH_F32 => { set_f32!(op.a(), r_f32!(op.b()).sinh()); }
+                tags::COSH_F32 => { set_f32!(op.a(), r_f32!(op.b()).cosh()); }
+                tags::TANH_F32 => { set_f32!(op.a(), r_f32!(op.b()).tanh()); }
+                tags::ASINH_F32 => { set_f32!(op.a(), r_f32!(op.b()).asinh()); }
+                tags::ACOSH_F32 => { set_f32!(op.a(), r_f32!(op.b()).acosh()); }
+                tags::ATANH_F32 => { set_f32!(op.a(), r_f32!(op.b()).atanh()); }
                 tags::LN_F32 => { set_f32!(op.a(), r_f32!(op.b()).ln()); }
                 tags::EXP_F32 => { set_f32!(op.a(), r_f32!(op.b()).exp()); }
+                tags::EXP2_F32 => { set_f32!(op.a(), r_f32!(op.b()).exp2()); }
+                tags::LOG10_F32 => { set_f32!(op.a(), r_f32!(op.b()).log10()); }
+                tags::LOG2_F32 => { set_f32!(op.a(), r_f32!(op.b()).log2()); }
                 tags::SQRT_F32 => { set_f32!(op.a(), r_f32!(op.b()).sqrt()); }
                 tags::ABS_F32 => { set_f32!(op.a(), r_f32!(op.b()).abs()); }
                 tags::FLOOR_F32 => { set_f32!(op.a(), r_f32!(op.b()).floor()); }
@@ -1671,18 +1789,42 @@ impl VM {
                 tags::SIN_F64 => { set_f64!(op.a(), r_f64!(op.b()).sin()); }
                 tags::COS_F64 => { set_f64!(op.a(), r_f64!(op.b()).cos()); }
                 tags::TAN_F64 => { set_f64!(op.a(), r_f64!(op.b()).tan()); }
+                tags::ASIN_F64 => { set_f64!(op.a(), r_f64!(op.b()).asin()); }
+                tags::ACOS_F64 => { set_f64!(op.a(), r_f64!(op.b()).acos()); }
+                tags::ATAN_F64 => { set_f64!(op.a(), r_f64!(op.b()).atan()); }
+                tags::SINH_F64 => { set_f64!(op.a(), r_f64!(op.b()).sinh()); }
+                tags::COSH_F64 => { set_f64!(op.a(), r_f64!(op.b()).cosh()); }
+                tags::TANH_F64 => { set_f64!(op.a(), r_f64!(op.b()).tanh()); }
+                tags::ASINH_F64 => { set_f64!(op.a(), r_f64!(op.b()).asinh()); }
+                tags::ACOSH_F64 => { set_f64!(op.a(), r_f64!(op.b()).acosh()); }
+                tags::ATANH_F64 => { set_f64!(op.a(), r_f64!(op.b()).atanh()); }
                 tags::LN_F64 => { set_f64!(op.a(), r_f64!(op.b()).ln()); }
                 tags::EXP_F64 => { set_f64!(op.a(), r_f64!(op.b()).exp()); }
+                tags::EXP2_F64 => { set_f64!(op.a(), r_f64!(op.b()).exp2()); }
+                tags::LOG10_F64 => { set_f64!(op.a(), r_f64!(op.b()).log10()); }
+                tags::LOG2_F64 => { set_f64!(op.a(), r_f64!(op.b()).log2()); }
                 tags::SQRT_F64 => { set_f64!(op.a(), r_f64!(op.b()).sqrt()); }
                 tags::ABS_F64 => { set_f64!(op.a(), r_f64!(op.b()).abs()); }
                 tags::FLOOR_F64 => { set_f64!(op.a(), r_f64!(op.b()).floor()); }
                 tags::CEIL_F64 => { set_f64!(op.a(), r_f64!(op.b()).ceil()); }
 
-                // Math builtins — binary
+                // Math builtins — predicates
+                tags::ISINF_F32 => { set_i64!(op.a(), r_f32!(op.b()).is_infinite() as i64); }
+                tags::ISINF_F64 => { set_i64!(op.a(), r_f64!(op.b()).is_infinite() as i64); }
+                tags::ISNAN_F32 => { set_i64!(op.a(), r_f32!(op.b()).is_nan() as i64); }
+                tags::ISNAN_F64 => { set_i64!(op.a(), r_f64!(op.b()).is_nan() as i64); }
+
+                // Math builtins — binary f32
                 tags::POW_F32 => { set_f32!(op.a(), r_f32!(op.b()).powf(r_f32!(op.c()))); }
                 tags::ATAN2_F32 => { set_f32!(op.a(), r_f32!(op.b()).atan2(r_f32!(op.c()))); }
+                tags::MIN_F32 => { set_f32!(op.a(), r_f32!(op.b()).min(r_f32!(op.c()))); }
+                tags::MAX_F32 => { set_f32!(op.a(), r_f32!(op.b()).max(r_f32!(op.c()))); }
+
+                // Math builtins — binary f64
                 tags::POW_F64 => { set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c()))); }
                 tags::ATAN2_F64 => { set_f64!(op.a(), r_f64!(op.b()).atan2(r_f64!(op.c()))); }
+                tags::MIN_F64 => { set_f64!(op.a(), r_f64!(op.b()).min(r_f64!(op.c()))); }
+                tags::MAX_F64 => { set_f64!(op.a(), r_f64!(op.b()).max(r_f64!(op.c()))); }
 
                 _ => {
                     #[cfg(debug_assertions)]

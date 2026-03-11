@@ -62,7 +62,12 @@ fn builtin_decls() -> Vec<Decl> {
     ];
 
     // Math builtins: unary, overloaded for f32 and f64.
-    let unary_math = ["sin", "cos", "tan", "ln", "exp", "sqrt", "abs", "floor", "ceil"];
+    let unary_math = [
+        "sin", "cos", "tan", "asin", "acos", "atan",
+        "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+        "ln", "exp", "exp2", "log10", "log2",
+        "sqrt", "abs", "floor", "ceil",
+    ];
     for name in unary_math {
         for (ty, ret_ty) in [
             (mk_type(Type::Float32), mk_type(Type::Float32)),
@@ -87,8 +92,32 @@ fn builtin_decls() -> Vec<Decl> {
         }
     }
 
+    // Math builtins: unary predicates returning bool, overloaded for f32 and f64.
+    let bool_ty = mk_type(Type::Int32);
+    let unary_pred = ["isinf", "isnan"];
+    for name in unary_pred {
+        for ty in [mk_type(Type::Float32), mk_type(Type::Float64)] {
+            decls.push(Decl::Func(FuncDecl {
+                name: Name::new(name.into()),
+                typevars: vec![],
+                size_vars: vec![],
+                params: vec![Param {
+                    name: Name::new("x".into()),
+                    ty: Some(ty),
+                }],
+                body: None,
+                ret: bool_ty,
+                constraints: vec![],
+                loc: test_loc(),
+                arena: ExprArena::new(),
+                types: vec![],
+                closure_vars: vec![],
+            }));
+        }
+    }
+
     // Math builtins: binary, overloaded for f32 and f64.
-    let binary_math = ["pow", "atan2"];
+    let binary_math = ["pow", "atan2", "min", "max"];
     for name in binary_math {
         for (ty, ret_ty) in [
             (mk_type(Type::Float32), mk_type(Type::Float32)),
