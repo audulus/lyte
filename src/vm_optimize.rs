@@ -2671,7 +2671,434 @@ mod tests {
         assert_eq!(code[1], Opcode::LoadImm { dst: 0, value: 42 });
     }
 
-    // ========== integration: optimize pipeline ==========
+    // ========== move_forwarding edge cases ==========
+
+    #[test]
+    fn test_move_forwarding_move_to_move() {
+        // Move → Move chain: Move{dst:1, src:0} + Move{dst:2, src:1}
+        // Should forward: Move{dst:2, src:0} + Nop
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 7 },
+            Opcode::Move { dst: 1, src: 0 },
+            Opcode::Move { dst: 2, src: 1 },
+        ];
+        move_forwarding(&mut code);
+        // r1 only used by second move, so first Move rewrites dst to 2
+        // but r0 is used by both the LoadImm consumer and the first Move src,
+        // so we need to check use counts carefully
+        // Actually r0 has use_count=1 (only first Move reads it), r1 has use_count=1 (only second Move)
+        // First pass: LoadImm→Move: r0 used once → forward LoadImm dst to 1, Nop
+        // Then at i=1 (now Nop) + i=2: Move{dst:2,src:1} — src=1, but r1 was result of LoadImm
+        // Let's just check the outcome
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_move_forwarding_self_move() {
+        // Move { dst: 0, src: 0 } — trivial, shouldn't crash
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 1 },
+            Opcode::Move { dst: 0, src: 0 },
+        ];
+        move_forwarding(&mut code);
+        // src==dst, but r0 use count is 1 (the Move reads it)
+        // get_dst of LoadImm returns 0, prev_dst==move_src==0, uses[0]==1 → forward
+        // set_dst of LoadImm to move_dst=0 (no-op), Nop the Move
+        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 1 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    // ========== DCE edge cases ==========
+
+    #[test]
+    fn test_dce_preserves_calls() {
+        // Calls have side effects even if their result is unused
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 0 },
+            Opcode::LoadImm { dst: 2, value: 1 },
+            Opcode::Call {
+                func: 0,
+                args_start: 1,
+                arg_count: 2,
+            },
+            Opcode::LoadImm { dst: 0, value: 99 },
+        ];
+        dead_code_elimination(&mut code);
+        // Call must be preserved; its arg registers (1,2) must stay alive
+        assert_eq!(code[0], Opcode::LoadImm { dst: 1, value: 0 });
+        assert_eq!(code[1], Opcode::LoadImm { dst: 2, value: 1 });
+        assert!(matches!(code[2], Opcode::Call { .. }));
+    }
+
+    #[test]
+    fn test_dce_preserves_stores() {
+        // Store instructions have side effects
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 42 },
+            Opcode::LocalAddr { dst: 2, slot: 0 },
+            Opcode::Store32 { addr: 2, src: 1 },
+            Opcode::LoadImm { dst: 0, value: 0 },
+        ];
+        dead_code_elimination(&mut code);
+        // Store32 and its dependencies must survive
+        assert_eq!(code[0], Opcode::LoadImm { dst: 1, value: 42 });
+        assert_eq!(code[1], Opcode::LocalAddr { dst: 2, slot: 0 });
+        assert!(matches!(code[2], Opcode::Store32 { .. }));
+    }
+
+    #[test]
+    fn test_dce_iterative_dead_chain() {
+        // r3 = r1 + r2, r4 = r3 + r1, both dead.
+        // First DCE pass kills r4 (unused), second pass kills r3 (now unused).
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 99 }, // r0 live (return)
+            Opcode::LoadImm { dst: 1, value: 5 },
+            Opcode::LoadImm { dst: 2, value: 10 },
+            Opcode::IAdd { dst: 3, a: 1, b: 2 },
+            Opcode::IAdd { dst: 4, a: 3, b: 1 }, // r4 unused
+        ];
+        // Single pass: r4 unused → NOP [4]; but r3 now still has use_count from [4]
+        dead_code_elimination(&mut code);
+        assert_eq!(code[4], Opcode::Nop);
+        // After first pass, r3 may still appear used. Run again:
+        dead_code_elimination(&mut code);
+        assert_eq!(code[3], Opcode::Nop);
+        // r1, r2 only fed into dead code, run third pass:
+        dead_code_elimination(&mut code);
+        assert_eq!(code[1], Opcode::Nop);
+        assert_eq!(code[2], Opcode::Nop);
+    }
+
+    // ========== fuse_offset_access edge cases ==========
+
+    #[test]
+    fn test_fuse_offset_store8() {
+        let mut code = vec![
+            Opcode::IAddImm {
+                dst: 1,
+                src: 0,
+                imm: 3,
+            },
+            Opcode::Store8 { addr: 1, src: 2 },
+        ];
+        fuse_offset_access(&mut code);
+        assert_eq!(
+            code[0],
+            Opcode::Store8Off {
+                base: 0,
+                offset: 3,
+                src: 2
+            }
+        );
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_offset_store64() {
+        let mut code = vec![
+            Opcode::IAddImm {
+                dst: 1,
+                src: 0,
+                imm: 24,
+            },
+            Opcode::Store64 { addr: 1, src: 2 },
+        ];
+        fuse_offset_access(&mut code);
+        assert_eq!(
+            code[0],
+            Opcode::Store64Off {
+                base: 0,
+                offset: 24,
+                src: 2
+            }
+        );
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    // ========== fuse_compare_branch edge cases ==========
+
+    #[test]
+    fn test_fuse_ilt_jump_if_not_zero() {
+        // ILt + JumpIfNotZero should NOT fuse (only JumpIfZero fuses)
+        let mut code = vec![
+            Opcode::ILt { dst: 2, a: 0, b: 1 },
+            Opcode::JumpIfNotZero { cond: 2, offset: 5 },
+        ];
+        let original = code.clone();
+        fuse_compare_branch(&mut code);
+        assert_eq!(code, original);
+    }
+
+    // ========== compact edge cases ==========
+
+    #[test]
+    fn test_compact_backward_jump() {
+        // Backward jump (loop): Jump at index 3 targets index 1
+        // offset = target - (pos+1) = 1 - 4 = -3
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 0 },
+            Opcode::LoadImm { dst: 1, value: 1 },   // loop start
+            Opcode::Nop,
+            Opcode::IAdd { dst: 0, a: 0, b: 1 },
+            Opcode::Nop,
+            Opcode::Jump { offset: -5 }, // target = 5+1+(-5) = 1
+        ];
+        compact(&mut code);
+        // After removing 2 Nops: [LoadImm, LoadImm, IAdd, Jump]
+        assert_eq!(code.len(), 4);
+        // Jump at new index 3, target should be new index 1
+        // offset = 1 - 3 - 1 = -3
+        assert_eq!(code[3], Opcode::Jump { offset: -3 });
+    }
+
+    #[test]
+    fn test_compact_no_nops() {
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 1 },
+            Opcode::LoadImm { dst: 1, value: 2 },
+        ];
+        let original = code.clone();
+        compact(&mut code);
+        assert_eq!(code, original);
+    }
+
+    #[test]
+    fn test_compact_all_nops() {
+        let mut code = vec![Opcode::Nop, Opcode::Nop, Opcode::Nop];
+        compact(&mut code);
+        assert!(code.is_empty());
+    }
+
+    // ========== compute_live_ranges tests ==========
+
+    #[test]
+    fn test_live_ranges_basic() {
+        let code = vec![
+            Opcode::LoadImm { dst: 0, value: 1 },  // def r0 at 0
+            Opcode::LoadImm { dst: 1, value: 2 },  // def r1 at 1
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },   // use r0,r1 at 2; def r2 at 2
+        ];
+        let (def_point, last_use, is_used) = compute_live_ranges(&code);
+        assert!(is_used[0] && is_used[1] && is_used[2]);
+        assert_eq!(def_point[0], 0);
+        assert_eq!(def_point[1], 1);
+        assert_eq!(def_point[2], 2);
+        assert_eq!(last_use[0], 2); // r0 last used at IAdd
+        assert_eq!(last_use[1], 2); // r1 last used at IAdd
+    }
+
+    #[test]
+    fn test_live_ranges_loop_extension() {
+        // Backward jump extends live ranges of registers used in the loop
+        let code = vec![
+            Opcode::LoadImm { dst: 0, value: 0 },    // 0: def r0
+            Opcode::LoadImm { dst: 1, value: 10 },   // 1: def r1
+            Opcode::IAdd { dst: 0, a: 0, b: 1 },     // 2: use r0,r1 (loop body)
+            Opcode::Jump { offset: -2 },              // 3: jump to index 2 (offset = 2 - 3 - 1 = -2)
+        ];
+        let (def_point, last_use, _is_used) = compute_live_ranges(&code);
+        // r1 is defined before loop (at 1), used in loop body (at 2).
+        // Backward jump from 3 to 2 should extend r1's last_use to 3 (loop end).
+        assert_eq!(def_point[1], 1);
+        assert!(last_use[1] >= 3, "r1 last_use should be extended to loop end, got {}", last_use[1]);
+    }
+
+    #[test]
+    fn test_live_ranges_unused_register() {
+        let code = vec![
+            Opcode::LoadImm { dst: 5, value: 42 },  // r5 defined but never used
+        ];
+        let (_def_point, _last_use, is_used) = compute_live_ranges(&code);
+        // r5 is "used" because it has a def point (get_dst returns it)
+        assert!(is_used[5]);
+        // But registers 0-4, 6-255 should not be used
+        assert!(!is_used[0]);
+        assert!(!is_used[1]);
+    }
+
+    // ========== copy_coalesce tests ==========
+
+    #[test]
+    fn test_copy_coalesce_basic() {
+        // r1 = 42, Move r1 → r2, use r2
+        // r1 dies at the Move, r2 is born at the Move → can coalesce
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 42 },
+            Opcode::Move { dst: 2, src: 1 },
+            Opcode::PrintI32 { src: 2 },
+        ];
+        copy_coalesce(&mut code);
+        // Move should be eliminated; r1 and r2 merged to same register
+        assert!(matches!(code[1], Opcode::Nop));
+        // The PrintI32 should use whichever register the coalescer chose (the lower one = 1)
+        assert!(matches!(code[2], Opcode::PrintI32 { src: 1 }));
+    }
+
+    #[test]
+    fn test_copy_coalesce_skip_call_args() {
+        // Registers used as call args shouldn't be coalesced (contiguity requirement)
+        let mut code = vec![
+            Opcode::LoadImm { dst: 3, value: 1 },
+            Opcode::Move { dst: 4, src: 3 },
+            Opcode::Call {
+                func: 0,
+                args_start: 4,
+                arg_count: 1,
+            },
+        ];
+        copy_coalesce(&mut code);
+        // r4 is a call arg → should NOT be coalesced
+        assert!(matches!(code[1], Opcode::Move { dst: 4, src: 3 }));
+    }
+
+    #[test]
+    fn test_copy_coalesce_self_move() {
+        // Move { dst: 1, src: 1 } → should be eliminated as Nop
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 5 },
+            Opcode::Move { dst: 1, src: 1 },
+            Opcode::PrintI32 { src: 1 },
+        ];
+        copy_coalesce(&mut code);
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_copy_coalesce_interference() {
+        // r1 and r2 both live at the same time → cannot coalesce
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 1 },
+            Opcode::LoadImm { dst: 2, value: 2 },
+            Opcode::Move { dst: 3, src: 1 },   // r1 still live (used below)
+            Opcode::IAdd { dst: 0, a: 1, b: 2 },
+        ];
+        copy_coalesce(&mut code);
+        // r1 doesn't die at the Move (it's used at IAdd), so can't coalesce
+        assert!(matches!(code[2], Opcode::Move { dst: 3, src: 1 }));
+    }
+
+    // ========== register_allocation tests ==========
+
+    #[test]
+    fn test_register_allocation_compacts() {
+        // Uses r0, r5, r10 → should be compacted to r0, r1, r2
+        let mut code = vec![
+            Opcode::LoadImm { dst: 5, value: 1 },
+            Opcode::LoadImm { dst: 10, value: 2 },
+            Opcode::IAdd { dst: 0, a: 5, b: 10 },
+        ];
+        let (count, mapping) = register_allocation(&mut code);
+        // r0 pinned to preg 0
+        assert_eq!(mapping[0], 0);
+        // r5 and r10 should map to pregs 1 and 2 (or 2 and 1)
+        assert!(mapping[5] < count);
+        assert!(mapping[10] < count);
+        assert_ne!(mapping[5], mapping[10]);
+        assert!(count <= 3, "expected at most 3 pregs, got {}", count);
+        // Verify instruction was rewritten
+        if let Opcode::IAdd { dst, a, b } = code[2] {
+            assert_eq!(dst, 0);
+            assert_eq!(a, mapping[5]);
+            assert_eq!(b, mapping[10]);
+        } else {
+            panic!("expected IAdd");
+        }
+    }
+
+    #[test]
+    fn test_register_allocation_reuses_expired() {
+        // r1 used then dead, r2 used then dead → should reuse same preg
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 1 },
+            Opcode::Move { dst: 0, src: 1 },       // r1 dies here
+            Opcode::LoadImm { dst: 2, value: 2 },
+            Opcode::IAdd { dst: 0, a: 0, b: 2 },   // r2 dies here
+        ];
+        let (count, _mapping) = register_allocation(&mut code);
+        // r0 always needed; r1 and r2 don't overlap, so can share → 2 pregs total
+        assert!(count <= 2, "expected ≤2 pregs, got {}", count);
+    }
+
+    #[test]
+    fn test_register_allocation_preserves_call_arg_contiguity() {
+        // Call args r3,r4 must remain contiguous after allocation
+        let mut code = vec![
+            Opcode::LoadImm { dst: 3, value: 10 },
+            Opcode::LoadImm { dst: 4, value: 20 },
+            Opcode::Call {
+                func: 0,
+                args_start: 3,
+                arg_count: 2,
+            },
+            Opcode::LoadImm { dst: 0, value: 0 },
+        ];
+        let (_count, mapping) = register_allocation(&mut code);
+        // The mapped registers for r3 and r4 must be contiguous
+        let p3 = mapping[3];
+        let p4 = mapping[4];
+        assert_eq!(
+            p4,
+            p3 + 1,
+            "call args must be contiguous: r3→{}, r4→{}",
+            p3,
+            p4
+        );
+        // Verify the Call instruction was updated
+        if let Opcode::Call {
+            args_start,
+            arg_count,
+            ..
+        } = code[2]
+        {
+            assert_eq!(args_start, p3);
+            assert_eq!(arg_count, 2);
+        } else {
+            panic!("expected Call");
+        }
+    }
+
+    #[test]
+    fn test_register_allocation_empty_code() {
+        let mut code: Vec<Opcode> = vec![];
+        let result = optimize(&mut code);
+        assert!(result.is_none());
+    }
+
+    // ========== full optimize pipeline ==========
+
+    #[test]
+    fn test_optimize_pipeline_simple() {
+        // LoadImm → Move → PrintI32
+        // move_forwarding merges LoadImm+Move, DCE keeps PrintI32 alive
+        let mut code = vec![
+            Opcode::LoadImm { dst: 5, value: 42 },
+            Opcode::Move { dst: 10, src: 5 },
+            Opcode::PrintI32 { src: 10 },
+        ];
+        let result = optimize(&mut code);
+        assert!(result.is_some());
+        // After optimize, code still has Nops; need compact to remove them
+        compact(&mut code);
+        // Should be: LoadImm + PrintI32 (move eliminated, regs compacted)
+        assert_eq!(code.len(), 2);
+        // First instruction loads a value, second prints it
+        assert!(matches!(code[0], Opcode::LoadImm { .. }));
+        assert!(matches!(code[1], Opcode::PrintI32 { .. }));
+    }
+
+    #[test]
+    fn test_optimize_pipeline_fuse_and_compact() {
+        // LocalAddr + Load32 should fuse to LoadSlot32, then Nop gets stripped
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 3, slot: 8 },
+            Opcode::Load32 { dst: 0, addr: 3 },
+        ];
+        let result = optimize(&mut code);
+        assert!(result.is_some());
+        compact(&mut code);
+        assert_eq!(code.len(), 1);
+        assert!(matches!(code[0], Opcode::LoadSlot32 { .. }));
+    }
 
     #[test]
     fn test_move_forwarding_then_dce() {
@@ -2685,5 +3112,56 @@ mod tests {
         assert_eq!(code[1], Opcode::Nop);
         dead_code_elimination(&mut code);
         assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 42 });
+    }
+
+    // ========== replace_reg_uses_until_clobber tests ==========
+
+    #[test]
+    fn test_replace_reg_uses_stops_at_clobber() {
+        let targets = HashSet::new();
+        let mut code = vec![
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },   // uses r1
+            Opcode::LoadImm { dst: 0, value: 99 },  // clobbers r0 (the new_reg)
+            Opcode::ISub { dst: 3, a: 0, b: 1 },    // should NOT be rewritten
+        ];
+        // Replace r1 with r0, starting from index 0
+        replace_reg_uses_until_clobber(&mut code, 0, 1, 0, &targets);
+        // First instruction: r1 replaced with r0
+        assert_eq!(code[0], Opcode::IAdd { dst: 2, a: 0, b: 0 });
+        // Third instruction: r0 was clobbered at [1], so replacement stopped
+        assert_eq!(code[2], Opcode::ISub { dst: 3, a: 0, b: 1 });
+    }
+
+    #[test]
+    fn test_replace_reg_uses_stops_at_jump_target() {
+        let mut targets = HashSet::new();
+        targets.insert(1usize); // index 1 is a jump target
+        let mut code = vec![
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },   // uses r1
+            Opcode::ISub { dst: 3, a: 0, b: 1 },    // at jump target → stop before this
+        ];
+        replace_reg_uses_until_clobber(&mut code, 0, 1, 0, &targets);
+        // Replacement should stop at index 1 (jump target), but index 0 is before it
+        assert_eq!(code[0], Opcode::IAdd { dst: 2, a: 0, b: 0 });
+        // Index 1 NOT reached (replacement stopped before jump target)
+        assert_eq!(code[1], Opcode::ISub { dst: 3, a: 0, b: 1 });
+    }
+
+    #[test]
+    fn test_replace_reg_uses_stops_at_call() {
+        let targets = HashSet::new();
+        let mut code = vec![
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },
+            Opcode::Call {
+                func: 0,
+                args_start: 0,
+                arg_count: 1,
+            },
+            Opcode::ISub { dst: 3, a: 0, b: 1 },
+        ];
+        replace_reg_uses_until_clobber(&mut code, 0, 1, 0, &targets);
+        assert_eq!(code[0], Opcode::IAdd { dst: 2, a: 0, b: 0 });
+        // Call stops replacement; instruction after call untouched
+        assert_eq!(code[2], Opcode::ISub { dst: 3, a: 0, b: 1 });
     }
 }
