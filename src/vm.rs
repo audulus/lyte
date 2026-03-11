@@ -35,19 +35,33 @@ impl PackedOp {
         Self(val)
     }
     #[inline(always)]
-    fn tag(self) -> u8 { self.0 as u8 }
+    fn tag(self) -> u8 {
+        self.0 as u8
+    }
     #[inline(always)]
-    fn a(self) -> u8 { (self.0 >> 8) as u8 }
+    fn a(self) -> u8 {
+        (self.0 >> 8) as u8
+    }
     #[inline(always)]
-    fn b(self) -> u8 { (self.0 >> 16) as u8 }
+    fn b(self) -> u8 {
+        (self.0 >> 16) as u8
+    }
     #[inline(always)]
-    fn c(self) -> u8 { (self.0 >> 24) as u8 }
+    fn c(self) -> u8 {
+        (self.0 >> 24) as u8
+    }
     #[inline(always)]
-    fn c_i8(self) -> i8 { self.c() as i8 }
+    fn c_i8(self) -> i8 {
+        self.c() as i8
+    }
     #[inline(always)]
-    fn d(self) -> i16 { (self.0 >> 16) as i16 }
+    fn d(self) -> i16 {
+        (self.0 >> 16) as i16
+    }
     #[inline(always)]
-    fn d_u16(self) -> u16 { (self.0 >> 16) as u16 }
+    fn d_u16(self) -> u16 {
+        (self.0 >> 16) as u16
+    }
 }
 
 // Tag constants — one per opcode variant
@@ -55,9 +69,9 @@ mod tags {
     pub const NOP: u8 = 0;
     pub const HALT: u8 = 1;
     pub const MOVE: u8 = 2;
-    pub const LOAD_IMM: u8 = 3;        // AD: A=dst, D=i16 value
-    pub const LOAD_F32: u8 = 4;        // AD: A=dst, D=f32_pool index
-    pub const LOAD_CONST: u8 = 5;      // AD: A=dst, D=const_pool index
+    pub const LOAD_IMM: u8 = 3; // AD: A=dst, D=i16 value
+    pub const LOAD_F32: u8 = 4; // AD: A=dst, D=f32_pool index
+    pub const LOAD_CONST: u8 = 5; // AD: A=dst, D=const_pool index
     pub const IADD: u8 = 6;
     pub const ISUB: u8 = 7;
     pub const IMUL: u8 = 8;
@@ -66,7 +80,7 @@ mod tags {
     pub const IREM: u8 = 11;
     pub const IPOW: u8 = 12;
     pub const INEG: u8 = 13;
-    pub const IADD_IMM: u8 = 14;       // ABC: A=dst, B=src, C=imm (i8)
+    pub const IADD_IMM: u8 = 14; // ABC: A=dst, B=src, C=imm (i8)
     pub const FADD: u8 = 15;
     pub const FSUB: u8 = 16;
     pub const FMUL: u8 = 17;
@@ -95,8 +109,8 @@ mod tags {
     pub const FNE: u8 = 40;
     pub const FLT: u8 = 41;
     pub const FLE: u8 = 42;
-    pub const MEM_EQ: u8 = 43;         // ABC+data: A=dst, B=a, C=b, next word=size
-    pub const MEM_NE: u8 = 44;         // ABC+data: A=dst, B=a, C=b, next word=size
+    pub const MEM_EQ: u8 = 43; // ABC+data: A=dst, B=a, C=b, next word=size
+    pub const MEM_NE: u8 = 44; // ABC+data: A=dst, B=a, C=b, next word=size
     pub const DEQ: u8 = 45;
     pub const DLT: u8 = 46;
     pub const DLE: u8 = 47;
@@ -109,30 +123,30 @@ mod tags {
     pub const LOAD8: u8 = 54;
     pub const LOAD32: u8 = 55;
     pub const LOAD64: u8 = 56;
-    pub const LOAD32_OFF: u8 = 57;     // ABC: A=dst, B=base, C=offset (u8 bytes)
-    pub const LOAD64_OFF: u8 = 58;     // ABC: A=dst, B=base, C=offset (u8 bytes)
+    pub const LOAD32_OFF: u8 = 57; // ABC: A=dst, B=base, C=offset (u8 bytes)
+    pub const LOAD64_OFF: u8 = 58; // ABC: A=dst, B=base, C=offset (u8 bytes)
     pub const STORE8: u8 = 59;
     pub const STORE32: u8 = 60;
     pub const STORE64: u8 = 61;
-    pub const STORE8_OFF: u8 = 62;     // ABC: A=base, B=src, C=offset (u8 bytes)
-    pub const STORE32_OFF: u8 = 63;    // ABC: A=base, B=src, C=offset (u8 bytes)
-    pub const STORE64_OFF: u8 = 64;    // ABC: A=base, B=src, C=offset (u8 bytes)
-    pub const LOCAL_ADDR: u8 = 65;     // AD: A=dst, D=slot (u16)
-    pub const GLOBAL_ADDR: u8 = 66;    // AD: A=dst, D=offset (u16)
-    pub const JUMP: u8 = 67;           // AD: D=offset (i16)
-    pub const JUMP_IF_ZERO: u8 = 68;   // AD: A=cond, D=offset (i16)
+    pub const STORE8_OFF: u8 = 62; // ABC: A=base, B=src, C=offset (u8 bytes)
+    pub const STORE32_OFF: u8 = 63; // ABC: A=base, B=src, C=offset (u8 bytes)
+    pub const STORE64_OFF: u8 = 64; // ABC: A=base, B=src, C=offset (u8 bytes)
+    pub const LOCAL_ADDR: u8 = 65; // AD: A=dst, D=slot (u16)
+    pub const GLOBAL_ADDR: u8 = 66; // AD: A=dst, D=offset (u16)
+    pub const JUMP: u8 = 67; // AD: D=offset (i16)
+    pub const JUMP_IF_ZERO: u8 = 68; // AD: A=cond, D=offset (i16)
     pub const JUMP_IF_NOT_ZERO: u8 = 69; // AD: A=cond, D=offset (i16)
-    pub const ILT_JUMP: u8 = 70;       // ABC: A=a, B=b, C=offset (i8)
-    pub const FLT_JUMP: u8 = 71;       // ABC: A=a, B=b, C=offset (i8)
-    pub const CALL: u8 = 72;           // ABC: A=args_start, B=arg_count, C=func_idx
-    pub const CALL_INDIRECT: u8 = 73;  // ABC: A=func_reg, B=args_start, C=arg_count
+    pub const ILT_JUMP: u8 = 70; // ABC: A=a, B=b, C=offset (i8)
+    pub const FLT_JUMP: u8 = 71; // ABC: A=a, B=b, C=offset (i8)
+    pub const CALL: u8 = 72; // ABC: A=args_start, B=arg_count, C=func_idx
+    pub const CALL_INDIRECT: u8 = 73; // ABC: A=func_reg, B=args_start, C=arg_count
     pub const RETURN: u8 = 74;
     pub const RETURN_REG: u8 = 75;
-    pub const ALLOC_LOCALS: u8 = 76;   // AD: D=size (u16)
-    pub const MEM_COPY: u8 = 77;       // ABC: A=dst, B=src, C=size (u8)
-    pub const MEM_ZERO: u8 = 78;       // AD: A=dst, D=size (u16)
-    pub const SAVE_REGS: u8 = 79;      // ABC: A=start_reg, B=count, C=slot/8
-    pub const RESTORE_REGS: u8 = 80;   // ABC: A=start_reg, B=count, C=slot/8
+    pub const ALLOC_LOCALS: u8 = 76; // AD: D=size (u16)
+    pub const MEM_COPY: u8 = 77; // ABC: A=dst, B=src, C=size (u8)
+    pub const MEM_ZERO: u8 = 78; // AD: A=dst, D=size (u16)
+    pub const SAVE_REGS: u8 = 79; // ABC: A=start_reg, B=count, C=slot/8
+    pub const RESTORE_REGS: u8 = 80; // ABC: A=start_reg, B=count, C=slot/8
     pub const PRINT_I32: u8 = 81;
     pub const PRINT_F32: u8 = 82;
     pub const ASSERT: u8 = 83;
@@ -197,20 +211,20 @@ mod tags {
     pub const MIN_F64: u8 = 137;
     pub const MAX_F64: u8 = 138;
     // Superinstructions: fused LocalAddr+Load/Store
-    pub const LOAD_SLOT32: u8 = 139;   // AD: A=dst, D=slot (u16)
-    pub const STORE_SLOT32: u8 = 140;  // AD: A=src, D=slot (u16)
-    // For values that don't fit inline
+    pub const LOAD_SLOT32: u8 = 139; // AD: A=dst, D=slot (u16)
+    pub const STORE_SLOT32: u8 = 140; // AD: A=src, D=slot (u16)
+                                      // For values that don't fit inline
     pub const LOAD_IMM_WIDE: u8 = 141; // AD: A=dst, D=wide_i64 pool index
     pub const LOAD_F64_WIDE: u8 = 142; // AD: A=dst, D=wide_f64 pool index
-    // Extended instructions (AB + data word) for large offsets
+                                       // Extended instructions (AB + data word) for large offsets
     pub const LOAD32_OFF_WIDE: u8 = 143; // AB+data: A=dst, B=base, next word=offset
     pub const LOAD64_OFF_WIDE: u8 = 144; // AB+data: A=dst, B=base, next word=offset
     pub const STORE8_OFF_WIDE: u8 = 145; // AB+data: A=base, B=src, next word=offset
     pub const STORE32_OFF_WIDE: u8 = 146; // AB+data: A=base, B=src, next word=offset
     pub const STORE64_OFF_WIDE: u8 = 147; // AB+data: A=base, B=src, next word=offset
-    // Extended instructions (ABC + data word) for large operands
+                                          // Extended instructions (ABC + data word) for large operands
     pub const MEM_COPY_WIDE: u8 = 148; // ABC+data: A=dst, B=src, next word=size
-    pub const SAVE_REGS_WIDE: u8 = 149;   // ABC+data: A=start_reg, B=count, next word=slot
+    pub const SAVE_REGS_WIDE: u8 = 149; // ABC+data: A=start_reg, B=count, next word=slot
     pub const RESTORE_REGS_WIDE: u8 = 150; // ABC+data: A=start_reg, B=count, next word=slot
 }
 
@@ -271,19 +285,22 @@ impl LinkedProgram {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
-                        ops[packed_idx] = PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond, new_offset as i16);
+                        ops[packed_idx] =
+                            PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond, new_offset as i16);
                     }
                     Opcode::ILtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
-                        ops[packed_idx] = PackedOp::abc(tags::ILT_JUMP, a, b, new_offset as i8 as u8);
+                        ops[packed_idx] =
+                            PackedOp::abc(tags::ILT_JUMP, a, b, new_offset as i8 as u8);
                     }
                     Opcode::FLtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
-                        ops[packed_idx] = PackedOp::abc(tags::FLT_JUMP, a, b, new_offset as i8 as u8);
+                        ops[packed_idx] =
+                            PackedOp::abc(tags::FLT_JUMP, a, b, new_offset as i8 as u8);
                     }
                     _ => {}
                 }
@@ -296,12 +313,23 @@ impl LinkedProgram {
             }
         }
 
-        LinkedProgram { ops, func_offsets, func_locals, wide_i64, wide_f64, f32_pool }
+        LinkedProgram {
+            ops,
+            func_offsets,
+            func_locals,
+            wide_i64,
+            wide_f64,
+            f32_pool,
+        }
     }
 
-    fn pack_opcode(op: &Opcode, ops: &mut Vec<PackedOp>,
-                   wide_i64: &mut Vec<i64>, wide_f64: &mut Vec<f64>,
-                   f32_pool: &mut Vec<f32>) {
+    fn pack_opcode(
+        op: &Opcode,
+        ops: &mut Vec<PackedOp>,
+        wide_i64: &mut Vec<i64>,
+        wide_f64: &mut Vec<f64>,
+        f32_pool: &mut Vec<f32>,
+    ) {
         let packed = match *op {
             Opcode::Nop => PackedOp::abc(tags::NOP, 0, 0, 0),
             Opcode::Halt => PackedOp::abc(tags::HALT, 0, 0, 0),
@@ -335,7 +363,9 @@ impl LinkedProgram {
             Opcode::IRem { dst, a, b } => PackedOp::abc(tags::IREM, dst, a, b),
             Opcode::IPow { dst, a, b } => PackedOp::abc(tags::IPOW, dst, a, b),
             Opcode::INeg { dst, src } => PackedOp::abc(tags::INEG, dst, src, 0),
-            Opcode::IAddImm { dst, src, imm } => PackedOp::abc(tags::IADD_IMM, dst, src, imm as i8 as u8),
+            Opcode::IAddImm { dst, src, imm } => {
+                PackedOp::abc(tags::IADD_IMM, dst, src, imm as i8 as u8)
+            }
             // Float32 arithmetic — ABC
             Opcode::FAdd { dst, a, b } => PackedOp::abc(tags::FADD, dst, a, b),
             Opcode::FSub { dst, a, b } => PackedOp::abc(tags::FSUB, dst, a, b),
@@ -449,27 +479,48 @@ impl LinkedProgram {
             }
             // Addressing — AD
             Opcode::LocalAddr { dst, slot } => PackedOp::ad(tags::LOCAL_ADDR, dst, slot as i16),
-            Opcode::GlobalAddr { dst, offset } => PackedOp::ad(tags::GLOBAL_ADDR, dst, offset as i16),
+            Opcode::GlobalAddr { dst, offset } => {
+                PackedOp::ad(tags::GLOBAL_ADDR, dst, offset as i16)
+            }
             // Control flow — jump offsets are placeholders, fixed up after packing
             Opcode::Jump { offset } => PackedOp::ad(tags::JUMP, 0, offset as i16),
-            Opcode::JumpIfZero { cond, offset } => PackedOp::ad(tags::JUMP_IF_ZERO, cond, offset as i16),
-            Opcode::JumpIfNotZero { cond, offset } => PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond, offset as i16),
-            Opcode::ILtJump { a, b, offset } => PackedOp::abc(tags::ILT_JUMP, a, b, offset as i8 as u8),
-            Opcode::FLtJump { a, b, offset } => PackedOp::abc(tags::FLT_JUMP, a, b, offset as i8 as u8),
+            Opcode::JumpIfZero { cond, offset } => {
+                PackedOp::ad(tags::JUMP_IF_ZERO, cond, offset as i16)
+            }
+            Opcode::JumpIfNotZero { cond, offset } => {
+                PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond, offset as i16)
+            }
+            Opcode::ILtJump { a, b, offset } => {
+                PackedOp::abc(tags::ILT_JUMP, a, b, offset as i8 as u8)
+            }
+            Opcode::FLtJump { a, b, offset } => {
+                PackedOp::abc(tags::FLT_JUMP, a, b, offset as i8 as u8)
+            }
             // Superinstructions — AD
             Opcode::LoadSlot32 { dst, slot } => PackedOp::ad(tags::LOAD_SLOT32, dst, slot as i16),
             Opcode::StoreSlot32 { slot, src } => PackedOp::ad(tags::STORE_SLOT32, src, slot as i16),
             // Calls — ABC
-            Opcode::Call { func, args_start, arg_count } => {
+            Opcode::Call {
+                func,
+                args_start,
+                arg_count,
+            } => {
                 assert!(func <= 255, "Call func index {func} out of u8 range");
                 PackedOp::abc(tags::CALL, args_start, arg_count, func as u8)
             }
-            Opcode::CallIndirect { func_reg, args_start, arg_count } => PackedOp::abc(tags::CALL_INDIRECT, func_reg, args_start, arg_count),
+            Opcode::CallIndirect {
+                func_reg,
+                args_start,
+                arg_count,
+            } => PackedOp::abc(tags::CALL_INDIRECT, func_reg, args_start, arg_count),
             Opcode::Return => PackedOp::abc(tags::RETURN, 0, 0, 0),
             Opcode::ReturnReg { src } => PackedOp::abc(tags::RETURN_REG, src, 0, 0),
             // Stack frame — AD or ABC
             Opcode::AllocLocals { size } => {
-                assert!(size <= u16::MAX as u32, "AllocLocals size {size} out of u16 range");
+                assert!(
+                    size <= u16::MAX as u32,
+                    "AllocLocals size {size} out of u16 range"
+                );
                 PackedOp::ad(tags::ALLOC_LOCALS, 0, size as u16 as i16)
             }
             Opcode::MemCopy { dst, src, size } => {
@@ -482,10 +533,17 @@ impl LinkedProgram {
                 }
             }
             Opcode::MemZero { dst, size } => {
-                assert!(size <= u16::MAX as u32, "MemZero size {size} out of u16 range");
+                assert!(
+                    size <= u16::MAX as u32,
+                    "MemZero size {size} out of u16 range"
+                );
                 PackedOp::ad(tags::MEM_ZERO, dst, size as u16 as i16)
             }
-            Opcode::SaveRegs { start_reg, count, slot } => {
+            Opcode::SaveRegs {
+                start_reg,
+                count,
+                slot,
+            } => {
                 if slot % 8 == 0 && slot / 8 <= 255 {
                     PackedOp::abc(tags::SAVE_REGS, start_reg, count, (slot / 8) as u8)
                 } else {
@@ -494,7 +552,11 @@ impl LinkedProgram {
                     return;
                 }
             }
-            Opcode::RestoreRegs { start_reg, count, slot } => {
+            Opcode::RestoreRegs {
+                start_reg,
+                count,
+                slot,
+            } => {
                 if slot % 8 == 0 && slot / 8 <= 255 {
                     PackedOp::abc(tags::RESTORE_REGS, start_reg, count, (slot / 8) as u8)
                 } else {
@@ -599,370 +661,845 @@ pub enum Opcode {
     Halt,
 
     // ============ Register Operations ============
-
     /// Move register to register: dst = src
-    Move { dst: Reg, src: Reg },
+    Move {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Load immediate i64 into register
-    LoadImm { dst: Reg, value: i64 },
+    LoadImm {
+        dst: Reg,
+        value: i64,
+    },
 
     /// Load f32 immediate (stored as bits in i64)
-    LoadF32 { dst: Reg, value: f32 },
+    LoadF32 {
+        dst: Reg,
+        value: f32,
+    },
 
     /// Load f64 immediate
-    LoadF64 { dst: Reg, value: f64 },
+    LoadF64 {
+        dst: Reg,
+        value: f64,
+    },
 
     /// Load from constant pool
-    LoadConst { dst: Reg, idx: ConstIdx },
+    LoadConst {
+        dst: Reg,
+        idx: ConstIdx,
+    },
 
     // ============ Integer Arithmetic ============
-
     /// Integer add: dst = a + b
-    IAdd { dst: Reg, a: Reg, b: Reg },
+    IAdd {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Integer subtract: dst = a - b
-    ISub { dst: Reg, a: Reg, b: Reg },
+    ISub {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Integer multiply: dst = a * b
-    IMul { dst: Reg, a: Reg, b: Reg },
+    IMul {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Signed integer divide: dst = a / b
-    IDiv { dst: Reg, a: Reg, b: Reg },
+    IDiv {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Unsigned integer divide: dst = a / b
-    UDiv { dst: Reg, a: Reg, b: Reg },
+    UDiv {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Integer remainder: dst = a % b
-    IRem { dst: Reg, a: Reg, b: Reg },
+    IRem {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Integer power: dst = a ^ b
-    IPow { dst: Reg, a: Reg, b: Reg },
+    IPow {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Integer negate: dst = -src
-    INeg { dst: Reg, src: Reg },
+    INeg {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Integer add immediate: dst = src + imm
-    IAddImm { dst: Reg, src: Reg, imm: i32 },
+    IAddImm {
+        dst: Reg,
+        src: Reg,
+        imm: i32,
+    },
 
     // ============ Floating Point Arithmetic ============
-
     /// Float32 add: dst = a + b
-    FAdd { dst: Reg, a: Reg, b: Reg },
+    FAdd {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 subtract: dst = a - b
-    FSub { dst: Reg, a: Reg, b: Reg },
+    FSub {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 multiply: dst = a * b
-    FMul { dst: Reg, a: Reg, b: Reg },
+    FMul {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 divide: dst = a / b
-    FDiv { dst: Reg, a: Reg, b: Reg },
+    FDiv {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 negate: dst = -src
-    FNeg { dst: Reg, src: Reg },
+    FNeg {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Float32 power: dst = a ^ b
-    FPow { dst: Reg, a: Reg, b: Reg },
+    FPow {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 fused multiply-add: dst = a * b + c
-    FMulAdd { dst: Reg, a: Reg, b: Reg, c: Reg },
+    FMulAdd {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        c: Reg,
+    },
 
     /// Float32 fused multiply-subtract: dst = a * b - c
-    FMulSub { dst: Reg, a: Reg, b: Reg, c: Reg },
+    FMulSub {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        c: Reg,
+    },
 
     // ============ Float64 Arithmetic ============
-
     /// Float64 add: dst = a + b
-    DAdd { dst: Reg, a: Reg, b: Reg },
+    DAdd {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 subtract: dst = a - b
-    DSub { dst: Reg, a: Reg, b: Reg },
+    DSub {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 multiply: dst = a * b
-    DMul { dst: Reg, a: Reg, b: Reg },
+    DMul {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 divide: dst = a / b
-    DDiv { dst: Reg, a: Reg, b: Reg },
+    DDiv {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 negate: dst = -src
-    DNeg { dst: Reg, src: Reg },
+    DNeg {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Float64 power: dst = a ^ b
-    DPow { dst: Reg, a: Reg, b: Reg },
+    DPow {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 fused multiply-add: dst = a * b + c
-    DMulAdd { dst: Reg, a: Reg, b: Reg, c: Reg },
+    DMulAdd {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        c: Reg,
+    },
 
     /// Float64 fused multiply-subtract: dst = a * b - c
-    DMulSub { dst: Reg, a: Reg, b: Reg, c: Reg },
+    DMulSub {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        c: Reg,
+    },
 
     // ============ Bitwise Operations ============
-
     /// Bitwise AND: dst = a & b
-    And { dst: Reg, a: Reg, b: Reg },
+    And {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Bitwise OR: dst = a | b
-    Or { dst: Reg, a: Reg, b: Reg },
+    Or {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Bitwise XOR: dst = a ^ b
-    Xor { dst: Reg, a: Reg, b: Reg },
+    Xor {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Bitwise NOT: dst = !src
-    Not { dst: Reg, src: Reg },
+    Not {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Shift left: dst = a << b
-    Shl { dst: Reg, a: Reg, b: Reg },
+    Shl {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Arithmetic shift right: dst = a >> b (signed)
-    Shr { dst: Reg, a: Reg, b: Reg },
+    Shr {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Logical shift right: dst = a >>> b (unsigned)
-    UShr { dst: Reg, a: Reg, b: Reg },
+    UShr {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     // ============ Comparisons (result is 0 or 1) ============
-
     /// Integer equal: dst = (a == b)
-    IEq { dst: Reg, a: Reg, b: Reg },
+    IEq {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Integer not equal: dst = (a != b)
-    INe { dst: Reg, a: Reg, b: Reg },
+    INe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Signed less than: dst = (a < b)
-    ILt { dst: Reg, a: Reg, b: Reg },
+    ILt {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Signed less or equal: dst = (a <= b)
-    ILe { dst: Reg, a: Reg, b: Reg },
+    ILe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Unsigned less than
-    ULt { dst: Reg, a: Reg, b: Reg },
+    ULt {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 equal
-    FEq { dst: Reg, a: Reg, b: Reg },
+    FEq {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 not equal
-    FNe { dst: Reg, a: Reg, b: Reg },
+    FNe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 less than
-    FLt { dst: Reg, a: Reg, b: Reg },
+    FLt {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float32 less or equal
-    FLe { dst: Reg, a: Reg, b: Reg },
+    FLe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Memory equal: compare `size` bytes at pointers in a and b
-    MemEq { dst: Reg, a: Reg, b: Reg, size: u32 },
+    MemEq {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        size: u32,
+    },
 
     /// Memory not equal: compare `size` bytes at pointers in a and b
-    MemNe { dst: Reg, a: Reg, b: Reg, size: u32 },
+    MemNe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        size: u32,
+    },
 
     /// Float64 equal
-    DEq { dst: Reg, a: Reg, b: Reg },
+    DEq {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 less than
-    DLt { dst: Reg, a: Reg, b: Reg },
+    DLt {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Float64 less or equal
-    DLe { dst: Reg, a: Reg, b: Reg },
+    DLe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     // ============ Type Conversions ============
-
     /// Convert i32 to f32
-    I32ToF32 { dst: Reg, src: Reg },
+    I32ToF32 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Convert f32 to i32
-    F32ToI32 { dst: Reg, src: Reg },
+    F32ToI32 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Convert i32 to f64
-    I32ToF64 { dst: Reg, src: Reg },
+    I32ToF64 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Convert f64 to i32
-    F64ToI32 { dst: Reg, src: Reg },
+    F64ToI32 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Convert f32 to f64
-    F32ToF64 { dst: Reg, src: Reg },
+    F32ToF64 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Convert f64 to f32
-    F64ToF32 { dst: Reg, src: Reg },
+    F64ToF32 {
+        dst: Reg,
+        src: Reg,
+    },
 
     // ============ Memory Operations ============
-
     /// Load 8-bit value from memory: dst = mem[addr]
-    Load8 { dst: Reg, addr: Reg },
+    Load8 {
+        dst: Reg,
+        addr: Reg,
+    },
 
     /// Load 32-bit value from memory
-    Load32 { dst: Reg, addr: Reg },
+    Load32 {
+        dst: Reg,
+        addr: Reg,
+    },
 
     /// Load 64-bit value from memory
-    Load64 { dst: Reg, addr: Reg },
+    Load64 {
+        dst: Reg,
+        addr: Reg,
+    },
 
     /// Load with offset: dst = mem[base + offset]
-    Load32Off { dst: Reg, base: Reg, offset: i32 },
+    Load32Off {
+        dst: Reg,
+        base: Reg,
+        offset: i32,
+    },
 
     /// Load 64-bit with offset
-    Load64Off { dst: Reg, base: Reg, offset: i32 },
+    Load64Off {
+        dst: Reg,
+        base: Reg,
+        offset: i32,
+    },
 
     /// Store 8-bit value to memory: mem[addr] = src
-    Store8 { addr: Reg, src: Reg },
+    Store8 {
+        addr: Reg,
+        src: Reg,
+    },
 
     /// Store 32-bit value to memory
-    Store32 { addr: Reg, src: Reg },
+    Store32 {
+        addr: Reg,
+        src: Reg,
+    },
 
     /// Store 64-bit value to memory
-    Store64 { addr: Reg, src: Reg },
+    Store64 {
+        addr: Reg,
+        src: Reg,
+    },
 
     /// Store 8-bit with offset: mem[base + offset] = src
-    Store8Off { base: Reg, offset: i32, src: Reg },
+    Store8Off {
+        base: Reg,
+        offset: i32,
+        src: Reg,
+    },
 
     /// Store with offset: mem[base + offset] = src
-    Store32Off { base: Reg, offset: i32, src: Reg },
+    Store32Off {
+        base: Reg,
+        offset: i32,
+        src: Reg,
+    },
 
     /// Store 64-bit with offset
-    Store64Off { base: Reg, offset: i32, src: Reg },
+    Store64Off {
+        base: Reg,
+        offset: i32,
+        src: Reg,
+    },
 
     /// Get address of local variable slot
-    LocalAddr { dst: Reg, slot: u16 },
+    LocalAddr {
+        dst: Reg,
+        slot: u16,
+    },
 
     /// Get address of global variable at offset
-    GlobalAddr { dst: Reg, offset: i32 },
+    GlobalAddr {
+        dst: Reg,
+        offset: i32,
+    },
 
     // ============ Control Flow ============
-
     /// Unconditional jump
-    Jump { offset: Offset },
+    Jump {
+        offset: Offset,
+    },
 
     /// Jump if register is zero (false)
-    JumpIfZero { cond: Reg, offset: Offset },
+    JumpIfZero {
+        cond: Reg,
+        offset: Offset,
+    },
 
     /// Jump if register is non-zero (true)
-    JumpIfNotZero { cond: Reg, offset: Offset },
+    JumpIfNotZero {
+        cond: Reg,
+        offset: Offset,
+    },
 
     // ============ Superinstructions: Compare and Branch ============
-
     /// Jump if a < b (signed): if !(a < b) jump
-    ILtJump { a: Reg, b: Reg, offset: Offset },
+    ILtJump {
+        a: Reg,
+        b: Reg,
+        offset: Offset,
+    },
 
     /// Jump if a < b (f32): if !(a < b) jump
-    FLtJump { a: Reg, b: Reg, offset: Offset },
+    FLtJump {
+        a: Reg,
+        b: Reg,
+        offset: Offset,
+    },
 
     // ============ Superinstructions: Fused Local Slot Access ============
-
     /// Fused LocalAddr + Load32: load 32-bit value from local slot into register
-    LoadSlot32 { dst: Reg, slot: u16 },
+    LoadSlot32 {
+        dst: Reg,
+        slot: u16,
+    },
 
     /// Fused LocalAddr + Store32: store 32-bit value from register into local slot
-    StoreSlot32 { slot: u16, src: Reg },
+    StoreSlot32 {
+        slot: u16,
+        src: Reg,
+    },
 
     /// Call function by index, args in registers starting at `args_start`
     /// Result (if any) goes in register 0
-    Call { func: FuncIdx, args_start: Reg, arg_count: u8 },
+    Call {
+        func: FuncIdx,
+        args_start: Reg,
+        arg_count: u8,
+    },
 
     /// Call function pointer in register
-    CallIndirect { func_reg: Reg, args_start: Reg, arg_count: u8 },
+    CallIndirect {
+        func_reg: Reg,
+        args_start: Reg,
+        arg_count: u8,
+    },
 
     /// Return from function (return value in register 0)
     Return,
 
     /// Return with specific register
-    ReturnReg { src: Reg },
+    ReturnReg {
+        src: Reg,
+    },
 
     // ============ Stack Frame Operations ============
-
     /// Allocate stack space for locals (in bytes)
-    AllocLocals { size: u32 },
+    AllocLocals {
+        size: u32,
+    },
 
     /// Copy bytes from src to dst
-    MemCopy { dst: Reg, src: Reg, size: u32 },
+    MemCopy {
+        dst: Reg,
+        src: Reg,
+        size: u32,
+    },
 
     /// Zero memory region
-    MemZero { dst: Reg, size: u32 },
+    MemZero {
+        dst: Reg,
+        size: u32,
+    },
 
     // ============ Register Save/Restore ============
-
     /// Save registers [start_reg..start_reg+count] to locals at slot offset.
     /// Each register is 8 bytes.
-    SaveRegs { start_reg: Reg, count: u8, slot: u32 },
+    SaveRegs {
+        start_reg: Reg,
+        count: u8,
+        slot: u32,
+    },
 
     /// Restore registers [start_reg..start_reg+count] from locals at slot offset.
-    RestoreRegs { start_reg: Reg, count: u8, slot: u32 },
+    RestoreRegs {
+        start_reg: Reg,
+        count: u8,
+        slot: u32,
+    },
 
     // ============ Debugging ============
-
     /// Print integer value (for debugging)
-    PrintI32 { src: Reg },
+    PrintI32 {
+        src: Reg,
+    },
 
     /// Print float value
-    PrintF32 { src: Reg },
+    PrintF32 {
+        src: Reg,
+    },
 
     /// Assert value is non-zero
-    Assert { src: Reg },
+    Assert {
+        src: Reg,
+    },
 
     /// Print a character
-    Putc { src: Reg },
+    Putc {
+        src: Reg,
+    },
 
     // ============ Math Builtins ============
-
     /// Unary f32 math: dst = op(src)
-    SinF32 { dst: Reg, src: Reg },
-    CosF32 { dst: Reg, src: Reg },
-    TanF32 { dst: Reg, src: Reg },
-    AsinF32 { dst: Reg, src: Reg },
-    AcosF32 { dst: Reg, src: Reg },
-    AtanF32 { dst: Reg, src: Reg },
-    SinhF32 { dst: Reg, src: Reg },
-    CoshF32 { dst: Reg, src: Reg },
-    TanhF32 { dst: Reg, src: Reg },
-    AsinhF32 { dst: Reg, src: Reg },
-    AcoshF32 { dst: Reg, src: Reg },
-    AtanhF32 { dst: Reg, src: Reg },
-    LnF32 { dst: Reg, src: Reg },
-    ExpF32 { dst: Reg, src: Reg },
-    Exp2F32 { dst: Reg, src: Reg },
-    Log10F32 { dst: Reg, src: Reg },
-    Log2F32 { dst: Reg, src: Reg },
-    SqrtF32 { dst: Reg, src: Reg },
-    AbsF32 { dst: Reg, src: Reg },
-    FloorF32 { dst: Reg, src: Reg },
-    CeilF32 { dst: Reg, src: Reg },
+    SinF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    CosF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    TanF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AsinF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AcosF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AtanF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    SinhF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    CoshF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    TanhF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AsinhF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AcoshF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AtanhF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    LnF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    ExpF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    Exp2F32 {
+        dst: Reg,
+        src: Reg,
+    },
+    Log10F32 {
+        dst: Reg,
+        src: Reg,
+    },
+    Log2F32 {
+        dst: Reg,
+        src: Reg,
+    },
+    SqrtF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    AbsF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    FloorF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    CeilF32 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Unary f64 math: dst = op(src)
-    SinF64 { dst: Reg, src: Reg },
-    CosF64 { dst: Reg, src: Reg },
-    TanF64 { dst: Reg, src: Reg },
-    AsinF64 { dst: Reg, src: Reg },
-    AcosF64 { dst: Reg, src: Reg },
-    AtanF64 { dst: Reg, src: Reg },
-    SinhF64 { dst: Reg, src: Reg },
-    CoshF64 { dst: Reg, src: Reg },
-    TanhF64 { dst: Reg, src: Reg },
-    AsinhF64 { dst: Reg, src: Reg },
-    AcoshF64 { dst: Reg, src: Reg },
-    AtanhF64 { dst: Reg, src: Reg },
-    LnF64 { dst: Reg, src: Reg },
-    ExpF64 { dst: Reg, src: Reg },
-    Exp2F64 { dst: Reg, src: Reg },
-    Log10F64 { dst: Reg, src: Reg },
-    Log2F64 { dst: Reg, src: Reg },
-    SqrtF64 { dst: Reg, src: Reg },
-    AbsF64 { dst: Reg, src: Reg },
-    FloorF64 { dst: Reg, src: Reg },
-    CeilF64 { dst: Reg, src: Reg },
+    SinF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    CosF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    TanF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AsinF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AcosF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AtanF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    SinhF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    CoshF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    TanhF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AsinhF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AcoshF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AtanhF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    LnF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    ExpF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    Exp2F64 {
+        dst: Reg,
+        src: Reg,
+    },
+    Log10F64 {
+        dst: Reg,
+        src: Reg,
+    },
+    Log2F64 {
+        dst: Reg,
+        src: Reg,
+    },
+    SqrtF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    AbsF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    FloorF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    CeilF64 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Predicate math (return i32): dst = op(src)
-    IsinfF32 { dst: Reg, src: Reg },
-    IsinfF64 { dst: Reg, src: Reg },
-    IsnanF32 { dst: Reg, src: Reg },
-    IsnanF64 { dst: Reg, src: Reg },
+    IsinfF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    IsinfF64 {
+        dst: Reg,
+        src: Reg,
+    },
+    IsnanF32 {
+        dst: Reg,
+        src: Reg,
+    },
+    IsnanF64 {
+        dst: Reg,
+        src: Reg,
+    },
 
     /// Binary f32 math: dst = op(a, b)
-    PowF32 { dst: Reg, a: Reg, b: Reg },
-    Atan2F32 { dst: Reg, a: Reg, b: Reg },
-    MinF32 { dst: Reg, a: Reg, b: Reg },
-    MaxF32 { dst: Reg, a: Reg, b: Reg },
+    PowF32 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
+    Atan2F32 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
+    MinF32 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
+    MaxF32 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 
     /// Binary f64 math: dst = op(a, b)
-    PowF64 { dst: Reg, a: Reg, b: Reg },
-    Atan2F64 { dst: Reg, a: Reg, b: Reg },
-    MinF64 { dst: Reg, a: Reg, b: Reg },
-    MaxF64 { dst: Reg, a: Reg, b: Reg },
+    PowF64 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
+    Atan2F64 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
+    MinF64 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
+    MaxF64 {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
 }
 
 /// A compiled function for the VM
@@ -1017,14 +1554,17 @@ impl VMFunction {
         let offset = current - target - 1;
 
         match &mut self.code[idx] {
-            Opcode::Jump { offset: off } |
-            Opcode::JumpIfZero { offset: off, .. } |
-            Opcode::JumpIfNotZero { offset: off, .. } |
-            Opcode::ILtJump { offset: off, .. } |
-            Opcode::FLtJump { offset: off, .. } => {
+            Opcode::Jump { offset: off }
+            | Opcode::JumpIfZero { offset: off, .. }
+            | Opcode::JumpIfNotZero { offset: off, .. }
+            | Opcode::ILtJump { offset: off, .. }
+            | Opcode::FLtJump { offset: off, .. } => {
                 *off = offset;
             }
-            _ => panic!("patch_jump called on non-jump instruction at index {}: {:?}", idx, &self.code[idx]),
+            _ => panic!(
+                "patch_jump called on non-jump instruction at index {}: {:?}",
+                idx, &self.code[idx]
+            ),
         }
     }
 }
@@ -1119,7 +1659,7 @@ impl VM {
             locals: vec![0; 1024 * 1024], // 1MB stack
             call_stack: Vec::with_capacity(1024),
             heap: vec![0; 1024 * 1024], // 1MB heap
-            globals: Vec::new(), // Allocated when program runs
+            globals: Vec::new(),        // Allocated when program runs
             ip: 0,
             current_func: 0,
             locals_base: 0,
@@ -1186,20 +1726,24 @@ impl VM {
     #[inline(always)]
     fn local_ptr(&self, slot: u16) -> *const u8 {
         let offset = self.locals_base + (slot as usize) * 8;
-        debug_assert!(offset < self.locals.len(), "local slot {slot} out of bounds (offset {offset}, locals size {})", self.locals.len());
-        unsafe {
-            self.locals.as_ptr().add(offset)
-        }
+        debug_assert!(
+            offset < self.locals.len(),
+            "local slot {slot} out of bounds (offset {offset}, locals size {})",
+            self.locals.len()
+        );
+        unsafe { self.locals.as_ptr().add(offset) }
     }
 
     /// Get mutable pointer to locals memory
     #[inline(always)]
     fn local_ptr_mut(&mut self, slot: u16) -> *mut u8 {
         let offset = self.locals_base + (slot as usize) * 8;
-        debug_assert!(offset < self.locals.len(), "local slot {slot} out of bounds (offset {offset}, locals size {})", self.locals.len());
-        unsafe {
-            self.locals.as_mut_ptr().add(offset)
-        }
+        debug_assert!(
+            offset < self.locals.len(),
+            "local slot {slot} out of bounds (offset {offset}, locals size {})",
+            self.locals.len()
+        );
+        unsafe { self.locals.as_mut_ptr().add(offset) }
     }
 
     /// In debug builds, panic if [ptr, ptr+size) is not within locals or globals.
@@ -1220,7 +1764,8 @@ impl VM {
             let heap_end = heap_start + self.heap.len();
 
             let in_locals = start >= locals_start && end <= locals_end;
-            let in_globals = !self.globals.is_empty() && start >= globals_start && end <= globals_end;
+            let in_globals =
+                !self.globals.is_empty() && start >= globals_start && end <= globals_end;
             let in_heap = !self.heap.is_empty() && start >= heap_start && end <= heap_end;
 
             if !in_locals && !in_globals && !in_heap {
@@ -1248,7 +1793,9 @@ impl VM {
         self.cancelled = false;
 
         #[cfg(debug_assertions)]
-        { self.debug_func_name = program.functions[program.entry as usize].name.clone(); }
+        {
+            self.debug_func_name = program.functions[program.entry as usize].name.clone();
+        }
 
         // === Dispatch loop: match on raw u8 tag → LLVM compiles to jump table ===
         // PackedOp is 4 bytes (matching LuaJIT), quartering cache footprint vs Opcode enum.
@@ -1266,278 +1813,381 @@ impl VM {
             ip += 1;
 
             macro_rules! r {
-                ($idx:expr) => { *regs.add($idx as usize) }
+                ($idx:expr) => {
+                    *regs.add($idx as usize)
+                };
             }
             macro_rules! r_set {
-                ($idx:expr, $val:expr) => { *regs.add($idx as usize) = $val }
+                ($idx:expr, $val:expr) => {
+                    *regs.add($idx as usize) = $val
+                };
             }
             macro_rules! r_f32 {
-                ($idx:expr) => { f32::from_bits(r!($idx) as u32) }
+                ($idx:expr) => {
+                    f32::from_bits(r!($idx) as u32)
+                };
             }
             macro_rules! r_f64 {
-                ($idx:expr) => { f64::from_bits(r!($idx)) }
+                ($idx:expr) => {
+                    f64::from_bits(r!($idx))
+                };
             }
             macro_rules! set_f32 {
-                ($idx:expr, $val:expr) => { r_set!($idx, ($val).to_bits() as u64) }
+                ($idx:expr, $val:expr) => {
+                    r_set!($idx, ($val).to_bits() as u64)
+                };
             }
             macro_rules! set_f64 {
-                ($idx:expr, $val:expr) => { r_set!($idx, ($val).to_bits()) }
+                ($idx:expr, $val:expr) => {
+                    r_set!($idx, ($val).to_bits())
+                };
             }
             macro_rules! set_i64 {
-                ($idx:expr, $val:expr) => { r_set!($idx, ($val) as u64) }
+                ($idx:expr, $val:expr) => {
+                    r_set!($idx, ($val) as u64)
+                };
             }
             macro_rules! get_i64 {
-                ($idx:expr) => { r!($idx) as i64 }
+                ($idx:expr) => {
+                    r!($idx) as i64
+                };
             }
 
-            unsafe { match op.tag() {
-                tags::NOP => {}
+            unsafe {
+                match op.tag() {
+                    tags::NOP => {}
 
-                tags::HALT => {
-                    return get_i64!(0u8);
-                }
+                    tags::HALT => {
+                        return get_i64!(0u8);
+                    }
 
-                tags::MOVE => {
-                    r_set!(op.a(), r!(op.b()));
-                }
+                    tags::MOVE => {
+                        r_set!(op.a(), r!(op.b()));
+                    }
 
-                tags::LOAD_IMM => {
-                    set_i64!(op.a(), op.d() as i64);
-                }
+                    tags::LOAD_IMM => {
+                        set_i64!(op.a(), op.d() as i64);
+                    }
 
-                tags::LOAD_IMM_WIDE => {
-                    set_i64!(op.a(), linked.wide_i64[op.d_u16() as usize]);
-                }
+                    tags::LOAD_IMM_WIDE => {
+                        set_i64!(op.a(), linked.wide_i64[op.d_u16() as usize]);
+                    }
 
-                tags::LOAD_F32 => {
-                    let val = linked.f32_pool[op.d_u16() as usize];
-                    r_set!(op.a(), val.to_bits() as u64);
-                }
+                    tags::LOAD_F32 => {
+                        let val = linked.f32_pool[op.d_u16() as usize];
+                        r_set!(op.a(), val.to_bits() as u64);
+                    }
 
-                tags::LOAD_F64_WIDE => {
-                    set_f64!(op.a(), linked.wide_f64[op.d_u16() as usize]);
-                }
+                    tags::LOAD_F64_WIDE => {
+                        set_f64!(op.a(), linked.wide_f64[op.d_u16() as usize]);
+                    }
 
-                tags::LOAD_CONST => {
-                    r_set!(op.a(), program.constants[op.d_u16() as usize]);
-                }
+                    tags::LOAD_CONST => {
+                        r_set!(op.a(), program.constants[op.d_u16() as usize]);
+                    }
 
-                // Integer arithmetic — ABC
-                tags::IADD => { set_i64!(op.a(), get_i64!(op.b()).wrapping_add(get_i64!(op.c()))); }
-                tags::ISUB => { set_i64!(op.a(), get_i64!(op.b()).wrapping_sub(get_i64!(op.c()))); }
-                tags::IMUL => { set_i64!(op.a(), get_i64!(op.b()).wrapping_mul(get_i64!(op.c()))); }
-                tags::IDIV => {
-                    let b = get_i64!(op.c());
-                    if b == 0 { panic!("Division by zero"); }
-                    set_i64!(op.a(), get_i64!(op.b()) / b);
-                }
-                tags::UDIV => {
-                    let b = r!(op.c());
-                    if b == 0 { panic!("Division by zero"); }
-                    r_set!(op.a(), r!(op.b()) / b);
-                }
-                tags::IREM => {
-                    let b = get_i64!(op.c());
-                    if b == 0 { panic!("Division by zero"); }
-                    set_i64!(op.a(), get_i64!(op.b()) % b);
-                }
-                tags::IPOW => {
-                    set_i64!(op.a(), get_i64!(op.b()).wrapping_pow(get_i64!(op.c()) as u32));
-                }
-                tags::INEG => { set_i64!(op.a(), -get_i64!(op.b())); }
-                tags::IADD_IMM => { set_i64!(op.a(), get_i64!(op.b()).wrapping_add(op.c_i8() as i64)); }
+                    // Integer arithmetic — ABC
+                    tags::IADD => {
+                        set_i64!(op.a(), get_i64!(op.b()).wrapping_add(get_i64!(op.c())));
+                    }
+                    tags::ISUB => {
+                        set_i64!(op.a(), get_i64!(op.b()).wrapping_sub(get_i64!(op.c())));
+                    }
+                    tags::IMUL => {
+                        set_i64!(op.a(), get_i64!(op.b()).wrapping_mul(get_i64!(op.c())));
+                    }
+                    tags::IDIV => {
+                        let b = get_i64!(op.c());
+                        if b == 0 {
+                            panic!("Division by zero");
+                        }
+                        set_i64!(op.a(), get_i64!(op.b()) / b);
+                    }
+                    tags::UDIV => {
+                        let b = r!(op.c());
+                        if b == 0 {
+                            panic!("Division by zero");
+                        }
+                        r_set!(op.a(), r!(op.b()) / b);
+                    }
+                    tags::IREM => {
+                        let b = get_i64!(op.c());
+                        if b == 0 {
+                            panic!("Division by zero");
+                        }
+                        set_i64!(op.a(), get_i64!(op.b()) % b);
+                    }
+                    tags::IPOW => {
+                        set_i64!(
+                            op.a(),
+                            get_i64!(op.b()).wrapping_pow(get_i64!(op.c()) as u32)
+                        );
+                    }
+                    tags::INEG => {
+                        set_i64!(op.a(), -get_i64!(op.b()));
+                    }
+                    tags::IADD_IMM => {
+                        set_i64!(op.a(), get_i64!(op.b()).wrapping_add(op.c_i8() as i64));
+                    }
 
-                // Float32 arithmetic — ABC
-                tags::FADD => { set_f32!(op.a(), r_f32!(op.b()) + r_f32!(op.c())); }
-                tags::FSUB => { set_f32!(op.a(), r_f32!(op.b()) - r_f32!(op.c())); }
-                tags::FMUL => { set_f32!(op.a(), r_f32!(op.b()) * r_f32!(op.c())); }
-                tags::FDIV => { set_f32!(op.a(), r_f32!(op.b()) / r_f32!(op.c())); }
-                tags::FNEG => { set_f32!(op.a(), -r_f32!(op.b())); }
-                tags::FPOW => { set_f32!(op.a(), r_f32!(op.b()).powf(r_f32!(op.c()))); }
+                    // Float32 arithmetic — ABC
+                    tags::FADD => {
+                        set_f32!(op.a(), r_f32!(op.b()) + r_f32!(op.c()));
+                    }
+                    tags::FSUB => {
+                        set_f32!(op.a(), r_f32!(op.b()) - r_f32!(op.c()));
+                    }
+                    tags::FMUL => {
+                        set_f32!(op.a(), r_f32!(op.b()) * r_f32!(op.c()));
+                    }
+                    tags::FDIV => {
+                        set_f32!(op.a(), r_f32!(op.b()) / r_f32!(op.c()));
+                    }
+                    tags::FNEG => {
+                        set_f32!(op.a(), -r_f32!(op.b()));
+                    }
+                    tags::FPOW => {
+                        set_f32!(op.a(), r_f32!(op.b()).powf(r_f32!(op.c())));
+                    }
 
-                // Float64 arithmetic — ABC
-                tags::DADD => { set_f64!(op.a(), r_f64!(op.b()) + r_f64!(op.c())); }
-                tags::DSUB => { set_f64!(op.a(), r_f64!(op.b()) - r_f64!(op.c())); }
-                tags::DMUL => { set_f64!(op.a(), r_f64!(op.b()) * r_f64!(op.c())); }
-                tags::DDIV => { set_f64!(op.a(), r_f64!(op.b()) / r_f64!(op.c())); }
-                tags::DNEG => { set_f64!(op.a(), -r_f64!(op.b())); }
-                tags::DPOW => { set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c()))); }
+                    // Float64 arithmetic — ABC
+                    tags::DADD => {
+                        set_f64!(op.a(), r_f64!(op.b()) + r_f64!(op.c()));
+                    }
+                    tags::DSUB => {
+                        set_f64!(op.a(), r_f64!(op.b()) - r_f64!(op.c()));
+                    }
+                    tags::DMUL => {
+                        set_f64!(op.a(), r_f64!(op.b()) * r_f64!(op.c()));
+                    }
+                    tags::DDIV => {
+                        set_f64!(op.a(), r_f64!(op.b()) / r_f64!(op.c()));
+                    }
+                    tags::DNEG => {
+                        set_f64!(op.a(), -r_f64!(op.b()));
+                    }
+                    tags::DPOW => {
+                        set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c())));
+                    }
 
-                // Bitwise — ABC
-                tags::AND => { r_set!(op.a(), r!(op.b()) & r!(op.c())); }
-                tags::OR => { r_set!(op.a(), r!(op.b()) | r!(op.c())); }
-                tags::XOR => { r_set!(op.a(), r!(op.b()) ^ r!(op.c())); }
-                tags::NOT => { r_set!(op.a(), !r!(op.b())); }
-                tags::SHL => { r_set!(op.a(), r!(op.b()) << (r!(op.c()) & 63)); }
-                tags::SHR => { set_i64!(op.a(), get_i64!(op.b()) >> (r!(op.c()) & 63)); }
-                tags::USHR => { r_set!(op.a(), r!(op.b()) >> (r!(op.c()) & 63)); }
+                    // Bitwise — ABC
+                    tags::AND => {
+                        r_set!(op.a(), r!(op.b()) & r!(op.c()));
+                    }
+                    tags::OR => {
+                        r_set!(op.a(), r!(op.b()) | r!(op.c()));
+                    }
+                    tags::XOR => {
+                        r_set!(op.a(), r!(op.b()) ^ r!(op.c()));
+                    }
+                    tags::NOT => {
+                        r_set!(op.a(), !r!(op.b()));
+                    }
+                    tags::SHL => {
+                        r_set!(op.a(), r!(op.b()) << (r!(op.c()) & 63));
+                    }
+                    tags::SHR => {
+                        set_i64!(op.a(), get_i64!(op.b()) >> (r!(op.c()) & 63));
+                    }
+                    tags::USHR => {
+                        r_set!(op.a(), r!(op.b()) >> (r!(op.c()) & 63));
+                    }
 
-                // Comparisons — ABC
-                tags::IEQ => { r_set!(op.a(), (get_i64!(op.b()) == get_i64!(op.c())) as u64); }
-                tags::INE => { r_set!(op.a(), (get_i64!(op.b()) != get_i64!(op.c())) as u64); }
-                tags::ILT => { r_set!(op.a(), (get_i64!(op.b()) < get_i64!(op.c())) as u64); }
-                tags::ILE => { r_set!(op.a(), (get_i64!(op.b()) <= get_i64!(op.c())) as u64); }
-                tags::ULT => { r_set!(op.a(), (r!(op.b()) < r!(op.c())) as u64); }
-                tags::FEQ => { r_set!(op.a(), (r_f32!(op.b()) == r_f32!(op.c())) as u64); }
-                tags::FNE => { r_set!(op.a(), (r_f32!(op.b()) != r_f32!(op.c())) as u64); }
-                tags::FLT => { r_set!(op.a(), (r_f32!(op.b()) < r_f32!(op.c())) as u64); }
-                tags::FLE => { r_set!(op.a(), (r_f32!(op.b()) <= r_f32!(op.c())) as u64); }
-                tags::DEQ => { r_set!(op.a(), (r_f64!(op.b()) == r_f64!(op.c())) as u64); }
-                tags::DLT => { r_set!(op.a(), (r_f64!(op.b()) < r_f64!(op.c())) as u64); }
-                tags::DLE => { r_set!(op.a(), (r_f64!(op.b()) <= r_f64!(op.c())) as u64); }
+                    // Comparisons — ABC
+                    tags::IEQ => {
+                        r_set!(op.a(), (get_i64!(op.b()) == get_i64!(op.c())) as u64);
+                    }
+                    tags::INE => {
+                        r_set!(op.a(), (get_i64!(op.b()) != get_i64!(op.c())) as u64);
+                    }
+                    tags::ILT => {
+                        r_set!(op.a(), (get_i64!(op.b()) < get_i64!(op.c())) as u64);
+                    }
+                    tags::ILE => {
+                        r_set!(op.a(), (get_i64!(op.b()) <= get_i64!(op.c())) as u64);
+                    }
+                    tags::ULT => {
+                        r_set!(op.a(), (r!(op.b()) < r!(op.c())) as u64);
+                    }
+                    tags::FEQ => {
+                        r_set!(op.a(), (r_f32!(op.b()) == r_f32!(op.c())) as u64);
+                    }
+                    tags::FNE => {
+                        r_set!(op.a(), (r_f32!(op.b()) != r_f32!(op.c())) as u64);
+                    }
+                    tags::FLT => {
+                        r_set!(op.a(), (r_f32!(op.b()) < r_f32!(op.c())) as u64);
+                    }
+                    tags::FLE => {
+                        r_set!(op.a(), (r_f32!(op.b()) <= r_f32!(op.c())) as u64);
+                    }
+                    tags::DEQ => {
+                        r_set!(op.a(), (r_f64!(op.b()) == r_f64!(op.c())) as u64);
+                    }
+                    tags::DLT => {
+                        r_set!(op.a(), (r_f64!(op.b()) < r_f64!(op.c())) as u64);
+                    }
+                    tags::DLE => {
+                        r_set!(op.a(), (r_f64!(op.b()) <= r_f64!(op.c())) as u64);
+                    }
 
-                // MemEq/MemNe — extended: ABC + next word is size
-                tags::MEM_EQ => {
-                    let pa = r!(op.b()) as *const u8;
-                    let pb = r!(op.c()) as *const u8;
-                    let size = (*ops.add(ip)).0 as usize;
-                    ip += 1;
-                    let eq = std::slice::from_raw_parts(pa, size)
+                    // MemEq/MemNe — extended: ABC + next word is size
+                    tags::MEM_EQ => {
+                        let pa = r!(op.b()) as *const u8;
+                        let pb = r!(op.c()) as *const u8;
+                        let size = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        let eq = std::slice::from_raw_parts(pa, size)
                             == std::slice::from_raw_parts(pb, size);
-                    r_set!(op.a(), eq as u64);
-                }
+                        r_set!(op.a(), eq as u64);
+                    }
 
-                tags::MEM_NE => {
-                    let pa = r!(op.b()) as *const u8;
-                    let pb = r!(op.c()) as *const u8;
-                    let size = (*ops.add(ip)).0 as usize;
-                    ip += 1;
-                    let ne = std::slice::from_raw_parts(pa, size)
+                    tags::MEM_NE => {
+                        let pa = r!(op.b()) as *const u8;
+                        let pb = r!(op.c()) as *const u8;
+                        let size = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        let ne = std::slice::from_raw_parts(pa, size)
                             != std::slice::from_raw_parts(pb, size);
-                    r_set!(op.a(), ne as u64);
-                }
-
-                // Type conversions — AB
-                tags::I32_TO_F32 => { set_f32!(op.a(), (get_i64!(op.b()) as i32) as f32); }
-                tags::F32_TO_I32 => { set_i64!(op.a(), r_f32!(op.b()) as i32 as i64); }
-                tags::I32_TO_F64 => { set_f64!(op.a(), (get_i64!(op.b()) as i32) as f64); }
-                tags::F64_TO_I32 => { set_i64!(op.a(), r_f64!(op.b()) as i32 as i64); }
-                tags::F32_TO_F64 => { set_f64!(op.a(), r_f32!(op.b()) as f64); }
-                tags::F64_TO_F32 => { set_f32!(op.a(), r_f64!(op.b()) as f32); }
-
-                // Memory operations
-                tags::LOAD8 => {
-                    let ptr = r!(op.b());
-                    self.check_ptr(ptr, 1);
-                    set_i64!(op.a(), *(ptr as *const u8) as i64);
-                }
-                tags::LOAD32 => {
-                    let ptr = r!(op.b());
-                    self.check_ptr(ptr, 4);
-                    set_i64!(op.a(), *(ptr as *const i32) as i64);
-                }
-                tags::LOAD64 => {
-                    let ptr = r!(op.b());
-                    self.check_ptr(ptr, 8);
-                    set_i64!(op.a(), *(ptr as *const i64));
-                }
-                tags::LOAD32_OFF => {
-                    let ptr = r!(op.b()).wrapping_add(op.c() as u64);
-                    self.check_ptr(ptr, 4);
-                    set_i64!(op.a(), *(ptr as *const i32) as i64);
-                }
-                tags::LOAD32_OFF_WIDE => {
-                    let off = (*ops.add(ip)).0 as i64;
-                    ip += 1;
-                    let ptr = (r!(op.b()) as i64 + off) as u64;
-                    self.check_ptr(ptr, 4);
-                    set_i64!(op.a(), *(ptr as *const i32) as i64);
-                }
-                tags::LOAD64_OFF => {
-                    let ptr = r!(op.b()).wrapping_add(op.c() as u64);
-                    self.check_ptr(ptr, 8);
-                    set_i64!(op.a(), *(ptr as *const i64));
-                }
-                tags::LOAD64_OFF_WIDE => {
-                    let off = (*ops.add(ip)).0 as i64;
-                    ip += 1;
-                    let ptr = (r!(op.b()) as i64 + off) as u64;
-                    self.check_ptr(ptr, 8);
-                    set_i64!(op.a(), *(ptr as *const i64));
-                }
-                tags::STORE8 => {
-                    let ptr = r!(op.a());
-                    self.check_ptr(ptr, 1);
-                    *(ptr as *mut u8) = r!(op.b()) as u8;
-                }
-                tags::STORE32 => {
-                    let ptr = r!(op.a());
-                    self.check_ptr(ptr, 4);
-                    *(ptr as *mut i32) = get_i64!(op.b()) as i32;
-                }
-                tags::STORE64 => {
-                    let ptr = r!(op.a());
-                    self.check_ptr(ptr, 8);
-                    *(ptr as *mut i64) = get_i64!(op.b());
-                }
-                tags::STORE8_OFF => {
-                    let ptr = r!(op.a()).wrapping_add(op.c() as u64);
-                    self.check_ptr(ptr, 1);
-                    *(ptr as *mut u8) = r!(op.b()) as u8;
-                }
-                tags::STORE8_OFF_WIDE => {
-                    let off = (*ops.add(ip)).0 as i64;
-                    ip += 1;
-                    let ptr = (r!(op.a()) as i64 + off) as u64;
-                    self.check_ptr(ptr, 1);
-                    *(ptr as *mut u8) = r!(op.b()) as u8;
-                }
-                tags::STORE32_OFF => {
-                    let ptr = r!(op.a()).wrapping_add(op.c() as u64);
-                    self.check_ptr(ptr, 4);
-                    *(ptr as *mut i32) = get_i64!(op.b()) as i32;
-                }
-                tags::STORE32_OFF_WIDE => {
-                    let off = (*ops.add(ip)).0 as i64;
-                    ip += 1;
-                    let ptr = (r!(op.a()) as i64 + off) as u64;
-                    self.check_ptr(ptr, 4);
-                    *(ptr as *mut i32) = get_i64!(op.b()) as i32;
-                }
-                tags::STORE64_OFF => {
-                    let ptr = r!(op.a()).wrapping_add(op.c() as u64);
-                    self.check_ptr(ptr, 8);
-                    *(ptr as *mut i64) = get_i64!(op.b());
-                }
-                tags::STORE64_OFF_WIDE => {
-                    let off = (*ops.add(ip)).0 as i64;
-                    ip += 1;
-                    let ptr = (r!(op.a()) as i64 + off) as u64;
-                    self.check_ptr(ptr, 8);
-                    *(ptr as *mut i64) = get_i64!(op.b());
-                }
-
-                tags::LOCAL_ADDR => {
-                    let offset = locals_base + (op.d_u16() as usize) * 8;
-                    r_set!(op.a(), self.locals.as_ptr().add(offset) as u64);
-                }
-                tags::LOAD_SLOT32 => {
-                    let offset = locals_base + (op.d_u16() as usize) * 8;
-                    let ptr = self.locals.as_ptr().add(offset);
-                    set_i64!(op.a(), *(ptr as *const i32) as i64);
-                }
-                tags::STORE_SLOT32 => {
-                    let offset = locals_base + (op.d_u16() as usize) * 8;
-                    let ptr = self.locals.as_mut_ptr().add(offset);
-                    *(ptr as *mut i32) = get_i64!(op.a()) as i32;
-                }
-
-                tags::GLOBAL_ADDR => {
-                    r_set!(op.a(), self.globals.as_ptr().add(op.d_u16() as usize) as u64);
-                }
-
-                // Control flow — AD format (i16 offset)
-                tags::JUMP => {
-                    let off = op.d();
-                    ip = (ip as i32 + off as i32) as usize;
-                    if off < 0 && self.cancel_flag() {
-                        self.cancelled = true;
-                        return 0;
+                        r_set!(op.a(), ne as u64);
                     }
-                }
 
-                tags::JUMP_IF_ZERO => {
-                    if r!(op.a()) == 0 {
+                    // Type conversions — AB
+                    tags::I32_TO_F32 => {
+                        set_f32!(op.a(), (get_i64!(op.b()) as i32) as f32);
+                    }
+                    tags::F32_TO_I32 => {
+                        set_i64!(op.a(), r_f32!(op.b()) as i32 as i64);
+                    }
+                    tags::I32_TO_F64 => {
+                        set_f64!(op.a(), (get_i64!(op.b()) as i32) as f64);
+                    }
+                    tags::F64_TO_I32 => {
+                        set_i64!(op.a(), r_f64!(op.b()) as i32 as i64);
+                    }
+                    tags::F32_TO_F64 => {
+                        set_f64!(op.a(), r_f32!(op.b()) as f64);
+                    }
+                    tags::F64_TO_F32 => {
+                        set_f32!(op.a(), r_f64!(op.b()) as f32);
+                    }
+
+                    // Memory operations
+                    tags::LOAD8 => {
+                        let ptr = r!(op.b());
+                        self.check_ptr(ptr, 1);
+                        set_i64!(op.a(), *(ptr as *const u8) as i64);
+                    }
+                    tags::LOAD32 => {
+                        let ptr = r!(op.b());
+                        self.check_ptr(ptr, 4);
+                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                    }
+                    tags::LOAD64 => {
+                        let ptr = r!(op.b());
+                        self.check_ptr(ptr, 8);
+                        set_i64!(op.a(), *(ptr as *const i64));
+                    }
+                    tags::LOAD32_OFF => {
+                        let ptr = r!(op.b()).wrapping_add(op.c() as u64);
+                        self.check_ptr(ptr, 4);
+                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                    }
+                    tags::LOAD32_OFF_WIDE => {
+                        let off = (*ops.add(ip)).0 as i64;
+                        ip += 1;
+                        let ptr = (r!(op.b()) as i64 + off) as u64;
+                        self.check_ptr(ptr, 4);
+                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                    }
+                    tags::LOAD64_OFF => {
+                        let ptr = r!(op.b()).wrapping_add(op.c() as u64);
+                        self.check_ptr(ptr, 8);
+                        set_i64!(op.a(), *(ptr as *const i64));
+                    }
+                    tags::LOAD64_OFF_WIDE => {
+                        let off = (*ops.add(ip)).0 as i64;
+                        ip += 1;
+                        let ptr = (r!(op.b()) as i64 + off) as u64;
+                        self.check_ptr(ptr, 8);
+                        set_i64!(op.a(), *(ptr as *const i64));
+                    }
+                    tags::STORE8 => {
+                        let ptr = r!(op.a());
+                        self.check_ptr(ptr, 1);
+                        *(ptr as *mut u8) = r!(op.b()) as u8;
+                    }
+                    tags::STORE32 => {
+                        let ptr = r!(op.a());
+                        self.check_ptr(ptr, 4);
+                        *(ptr as *mut i32) = get_i64!(op.b()) as i32;
+                    }
+                    tags::STORE64 => {
+                        let ptr = r!(op.a());
+                        self.check_ptr(ptr, 8);
+                        *(ptr as *mut i64) = get_i64!(op.b());
+                    }
+                    tags::STORE8_OFF => {
+                        let ptr = r!(op.a()).wrapping_add(op.c() as u64);
+                        self.check_ptr(ptr, 1);
+                        *(ptr as *mut u8) = r!(op.b()) as u8;
+                    }
+                    tags::STORE8_OFF_WIDE => {
+                        let off = (*ops.add(ip)).0 as i64;
+                        ip += 1;
+                        let ptr = (r!(op.a()) as i64 + off) as u64;
+                        self.check_ptr(ptr, 1);
+                        *(ptr as *mut u8) = r!(op.b()) as u8;
+                    }
+                    tags::STORE32_OFF => {
+                        let ptr = r!(op.a()).wrapping_add(op.c() as u64);
+                        self.check_ptr(ptr, 4);
+                        *(ptr as *mut i32) = get_i64!(op.b()) as i32;
+                    }
+                    tags::STORE32_OFF_WIDE => {
+                        let off = (*ops.add(ip)).0 as i64;
+                        ip += 1;
+                        let ptr = (r!(op.a()) as i64 + off) as u64;
+                        self.check_ptr(ptr, 4);
+                        *(ptr as *mut i32) = get_i64!(op.b()) as i32;
+                    }
+                    tags::STORE64_OFF => {
+                        let ptr = r!(op.a()).wrapping_add(op.c() as u64);
+                        self.check_ptr(ptr, 8);
+                        *(ptr as *mut i64) = get_i64!(op.b());
+                    }
+                    tags::STORE64_OFF_WIDE => {
+                        let off = (*ops.add(ip)).0 as i64;
+                        ip += 1;
+                        let ptr = (r!(op.a()) as i64 + off) as u64;
+                        self.check_ptr(ptr, 8);
+                        *(ptr as *mut i64) = get_i64!(op.b());
+                    }
+
+                    tags::LOCAL_ADDR => {
+                        let offset = locals_base + (op.d_u16() as usize) * 8;
+                        r_set!(op.a(), self.locals.as_ptr().add(offset) as u64);
+                    }
+                    tags::LOAD_SLOT32 => {
+                        let offset = locals_base + (op.d_u16() as usize) * 8;
+                        let ptr = self.locals.as_ptr().add(offset);
+                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                    }
+                    tags::STORE_SLOT32 => {
+                        let offset = locals_base + (op.d_u16() as usize) * 8;
+                        let ptr = self.locals.as_mut_ptr().add(offset);
+                        *(ptr as *mut i32) = get_i64!(op.a()) as i32;
+                    }
+
+                    tags::GLOBAL_ADDR => {
+                        r_set!(
+                            op.a(),
+                            self.globals.as_ptr().add(op.d_u16() as usize) as u64
+                        );
+                    }
+
+                    // Control flow — AD format (i16 offset)
+                    tags::JUMP => {
                         let off = op.d();
                         ip = (ip as i32 + off as i32) as usize;
                         if off < 0 && self.cancel_flag() {
@@ -1545,294 +2195,440 @@ impl VM {
                             return 0;
                         }
                     }
-                }
 
-                tags::JUMP_IF_NOT_ZERO => {
-                    if r!(op.a()) != 0 {
-                        let off = op.d();
-                        ip = (ip as i32 + off as i32) as usize;
-                        if off < 0 && self.cancel_flag() {
-                            self.cancelled = true;
-                            return 0;
-                        }
-                    }
-                }
-
-                // ILtJump/FLtJump — ABC format (i8 offset in C)
-                tags::ILT_JUMP => {
-                    if get_i64!(op.a()) >= get_i64!(op.b()) {
-                        let off = op.c_i8();
-                        ip = (ip as i32 + off as i32) as usize;
-                        if off < 0 && self.cancel_flag() {
-                            self.cancelled = true;
-                            return 0;
-                        }
-                    }
-                }
-
-                tags::FLT_JUMP => {
-                    if r_f32!(op.a()) >= r_f32!(op.b()) {
-                        let off = op.c_i8();
-                        ip = (ip as i32 + off as i32) as usize;
-                        if off < 0 && self.cancel_flag() {
-                            self.cancelled = true;
-                            return 0;
-                        }
-                    }
-                }
-
-                // Call — ABC: A=args_start, B=arg_count, C=func_idx
-                tags::CALL => {
-                    let func = op.c() as u32;
-                    let args_start = op.a() as usize;
-                    let arg_count = op.b() as usize;
-
-                    let frame = CallFrame {
-                        func_idx: self.current_func,
-                        ip: ip,
-                        locals_base: locals_base,
-                        return_reg: 0,
-                    };
-                    self.call_stack.push(frame);
-
-                    for i in 0..arg_count {
-                        if i != args_start + i {
-                            self.registers[i] = self.registers[args_start + i];
+                    tags::JUMP_IF_ZERO => {
+                        if r!(op.a()) == 0 {
+                            let off = op.d();
+                            ip = (ip as i32 + off as i32) as usize;
+                            if off < 0 && self.cancel_flag() {
+                                self.cancelled = true;
+                                return 0;
+                            }
                         }
                     }
 
-                    locals_base += linked.func_locals[self.current_func as usize] as usize;
-                    self.current_func = func;
-                    ip = linked.func_offsets[func as usize];
-
-                    #[cfg(debug_assertions)]
-                    { self.debug_func_name = program.functions[func as usize].name.clone(); }
-
-                    let needed = locals_base + linked.func_locals[func as usize] as usize;
-                    if needed > self.locals.len() {
-                        self.locals.resize(needed * 2, 0);
-                    }
-                }
-
-                // CallIndirect — ABC: A=func_reg, B=args_start, C=arg_count
-                tags::CALL_INDIRECT => {
-                    let func_idx = r!(op.a()) as FuncIdx;
-                    let args_start = op.b() as usize;
-                    let arg_count = op.c() as usize;
-
-                    let frame = CallFrame {
-                        func_idx: self.current_func,
-                        ip: ip,
-                        locals_base: locals_base,
-                        return_reg: 0,
-                    };
-                    self.call_stack.push(frame);
-
-                    for i in 0..arg_count {
-                        if i != args_start + i {
-                            self.registers[i] = self.registers[args_start + i];
+                    tags::JUMP_IF_NOT_ZERO => {
+                        if r!(op.a()) != 0 {
+                            let off = op.d();
+                            ip = (ip as i32 + off as i32) as usize;
+                            if off < 0 && self.cancel_flag() {
+                                self.cancelled = true;
+                                return 0;
+                            }
                         }
                     }
 
-                    locals_base += linked.func_locals[self.current_func as usize] as usize;
-                    self.current_func = func_idx;
-                    ip = linked.func_offsets[func_idx as usize];
-
-                    #[cfg(debug_assertions)]
-                    { self.debug_func_name = program.functions[func_idx as usize].name.clone(); }
-                }
-
-                tags::RETURN => {
-                    if self.call_stack.is_empty() {
-                        return get_i64!(0u8);
+                    // ILtJump/FLtJump — ABC format (i8 offset in C)
+                    tags::ILT_JUMP => {
+                        if get_i64!(op.a()) >= get_i64!(op.b()) {
+                            let off = op.c_i8();
+                            ip = (ip as i32 + off as i32) as usize;
+                            if off < 0 && self.cancel_flag() {
+                                self.cancelled = true;
+                                return 0;
+                            }
+                        }
                     }
-                    let frame = self.call_stack.pop().unwrap();
-                    self.current_func = frame.func_idx;
-                    ip = frame.ip;
-                    locals_base = frame.locals_base;
 
-                    #[cfg(debug_assertions)]
-                    { self.debug_func_name = program.functions[frame.func_idx as usize].name.clone(); }
-                }
-
-                tags::RETURN_REG => {
-                    self.registers[0] = self.registers[op.a() as usize];
-                    if self.call_stack.is_empty() {
-                        return get_i64!(0u8);
+                    tags::FLT_JUMP => {
+                        if r_f32!(op.a()) >= r_f32!(op.b()) {
+                            let off = op.c_i8();
+                            ip = (ip as i32 + off as i32) as usize;
+                            if off < 0 && self.cancel_flag() {
+                                self.cancelled = true;
+                                return 0;
+                            }
+                        }
                     }
-                    let frame = self.call_stack.pop().unwrap();
-                    self.current_func = frame.func_idx;
-                    ip = frame.ip;
-                    locals_base = frame.locals_base;
 
-                    #[cfg(debug_assertions)]
-                    { self.debug_func_name = program.functions[frame.func_idx as usize].name.clone(); }
-                }
+                    // Call — ABC: A=args_start, B=arg_count, C=func_idx
+                    tags::CALL => {
+                        let func = op.c() as u32;
+                        let args_start = op.a() as usize;
+                        let arg_count = op.b() as usize;
 
-                tags::ALLOC_LOCALS => {
-                    let size = op.d_u16() as usize;
-                    let needed = locals_base + size;
-                    if needed > self.locals.len() {
-                        self.locals.resize(needed * 2, 0);
+                        let frame = CallFrame {
+                            func_idx: self.current_func,
+                            ip: ip,
+                            locals_base: locals_base,
+                            return_reg: 0,
+                        };
+                        self.call_stack.push(frame);
+
+                        for i in 0..arg_count {
+                            if i != args_start + i {
+                                self.registers[i] = self.registers[args_start + i];
+                            }
+                        }
+
+                        locals_base += linked.func_locals[self.current_func as usize] as usize;
+                        self.current_func = func;
+                        ip = linked.func_offsets[func as usize];
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.debug_func_name = program.functions[func as usize].name.clone();
+                        }
+
+                        let needed = locals_base + linked.func_locals[func as usize] as usize;
+                        if needed > self.locals.len() {
+                            self.locals.resize(needed * 2, 0);
+                        }
                     }
-                    for i in 0..size {
-                        self.locals[locals_base + i] = 0;
+
+                    // CallIndirect — ABC: A=func_reg, B=args_start, C=arg_count
+                    tags::CALL_INDIRECT => {
+                        let func_idx = r!(op.a()) as FuncIdx;
+                        let args_start = op.b() as usize;
+                        let arg_count = op.c() as usize;
+
+                        let frame = CallFrame {
+                            func_idx: self.current_func,
+                            ip: ip,
+                            locals_base: locals_base,
+                            return_reg: 0,
+                        };
+                        self.call_stack.push(frame);
+
+                        for i in 0..arg_count {
+                            if i != args_start + i {
+                                self.registers[i] = self.registers[args_start + i];
+                            }
+                        }
+
+                        locals_base += linked.func_locals[self.current_func as usize] as usize;
+                        self.current_func = func_idx;
+                        ip = linked.func_offsets[func_idx as usize];
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.debug_func_name =
+                                program.functions[func_idx as usize].name.clone();
+                        }
+                    }
+
+                    tags::RETURN => {
+                        if self.call_stack.is_empty() {
+                            return get_i64!(0u8);
+                        }
+                        let frame = self.call_stack.pop().unwrap();
+                        self.current_func = frame.func_idx;
+                        ip = frame.ip;
+                        locals_base = frame.locals_base;
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.debug_func_name =
+                                program.functions[frame.func_idx as usize].name.clone();
+                        }
+                    }
+
+                    tags::RETURN_REG => {
+                        self.registers[0] = self.registers[op.a() as usize];
+                        if self.call_stack.is_empty() {
+                            return get_i64!(0u8);
+                        }
+                        let frame = self.call_stack.pop().unwrap();
+                        self.current_func = frame.func_idx;
+                        ip = frame.ip;
+                        locals_base = frame.locals_base;
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.debug_func_name =
+                                program.functions[frame.func_idx as usize].name.clone();
+                        }
+                    }
+
+                    tags::ALLOC_LOCALS => {
+                        let size = op.d_u16() as usize;
+                        let needed = locals_base + size;
+                        if needed > self.locals.len() {
+                            self.locals.resize(needed * 2, 0);
+                        }
+                        for i in 0..size {
+                            self.locals[locals_base + i] = 0;
+                        }
+                    }
+
+                    tags::MEM_COPY => {
+                        let dst_ptr = r!(op.a());
+                        let src_ptr = r!(op.b());
+                        let size = op.c() as usize;
+                        self.check_ptr(dst_ptr, size);
+                        self.check_ptr(src_ptr, size);
+                        std::ptr::copy_nonoverlapping(
+                            src_ptr as *const u8,
+                            dst_ptr as *mut u8,
+                            size,
+                        );
+                    }
+
+                    tags::MEM_COPY_WIDE => {
+                        let dst_ptr = r!(op.a());
+                        let src_ptr = r!(op.b());
+                        let size = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        self.check_ptr(dst_ptr, size);
+                        self.check_ptr(src_ptr, size);
+                        std::ptr::copy_nonoverlapping(
+                            src_ptr as *const u8,
+                            dst_ptr as *mut u8,
+                            size,
+                        );
+                    }
+
+                    tags::MEM_ZERO => {
+                        let ptr = r!(op.a());
+                        let size = op.d_u16() as usize;
+                        self.check_ptr(ptr, size);
+                        std::ptr::write_bytes(ptr as *mut u8, 0, size);
+                    }
+
+                    tags::SAVE_REGS => {
+                        let base = locals_base + (op.c() as usize) * 8;
+                        for i in 0..op.b() as usize {
+                            let reg_val = self.registers[op.a() as usize + i];
+                            let offset = base + i * 8;
+                            self.locals[offset..offset + 8].copy_from_slice(&reg_val.to_le_bytes());
+                        }
+                    }
+
+                    tags::SAVE_REGS_WIDE => {
+                        let base = locals_base + (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        for i in 0..op.b() as usize {
+                            let reg_val = self.registers[op.a() as usize + i];
+                            let offset = base + i * 8;
+                            self.locals[offset..offset + 8].copy_from_slice(&reg_val.to_le_bytes());
+                        }
+                    }
+
+                    tags::RESTORE_REGS => {
+                        let base = locals_base + (op.c() as usize) * 8;
+                        for i in 0..op.b() as usize {
+                            let offset = base + i * 8;
+                            let bytes: [u8; 8] =
+                                self.locals[offset..offset + 8].try_into().unwrap();
+                            self.registers[op.a() as usize + i] = u64::from_le_bytes(bytes);
+                        }
+                    }
+
+                    tags::RESTORE_REGS_WIDE => {
+                        let base = locals_base + (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        for i in 0..op.b() as usize {
+                            let offset = base + i * 8;
+                            let bytes: [u8; 8] =
+                                self.locals[offset..offset + 8].try_into().unwrap();
+                            self.registers[op.a() as usize + i] = u64::from_le_bytes(bytes);
+                        }
+                    }
+
+                    // Debugging
+                    tags::PRINT_I32 => {
+                        println!("{}", get_i64!(op.a()) as i32);
+                    }
+                    tags::PRINT_F32 => {
+                        println!("{}", r_f32!(op.a()));
+                    }
+                    tags::ASSERT => {
+                        let val = r!(op.a()) != 0;
+                        println!("assert({})", val);
+                        if !val {
+                            panic!(
+                                "Assertion failed at {}:{}",
+                                program.functions[self.current_func as usize].name,
+                                ip - 1
+                            );
+                        }
+                    }
+                    tags::PUTC => {
+                        if let Some(c) = char::from_u32(get_i64!(op.a()) as u32) {
+                            print!("{}", c);
+                        }
+                    }
+
+                    // Math builtins — f32 unary
+                    tags::SIN_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).sin());
+                    }
+                    tags::COS_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).cos());
+                    }
+                    tags::TAN_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).tan());
+                    }
+                    tags::ASIN_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).asin());
+                    }
+                    tags::ACOS_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).acos());
+                    }
+                    tags::ATAN_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).atan());
+                    }
+                    tags::SINH_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).sinh());
+                    }
+                    tags::COSH_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).cosh());
+                    }
+                    tags::TANH_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).tanh());
+                    }
+                    tags::ASINH_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).asinh());
+                    }
+                    tags::ACOSH_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).acosh());
+                    }
+                    tags::ATANH_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).atanh());
+                    }
+                    tags::LN_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).ln());
+                    }
+                    tags::EXP_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).exp());
+                    }
+                    tags::EXP2_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).exp2());
+                    }
+                    tags::LOG10_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).log10());
+                    }
+                    tags::LOG2_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).log2());
+                    }
+                    tags::SQRT_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).sqrt());
+                    }
+                    tags::ABS_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).abs());
+                    }
+                    tags::FLOOR_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).floor());
+                    }
+                    tags::CEIL_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).ceil());
+                    }
+
+                    // Math builtins — f64 unary
+                    tags::SIN_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).sin());
+                    }
+                    tags::COS_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).cos());
+                    }
+                    tags::TAN_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).tan());
+                    }
+                    tags::ASIN_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).asin());
+                    }
+                    tags::ACOS_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).acos());
+                    }
+                    tags::ATAN_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).atan());
+                    }
+                    tags::SINH_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).sinh());
+                    }
+                    tags::COSH_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).cosh());
+                    }
+                    tags::TANH_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).tanh());
+                    }
+                    tags::ASINH_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).asinh());
+                    }
+                    tags::ACOSH_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).acosh());
+                    }
+                    tags::ATANH_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).atanh());
+                    }
+                    tags::LN_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).ln());
+                    }
+                    tags::EXP_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).exp());
+                    }
+                    tags::EXP2_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).exp2());
+                    }
+                    tags::LOG10_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).log10());
+                    }
+                    tags::LOG2_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).log2());
+                    }
+                    tags::SQRT_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).sqrt());
+                    }
+                    tags::ABS_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).abs());
+                    }
+                    tags::FLOOR_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).floor());
+                    }
+                    tags::CEIL_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).ceil());
+                    }
+
+                    // Math builtins — predicates
+                    tags::ISINF_F32 => {
+                        set_i64!(op.a(), r_f32!(op.b()).is_infinite() as i64);
+                    }
+                    tags::ISINF_F64 => {
+                        set_i64!(op.a(), r_f64!(op.b()).is_infinite() as i64);
+                    }
+                    tags::ISNAN_F32 => {
+                        set_i64!(op.a(), r_f32!(op.b()).is_nan() as i64);
+                    }
+                    tags::ISNAN_F64 => {
+                        set_i64!(op.a(), r_f64!(op.b()).is_nan() as i64);
+                    }
+
+                    // Math builtins — binary f32
+                    tags::POW_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).powf(r_f32!(op.c())));
+                    }
+                    tags::ATAN2_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).atan2(r_f32!(op.c())));
+                    }
+                    tags::MIN_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).min(r_f32!(op.c())));
+                    }
+                    tags::MAX_F32 => {
+                        set_f32!(op.a(), r_f32!(op.b()).max(r_f32!(op.c())));
+                    }
+
+                    // Math builtins — binary f64
+                    tags::POW_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c())));
+                    }
+                    tags::ATAN2_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).atan2(r_f64!(op.c())));
+                    }
+                    tags::MIN_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).min(r_f64!(op.c())));
+                    }
+                    tags::MAX_F64 => {
+                        set_f64!(op.a(), r_f64!(op.b()).max(r_f64!(op.c())));
+                    }
+
+                    _ => {
+                        #[cfg(debug_assertions)]
+                        panic!("VM: unknown opcode tag {}", op.tag());
+                        #[cfg(not(debug_assertions))]
+                        core::hint::unreachable_unchecked();
                     }
                 }
-
-                tags::MEM_COPY => {
-                    let dst_ptr = r!(op.a());
-                    let src_ptr = r!(op.b());
-                    let size = op.c() as usize;
-                    self.check_ptr(dst_ptr, size);
-                    self.check_ptr(src_ptr, size);
-                    std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size);
-                }
-
-                tags::MEM_COPY_WIDE => {
-                    let dst_ptr = r!(op.a());
-                    let src_ptr = r!(op.b());
-                    let size = (*ops.add(ip)).0 as usize;
-                    ip += 1;
-                    self.check_ptr(dst_ptr, size);
-                    self.check_ptr(src_ptr, size);
-                    std::ptr::copy_nonoverlapping(src_ptr as *const u8, dst_ptr as *mut u8, size);
-                }
-
-                tags::MEM_ZERO => {
-                    let ptr = r!(op.a());
-                    let size = op.d_u16() as usize;
-                    self.check_ptr(ptr, size);
-                    std::ptr::write_bytes(ptr as *mut u8, 0, size);
-                }
-
-                tags::SAVE_REGS => {
-                    let base = locals_base + (op.c() as usize) * 8;
-                    for i in 0..op.b() as usize {
-                        let reg_val = self.registers[op.a() as usize + i];
-                        let offset = base + i * 8;
-                        self.locals[offset..offset + 8].copy_from_slice(&reg_val.to_le_bytes());
-                    }
-                }
-
-                tags::SAVE_REGS_WIDE => {
-                    let base = locals_base + (*ops.add(ip)).0 as usize;
-                    ip += 1;
-                    for i in 0..op.b() as usize {
-                        let reg_val = self.registers[op.a() as usize + i];
-                        let offset = base + i * 8;
-                        self.locals[offset..offset + 8].copy_from_slice(&reg_val.to_le_bytes());
-                    }
-                }
-
-                tags::RESTORE_REGS => {
-                    let base = locals_base + (op.c() as usize) * 8;
-                    for i in 0..op.b() as usize {
-                        let offset = base + i * 8;
-                        let bytes: [u8; 8] = self.locals[offset..offset + 8].try_into().unwrap();
-                        self.registers[op.a() as usize + i] = u64::from_le_bytes(bytes);
-                    }
-                }
-
-                tags::RESTORE_REGS_WIDE => {
-                    let base = locals_base + (*ops.add(ip)).0 as usize;
-                    ip += 1;
-                    for i in 0..op.b() as usize {
-                        let offset = base + i * 8;
-                        let bytes: [u8; 8] = self.locals[offset..offset + 8].try_into().unwrap();
-                        self.registers[op.a() as usize + i] = u64::from_le_bytes(bytes);
-                    }
-                }
-
-                // Debugging
-                tags::PRINT_I32 => { println!("{}", get_i64!(op.a()) as i32); }
-                tags::PRINT_F32 => { println!("{}", r_f32!(op.a())); }
-                tags::ASSERT => {
-                    let val = r!(op.a()) != 0;
-                    println!("assert({})", val);
-                    if !val {
-                        panic!("Assertion failed at {}:{}",
-                            program.functions[self.current_func as usize].name,
-                            ip - 1);
-                    }
-                }
-                tags::PUTC => {
-                    if let Some(c) = char::from_u32(get_i64!(op.a()) as u32) {
-                        print!("{}", c);
-                    }
-                }
-
-                // Math builtins — f32 unary
-                tags::SIN_F32 => { set_f32!(op.a(), r_f32!(op.b()).sin()); }
-                tags::COS_F32 => { set_f32!(op.a(), r_f32!(op.b()).cos()); }
-                tags::TAN_F32 => { set_f32!(op.a(), r_f32!(op.b()).tan()); }
-                tags::ASIN_F32 => { set_f32!(op.a(), r_f32!(op.b()).asin()); }
-                tags::ACOS_F32 => { set_f32!(op.a(), r_f32!(op.b()).acos()); }
-                tags::ATAN_F32 => { set_f32!(op.a(), r_f32!(op.b()).atan()); }
-                tags::SINH_F32 => { set_f32!(op.a(), r_f32!(op.b()).sinh()); }
-                tags::COSH_F32 => { set_f32!(op.a(), r_f32!(op.b()).cosh()); }
-                tags::TANH_F32 => { set_f32!(op.a(), r_f32!(op.b()).tanh()); }
-                tags::ASINH_F32 => { set_f32!(op.a(), r_f32!(op.b()).asinh()); }
-                tags::ACOSH_F32 => { set_f32!(op.a(), r_f32!(op.b()).acosh()); }
-                tags::ATANH_F32 => { set_f32!(op.a(), r_f32!(op.b()).atanh()); }
-                tags::LN_F32 => { set_f32!(op.a(), r_f32!(op.b()).ln()); }
-                tags::EXP_F32 => { set_f32!(op.a(), r_f32!(op.b()).exp()); }
-                tags::EXP2_F32 => { set_f32!(op.a(), r_f32!(op.b()).exp2()); }
-                tags::LOG10_F32 => { set_f32!(op.a(), r_f32!(op.b()).log10()); }
-                tags::LOG2_F32 => { set_f32!(op.a(), r_f32!(op.b()).log2()); }
-                tags::SQRT_F32 => { set_f32!(op.a(), r_f32!(op.b()).sqrt()); }
-                tags::ABS_F32 => { set_f32!(op.a(), r_f32!(op.b()).abs()); }
-                tags::FLOOR_F32 => { set_f32!(op.a(), r_f32!(op.b()).floor()); }
-                tags::CEIL_F32 => { set_f32!(op.a(), r_f32!(op.b()).ceil()); }
-
-                // Math builtins — f64 unary
-                tags::SIN_F64 => { set_f64!(op.a(), r_f64!(op.b()).sin()); }
-                tags::COS_F64 => { set_f64!(op.a(), r_f64!(op.b()).cos()); }
-                tags::TAN_F64 => { set_f64!(op.a(), r_f64!(op.b()).tan()); }
-                tags::ASIN_F64 => { set_f64!(op.a(), r_f64!(op.b()).asin()); }
-                tags::ACOS_F64 => { set_f64!(op.a(), r_f64!(op.b()).acos()); }
-                tags::ATAN_F64 => { set_f64!(op.a(), r_f64!(op.b()).atan()); }
-                tags::SINH_F64 => { set_f64!(op.a(), r_f64!(op.b()).sinh()); }
-                tags::COSH_F64 => { set_f64!(op.a(), r_f64!(op.b()).cosh()); }
-                tags::TANH_F64 => { set_f64!(op.a(), r_f64!(op.b()).tanh()); }
-                tags::ASINH_F64 => { set_f64!(op.a(), r_f64!(op.b()).asinh()); }
-                tags::ACOSH_F64 => { set_f64!(op.a(), r_f64!(op.b()).acosh()); }
-                tags::ATANH_F64 => { set_f64!(op.a(), r_f64!(op.b()).atanh()); }
-                tags::LN_F64 => { set_f64!(op.a(), r_f64!(op.b()).ln()); }
-                tags::EXP_F64 => { set_f64!(op.a(), r_f64!(op.b()).exp()); }
-                tags::EXP2_F64 => { set_f64!(op.a(), r_f64!(op.b()).exp2()); }
-                tags::LOG10_F64 => { set_f64!(op.a(), r_f64!(op.b()).log10()); }
-                tags::LOG2_F64 => { set_f64!(op.a(), r_f64!(op.b()).log2()); }
-                tags::SQRT_F64 => { set_f64!(op.a(), r_f64!(op.b()).sqrt()); }
-                tags::ABS_F64 => { set_f64!(op.a(), r_f64!(op.b()).abs()); }
-                tags::FLOOR_F64 => { set_f64!(op.a(), r_f64!(op.b()).floor()); }
-                tags::CEIL_F64 => { set_f64!(op.a(), r_f64!(op.b()).ceil()); }
-
-                // Math builtins — predicates
-                tags::ISINF_F32 => { set_i64!(op.a(), r_f32!(op.b()).is_infinite() as i64); }
-                tags::ISINF_F64 => { set_i64!(op.a(), r_f64!(op.b()).is_infinite() as i64); }
-                tags::ISNAN_F32 => { set_i64!(op.a(), r_f32!(op.b()).is_nan() as i64); }
-                tags::ISNAN_F64 => { set_i64!(op.a(), r_f64!(op.b()).is_nan() as i64); }
-
-                // Math builtins — binary f32
-                tags::POW_F32 => { set_f32!(op.a(), r_f32!(op.b()).powf(r_f32!(op.c()))); }
-                tags::ATAN2_F32 => { set_f32!(op.a(), r_f32!(op.b()).atan2(r_f32!(op.c()))); }
-                tags::MIN_F32 => { set_f32!(op.a(), r_f32!(op.b()).min(r_f32!(op.c()))); }
-                tags::MAX_F32 => { set_f32!(op.a(), r_f32!(op.b()).max(r_f32!(op.c()))); }
-
-                // Math builtins — binary f64
-                tags::POW_F64 => { set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c()))); }
-                tags::ATAN2_F64 => { set_f64!(op.a(), r_f64!(op.b()).atan2(r_f64!(op.c()))); }
-                tags::MIN_F64 => { set_f64!(op.a(), r_f64!(op.b()).min(r_f64!(op.c()))); }
-                tags::MAX_F64 => { set_f64!(op.a(), r_f64!(op.b()).max(r_f64!(op.c()))); }
-
-                _ => {
-                    #[cfg(debug_assertions)]
-                    panic!("VM: unknown opcode tag {}", op.tag());
-                    #[cfg(not(debug_assertions))]
-                    core::hint::unreachable_unchecked();
-                }
-            } }
+            }
         }
     }
     /// Only valid after `run` has been called.
@@ -1873,18 +2669,21 @@ impl VM {
 /// Disassemble a function to a string
 impl fmt::Display for VMFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "fn {} (params: {}, locals: {} bytes):",
-            self.name, self.param_count, self.locals_size)?;
+        writeln!(
+            f,
+            "fn {} (params: {}, locals: {} bytes):",
+            self.name, self.param_count, self.locals_size
+        )?;
 
         // Collect jump targets.
         let mut targets = std::collections::HashSet::new();
         for (i, op) in self.code.iter().enumerate() {
             let offset = match op {
-                Opcode::Jump { offset } |
-                Opcode::JumpIfZero { offset, .. } |
-                Opcode::JumpIfNotZero { offset, .. } |
-                Opcode::ILtJump { offset, .. } |
-                Opcode::FLtJump { offset, .. } => Some(*offset),
+                Opcode::Jump { offset }
+                | Opcode::JumpIfZero { offset, .. }
+                | Opcode::JumpIfNotZero { offset, .. }
+                | Opcode::ILtJump { offset, .. }
+                | Opcode::FLtJump { offset, .. } => Some(*offset),
                 _ => None,
             };
             if let Some(off) = offset {
@@ -1967,45 +2766,133 @@ pub fn create_biquad_program() -> VMProgram {
     // Coefficients pointer in r2
 
     // Load state: x1, x2, y1, y2
-    biquad.emit(Opcode::Load32Off { dst: 3, base: 1, offset: 0 });   // r3 = x1
-    biquad.emit(Opcode::Load32Off { dst: 4, base: 1, offset: 4 });   // r4 = x2
-    biquad.emit(Opcode::Load32Off { dst: 5, base: 1, offset: 8 });   // r5 = y1
-    biquad.emit(Opcode::Load32Off { dst: 6, base: 1, offset: 12 });  // r6 = y2
+    biquad.emit(Opcode::Load32Off {
+        dst: 3,
+        base: 1,
+        offset: 0,
+    }); // r3 = x1
+    biquad.emit(Opcode::Load32Off {
+        dst: 4,
+        base: 1,
+        offset: 4,
+    }); // r4 = x2
+    biquad.emit(Opcode::Load32Off {
+        dst: 5,
+        base: 1,
+        offset: 8,
+    }); // r5 = y1
+    biquad.emit(Opcode::Load32Off {
+        dst: 6,
+        base: 1,
+        offset: 12,
+    }); // r6 = y2
 
     // Load coefficients: b0, b1, b2, a1, a2
-    biquad.emit(Opcode::Load32Off { dst: 10, base: 2, offset: 0 });  // r10 = b0
-    biquad.emit(Opcode::Load32Off { dst: 11, base: 2, offset: 4 });  // r11 = b1
-    biquad.emit(Opcode::Load32Off { dst: 12, base: 2, offset: 8 });  // r12 = b2
-    biquad.emit(Opcode::Load32Off { dst: 13, base: 2, offset: 12 }); // r13 = a1
-    biquad.emit(Opcode::Load32Off { dst: 14, base: 2, offset: 16 }); // r14 = a2
+    biquad.emit(Opcode::Load32Off {
+        dst: 10,
+        base: 2,
+        offset: 0,
+    }); // r10 = b0
+    biquad.emit(Opcode::Load32Off {
+        dst: 11,
+        base: 2,
+        offset: 4,
+    }); // r11 = b1
+    biquad.emit(Opcode::Load32Off {
+        dst: 12,
+        base: 2,
+        offset: 8,
+    }); // r12 = b2
+    biquad.emit(Opcode::Load32Off {
+        dst: 13,
+        base: 2,
+        offset: 12,
+    }); // r13 = a1
+    biquad.emit(Opcode::Load32Off {
+        dst: 14,
+        base: 2,
+        offset: 16,
+    }); // r14 = a2
 
     // Compute output: y0 = b0*x0 + b1*x1 + b2*x2 - a1*y1 - a2*y2
 
     // r20 = b0 * x0
-    biquad.emit(Opcode::FMul { dst: 20, a: 10, b: 0 });
+    biquad.emit(Opcode::FMul {
+        dst: 20,
+        a: 10,
+        b: 0,
+    });
 
     // r20 += b1 * x1
-    biquad.emit(Opcode::FMul { dst: 21, a: 11, b: 3 });
-    biquad.emit(Opcode::FAdd { dst: 20, a: 20, b: 21 });
+    biquad.emit(Opcode::FMul {
+        dst: 21,
+        a: 11,
+        b: 3,
+    });
+    biquad.emit(Opcode::FAdd {
+        dst: 20,
+        a: 20,
+        b: 21,
+    });
 
     // r20 += b2 * x2
-    biquad.emit(Opcode::FMul { dst: 21, a: 12, b: 4 });
-    biquad.emit(Opcode::FAdd { dst: 20, a: 20, b: 21 });
+    biquad.emit(Opcode::FMul {
+        dst: 21,
+        a: 12,
+        b: 4,
+    });
+    biquad.emit(Opcode::FAdd {
+        dst: 20,
+        a: 20,
+        b: 21,
+    });
 
     // r20 -= a1 * y1
-    biquad.emit(Opcode::FMul { dst: 21, a: 13, b: 5 });
-    biquad.emit(Opcode::FSub { dst: 20, a: 20, b: 21 });
+    biquad.emit(Opcode::FMul {
+        dst: 21,
+        a: 13,
+        b: 5,
+    });
+    biquad.emit(Opcode::FSub {
+        dst: 20,
+        a: 20,
+        b: 21,
+    });
 
     // r20 -= a2 * y2
-    biquad.emit(Opcode::FMul { dst: 21, a: 14, b: 6 });
-    biquad.emit(Opcode::FSub { dst: 20, a: 20, b: 21 });
+    biquad.emit(Opcode::FMul {
+        dst: 21,
+        a: 14,
+        b: 6,
+    });
+    biquad.emit(Opcode::FSub {
+        dst: 20,
+        a: 20,
+        b: 21,
+    });
 
     // Update state:
     // x2 = x1, x1 = x0, y2 = y1, y1 = y0
-    biquad.emit(Opcode::Store32Off { base: 1, offset: 4, src: 3 });  // x2 = x1
-    biquad.emit(Opcode::Store32Off { base: 1, offset: 0, src: 0 });  // x1 = x0
-    biquad.emit(Opcode::Store32Off { base: 1, offset: 12, src: 5 }); // y2 = y1
-    biquad.emit(Opcode::Store32Off { base: 1, offset: 8, src: 20 }); // y1 = y0
+    biquad.emit(Opcode::Store32Off {
+        base: 1,
+        offset: 4,
+        src: 3,
+    }); // x2 = x1
+    biquad.emit(Opcode::Store32Off {
+        base: 1,
+        offset: 0,
+        src: 0,
+    }); // x1 = x0
+    biquad.emit(Opcode::Store32Off {
+        base: 1,
+        offset: 12,
+        src: 5,
+    }); // y2 = y1
+    biquad.emit(Opcode::Store32Off {
+        base: 1,
+        offset: 8,
+        src: 20,
+    }); // y1 = y0
 
     // Return y0
     biquad.emit(Opcode::ReturnReg { src: 20 });
@@ -2028,54 +2915,134 @@ pub fn create_biquad_program() -> VMProgram {
     // Initialize coefficients for a simple lowpass filter
     // b0 = 0.0675, b1 = 0.135, b2 = 0.0675
     // a1 = -1.143, a2 = 0.413
-    main.emit(Opcode::LoadF32 { dst: 0, value: 0.0675 });
-    main.emit(Opcode::Store32Off { base: 11, offset: 0, src: 0 });  // b0
-    main.emit(Opcode::LoadF32 { dst: 0, value: 0.135 });
-    main.emit(Opcode::Store32Off { base: 11, offset: 4, src: 0 });  // b1
-    main.emit(Opcode::LoadF32 { dst: 0, value: 0.0675 });
-    main.emit(Opcode::Store32Off { base: 11, offset: 8, src: 0 });  // b2
-    main.emit(Opcode::LoadF32 { dst: 0, value: -1.143 });
-    main.emit(Opcode::Store32Off { base: 11, offset: 12, src: 0 }); // a1
-    main.emit(Opcode::LoadF32 { dst: 0, value: 0.413 });
-    main.emit(Opcode::Store32Off { base: 11, offset: 16, src: 0 }); // a2
+    main.emit(Opcode::LoadF32 {
+        dst: 0,
+        value: 0.0675,
+    });
+    main.emit(Opcode::Store32Off {
+        base: 11,
+        offset: 0,
+        src: 0,
+    }); // b0
+    main.emit(Opcode::LoadF32 {
+        dst: 0,
+        value: 0.135,
+    });
+    main.emit(Opcode::Store32Off {
+        base: 11,
+        offset: 4,
+        src: 0,
+    }); // b1
+    main.emit(Opcode::LoadF32 {
+        dst: 0,
+        value: 0.0675,
+    });
+    main.emit(Opcode::Store32Off {
+        base: 11,
+        offset: 8,
+        src: 0,
+    }); // b2
+    main.emit(Opcode::LoadF32 {
+        dst: 0,
+        value: -1.143,
+    });
+    main.emit(Opcode::Store32Off {
+        base: 11,
+        offset: 12,
+        src: 0,
+    }); // a1
+    main.emit(Opcode::LoadF32 {
+        dst: 0,
+        value: 0.413,
+    });
+    main.emit(Opcode::Store32Off {
+        base: 11,
+        offset: 16,
+        src: 0,
+    }); // a2
 
     // Loop counter
-    main.emit(Opcode::LoadImm { dst: 20, value: 0 });        // r20 = i = 0
-    main.emit(Opcode::LoadImm { dst: 21, value: 10000 });    // r21 = N = 10000
+    main.emit(Opcode::LoadImm { dst: 20, value: 0 }); // r20 = i = 0
+    main.emit(Opcode::LoadImm {
+        dst: 21,
+        value: 10000,
+    }); // r21 = N = 10000
 
     // Accumulator for output
-    main.emit(Opcode::LoadF32 { dst: 30, value: 0.0 });      // r30 = sum = 0.0
+    main.emit(Opcode::LoadF32 {
+        dst: 30,
+        value: 0.0,
+    }); // r30 = sum = 0.0
 
     // Loop start (instruction index for jump target)
     let loop_start = main.code.len();
 
     // Check i < N using superinstruction (jumps if NOT i < N)
-    let jump_end = main.emit(Opcode::ILtJump { a: 20, b: 21, offset: 0 }); // patched later
+    let jump_end = main.emit(Opcode::ILtJump {
+        a: 20,
+        b: 21,
+        offset: 0,
+    }); // patched later
 
     // Generate input: simple sawtooth wave
     // input = (i % 100) / 100.0 - 0.5
-    main.emit(Opcode::LoadImm { dst: 23, value: 100 });
-    main.emit(Opcode::IRem { dst: 24, a: 20, b: 23 });       // r24 = i % 100
-    main.emit(Opcode::I32ToF32 { dst: 25, src: 24 });        // r25 = (float)(i % 100)
-    main.emit(Opcode::LoadF32 { dst: 26, value: 100.0 });
-    main.emit(Opcode::FDiv { dst: 0, a: 25, b: 26 });        // r0 = r25 / 100.0
-    main.emit(Opcode::LoadF32 { dst: 26, value: 0.5 });
-    main.emit(Opcode::FSub { dst: 0, a: 0, b: 26 });         // r0 = r0 - 0.5 (input)
+    main.emit(Opcode::LoadImm {
+        dst: 23,
+        value: 100,
+    });
+    main.emit(Opcode::IRem {
+        dst: 24,
+        a: 20,
+        b: 23,
+    }); // r24 = i % 100
+    main.emit(Opcode::I32ToF32 { dst: 25, src: 24 }); // r25 = (float)(i % 100)
+    main.emit(Opcode::LoadF32 {
+        dst: 26,
+        value: 100.0,
+    });
+    main.emit(Opcode::FDiv {
+        dst: 0,
+        a: 25,
+        b: 26,
+    }); // r0 = r25 / 100.0
+    main.emit(Opcode::LoadF32 {
+        dst: 26,
+        value: 0.5,
+    });
+    main.emit(Opcode::FSub {
+        dst: 0,
+        a: 0,
+        b: 26,
+    }); // r0 = r0 - 0.5 (input)
 
     // Call biquad_process(input, &state, &coeffs)
-    main.emit(Opcode::Move { dst: 1, src: 10 });             // r1 = &state
-    main.emit(Opcode::Move { dst: 2, src: 11 });             // r2 = &coeffs
-    main.emit(Opcode::Call { func: biquad_idx, args_start: 0, arg_count: 3 });
+    main.emit(Opcode::Move { dst: 1, src: 10 }); // r1 = &state
+    main.emit(Opcode::Move { dst: 2, src: 11 }); // r2 = &coeffs
+    main.emit(Opcode::Call {
+        func: biquad_idx,
+        args_start: 0,
+        arg_count: 3,
+    });
 
     // Accumulate output
-    main.emit(Opcode::FAdd { dst: 30, a: 30, b: 0 });        // sum += output
+    main.emit(Opcode::FAdd {
+        dst: 30,
+        a: 30,
+        b: 0,
+    }); // sum += output
 
     // i++ using superinstruction
-    main.emit(Opcode::IAddImm { dst: 20, src: 20, imm: 1 });
+    main.emit(Opcode::IAddImm {
+        dst: 20,
+        src: 20,
+        imm: 1,
+    });
 
     // Jump back to loop start
     let loop_end = main.code.len();
-    main.emit(Opcode::Jump { offset: (loop_start as i32) - (loop_end as i32) - 1 });
+    main.emit(Opcode::Jump {
+        offset: (loop_start as i32) - (loop_end as i32) - 1,
+    });
 
     // Patch the conditional jump
     main.patch_jump(jump_end);
@@ -2172,11 +3139,11 @@ mod tests {
         let mut func = VMFunction::new("test");
         func.emit(Opcode::LoadImm { dst: 0, value: 5 });
         func.emit(Opcode::LoadImm { dst: 1, value: 10 });
-        func.emit(Opcode::ILt { dst: 2, a: 0, b: 1 });  // 5 < 10 = true
+        func.emit(Opcode::ILt { dst: 2, a: 0, b: 1 }); // 5 < 10 = true
         func.emit(Opcode::JumpIfZero { cond: 2, offset: 2 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 100 });  // if true
+        func.emit(Opcode::LoadImm { dst: 0, value: 100 }); // if true
         func.emit(Opcode::Jump { offset: 1 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 200 });  // if false
+        func.emit(Opcode::LoadImm { dst: 0, value: 200 }); // if false
         func.emit(Opcode::Return);
 
         let mut program = VMProgram::new();
@@ -2191,17 +3158,17 @@ mod tests {
     fn test_loop() {
         // Sum 1..10
         let mut func = VMFunction::new("test");
-        func.emit(Opcode::LoadImm { dst: 0, value: 0 });   // sum = 0
-        func.emit(Opcode::LoadImm { dst: 1, value: 1 });   // i = 1
-        func.emit(Opcode::LoadImm { dst: 2, value: 11 });  // limit = 11
+        func.emit(Opcode::LoadImm { dst: 0, value: 0 }); // sum = 0
+        func.emit(Opcode::LoadImm { dst: 1, value: 1 }); // i = 1
+        func.emit(Opcode::LoadImm { dst: 2, value: 11 }); // limit = 11
 
         // Loop start (index 3)
-        func.emit(Opcode::ILt { dst: 3, a: 1, b: 2 });     // i < 11?
+        func.emit(Opcode::ILt { dst: 3, a: 1, b: 2 }); // i < 11?
         func.emit(Opcode::JumpIfZero { cond: 3, offset: 4 }); // exit if false
-        func.emit(Opcode::IAdd { dst: 0, a: 0, b: 1 });    // sum += i
+        func.emit(Opcode::IAdd { dst: 0, a: 0, b: 1 }); // sum += i
         func.emit(Opcode::LoadImm { dst: 4, value: 1 });
-        func.emit(Opcode::IAdd { dst: 1, a: 1, b: 4 });    // i++
-        func.emit(Opcode::Jump { offset: -6 });            // back to loop start
+        func.emit(Opcode::IAdd { dst: 1, a: 1, b: 4 }); // i++
+        func.emit(Opcode::Jump { offset: -6 }); // back to loop start
 
         func.emit(Opcode::Return);
 
@@ -2210,7 +3177,7 @@ mod tests {
 
         let mut vm = VM::new();
         let result = vm.run(&program);
-        assert_eq!(result, 55);  // 1+2+3+...+10 = 55
+        assert_eq!(result, 55); // 1+2+3+...+10 = 55
     }
 
     #[test]
@@ -2224,7 +3191,11 @@ mod tests {
         // Main function
         let mut main = VMFunction::new("main");
         main.emit(Opcode::LoadImm { dst: 0, value: 21 });
-        main.emit(Opcode::Call { func: 0, args_start: 0, arg_count: 1 });
+        main.emit(Opcode::Call {
+            func: 0,
+            args_start: 0,
+            arg_count: 1,
+        });
         main.emit(Opcode::Return);
 
         let mut program = VMProgram::new();
@@ -2248,9 +3219,12 @@ mod tests {
 
         func.emit(Opcode::AllocLocals { size: 32 });
         func.emit(Opcode::LocalAddr { dst: 1, slot: 0 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 12345 });
+        func.emit(Opcode::LoadImm {
+            dst: 0,
+            value: 12345,
+        });
         func.emit(Opcode::Store32 { addr: 1, src: 0 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 0 });  // Clear r0
+        func.emit(Opcode::LoadImm { dst: 0, value: 0 }); // Clear r0
         func.emit(Opcode::Load32 { dst: 0, addr: 1 });
         func.emit(Opcode::Return);
 
@@ -2285,12 +3259,18 @@ mod tests {
     #[test]
     fn test_bitwise_operations() {
         let mut func = VMFunction::new("test");
-        func.emit(Opcode::LoadImm { dst: 0, value: 0b1010 });
-        func.emit(Opcode::LoadImm { dst: 1, value: 0b1100 });
-        func.emit(Opcode::And { dst: 2, a: 0, b: 1 });  // 0b1000 = 8
-        func.emit(Opcode::Or { dst: 3, a: 0, b: 1 });   // 0b1110 = 14
-        func.emit(Opcode::Xor { dst: 4, a: 0, b: 1 });  // 0b0110 = 6
-        // Return AND result
+        func.emit(Opcode::LoadImm {
+            dst: 0,
+            value: 0b1010,
+        });
+        func.emit(Opcode::LoadImm {
+            dst: 1,
+            value: 0b1100,
+        });
+        func.emit(Opcode::And { dst: 2, a: 0, b: 1 }); // 0b1000 = 8
+        func.emit(Opcode::Or { dst: 3, a: 0, b: 1 }); // 0b1110 = 14
+        func.emit(Opcode::Xor { dst: 4, a: 0, b: 1 }); // 0b0110 = 6
+                                                       // Return AND result
         func.emit(Opcode::Move { dst: 0, src: 2 });
         func.emit(Opcode::Return);
 
@@ -2308,8 +3288,8 @@ mod tests {
         func.emit(Opcode::LoadImm { dst: 0, value: 42 });
         func.emit(Opcode::I32ToF32 { dst: 1, src: 0 });
         func.emit(Opcode::LoadF32 { dst: 2, value: 0.5 });
-        func.emit(Opcode::FAdd { dst: 1, a: 1, b: 2 });  // 42.5
-        func.emit(Opcode::F32ToI32 { dst: 0, src: 1 });  // truncates to 42
+        func.emit(Opcode::FAdd { dst: 1, a: 1, b: 2 }); // 42.5
+        func.emit(Opcode::F32ToI32 { dst: 0, src: 1 }); // truncates to 42
         func.emit(Opcode::Return);
 
         let mut program = VMProgram::new();
@@ -2362,7 +3342,11 @@ mod tests {
     fn test_iadd_imm() {
         let mut func = VMFunction::new("test");
         func.emit(Opcode::LoadImm { dst: 0, value: 40 });
-        func.emit(Opcode::IAddImm { dst: 0, src: 0, imm: 2 });
+        func.emit(Opcode::IAddImm {
+            dst: 0,
+            src: 0,
+            imm: 2,
+        });
         func.emit(Opcode::Return);
 
         let mut program = VMProgram::new();
@@ -2380,10 +3364,14 @@ mod tests {
         func.emit(Opcode::LoadImm { dst: 0, value: 5 });
         func.emit(Opcode::LoadImm { dst: 1, value: 10 });
         // 5 < 10 is true, so we should NOT jump
-        func.emit(Opcode::ILtJump { a: 0, b: 1, offset: 2 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 100 });  // should execute
+        func.emit(Opcode::ILtJump {
+            a: 0,
+            b: 1,
+            offset: 2,
+        });
+        func.emit(Opcode::LoadImm { dst: 0, value: 100 }); // should execute
         func.emit(Opcode::Jump { offset: 1 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 200 });  // should skip
+        func.emit(Opcode::LoadImm { dst: 0, value: 200 }); // should skip
         func.emit(Opcode::Return);
 
         let mut program = VMProgram::new();
@@ -2401,10 +3389,14 @@ mod tests {
         func.emit(Opcode::LoadImm { dst: 0, value: 10 });
         func.emit(Opcode::LoadImm { dst: 1, value: 5 });
         // 10 < 5 is false, so we SHOULD jump
-        func.emit(Opcode::ILtJump { a: 0, b: 1, offset: 2 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 100 });  // should skip
+        func.emit(Opcode::ILtJump {
+            a: 0,
+            b: 1,
+            offset: 2,
+        });
+        func.emit(Opcode::LoadImm { dst: 0, value: 100 }); // should skip
         func.emit(Opcode::Jump { offset: 1 });
-        func.emit(Opcode::LoadImm { dst: 0, value: 200 });  // should execute
+        func.emit(Opcode::LoadImm { dst: 0, value: 200 }); // should execute
         func.emit(Opcode::Return);
 
         let mut program = VMProgram::new();
@@ -2419,16 +3411,24 @@ mod tests {
     fn test_loop_with_superinstructions() {
         // Sum 1..10 using IAddImm and ILtJump
         let mut func = VMFunction::new("test");
-        func.emit(Opcode::LoadImm { dst: 0, value: 0 });   // sum = 0
-        func.emit(Opcode::LoadImm { dst: 1, value: 1 });   // i = 1
-        func.emit(Opcode::LoadImm { dst: 2, value: 11 });  // limit = 11
+        func.emit(Opcode::LoadImm { dst: 0, value: 0 }); // sum = 0
+        func.emit(Opcode::LoadImm { dst: 1, value: 1 }); // i = 1
+        func.emit(Opcode::LoadImm { dst: 2, value: 11 }); // limit = 11
 
         // Loop start (index 3)
         // ILtJump: if !(i < 11) jump to end
-        func.emit(Opcode::ILtJump { a: 1, b: 2, offset: 3 });
-        func.emit(Opcode::IAdd { dst: 0, a: 0, b: 1 });    // sum += i
-        func.emit(Opcode::IAddImm { dst: 1, src: 1, imm: 1 }); // i++
-        func.emit(Opcode::Jump { offset: -4 });            // back to loop start
+        func.emit(Opcode::ILtJump {
+            a: 1,
+            b: 2,
+            offset: 3,
+        });
+        func.emit(Opcode::IAdd { dst: 0, a: 0, b: 1 }); // sum += i
+        func.emit(Opcode::IAddImm {
+            dst: 1,
+            src: 1,
+            imm: 1,
+        }); // i++
+        func.emit(Opcode::Jump { offset: -4 }); // back to loop start
 
         func.emit(Opcode::Return);
 
@@ -2437,7 +3437,7 @@ mod tests {
 
         let mut vm = VM::new();
         let result = vm.run(&program);
-        assert_eq!(result, 55);  // 1+2+3+...+10 = 55
+        assert_eq!(result, 55); // 1+2+3+...+10 = 55
     }
 
     #[test]
@@ -2459,11 +3459,12 @@ mod tests {
         // After 50 ms, write 1 to the cancel flag.
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
-            unsafe { *cancel.0 = 1; }
+            unsafe {
+                *cancel.0 = 1;
+            }
         });
 
         vm.run(&program);
         assert!(vm.cancelled, "expected the infinite loop to be cancelled");
     }
 }
-

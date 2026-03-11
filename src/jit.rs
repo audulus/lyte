@@ -551,7 +551,10 @@ impl<'a> FunctionTranslator<'a> {
                 if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &struct_decl[0] {
-                        let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                        let inst: crate::Instance = s
+                            .typevars
+                            .iter()
+                            .zip(type_args.iter())
                             .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
                         let off = s.field_offset(name, decls, &inst);
@@ -790,7 +793,10 @@ impl<'a> FunctionTranslator<'a> {
                 if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);
                     if let crate::Decl::Struct(s) = &struct_decl[0] {
-                        let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                        let inst: crate::Instance = s
+                            .typevars
+                            .iter()
+                            .zip(type_args.iter())
                             .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
                         let off = s.field_offset(name, decls, &inst);
@@ -2001,85 +2007,238 @@ extern "C" fn lyte_print_i64(val: i64) {
 }
 
 // Math builtins — f32 unary
-extern "C" fn lyte_sinf(x: f32) -> f32 { x.sin() }
-extern "C" fn lyte_cosf(x: f32) -> f32 { x.cos() }
-extern "C" fn lyte_tanf(x: f32) -> f32 { x.tan() }
-extern "C" fn lyte_asinf(x: f32) -> f32 { x.asin() }
-extern "C" fn lyte_acosf(x: f32) -> f32 { x.acos() }
-extern "C" fn lyte_atanf(x: f32) -> f32 { x.atan() }
-extern "C" fn lyte_sinhf(x: f32) -> f32 { x.sinh() }
-extern "C" fn lyte_coshf(x: f32) -> f32 { x.cosh() }
-extern "C" fn lyte_tanhf(x: f32) -> f32 { x.tanh() }
-extern "C" fn lyte_asinhf(x: f32) -> f32 { x.asinh() }
-extern "C" fn lyte_acoshf(x: f32) -> f32 { x.acosh() }
-extern "C" fn lyte_atanhf(x: f32) -> f32 { x.atanh() }
-extern "C" fn lyte_lnf(x: f32) -> f32 { x.ln() }
-extern "C" fn lyte_expf(x: f32) -> f32 { x.exp() }
-extern "C" fn lyte_exp2f(x: f32) -> f32 { x.exp2() }
-extern "C" fn lyte_log10f(x: f32) -> f32 { x.log10() }
-extern "C" fn lyte_log2f(x: f32) -> f32 { x.log2() }
-extern "C" fn lyte_sqrtf(x: f32) -> f32 { x.sqrt() }
-extern "C" fn lyte_absf(x: f32) -> f32 { x.abs() }
-extern "C" fn lyte_floorf(x: f32) -> f32 { x.floor() }
-extern "C" fn lyte_ceilf(x: f32) -> f32 { x.ceil() }
+extern "C" fn lyte_sinf(x: f32) -> f32 {
+    x.sin()
+}
+extern "C" fn lyte_cosf(x: f32) -> f32 {
+    x.cos()
+}
+extern "C" fn lyte_tanf(x: f32) -> f32 {
+    x.tan()
+}
+extern "C" fn lyte_asinf(x: f32) -> f32 {
+    x.asin()
+}
+extern "C" fn lyte_acosf(x: f32) -> f32 {
+    x.acos()
+}
+extern "C" fn lyte_atanf(x: f32) -> f32 {
+    x.atan()
+}
+extern "C" fn lyte_sinhf(x: f32) -> f32 {
+    x.sinh()
+}
+extern "C" fn lyte_coshf(x: f32) -> f32 {
+    x.cosh()
+}
+extern "C" fn lyte_tanhf(x: f32) -> f32 {
+    x.tanh()
+}
+extern "C" fn lyte_asinhf(x: f32) -> f32 {
+    x.asinh()
+}
+extern "C" fn lyte_acoshf(x: f32) -> f32 {
+    x.acosh()
+}
+extern "C" fn lyte_atanhf(x: f32) -> f32 {
+    x.atanh()
+}
+extern "C" fn lyte_lnf(x: f32) -> f32 {
+    x.ln()
+}
+extern "C" fn lyte_expf(x: f32) -> f32 {
+    x.exp()
+}
+extern "C" fn lyte_exp2f(x: f32) -> f32 {
+    x.exp2()
+}
+extern "C" fn lyte_log10f(x: f32) -> f32 {
+    x.log10()
+}
+extern "C" fn lyte_log2f(x: f32) -> f32 {
+    x.log2()
+}
+extern "C" fn lyte_sqrtf(x: f32) -> f32 {
+    x.sqrt()
+}
+extern "C" fn lyte_absf(x: f32) -> f32 {
+    x.abs()
+}
+extern "C" fn lyte_floorf(x: f32) -> f32 {
+    x.floor()
+}
+extern "C" fn lyte_ceilf(x: f32) -> f32 {
+    x.ceil()
+}
 
 // Math builtins — f64 unary
-extern "C" fn lyte_sind(x: f64) -> f64 { x.sin() }
-extern "C" fn lyte_cosd(x: f64) -> f64 { x.cos() }
-extern "C" fn lyte_tand(x: f64) -> f64 { x.tan() }
-extern "C" fn lyte_asind(x: f64) -> f64 { x.asin() }
-extern "C" fn lyte_acosd(x: f64) -> f64 { x.acos() }
-extern "C" fn lyte_atand(x: f64) -> f64 { x.atan() }
-extern "C" fn lyte_sinhd(x: f64) -> f64 { x.sinh() }
-extern "C" fn lyte_coshd(x: f64) -> f64 { x.cosh() }
-extern "C" fn lyte_tanhd(x: f64) -> f64 { x.tanh() }
-extern "C" fn lyte_asinhd(x: f64) -> f64 { x.asinh() }
-extern "C" fn lyte_acoshd(x: f64) -> f64 { x.acosh() }
-extern "C" fn lyte_atanhd(x: f64) -> f64 { x.atanh() }
-extern "C" fn lyte_lnd(x: f64) -> f64 { x.ln() }
-extern "C" fn lyte_expd(x: f64) -> f64 { x.exp() }
-extern "C" fn lyte_exp2d(x: f64) -> f64 { x.exp2() }
-extern "C" fn lyte_log10d(x: f64) -> f64 { x.log10() }
-extern "C" fn lyte_log2d(x: f64) -> f64 { x.log2() }
-extern "C" fn lyte_sqrtd(x: f64) -> f64 { x.sqrt() }
-extern "C" fn lyte_absd(x: f64) -> f64 { x.abs() }
-extern "C" fn lyte_floord(x: f64) -> f64 { x.floor() }
-extern "C" fn lyte_ceild(x: f64) -> f64 { x.ceil() }
+extern "C" fn lyte_sind(x: f64) -> f64 {
+    x.sin()
+}
+extern "C" fn lyte_cosd(x: f64) -> f64 {
+    x.cos()
+}
+extern "C" fn lyte_tand(x: f64) -> f64 {
+    x.tan()
+}
+extern "C" fn lyte_asind(x: f64) -> f64 {
+    x.asin()
+}
+extern "C" fn lyte_acosd(x: f64) -> f64 {
+    x.acos()
+}
+extern "C" fn lyte_atand(x: f64) -> f64 {
+    x.atan()
+}
+extern "C" fn lyte_sinhd(x: f64) -> f64 {
+    x.sinh()
+}
+extern "C" fn lyte_coshd(x: f64) -> f64 {
+    x.cosh()
+}
+extern "C" fn lyte_tanhd(x: f64) -> f64 {
+    x.tanh()
+}
+extern "C" fn lyte_asinhd(x: f64) -> f64 {
+    x.asinh()
+}
+extern "C" fn lyte_acoshd(x: f64) -> f64 {
+    x.acosh()
+}
+extern "C" fn lyte_atanhd(x: f64) -> f64 {
+    x.atanh()
+}
+extern "C" fn lyte_lnd(x: f64) -> f64 {
+    x.ln()
+}
+extern "C" fn lyte_expd(x: f64) -> f64 {
+    x.exp()
+}
+extern "C" fn lyte_exp2d(x: f64) -> f64 {
+    x.exp2()
+}
+extern "C" fn lyte_log10d(x: f64) -> f64 {
+    x.log10()
+}
+extern "C" fn lyte_log2d(x: f64) -> f64 {
+    x.log2()
+}
+extern "C" fn lyte_sqrtd(x: f64) -> f64 {
+    x.sqrt()
+}
+extern "C" fn lyte_absd(x: f64) -> f64 {
+    x.abs()
+}
+extern "C" fn lyte_floord(x: f64) -> f64 {
+    x.floor()
+}
+extern "C" fn lyte_ceild(x: f64) -> f64 {
+    x.ceil()
+}
 
 // Math builtins — predicates (return i32 for bool)
-extern "C" fn lyte_isinff(x: f32) -> i32 { x.is_infinite() as i32 }
-extern "C" fn lyte_isinfd(x: f64) -> i32 { x.is_infinite() as i32 }
-extern "C" fn lyte_isnanf(x: f32) -> i32 { x.is_nan() as i32 }
-extern "C" fn lyte_isnand(x: f64) -> i32 { x.is_nan() as i32 }
+extern "C" fn lyte_isinff(x: f32) -> i32 {
+    x.is_infinite() as i32
+}
+extern "C" fn lyte_isinfd(x: f64) -> i32 {
+    x.is_infinite() as i32
+}
+extern "C" fn lyte_isnanf(x: f32) -> i32 {
+    x.is_nan() as i32
+}
+extern "C" fn lyte_isnand(x: f64) -> i32 {
+    x.is_nan() as i32
+}
 
 // Math builtins — f32 binary
-extern "C" fn lyte_powf(x: f32, y: f32) -> f32 { x.powf(y) }
-extern "C" fn lyte_atan2f(x: f32, y: f32) -> f32 { x.atan2(y) }
-extern "C" fn lyte_minf(x: f32, y: f32) -> f32 { x.min(y) }
-extern "C" fn lyte_maxf(x: f32, y: f32) -> f32 { x.max(y) }
+extern "C" fn lyte_powf(x: f32, y: f32) -> f32 {
+    x.powf(y)
+}
+extern "C" fn lyte_atan2f(x: f32, y: f32) -> f32 {
+    x.atan2(y)
+}
+extern "C" fn lyte_minf(x: f32, y: f32) -> f32 {
+    x.min(y)
+}
+extern "C" fn lyte_maxf(x: f32, y: f32) -> f32 {
+    x.max(y)
+}
 
 // Math builtins — f64 binary
-extern "C" fn lyte_powd(x: f64, y: f64) -> f64 { x.powf(y) }
-extern "C" fn lyte_atan2d(x: f64, y: f64) -> f64 { x.atan2(y) }
-extern "C" fn lyte_mind(x: f64, y: f64) -> f64 { x.min(y) }
-extern "C" fn lyte_maxd(x: f64, y: f64) -> f64 { x.max(y) }
+extern "C" fn lyte_powd(x: f64, y: f64) -> f64 {
+    x.powf(y)
+}
+extern "C" fn lyte_atan2d(x: f64, y: f64) -> f64 {
+    x.atan2(y)
+}
+extern "C" fn lyte_mind(x: f64, y: f64) -> f64 {
+    x.min(y)
+}
+extern "C" fn lyte_maxd(x: f64, y: f64) -> f64 {
+    x.max(y)
+}
 
 const BUILTIN_NAMES: &[&str] = &[
-    "assert", "print", "putc",
+    "assert",
+    "print",
+    "putc",
     // unary f32/f64
-    "sin$f32", "sin$f64", "cos$f32", "cos$f64", "tan$f32", "tan$f64",
-    "asin$f32", "asin$f64", "acos$f32", "acos$f64", "atan$f32", "atan$f64",
-    "sinh$f32", "sinh$f64", "cosh$f32", "cosh$f64", "tanh$f32", "tanh$f64",
-    "asinh$f32", "asinh$f64", "acosh$f32", "acosh$f64", "atanh$f32", "atanh$f64",
-    "ln$f32", "ln$f64", "exp$f32", "exp$f64", "exp2$f32", "exp2$f64",
-    "log10$f32", "log10$f64", "log2$f32", "log2$f64",
-    "sqrt$f32", "sqrt$f64", "abs$f32", "abs$f64",
-    "floor$f32", "floor$f64", "ceil$f32", "ceil$f64",
+    "sin$f32",
+    "sin$f64",
+    "cos$f32",
+    "cos$f64",
+    "tan$f32",
+    "tan$f64",
+    "asin$f32",
+    "asin$f64",
+    "acos$f32",
+    "acos$f64",
+    "atan$f32",
+    "atan$f64",
+    "sinh$f32",
+    "sinh$f64",
+    "cosh$f32",
+    "cosh$f64",
+    "tanh$f32",
+    "tanh$f64",
+    "asinh$f32",
+    "asinh$f64",
+    "acosh$f32",
+    "acosh$f64",
+    "atanh$f32",
+    "atanh$f64",
+    "ln$f32",
+    "ln$f64",
+    "exp$f32",
+    "exp$f64",
+    "exp2$f32",
+    "exp2$f64",
+    "log10$f32",
+    "log10$f64",
+    "log2$f32",
+    "log2$f64",
+    "sqrt$f32",
+    "sqrt$f64",
+    "abs$f32",
+    "abs$f64",
+    "floor$f32",
+    "floor$f64",
+    "ceil$f32",
+    "ceil$f64",
     // predicates
-    "isinf$f32", "isinf$f64", "isnan$f32", "isnan$f64",
+    "isinf$f32",
+    "isinf$f64",
+    "isnan$f32",
+    "isnan$f64",
     // binary f32/f64
-    "pow$f32$f32", "pow$f64$f64", "atan2$f32$f32", "atan2$f64$f64",
-    "min$f32$f32", "min$f64$f64", "max$f32$f32", "max$f64$f64",
+    "pow$f32$f32",
+    "pow$f64$f64",
+    "atan2$f32$f32",
+    "atan2$f64$f64",
+    "min$f32$f32",
+    "min$f64$f64",
+    "max$f32$f32",
+    "max$f64$f64",
 ];
 
 fn is_builtin_name(name: &Name) -> bool {

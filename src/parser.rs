@@ -260,7 +260,13 @@ fn parse_lambda(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext)
         // || is a zero-arg lambda
         cx.next();
         let body = parse_lambda(arena, typevars, cx);
-        arena.add(Expr::Lambda { params: vec![], body }, cx.lex.loc)
+        arena.add(
+            Expr::Lambda {
+                params: vec![],
+                body,
+            },
+            cx.lex.loc,
+        )
     } else if cx.lex.tok == Token::Pipe {
         cx.next();
         let params = parse_paramlist(typevars, cx);
@@ -1008,8 +1014,17 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
             let mut depth = 0;
             loop {
                 match cx.lex.tok {
-                    Token::Lbrace => { depth += 1; cx.next(); }
-                    Token::Rbrace if depth > 0 => { depth -= 1; cx.next(); if depth == 0 { break; } }
+                    Token::Lbrace => {
+                        depth += 1;
+                        cx.next();
+                    }
+                    Token::Rbrace if depth > 0 => {
+                        depth -= 1;
+                        cx.next();
+                        if depth == 0 {
+                            break;
+                        }
+                    }
                     Token::Endl | Token::End if depth == 0 => break,
                     Token::End => break,
                     _ => cx.next(),

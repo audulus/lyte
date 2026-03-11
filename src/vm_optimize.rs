@@ -2490,33 +2490,66 @@ mod tests {
     #[test]
     fn test_fuse_offset_store32() {
         let mut code = vec![
-            Opcode::IAddImm { dst: 1, src: 0, imm: 8 },
+            Opcode::IAddImm {
+                dst: 1,
+                src: 0,
+                imm: 8,
+            },
             Opcode::Store32 { addr: 1, src: 2 },
         ];
         fuse_offset_access(&mut code);
-        assert_eq!(code[0], Opcode::Store32Off { base: 0, offset: 8, src: 2 });
+        assert_eq!(
+            code[0],
+            Opcode::Store32Off {
+                base: 0,
+                offset: 8,
+                src: 2
+            }
+        );
         assert_eq!(code[1], Opcode::Nop);
     }
 
     #[test]
     fn test_fuse_offset_load32() {
         let mut code = vec![
-            Opcode::IAddImm { dst: 1, src: 0, imm: 4 },
+            Opcode::IAddImm {
+                dst: 1,
+                src: 0,
+                imm: 4,
+            },
             Opcode::Load32 { dst: 2, addr: 1 },
         ];
         fuse_offset_access(&mut code);
-        assert_eq!(code[0], Opcode::Load32Off { dst: 2, base: 0, offset: 4 });
+        assert_eq!(
+            code[0],
+            Opcode::Load32Off {
+                dst: 2,
+                base: 0,
+                offset: 4
+            }
+        );
         assert_eq!(code[1], Opcode::Nop);
     }
 
     #[test]
     fn test_fuse_offset_load64() {
         let mut code = vec![
-            Opcode::IAddImm { dst: 1, src: 0, imm: 16 },
+            Opcode::IAddImm {
+                dst: 1,
+                src: 0,
+                imm: 16,
+            },
             Opcode::Load64 { dst: 2, addr: 1 },
         ];
         fuse_offset_access(&mut code);
-        assert_eq!(code[0], Opcode::Load64Off { dst: 2, base: 0, offset: 16 });
+        assert_eq!(
+            code[0],
+            Opcode::Load64Off {
+                dst: 2,
+                base: 0,
+                offset: 16
+            }
+        );
         assert_eq!(code[1], Opcode::Nop);
     }
 
@@ -2524,7 +2557,11 @@ mod tests {
     fn test_fuse_offset_addr_used_twice_no_fuse() {
         // addr reg used by both Store32 and Load32
         let mut code = vec![
-            Opcode::IAddImm { dst: 1, src: 0, imm: 8 },
+            Opcode::IAddImm {
+                dst: 1,
+                src: 0,
+                imm: 8,
+            },
             Opcode::Store32 { addr: 1, src: 2 },
             Opcode::Load32 { dst: 3, addr: 1 },
         ];
@@ -2543,7 +2580,14 @@ mod tests {
         ];
         fuse_compare_branch(&mut code);
         // offset adjusts: was 5 relative to JumpIfZero (i+1), now 5+1=6 relative to ILt (i)
-        assert_eq!(code[0], Opcode::ILtJump { a: 0, b: 1, offset: 6 });
+        assert_eq!(
+            code[0],
+            Opcode::ILtJump {
+                a: 0,
+                b: 1,
+                offset: 6
+            }
+        );
         assert_eq!(code[1], Opcode::Nop);
     }
 
@@ -2551,10 +2595,20 @@ mod tests {
     fn test_fuse_flt_jump() {
         let mut code = vec![
             Opcode::FLt { dst: 3, a: 0, b: 1 },
-            Opcode::JumpIfZero { cond: 3, offset: 10 },
+            Opcode::JumpIfZero {
+                cond: 3,
+                offset: 10,
+            },
         ];
         fuse_compare_branch(&mut code);
-        assert_eq!(code[0], Opcode::FLtJump { a: 0, b: 1, offset: 11 });
+        assert_eq!(
+            code[0],
+            Opcode::FLtJump {
+                a: 0,
+                b: 1,
+                offset: 11
+            }
+        );
         assert_eq!(code[1], Opcode::Nop);
     }
 
@@ -2605,7 +2659,7 @@ mod tests {
     fn test_compact_adjusts_jump_offsets() {
         // Jump over Nops: offset should shrink
         let mut code = vec![
-            Opcode::Jump { offset: 2 },  // target = 0 + 1 + 2 = index 3
+            Opcode::Jump { offset: 2 }, // target = 0 + 1 + 2 = index 3
             Opcode::Nop,
             Opcode::Nop,
             Opcode::LoadImm { dst: 0, value: 42 },

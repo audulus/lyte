@@ -132,10 +132,8 @@ impl MonomorphPass {
                                 ));
                                 if func_ty == solved_type {
                                     let param_types = target_fdecl.param_types();
-                                    let mangled = crate::mangle::mangle_overload(
-                                        *name,
-                                        &param_types,
-                                    );
+                                    let mangled =
+                                        crate::mangle::mangle_overload(*name, &param_types);
 
                                     if !self.processed_non_generic.contains(&mangled) {
                                         self.processed_non_generic.insert(mangled);
@@ -325,15 +323,22 @@ impl MonomorphPass {
         let mut fresh_inst = Instance::new();
         let fresh_func_type = generic_func_type.fresh_aux(&mut fresh_index, &mut fresh_inst);
         // Build map from typevar name to its Anon type.
-        let var_to_anon: Vec<(Name, TypeID)> = generic_fdecl.typevars.iter().map(|tv_name| {
-            let tv = typevar(&tv_name.to_string());
-            let anon_ty = fresh_inst.get(&tv).copied().unwrap_or(tv);
-            (*tv_name, anon_ty)
-        }).collect();
+        let var_to_anon: Vec<(Name, TypeID)> = generic_fdecl
+            .typevars
+            .iter()
+            .map(|tv_name| {
+                let tv = typevar(&tv_name.to_string());
+                let anon_ty = fresh_inst.get(&tv).copied().unwrap_or(tv);
+                (*tv_name, anon_ty)
+            })
+            .collect();
         // Unify the fresh generic type with the call-site type.
         let mut unify_inst = Instance::new();
         if !unify(fresh_func_type, call_site_type, &mut unify_inst) {
-            return Err(format!("Cannot infer type arguments for {}", generic_fdecl.name));
+            return Err(format!(
+                "Cannot infer type arguments for {}",
+                generic_fdecl.name
+            ));
         }
         // Extract type arguments: look up what each Anon resolved to.
         let mut type_args = Vec::new();
@@ -637,11 +642,6 @@ mod tests {
         assert_eq!(result.unwrap(), Name::str("map$i32$bool"));
     }
 
-
-
-
-
-
     #[test]
     fn test_process_expr_block() {
         let mut pass = MonomorphPass::new();
@@ -906,7 +906,6 @@ mod tests {
             assert_eq!(fdecl.constraints[0].interface_name, Name::str("Addable"));
         }
     }
-
 
     #[test]
     fn test_instantiation_deduplication() {

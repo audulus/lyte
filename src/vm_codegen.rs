@@ -1389,7 +1389,10 @@ impl<'a> FunctionTranslator<'a> {
                 if let Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = self.decls.find(*struct_name);
                     if let Decl::Struct(s) = &struct_decl[0] {
-                        let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                        let inst: crate::Instance = s
+                            .typevars
+                            .iter()
+                            .zip(type_args.iter())
                             .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
                         let offset = s.field_offset(name, self.decls, &inst);
@@ -1987,7 +1990,10 @@ impl<'a> FunctionTranslator<'a> {
         if let Type::Name(struct_name, type_args) = &*lhs_ty {
             let struct_decl = self.decls.find(*struct_name);
             if let Decl::Struct(s) = &struct_decl[0] {
-                let inst: crate::Instance = s.typevars.iter().zip(type_args.iter())
+                let inst: crate::Instance = s
+                    .typevars
+                    .iter()
+                    .zip(type_args.iter())
                     .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                     .collect();
                 let offset = s.field_offset(&name, self.decls, &inst);
