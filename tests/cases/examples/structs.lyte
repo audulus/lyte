@@ -13,7 +13,7 @@ struct Point {
 }
 
 length(p: Point) -> f32 {
-    sqrtf(p.x * p.x + p.y * p.y)
+    sqrt(p.x * p.x + p.y * p.y)
 }
 
 main {

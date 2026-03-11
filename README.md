@@ -97,7 +97,7 @@ struct Point {
 }
 
 length(p: Point) -> f32 {
-    sqrtf(p.x * p.x + p.y * p.y)
+    sqrt(p.x * p.x + p.y * p.y)
 }
 
 main {
@@ -300,8 +300,8 @@ struct Biquad {
 
 lpf(fc: f32, fs: f32, q: f32) -> Biquad {
     var w0 = 2.0 * 3.14159265 * fc / fs
-    var alpha = sinf(w0) / (2.0 * q)
-    var cs = cosf(w0)
+    var alpha = sin(w0) / (2.0 * q)
+    var cs = cos(w0)
     var a0 = 1.0 + alpha
     var inv = 1.0 / a0
 

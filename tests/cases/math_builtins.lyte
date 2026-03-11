@@ -36,33 +36,33 @@ approx(a: f32, b: f32) -> bool {
 main {
     // sin/cos identity: sin^2 + cos^2 == 1
     var x = 1.5
-    var s = sinf(x)
-    var c = cosf(x)
+    var s = sin(x)
+    var c = cos(x)
     assert(approx(s * s + c * c, 1.0))
 
     // tan == sin/cos
-    assert(approx(tanf(x), sinf(x) / cosf(x)))
+    assert(approx(tan(x), sin(x) / cos(x)))
 
     // exp and ln are inverses
-    assert(approx(lnf(expf(2.0)), 2.0))
+    assert(approx(ln(exp(2.0)), 2.0))
 
     // sqrt
-    assert(approx(sqrtf(4.0), 2.0))
+    assert(approx(sqrt(4.0), 2.0))
 
     // abs
-    assert(approx(absf(-3.5), 3.5))
+    assert(approx(abs(-3.5), 3.5))
 
     // floor / ceil
-    assert(approx(floorf(2.7), 2.0))
-    assert(approx(ceilf(2.3), 3.0))
+    assert(approx(floor(2.7), 2.0))
+    assert(approx(ceil(2.3), 3.0))
 
     // pow
-    assert(approx(powf(2.0, 3.0), 8.0))
+    assert(approx(pow(2.0, 3.0), 8.0))
 
     // atan2
-    assert(approx(atan2f(1.0, 1.0), 3.14159265 / 4.0))
+    assert(approx(atan2(1.0, 1.0), 3.14159265 / 4.0))
 
-    // sinf(0) == 0, cosf(0) == 1
-    assert(approx(sinf(0.0), 0.0))
-    assert(approx(cosf(0.0), 1.0))
+    // sin(0) == 0, cos(0) == 1
+    assert(approx(sin(0.0), 0.0))
+    assert(approx(cos(0.0), 1.0))
 }

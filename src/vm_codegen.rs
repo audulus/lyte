@@ -1585,26 +1585,26 @@ impl<'a> FunctionTranslator<'a> {
 
             // Unary math builtins (f32 and f64).
             let unary_math_f32: &[(&str, fn(Reg, Reg) -> Opcode)] = &[
-                ("sinf", |dst, src| Opcode::SinF32 { dst, src }),
-                ("cosf", |dst, src| Opcode::CosF32 { dst, src }),
-                ("tanf", |dst, src| Opcode::TanF32 { dst, src }),
-                ("lnf", |dst, src| Opcode::LnF32 { dst, src }),
-                ("expf", |dst, src| Opcode::ExpF32 { dst, src }),
-                ("sqrtf", |dst, src| Opcode::SqrtF32 { dst, src }),
-                ("absf", |dst, src| Opcode::AbsF32 { dst, src }),
-                ("floorf", |dst, src| Opcode::FloorF32 { dst, src }),
-                ("ceilf", |dst, src| Opcode::CeilF32 { dst, src }),
+                ("sin$f32", |dst, src| Opcode::SinF32 { dst, src }),
+                ("cos$f32", |dst, src| Opcode::CosF32 { dst, src }),
+                ("tan$f32", |dst, src| Opcode::TanF32 { dst, src }),
+                ("ln$f32", |dst, src| Opcode::LnF32 { dst, src }),
+                ("exp$f32", |dst, src| Opcode::ExpF32 { dst, src }),
+                ("sqrt$f32", |dst, src| Opcode::SqrtF32 { dst, src }),
+                ("abs$f32", |dst, src| Opcode::AbsF32 { dst, src }),
+                ("floor$f32", |dst, src| Opcode::FloorF32 { dst, src }),
+                ("ceil$f32", |dst, src| Opcode::CeilF32 { dst, src }),
             ];
             let unary_math_f64: &[(&str, fn(Reg, Reg) -> Opcode)] = &[
-                ("sind", |dst, src| Opcode::SinF64 { dst, src }),
-                ("cosd", |dst, src| Opcode::CosF64 { dst, src }),
-                ("tand", |dst, src| Opcode::TanF64 { dst, src }),
-                ("lnd", |dst, src| Opcode::LnF64 { dst, src }),
-                ("expd", |dst, src| Opcode::ExpF64 { dst, src }),
-                ("sqrtd", |dst, src| Opcode::SqrtF64 { dst, src }),
-                ("absd", |dst, src| Opcode::AbsF64 { dst, src }),
-                ("floord", |dst, src| Opcode::FloorF64 { dst, src }),
-                ("ceild", |dst, src| Opcode::CeilF64 { dst, src }),
+                ("sin$f64", |dst, src| Opcode::SinF64 { dst, src }),
+                ("cos$f64", |dst, src| Opcode::CosF64 { dst, src }),
+                ("tan$f64", |dst, src| Opcode::TanF64 { dst, src }),
+                ("ln$f64", |dst, src| Opcode::LnF64 { dst, src }),
+                ("exp$f64", |dst, src| Opcode::ExpF64 { dst, src }),
+                ("sqrt$f64", |dst, src| Opcode::SqrtF64 { dst, src }),
+                ("abs$f64", |dst, src| Opcode::AbsF64 { dst, src }),
+                ("floor$f64", |dst, src| Opcode::FloorF64 { dst, src }),
+                ("ceil$f64", |dst, src| Opcode::CeilF64 { dst, src }),
             ];
             for (n, mk_op) in unary_math_f32.iter().chain(unary_math_f64.iter()) {
                 if **name == *n {
@@ -1617,10 +1617,10 @@ impl<'a> FunctionTranslator<'a> {
 
             // Binary math builtins (f32 and f64).
             let binary_math: &[(&str, fn(Reg, Reg, Reg) -> Opcode)] = &[
-                ("powf", |dst, a, b| Opcode::PowF32 { dst, a, b }),
-                ("powd", |dst, a, b| Opcode::PowF64 { dst, a, b }),
-                ("atan2f", |dst, a, b| Opcode::Atan2F32 { dst, a, b }),
-                ("atan2d", |dst, a, b| Opcode::Atan2F64 { dst, a, b }),
+                ("pow$f32$f32", |dst, a, b| Opcode::PowF32 { dst, a, b }),
+                ("pow$f64$f64", |dst, a, b| Opcode::PowF64 { dst, a, b }),
+                ("atan2$f32$f32", |dst, a, b| Opcode::Atan2F32 { dst, a, b }),
+                ("atan2$f64$f64", |dst, a, b| Opcode::Atan2F64 { dst, a, b }),
             ];
             for (n, mk_op) in binary_math {
                 if **name == *n {

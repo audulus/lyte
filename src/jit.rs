@@ -210,6 +210,11 @@ impl JIT {
                 panic!()
             };
 
+            // Skip builtins — they have no body and are called via raw function pointers.
+            if decl.body.is_none() {
+                continue;
+            }
+
             self.compile_function(decls, decl)?;
         }
 
@@ -2070,9 +2075,11 @@ extern "C" fn lyte_atan2d(x: f64, y: f64) -> f64 {
 }
 
 const BUILTIN_NAMES: &[&str] = &[
-    "assert", "print", "putc", "sinf", "sind", "cosf", "cosd", "tanf", "tand", "lnf", "lnd",
-    "expf", "expd", "sqrtf", "sqrtd", "absf", "absd", "floorf", "floord", "ceilf", "ceild", "powf",
-    "powd", "atan2f", "atan2d",
+    "assert", "print", "putc",
+    "sin$f32", "sin$f64", "cos$f32", "cos$f64", "tan$f32", "tan$f64",
+    "ln$f32", "ln$f64", "exp$f32", "exp$f64", "sqrt$f32", "sqrt$f64",
+    "abs$f32", "abs$f64", "floor$f32", "floor$f64", "ceil$f32", "ceil$f64",
+    "pow$f32$f32", "pow$f64$f64", "atan2$f32$f32", "atan2$f64$f64",
 ];
 
 fn is_builtin_name(name: &Name) -> bool {
@@ -2081,28 +2088,28 @@ fn is_builtin_name(name: &Name) -> bool {
 
 fn math_builtin_ptr(name: &Name) -> Option<i64> {
     let pairs: &[(&str, i64)] = &[
-        ("sinf", lyte_sinf as *const () as i64),
-        ("sind", lyte_sind as *const () as i64),
-        ("cosf", lyte_cosf as *const () as i64),
-        ("cosd", lyte_cosd as *const () as i64),
-        ("tanf", lyte_tanf as *const () as i64),
-        ("tand", lyte_tand as *const () as i64),
-        ("lnf", lyte_lnf as *const () as i64),
-        ("lnd", lyte_lnd as *const () as i64),
-        ("expf", lyte_expf as *const () as i64),
-        ("expd", lyte_expd as *const () as i64),
-        ("sqrtf", lyte_sqrtf as *const () as i64),
-        ("sqrtd", lyte_sqrtd as *const () as i64),
-        ("absf", lyte_absf as *const () as i64),
-        ("absd", lyte_absd as *const () as i64),
-        ("floorf", lyte_floorf as *const () as i64),
-        ("floord", lyte_floord as *const () as i64),
-        ("ceilf", lyte_ceilf as *const () as i64),
-        ("ceild", lyte_ceild as *const () as i64),
-        ("powf", lyte_powf as *const () as i64),
-        ("powd", lyte_powd as *const () as i64),
-        ("atan2f", lyte_atan2f as *const () as i64),
-        ("atan2d", lyte_atan2d as *const () as i64),
+        ("sin$f32", lyte_sinf as *const () as i64),
+        ("sin$f64", lyte_sind as *const () as i64),
+        ("cos$f32", lyte_cosf as *const () as i64),
+        ("cos$f64", lyte_cosd as *const () as i64),
+        ("tan$f32", lyte_tanf as *const () as i64),
+        ("tan$f64", lyte_tand as *const () as i64),
+        ("ln$f32", lyte_lnf as *const () as i64),
+        ("ln$f64", lyte_lnd as *const () as i64),
+        ("exp$f32", lyte_expf as *const () as i64),
+        ("exp$f64", lyte_expd as *const () as i64),
+        ("sqrt$f32", lyte_sqrtf as *const () as i64),
+        ("sqrt$f64", lyte_sqrtd as *const () as i64),
+        ("abs$f32", lyte_absf as *const () as i64),
+        ("abs$f64", lyte_absd as *const () as i64),
+        ("floor$f32", lyte_floorf as *const () as i64),
+        ("floor$f64", lyte_floord as *const () as i64),
+        ("ceil$f32", lyte_ceilf as *const () as i64),
+        ("ceil$f64", lyte_ceild as *const () as i64),
+        ("pow$f32$f32", lyte_powf as *const () as i64),
+        ("pow$f64$f64", lyte_powd as *const () as i64),
+        ("atan2$f32$f32", lyte_atan2f as *const () as i64),
+        ("atan2$f64$f64", lyte_atan2d as *const () as i64),
     ];
     for &(n, ptr) in pairs {
         if *name == Name::str(n) {

@@ -144,8 +144,8 @@ struct Biquad {
 
 lpf(fc: f32, fs: f32, q: f32) -> Biquad {
     var w0 = 2.0 * 3.14159265 * fc / fs
-    var alpha = sinf(w0) / (2.0 * q)
-    var cs = cosf(w0)
+    var alpha = sin(w0) / (2.0 * q)
+    var cs = cos(w0)
 
     var a0 = 1.0 + alpha
     var inv = 1.0 / a0
@@ -173,7 +173,7 @@ main {
     var two_pi = 2.0 * 3.14159265
 
     for i in 0 .. n {
-        var x = sinf(phase * two_pi)
+        var x = sin(phase * two_pi)
         phase = phase + freq
         if phase > 1.0 { phase = phase - 1.0 }
 
