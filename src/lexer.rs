@@ -501,6 +501,31 @@ mod tests {
             tokens("\"test\" \n"),
             vec![Token::String(Name::str("test")), Endl]
         );
+        assert_eq!(
+            tokens("\"hello\\nworld\""),
+            vec![Token::String(Name::str("hello\nworld"))]
+        );
+        assert_eq!(
+            tokens("\"tab\\there\""),
+            vec![Token::String(Name::str("tab\there"))]
+        );
+        assert_eq!(
+            tokens("\"cr\\rhere\""),
+            vec![Token::String(Name::str("cr\rhere"))]
+        );
+        assert_eq!(
+            tokens("\"null\\0here\""),
+            vec![Token::String(Name::str("null\0here"))]
+        );
+        assert_eq!(
+            tokens("\"escaped\\\\backslash\""),
+            vec![Token::String(Name::str("escaped\\backslash"))]
+        );
+        assert_eq!(
+            tokens("\"escaped\\\"quote\""),
+            vec![Token::String(Name::str("escaped\"quote"))]
+        );
+        assert_eq!(tokens("\"bad\\x\"")[0], Token::Error);
         assert_eq!(tokens(".name"), vec![Dot, id("name")]);
         assert_eq!(tokens("snake_case"), vec![id("snake_case")]);
         assert_eq!(tokens("fn"), vec![Fn]);
@@ -510,6 +535,12 @@ mod tests {
         assert_eq!(tokens("bool"), vec![Bool]);
         assert_eq!(tokens("⋅"), vec![Mult]);
         assert_eq!(tokens("'x'"), vec![Char('x')]);
+        assert_eq!(tokens("'\\n'"), vec![Char('\n')]);
+        assert_eq!(tokens("'\\t'"), vec![Char('\t')]);
+        assert_eq!(tokens("'\\r'"), vec![Char('\r')]);
+        assert_eq!(tokens("'\\0'"), vec![Char('\0')]);
+        assert_eq!(tokens("'\\''"), vec![Char('\'')]);
+        assert_eq!(tokens("'\\\\'"), vec![Char('\\')]);
         assert_eq!(tokens("!"), vec![Not]);
         assert_eq!(tokens("x // comment"), vec![id("x")]);
         assert_eq!(tokens("// comment"), vec![]);

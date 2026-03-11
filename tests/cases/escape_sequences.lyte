@@ -1,0 +1,43 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+main {
+    // char escape sequences
+    assert('\0' == 0 as i8)
+    assert('\t' == 9 as i8)
+    assert('\n' == 10 as i8)
+    assert('\r' == 13 as i8)
+    assert('\\' == 92 as i8)
+    assert('\'' == 39 as i8)
+
+    // string escape sequences
+    var s = "a\0b\tc\nd\re\\f\"g"
+    assert(s[0] == 'a')
+    assert(s[1] == '\0')
+    assert(s[2] == 'b')
+    assert(s[6] == 'd')
+}
