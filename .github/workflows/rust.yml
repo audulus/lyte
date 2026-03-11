@@ -17,6 +17,27 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --workspace --verbose
     - name: Run tests
       run: cargo test --workspace --verbose
+
+  build-llvm:
+
+    runs-on: ubuntu-latest
+
+    env:
+      LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
+      LIBRARY_PATH: /usr/lib/llvm-18/lib
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install LLVM 18
+      run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main"
+        sudo apt-get update
+        sudo apt-get install -y llvm-18-dev libpolly-18-dev libzstd-dev
+    - name: Build with LLVM
+      run: cargo build --workspace --features llvm --verbose
+    - name: Run tests with LLVM
+      run: cargo test --workspace --features llvm --verbose
