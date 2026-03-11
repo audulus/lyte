@@ -1,0 +1,31 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+interface Compare<A> {
+    cmp(lhs: A, rhs: A) -> i32
+}
+
+cmp(lhs: i32, rhs: i32) -> i32 {
+    lhs - rhs
+}
+
+bigger<T>(a: T, b: T) -> T where Compare<T> {
+    if cmp(a, b) > 0 { return a }
+    return b
+}
+
+smaller<T>(a: T, b: T) -> T where Compare<T> {
+    if cmp(a, b) < 0 { return a }
+    return b
+}
+
+main {
+    assert(bigger(3, 7) == 7)
+    assert(smaller(10, 2) == 2)
+    var s = smaller(10, 20)
+    assert(bigger(s, 15) == 15)
+}

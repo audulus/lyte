@@ -1,0 +1,12 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+
+make_doubler() → i32 → i32 {
+    return (|x| x * 2)
+}
+main {
+    var f = make_doubler()
+    assert(f(5) == 10)
+}

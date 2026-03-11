@@ -409,9 +409,21 @@ impl SafetyChecker {
                 }
                 IndexInterval::default()
             }
-            Expr::Unop(_, expr) => {
-                self.check_expr(*expr, decl, decls);
-                IndexInterval::default()
+            Expr::Unop(op, expr) => {
+                let r = self.check_expr(*expr, decl, decls);
+                match op {
+                    Unop::Neg => {
+                        // -[a, b] = [-b, -a]
+                        let new_min = r.max.checked_neg().unwrap_or(i64::MIN);
+                        let new_max = r.min.checked_neg().unwrap_or(i64::MAX);
+                        IndexInterval {
+                            min: new_min,
+                            max: new_max,
+                            non_zero: r.non_zero,
+                        }
+                    }
+                    _ => IndexInterval::default(),
+                }
             }
             Expr::Return(expr) => {
                 self.check_expr(*expr, decl, decls);
@@ -825,5 +837,109 @@ mod tests {
 
         let errors = check(s);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_nested_array_access() {
+        // b[i] is unconstrained, so a[b[i]] can't be proven safe
+        let s = "
+        f(i: i32) {
+            var a: [i32; 10]
+            var b: [i32; 10]
+            if i >= 0 && i < 10 {
+                a[b[i]]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        // b[i] is safe (i is bounded), but a[b[i]] is unsafe
+        // because b[i] could return any i32 value
+        assert_eq!(errors.len(), 2); // can't prove >= 0 and can't prove < length
+    }
+
+    #[test]
+    pub fn test_div_by_array_element() {
+        // a[i] is unconstrained, so x / a[i] can't be proven non-zero
+        let s = "
+        f(x: i32) → i32 {
+            var a: [i32; 5]
+            if true {
+                x / a[0]
+            } else {
+                0
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1); // can't prove divisor non-zero
+    }
+
+    #[test]
+    pub fn test_for_loop_with_offset() {
+        // for i in 1 .. a.len, then a[i-1] should be safe
+        // i is in [1, len-1], so i-1 is in [0, len-2], which is < len
+        let s = "
+        f {
+            var a: [i32; 100]
+            for i in 1 .. 100 {
+                a[i - 1]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_negative_literal_division() {
+        // x / (-1) should be safe because -1 is non-zero
+        let s = "
+        f(x: i32) → i32 { x / (-1) }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_multiple_arrays_mixed_safety() {
+        // a[i] is safe (i bounded), b[j] is unsafe (j unbounded)
+        let s = "
+        f(i: i32, j: i32) {
+            var a: [i32; 100]
+            var b: [i32; 50]
+            if i >= 0 && i < 100 {
+                a[i]
+                b[j]
+            }
+        }
+        ";
+
+        let errors = check(s);
+        // b[j] has two errors: can't prove >= 0 and can't prove < length
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_conditional_narrowing_lost_after_else() {
+        // The constraint from if-guard should NOT persist after the if/else
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                a[i]
+            } else {
+                0
+            }
+            a[i]
+        }
+        ";
+
+        let errors = check(s);
+        // The a[i] after the if/else should fail (constraints popped)
+        assert_eq!(errors.len(), 2); // can't prove >= 0 and can't prove < length
     }
 }

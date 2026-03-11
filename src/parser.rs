@@ -674,6 +674,11 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             let e = parse_expr(arena, typevars, cx);
             arena.add(Expr::Return(e), cx.lex.loc)
         }
+        Token::Defer => {
+            cx.err(String::from("defer is reserved for future use"));
+            cx.next();
+            arena.add(Expr::Error, cx.lex.loc)
+        }
         Token::For => {
             cx.next();
             let var = expect_id(cx);
@@ -996,6 +1001,22 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
             Decl::Global { name, ty }
         }
         Token::Interface => parse_interface(cx),
+        Token::Defer => {
+            cx.err(String::from("defer is reserved for future use"));
+            // Skip past the defer statement.
+            cx.next();
+            let mut depth = 0;
+            loop {
+                match cx.lex.tok {
+                    Token::Lbrace => { depth += 1; cx.next(); }
+                    Token::Rbrace if depth > 0 => { depth -= 1; cx.next(); if depth == 0 { break; } }
+                    Token::Endl | Token::End if depth == 0 => break,
+                    Token::End => break,
+                    _ => cx.next(),
+                }
+            }
+            return None;
+        }
         _ => {
             cx.err(format!("Expected declaration, got {:?}", cx.lex.tok));
             cx.next();

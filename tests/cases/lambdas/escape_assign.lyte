@@ -1,0 +1,11 @@
+// args: -c
+// expected stdout:
+// ❌ ../tests/cases/lambdas/escape_assign.lyte:10:12: closure with captured variables cannot be returned (captured addresses would dangle after the frame exits)
+//         return f
+//                ^
+
+bad() → i32 → i32 {
+    var x = 42
+    var f = (|y| x + y)
+    return f
+}

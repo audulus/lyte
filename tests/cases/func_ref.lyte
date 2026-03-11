@@ -1,0 +1,31 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+double(x: i32) -> i32 { x * 2 }
+triple(x: i32) -> i32 { x * 3 }
+
+apply(f: i32 -> i32, x: i32) -> i32 { f(x) }
+
+main {
+    assert(apply(double, 5) == 10)
+    assert(apply(triple, 4) == 12)
+
+    // store function in variable
+    var f = double
+    assert(f(7) == 14)
+
+    // compose
+    assert(apply(double, apply(triple, 2)) == 12)
+}

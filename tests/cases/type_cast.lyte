@@ -1,0 +1,34 @@
+// args: -t
+// expected stdout:
+// executing compiled code
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// executing VM code
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// vm execution successful
+
+approx(a: f32, b: f32) -> bool {
+    var d = a - b
+    if d < 0.0 { d = 0.0 - d }
+    return d < 0.001
+}
+
+main {
+    // int to float
+    assert(approx(42 as f32, 42.0))
+
+    // float to int (truncates)
+    assert(3.7 as i32 == 3)
+
+    // i32 to i8 and back
+    assert((65 as i8) as i32 == 65)
+
+    // i32 to u32 and back
+    assert((42 as u32) as i32 == 42)
+}

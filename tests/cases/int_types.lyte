@@ -1,0 +1,31 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // i8 variables
+    var a: i8
+    a = 10 as i8
+    var b: i8
+    b = 20 as i8
+    assert(a as i32 + b as i32 == 30)
+
+    // u32 arithmetic
+    var x: u32
+    x = 100 as u32
+    var y: u32
+    y = 50 as u32
+    assert(x as i32 - y as i32 == 50)
+
+    // u32 comparison
+    assert(x as i32 > y as i32)
+
+    // i8 range
+    var c: i8
+    c = 127 as i8
+    assert(c as i32 == 127)
+}

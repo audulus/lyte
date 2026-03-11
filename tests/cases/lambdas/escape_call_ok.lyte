@@ -1,0 +1,10 @@
+// args: -c
+// expected stdout:
+// compilation successful
+// assert(true)
+
+main {
+    var x = 10
+    var f = (|y| x + y)
+    assert(f(5) == 15)
+}

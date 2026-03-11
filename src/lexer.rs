@@ -197,6 +197,7 @@ impl Lexer {
                 "as" => Token::As,
                 "fn" => Token::Fn,
                 "_" => Token::Underscore,
+                "defer" => Token::Defer,
                 "for" => Token::For,
                 "in" => Token::In,
                 _ => Token::Id(Name::str(&id)),

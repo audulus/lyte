@@ -2273,3 +2273,363 @@ fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::Opcode;
+
+    // ========== move_forwarding tests ==========
+
+    #[test]
+    fn test_move_forwarding_basic() {
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 42 },
+            Opcode::Move { dst: 1, src: 0 },
+        ];
+        move_forwarding(&mut code);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 1, value: 42 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_move_forwarding_src_used_elsewhere() {
+        // r0 is used by both the Move and the IAdd, so forwarding should NOT happen
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 42 },
+            Opcode::Move { dst: 1, src: 0 },
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },
+        ];
+        move_forwarding(&mut code);
+        // Should remain unchanged because r0 has use count > 1
+        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 42 });
+        assert_eq!(code[1], Opcode::Move { dst: 1, src: 0 });
+    }
+
+    #[test]
+    fn test_move_forwarding_chain() {
+        // Two independent move-forwarding opportunities
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 10 },
+            Opcode::Move { dst: 2, src: 0 },
+            Opcode::LoadImm { dst: 1, value: 20 },
+            Opcode::Move { dst: 3, src: 1 },
+        ];
+        move_forwarding(&mut code);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 2, value: 10 });
+        assert_eq!(code[1], Opcode::Nop);
+        assert_eq!(code[2], Opcode::LoadImm { dst: 3, value: 20 });
+        assert_eq!(code[3], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_move_forwarding_arith() {
+        // IAdd writes to r2, then Move r2 -> r5, and r2 only used by that move
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 1 },
+            Opcode::LoadImm { dst: 1, value: 2 },
+            Opcode::IAdd { dst: 2, a: 0, b: 1 },
+            Opcode::Move { dst: 5, src: 2 },
+        ];
+        move_forwarding(&mut code);
+        assert_eq!(code[2], Opcode::IAdd { dst: 5, a: 0, b: 1 });
+        assert_eq!(code[3], Opcode::Nop);
+    }
+
+    // ========== redundant_local_addr tests ==========
+
+    #[test]
+    fn test_redundant_local_addr_basic() {
+        // Two LocalAddr for the same slot -> second should be eliminated
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 0 },
+            Opcode::Store32 { addr: 0, src: 5 },
+            Opcode::LocalAddr { dst: 1, slot: 0 },
+            Opcode::Load32 { dst: 2, addr: 1 },
+        ];
+        redundant_local_addr(&mut code);
+        // Second LocalAddr should be NOPed, Load32 should use r0 instead of r1
+        assert_eq!(code[2], Opcode::Nop);
+        assert_eq!(code[3], Opcode::Load32 { dst: 2, addr: 0 });
+    }
+
+    #[test]
+    fn test_redundant_local_addr_different_slots() {
+        // Different slots -> no elimination
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 0 },
+            Opcode::Store32 { addr: 0, src: 5 },
+            Opcode::LocalAddr { dst: 1, slot: 1 },
+            Opcode::Load32 { dst: 2, addr: 1 },
+        ];
+        let original = code.clone();
+        redundant_local_addr(&mut code);
+        assert_eq!(code, original);
+    }
+
+    #[test]
+    fn test_redundant_local_addr_clobbered() {
+        // Original register gets clobbered before the duplicate -> no elimination
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 0 },
+            Opcode::Store32 { addr: 0, src: 5 },
+            Opcode::LoadImm { dst: 0, value: 99 }, // clobbers r0
+            Opcode::LocalAddr { dst: 1, slot: 0 },
+            Opcode::Load32 { dst: 2, addr: 1 },
+        ];
+        redundant_local_addr(&mut code);
+        // r0 was clobbered, so slot_reg entry for slot 0 was invalidated
+        assert_eq!(code[3], Opcode::LocalAddr { dst: 1, slot: 0 });
+    }
+
+    #[test]
+    fn test_redundant_local_addr_jump_target_clears() {
+        // Jump target between the two LocalAddrs should prevent optimization
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 0 },
+            Opcode::Store32 { addr: 0, src: 5 },
+            Opcode::Jump { offset: 0 }, // jumps to index 3
+            Opcode::LocalAddr { dst: 1, slot: 0 },
+            Opcode::Load32 { dst: 2, addr: 1 },
+        ];
+        redundant_local_addr(&mut code);
+        // The jump clears slot_reg, then index 3 is a jump target which also clears.
+        assert_eq!(code[3], Opcode::LocalAddr { dst: 1, slot: 0 });
+    }
+
+    // ========== dead_code_elimination tests ==========
+
+    #[test]
+    fn test_dce_basic() {
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 42 }, // r1 never used -> dead
+            Opcode::LoadImm { dst: 0, value: 10 }, // r0 is return reg -> live
+        ];
+        dead_code_elimination(&mut code);
+        assert_eq!(code[0], Opcode::Nop);
+        assert_eq!(code[1], Opcode::LoadImm { dst: 0, value: 10 });
+    }
+
+    #[test]
+    fn test_dce_preserves_side_effects() {
+        // PrintI32 has side effects; its source register should stay live
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 42 },
+            Opcode::PrintI32 { src: 1 },
+        ];
+        dead_code_elimination(&mut code);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 1, value: 42 });
+        assert_eq!(code[1], Opcode::PrintI32 { src: 1 });
+    }
+
+    #[test]
+    fn test_dce_keeps_used_registers() {
+        let mut code = vec![
+            Opcode::LoadImm { dst: 1, value: 5 },
+            Opcode::LoadImm { dst: 2, value: 10 },
+            Opcode::IAdd { dst: 0, a: 1, b: 2 }, // r0 is live (return)
+        ];
+        dead_code_elimination(&mut code);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 1, value: 5 });
+        assert_eq!(code[1], Opcode::LoadImm { dst: 2, value: 10 });
+        assert_eq!(code[2], Opcode::IAdd { dst: 0, a: 1, b: 2 });
+    }
+
+    #[test]
+    fn test_dce_eliminates_unused_chain() {
+        // r3 unused, so IAdd to r3 is dead
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 99 }, // r0 is return -> live
+            Opcode::LoadImm { dst: 1, value: 5 },
+            Opcode::LoadImm { dst: 2, value: 10 },
+            Opcode::IAdd { dst: 3, a: 1, b: 2 }, // r3 never used -> dead
+        ];
+        dead_code_elimination(&mut code);
+        assert_eq!(code[3], Opcode::Nop);
+    }
+
+    // ========== fuse_local_access tests ==========
+
+    #[test]
+    fn test_fuse_local_load() {
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 3 },
+            Opcode::Load32 { dst: 1, addr: 0 },
+        ];
+        fuse_local_access(&mut code);
+        assert_eq!(code[0], Opcode::LoadSlot32 { dst: 1, slot: 3 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_local_store() {
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 5 },
+            Opcode::Store32 { addr: 0, src: 2 },
+        ];
+        fuse_local_access(&mut code);
+        assert_eq!(code[0], Opcode::StoreSlot32 { slot: 5, src: 2 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_local_addr_used_twice_no_fuse() {
+        // addr register used by both Store32 and Load32 -> use count > 1 -> no fusion
+        let mut code = vec![
+            Opcode::LocalAddr { dst: 0, slot: 3 },
+            Opcode::Store32 { addr: 0, src: 1 },
+            Opcode::Load32 { dst: 2, addr: 0 },
+        ];
+        let original = code.clone();
+        fuse_local_access(&mut code);
+        assert_eq!(code, original);
+    }
+
+    // ========== fuse_offset_access tests ==========
+
+    #[test]
+    fn test_fuse_offset_store32() {
+        let mut code = vec![
+            Opcode::IAddImm { dst: 1, src: 0, imm: 8 },
+            Opcode::Store32 { addr: 1, src: 2 },
+        ];
+        fuse_offset_access(&mut code);
+        assert_eq!(code[0], Opcode::Store32Off { base: 0, offset: 8, src: 2 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_offset_load32() {
+        let mut code = vec![
+            Opcode::IAddImm { dst: 1, src: 0, imm: 4 },
+            Opcode::Load32 { dst: 2, addr: 1 },
+        ];
+        fuse_offset_access(&mut code);
+        assert_eq!(code[0], Opcode::Load32Off { dst: 2, base: 0, offset: 4 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_offset_load64() {
+        let mut code = vec![
+            Opcode::IAddImm { dst: 1, src: 0, imm: 16 },
+            Opcode::Load64 { dst: 2, addr: 1 },
+        ];
+        fuse_offset_access(&mut code);
+        assert_eq!(code[0], Opcode::Load64Off { dst: 2, base: 0, offset: 16 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_offset_addr_used_twice_no_fuse() {
+        // addr reg used by both Store32 and Load32
+        let mut code = vec![
+            Opcode::IAddImm { dst: 1, src: 0, imm: 8 },
+            Opcode::Store32 { addr: 1, src: 2 },
+            Opcode::Load32 { dst: 3, addr: 1 },
+        ];
+        let original = code.clone();
+        fuse_offset_access(&mut code);
+        assert_eq!(code, original);
+    }
+
+    // ========== fuse_compare_branch tests ==========
+
+    #[test]
+    fn test_fuse_ilt_jump() {
+        let mut code = vec![
+            Opcode::ILt { dst: 2, a: 0, b: 1 },
+            Opcode::JumpIfZero { cond: 2, offset: 5 },
+        ];
+        fuse_compare_branch(&mut code);
+        // offset adjusts: was 5 relative to JumpIfZero (i+1), now 5+1=6 relative to ILt (i)
+        assert_eq!(code[0], Opcode::ILtJump { a: 0, b: 1, offset: 6 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_flt_jump() {
+        let mut code = vec![
+            Opcode::FLt { dst: 3, a: 0, b: 1 },
+            Opcode::JumpIfZero { cond: 3, offset: 10 },
+        ];
+        fuse_compare_branch(&mut code);
+        assert_eq!(code[0], Opcode::FLtJump { a: 0, b: 1, offset: 11 });
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_compare_branch_cond_used_elsewhere() {
+        // Compare result used by both JumpIfZero and later instruction -> no fusion
+        let mut code = vec![
+            Opcode::ILt { dst: 2, a: 0, b: 1 },
+            Opcode::JumpIfZero { cond: 2, offset: 5 },
+            Opcode::PrintI32 { src: 2 }, // extra use of r2
+        ];
+        let original = code.clone();
+        fuse_compare_branch(&mut code);
+        assert_eq!(code, original);
+    }
+
+    #[test]
+    fn test_fuse_compare_branch_wrong_cond() {
+        // JumpIfZero uses a different register than what ILt wrote to
+        let mut code = vec![
+            Opcode::ILt { dst: 2, a: 0, b: 1 },
+            Opcode::JumpIfZero { cond: 3, offset: 5 },
+        ];
+        let original = code.clone();
+        fuse_compare_branch(&mut code);
+        assert_eq!(code, original);
+    }
+
+    // ========== strip_nops / compact tests ==========
+
+    #[test]
+    fn test_compact_strips_nops() {
+        let mut code = vec![
+            Opcode::LoadImm { dst: 0, value: 1 },
+            Opcode::Nop,
+            Opcode::LoadImm { dst: 1, value: 2 },
+            Opcode::Nop,
+            Opcode::IAdd { dst: 0, a: 0, b: 1 },
+        ];
+        compact(&mut code);
+        assert_eq!(code.len(), 3);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 1 });
+        assert_eq!(code[1], Opcode::LoadImm { dst: 1, value: 2 });
+        assert_eq!(code[2], Opcode::IAdd { dst: 0, a: 0, b: 1 });
+    }
+
+    #[test]
+    fn test_compact_adjusts_jump_offsets() {
+        // Jump over Nops: offset should shrink
+        let mut code = vec![
+            Opcode::Jump { offset: 2 },  // target = 0 + 1 + 2 = index 3
+            Opcode::Nop,
+            Opcode::Nop,
+            Opcode::LoadImm { dst: 0, value: 42 },
+        ];
+        compact(&mut code);
+        assert_eq!(code.len(), 2);
+        // After compaction: Jump at 0, LoadImm at 1. offset = 1 - 0 - 1 = 0
+        assert_eq!(code[0], Opcode::Jump { offset: 0 });
+        assert_eq!(code[1], Opcode::LoadImm { dst: 0, value: 42 });
+    }
+
+    // ========== integration: optimize pipeline ==========
+
+    #[test]
+    fn test_move_forwarding_then_dce() {
+        // After move forwarding, the move becomes Nop; r0 stays live as return reg
+        let mut code = vec![
+            Opcode::LoadImm { dst: 2, value: 42 },
+            Opcode::Move { dst: 0, src: 2 }, // r0 is return, r2 only used here
+        ];
+        move_forwarding(&mut code);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 42 });
+        assert_eq!(code[1], Opcode::Nop);
+        dead_code_elimination(&mut code);
+        assert_eq!(code[0], Opcode::LoadImm { dst: 0, value: 42 });
+    }
+}
