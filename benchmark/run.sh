@@ -12,9 +12,17 @@ echo "Processing 10M samples of 440Hz sine through a 1kHz lowpass"
 echo "Averaging $RUNS runs per benchmark"
 echo ""
 
-# Build lyte in release mode
+# Build lyte in release mode (with LLVM if available)
 echo "Building lyte (release)..."
-cargo build -p lyte-cli --release --quiet 2>/dev/null
+export LLVM_SYS_180_PREFIX="$(brew --prefix llvm@18 2>/dev/null)"
+export LIBRARY_PATH="${LIBRARY_PATH:+$LIBRARY_PATH:}$(brew --prefix zstd 2>/dev/null)/lib"
+if [ -n "$LLVM_SYS_180_PREFIX" ] && cargo build -p lyte-cli --release --features llvm --quiet 2>/dev/null; then
+    HAS_LLVM=1
+else
+    echo "  (LLVM feature not available, building without it)"
+    cargo build -p lyte-cli --release --quiet 2>/dev/null
+    HAS_LLVM=0
+fi
 LYTE=./target/release/lyte
 
 echo "Building C benchmark..."
@@ -50,6 +58,11 @@ echo "Running benchmarks..."
 C_TIME=$(avg benchmark/biquad_c)
 LYTE_JIT=$(avg "LYTE_BACKEND=jit $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
 LYTE_VM=$(avg "LYTE_BACKEND=vm $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
+if [ "$HAS_LLVM" = "1" ]; then
+    LYTE_LLVM=$(avg "LYTE_BACKEND=llvm $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'llvm exec:'")
+else
+    LYTE_LLVM=""
+fi
 LUA=$(avg lua benchmark/biquad.lua)
 LUAJIT_JIT=$(avg luajit benchmark/biquad.lua)
 LUAJIT_INT=$(avg luajit -joff benchmark/biquad.lua)
@@ -74,4 +87,5 @@ row "LuaJIT (interp)"   "$LUAJIT_INT" "$LUA"
 row "Lyte VM"           "$LYTE_VM"    "$LUA"
 row "LuaJIT (JIT)"      "$LUAJIT_JIT" "$LUA"
 row "Lyte JIT"          "$LYTE_JIT"   "$LUA"
+row "Lyte LLVM"         "$LYTE_LLVM"  "$LUA"
 row "C (-O2)"           "$C_TIME"     "$LUA"

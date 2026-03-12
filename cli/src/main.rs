@@ -140,7 +140,15 @@ fn run(args: Args) -> i32 {
 
         #[cfg(feature = "llvm")]
         if run_llvm {
+            if args.timing {
+                eprintln!("compile: {:.0}µs", compile_elapsed.as_micros());
+            }
+            let start = Instant::now();
             compiler.run_llvm();
+            let elapsed = start.elapsed();
+            if args.timing {
+                eprintln!("llvm exec: {:.3}s", elapsed.as_secs_f64());
+            }
         }
 
         if run_vm {
