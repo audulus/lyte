@@ -53,6 +53,8 @@ main {
         last_y = y
     }
 
+    // Use last_y so the optimizer can't eliminate the loop.
+    print(last_y as i32)
     print(n)
     println(" samples processed")
 }
