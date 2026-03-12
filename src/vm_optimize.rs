@@ -42,6 +42,7 @@ fn dead_code_elimination(code: &mut Vec<Opcode>) {
                 match &code[i] {
                     Opcode::Call { .. }
                     | Opcode::CallIndirect { .. }
+                    | Opcode::CallClosure { .. }
                     | Opcode::Store8 { .. }
                     | Opcode::Store32 { .. }
                     | Opcode::Store64 { .. }
@@ -247,8 +248,10 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::MaxF64 { dst, .. }
         | Opcode::LoadSlot32 { dst, .. } => Some(*dst),
 
-        // Call/CallIndirect implicitly define r0 (return value register).
-        Opcode::Call { .. } | Opcode::CallIndirect { .. } => Some(0),
+        // Call/CallIndirect/CallClosure implicitly define r0 (return value register).
+        Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => Some(0),
+
+        Opcode::GetClosurePtr { dst } => Some(*dst),
 
         Opcode::Nop
         | Opcode::StoreSlot32 { .. }
@@ -403,7 +406,8 @@ fn set_dst(op: &mut Opcode, new_dst: Reg) -> bool {
         | Opcode::Atan2F64 { dst, .. }
         | Opcode::MinF64 { dst, .. }
         | Opcode::MaxF64 { dst, .. }
-        | Opcode::LoadSlot32 { dst, .. } => {
+        | Opcode::LoadSlot32 { dst, .. }
+        | Opcode::GetClosurePtr { dst } => {
             *dst = new_dst;
             true
         }
@@ -518,6 +522,13 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
             args_start,
             arg_count,
         } => *func_reg == reg || (reg >= *args_start && reg < *args_start + *arg_count),
+        Opcode::CallClosure {
+            fat_ptr,
+            args_start,
+            arg_count,
+        } => *fat_ptr == reg || (reg >= *args_start && reg < *args_start + *arg_count),
+
+        Opcode::GetClosurePtr { .. } => false,
 
         Opcode::ReturnReg { src } => *src == reg,
 
@@ -739,6 +750,17 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
                     counts[r as usize] += 1;
                 }
             }
+            Opcode::CallClosure {
+                fat_ptr,
+                args_start,
+                arg_count,
+            } => {
+                counts[*fat_ptr as usize] += 1;
+                for r in *args_start..(*args_start + *arg_count) {
+                    counts[r as usize] += 1;
+                }
+            }
+            Opcode::GetClosurePtr { .. } => {}
             Opcode::ReturnReg { src } => counts[*src as usize] += 1,
             Opcode::MemCopy { dst, src, .. } => {
                 counts[*dst as usize] += 1;
@@ -910,6 +932,7 @@ fn redundant_local_addr(code: &mut [Opcode]) {
             // Instructions that can clobber registers: clear tracking
             Opcode::Call { .. }
             | Opcode::CallIndirect { .. }
+            | Opcode::CallClosure { .. }
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => {
                 slot_reg.clear();
@@ -954,6 +977,7 @@ fn replace_reg_uses_until_clobber(
             | Opcode::FLtJump { .. }
             | Opcode::Call { .. }
             | Opcode::CallIndirect { .. }
+            | Opcode::CallClosure { .. }
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => break,
             _ => {}
@@ -1292,6 +1316,21 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
                 }
             }
         }
+        Opcode::CallClosure {
+            fat_ptr,
+            args_start,
+            arg_count,
+        } => {
+            if *fat_ptr == old {
+                *fat_ptr = new;
+            }
+            for r in *args_start..(*args_start + *arg_count) {
+                if r == old && r == *args_start {
+                    *args_start = new;
+                    break;
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -1535,6 +1574,11 @@ fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
                 arg_count,
                 ..
             } => (*args_start, *arg_count),
+            Opcode::CallClosure {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
             _ => continue,
         };
         for r in args_start..(args_start + arg_count) {
@@ -1666,7 +1710,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
     // to avoid conflicts with callee registers.
     let mut pinned = [false; 256];
     for (i, op) in code.iter().enumerate() {
-        let is_call = matches!(op, Opcode::Call { .. } | Opcode::CallIndirect { .. });
+        let is_call = matches!(op, Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. });
         if !is_call {
             continue;
         }
@@ -1689,6 +1733,11 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
                 ..
             } => (*args_start, *arg_count),
             Opcode::CallIndirect {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
+            Opcode::CallClosure {
                 args_start,
                 arg_count,
                 ..
@@ -1983,6 +2032,17 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
                 f(r);
             }
         }
+        Opcode::CallClosure {
+            fat_ptr,
+            args_start,
+            arg_count,
+        } => {
+            f(*fat_ptr);
+            for r in *args_start..(*args_start + *arg_count) {
+                f(r);
+            }
+        }
+        Opcode::GetClosurePtr { .. } => {}
         Opcode::ReturnReg { src } => f(*src),
         Opcode::MemCopy { dst, src, .. } => {
             f(*dst);
@@ -2223,6 +2283,17 @@ fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
         } => {
             *func_reg = map[*func_reg as usize];
             *args_start = map[*args_start as usize];
+        }
+        Opcode::CallClosure {
+            fat_ptr,
+            args_start,
+            ..
+        } => {
+            *fat_ptr = map[*fat_ptr as usize];
+            *args_start = map[*args_start as usize];
+        }
+        Opcode::GetClosurePtr { dst } => {
+            *dst = map[*dst as usize];
         }
         Opcode::ReturnReg { src } => {
             *src = map[*src as usize];

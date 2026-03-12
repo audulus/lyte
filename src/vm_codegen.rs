@@ -332,6 +332,9 @@ struct FunctionTranslator<'a> {
 
     /// Byte offset in locals where registers are saved.
     save_regs_offset: u32,
+
+    /// Variables captured from an enclosing scope (accessed via double indirection).
+    captured_vars: HashSet<Name>,
 }
 
 /// Check if a type should be returned via output pointer.
@@ -372,6 +375,7 @@ impl<'a> FunctionTranslator<'a> {
             output_ptr_slot: None,
             has_returned: false,
             save_regs_offset: 0,
+            captured_vars: HashSet::new(),
         }
     }
 
@@ -438,7 +442,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.variables.insert(param.name, reg);
                 self.reg_promoted.insert(param.name);
             } else {
-                let size = ty.size(self.decls) as u32;
+                let size = self.vm_type_size(&ty);
                 let slot = self.alloc_local(size);
                 self.local_slots.insert(param.name, slot);
                 let addr_reg = self.alloc_reg();
@@ -448,6 +452,41 @@ impl<'a> FunctionTranslator<'a> {
                 });
                 self.emit_store(&ty, addr_reg, src_reg, func);
                 self.variables.insert(param.name, addr_reg);
+            }
+        }
+
+        // Set up captured closure variables.
+        // The closure pointer was set by CallClosure before entering this function.
+        if !self.decl.closure_vars.is_empty() {
+            let closure_ptr_reg = self.alloc_reg();
+            func.emit(Opcode::GetClosurePtr {
+                dst: closure_ptr_reg,
+            });
+            for (i, cv) in self.decl.closure_vars.iter().enumerate() {
+                // Load the address of the captured variable from closure_struct[i].
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::Load64Off {
+                    dst: addr_reg,
+                    base: closure_ptr_reg,
+                    offset: (i * 8) as i32,
+                });
+                // Store this address in a local slot so it survives across calls.
+                let slot = self.alloc_local(8);
+                self.local_slots.insert(cv.name, slot);
+                let slot_addr = self.alloc_reg();
+                func.emit(Opcode::LocalAddr {
+                    dst: slot_addr,
+                    slot,
+                });
+                func.emit(Opcode::Store64 {
+                    addr: slot_addr,
+                    src: addr_reg,
+                });
+                // The variable maps to the address of the captured storage (a pointer).
+                // Access goes: load addr from local slot → load/store value through addr.
+                self.variables.insert(cv.name, addr_reg);
+                // Mark as a captured variable (accessed via double indirection).
+                self.captured_vars.insert(cv.name);
             }
         }
 
@@ -565,6 +604,32 @@ impl<'a> FunctionTranslator<'a> {
         ptr
     }
 
+    /// Get the address of a variable's storage (for closure capture).
+    /// For register-promoted vars, spills to a local slot first.
+    fn get_var_address(&mut self, name: &Name, func: &mut VMFunction) -> Reg {
+        if self.reg_promoted.contains(name) {
+            // Register-promoted scalar: spill to a local slot so we have a stable address.
+            let val_reg = *self.variables.get(name).unwrap();
+            let slot = self.alloc_local(8);
+            self.local_slots.insert(*name, slot);
+            let addr = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst: addr, slot });
+            func.emit(Opcode::Store64 { addr, src: val_reg });
+            // Change variable from register-promoted to stack-allocated.
+            self.reg_promoted.remove(name);
+            self.variables.insert(*name, addr);
+            addr
+        } else if let Some(&slot) = self.local_slots.get(name) {
+            // Already stack-allocated: return its address.
+            let addr = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst: addr, slot });
+            addr
+        } else {
+            // Should not happen for captured variables.
+            panic!("get_var_address: variable {:?} has no storage", name);
+        }
+    }
+
     /// Get the type of an expression.
     fn expr_type(&self, expr: ExprID) -> TypeID {
         self.decl.types[expr]
@@ -624,6 +689,26 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Id(name) => {
                 let ty = self.expr_type(expr);
 
+                // Check if it's a captured closure variable (double indirection).
+                if self.captured_vars.contains(name) {
+                    // Load pointer-to-captured-storage from our local slot.
+                    let slot = *self.local_slots.get(name).unwrap();
+                    let slot_addr = self.alloc_reg();
+                    func.emit(Opcode::LocalAddr {
+                        dst: slot_addr,
+                        slot,
+                    });
+                    let captured_addr = self.alloc_reg();
+                    func.emit(Opcode::Load64 {
+                        dst: captured_addr,
+                        addr: slot_addr,
+                    });
+                    // Now load the value from the captured variable's storage.
+                    let dst = self.alloc_reg();
+                    self.emit_load(&ty, dst, captured_addr, func);
+                    return dst;
+                }
+
                 // Check if it's a local variable.
                 if let Some(&reg) = self.variables.get(name) {
                     if self.reg_promoted.contains(name) {
@@ -656,15 +741,40 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     // Check if it's a function.
                     if let Type::Func(_, _) = &*ty {
-                        // Return function index as a value.
-                        let dst = self.alloc_reg();
+                        // Build a 16-byte fat pointer {func_idx, 0} on the stack.
+                        let fat_slot = self.alloc_local(16);
+                        let fat_addr = self.alloc_reg();
+                        func.emit(Opcode::LocalAddr {
+                            dst: fat_addr,
+                            slot: fat_slot,
+                        });
+                        // Store func_idx (patched later).
+                        let func_idx_reg = self.alloc_reg();
                         self.pending_functions.push(*name);
-                        let instr_idx = func.emit(Opcode::LoadImm { dst, value: 0 });
+                        let instr_idx = func.emit(Opcode::LoadImm {
+                            dst: func_idx_reg,
+                            value: 0,
+                        });
                         self.func_load_patches.push(CallToPatch {
                             instr_idx,
                             callee: *name,
                         });
-                        dst
+                        func.emit(Opcode::Store64 {
+                            addr: fat_addr,
+                            src: func_idx_reg,
+                        });
+                        // Store closure_ptr = 0.
+                        let zero_reg = self.alloc_reg();
+                        func.emit(Opcode::LoadImm {
+                            dst: zero_reg,
+                            value: 0,
+                        });
+                        func.emit(Opcode::Store64Off {
+                            base: fat_addr,
+                            offset: 8,
+                            src: zero_reg,
+                        });
+                        fat_addr
                     } else {
                         // Unknown identifier - this shouldn't happen after type checking.
                         let dst = self.alloc_reg();
@@ -695,7 +805,7 @@ impl<'a> FunctionTranslator<'a> {
                     self.reg_promoted.insert(*name);
                 } else {
                     // Pointer type: store to local slot.
-                    let size = ty.size(self.decls) as u32;
+                    let size = self.vm_type_size(&ty);
                     let slot = self.alloc_local(size);
                     self.local_slots.insert(*name, slot);
 
@@ -729,8 +839,8 @@ impl<'a> FunctionTranslator<'a> {
                     self.reg_promoted.insert(*name);
                 } else {
                     // Pointer type: store to local slot.
-                    let size = ty.size(self.decls);
-                    let slot = self.alloc_local(size as u32);
+                    let size = self.vm_type_size(&ty);
+                    let slot = self.alloc_local(size);
                     self.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
@@ -750,7 +860,7 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         func.emit(Opcode::MemZero {
                             dst: addr_reg,
-                            size: size as u32,
+                            size,
                         });
                     }
                 }
@@ -886,6 +996,53 @@ impl<'a> FunctionTranslator<'a> {
                             })
                             .collect();
 
+                        // Compute free variables captured from the enclosing scope.
+                        let param_names: std::collections::HashSet<String> =
+                            params.iter().map(|p| p.name.to_string()).collect();
+                        let free_vars = collect_free_var_names(
+                            *body,
+                            &self.decl.arena,
+                            &param_names,
+                            &self.variables,
+                            &self.decl.types,
+                        );
+
+                        // Build closure struct if there are captures.
+                        let closure_ptr_val = if !free_vars.is_empty() {
+                            let n = free_vars.len();
+                            let closure_slot = self.alloc_local((n * 8) as u32);
+                            let closure_addr = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr {
+                                dst: closure_addr,
+                                slot: closure_slot,
+                            });
+                            for (i, (name, _ty)) in free_vars.iter().enumerate() {
+                                let var_name = Name::new(name.clone());
+                                let var_addr = self.get_var_address(&var_name, func);
+                                func.emit(Opcode::Store64Off {
+                                    base: closure_addr,
+                                    offset: (i * 8) as i32,
+                                    src: var_addr,
+                                });
+                            }
+                            closure_addr
+                        } else {
+                            let zero = self.alloc_reg();
+                            func.emit(Opcode::LoadImm {
+                                dst: zero,
+                                value: 0,
+                            });
+                            zero
+                        };
+
+                        let closure_vars: Vec<ClosureVar> = free_vars
+                            .iter()
+                            .map(|(name, ty)| ClosureVar {
+                                name: Name::new(name.clone()),
+                                ty: *ty,
+                            })
+                            .collect();
+
                         let lambda_decl = FuncDecl {
                             name: lambda_name,
                             typevars: vec![],
@@ -897,16 +1054,36 @@ impl<'a> FunctionTranslator<'a> {
                             loc: self.decl.loc,
                             arena: self.decl.arena.clone(),
                             types: self.decl.types.clone(),
-                            closure_vars: vec![],
+                            closure_vars,
                         };
 
                         self.pending_lambdas.push(lambda_decl);
 
-                        // Emit a placeholder; patched with the actual FuncIdx after compilation.
-                        let dst = self.alloc_reg();
-                        let instr_idx = func.emit(Opcode::LoadImm { dst, value: 0 });
+                        // Build a 16-byte fat pointer {func_idx, closure_ptr}.
+                        let fat_slot = self.alloc_local(16);
+                        let fat_addr = self.alloc_reg();
+                        func.emit(Opcode::LocalAddr {
+                            dst: fat_addr,
+                            slot: fat_slot,
+                        });
+                        // Store func_idx (patched later).
+                        let func_idx_reg = self.alloc_reg();
+                        let instr_idx = func.emit(Opcode::LoadImm {
+                            dst: func_idx_reg,
+                            value: 0,
+                        });
                         self.lambda_patches.push((instr_idx, lambda_name));
-                        dst
+                        func.emit(Opcode::Store64 {
+                            addr: fat_addr,
+                            src: func_idx_reg,
+                        });
+                        // Store closure_ptr.
+                        func.emit(Opcode::Store64Off {
+                            base: fat_addr,
+                            offset: 8,
+                            src: closure_ptr_val,
+                        });
+                        fat_addr
                     } else {
                         panic!(
                             "VM codegen lambda: expected tuple domain type, got {:?}",
@@ -1355,6 +1532,26 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an assignment expression.
     fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut VMFunction) -> Reg {
+        // Check for captured variable assignment (double indirection).
+        if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
+            if self.captured_vars.contains(name) {
+                let rhs = self.translate_expr(rhs_id, func);
+                let slot = *self.local_slots.get(name).unwrap();
+                let slot_addr = self.alloc_reg();
+                func.emit(Opcode::LocalAddr {
+                    dst: slot_addr,
+                    slot,
+                });
+                let captured_addr = self.alloc_reg();
+                func.emit(Opcode::Load64 {
+                    dst: captured_addr,
+                    addr: slot_addr,
+                });
+                let ty = self.expr_type(lhs_id);
+                self.emit_store(&ty, captured_addr, rhs, func);
+                return rhs;
+            }
+        }
         // Check for direct register-promoted scalar assignment (e.g., `x = expr`).
         if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
             if self.reg_promoted.contains(name) {
@@ -1369,6 +1566,23 @@ impl<'a> FunctionTranslator<'a> {
         let rhs = self.translate_expr(rhs_id, func);
         let lhs_addr = self.translate_lvalue(lhs_id, func);
         let ty = self.expr_type(lhs_id);
+        // Struct field assignment of Func type: only copy 8 bytes (func_idx).
+        // The struct field stores only the func_idx, not the full 16-byte fat pointer.
+        if matches!(&*ty, Type::Func(_, _)) {
+            if matches!(&self.decl.arena.exprs[lhs_id], Expr::Field(_, _)) {
+                // rhs is a fat pointer address; load func_idx from it and store to struct field.
+                let func_idx_reg = self.alloc_reg();
+                func.emit(Opcode::Load64 {
+                    dst: func_idx_reg,
+                    addr: rhs,
+                });
+                func.emit(Opcode::Store64 {
+                    addr: lhs_addr,
+                    src: func_idx_reg,
+                });
+                return rhs;
+            }
+        }
         self.emit_store(&ty, lhs_addr, rhs, func);
         rhs
     }
@@ -1514,7 +1728,8 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
-        // If fn_id is a local variable (lambda or function pointer), use CallIndirect.
+        // If fn_id is a local variable (lambda or function pointer), use CallClosure.
+        // The variable holds a pointer to a fat pointer {func_idx, closure_ptr}.
         let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
             self.variables.contains_key(name)
         } else {
@@ -1522,7 +1737,7 @@ impl<'a> FunctionTranslator<'a> {
         };
 
         if is_local_var {
-            let fn_reg = self.translate_expr(fn_id, func);
+            let fat_ptr_reg = self.translate_expr(fn_id, func);
 
             let mut arg_values = Vec::new();
             for arg_id in arg_ids {
@@ -1541,8 +1756,8 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
-            func.emit(Opcode::CallIndirect {
-                func_reg: fn_reg,
+            func.emit(Opcode::CallClosure {
+                fat_ptr: fat_ptr_reg,
                 args_start,
                 arg_count: arg_ids.len() as u8,
             });
@@ -1793,7 +2008,8 @@ impl<'a> FunctionTranslator<'a> {
             result_reg
         } else {
             // Indirect call via expression (e.g. lambda literal in call position).
-            let fn_reg = self.translate_expr(fn_id, func);
+            // The expression evaluates to a fat pointer {func_idx, closure_ptr}.
+            let fat_ptr_reg = self.translate_expr(fn_id, func);
 
             let mut arg_values = Vec::new();
             for arg_id in arg_ids {
@@ -1812,8 +2028,8 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
-            func.emit(Opcode::CallIndirect {
-                func_reg: fn_reg,
+            func.emit(Opcode::CallClosure {
+                fat_ptr: fat_ptr_reg,
                 args_start,
                 arg_count: arg_ids.len() as u8,
             });
@@ -2023,6 +2239,40 @@ impl<'a> FunctionTranslator<'a> {
                 let field = s.find_field(&name);
                 if let Some(field) = field {
                     let field_ty = field.ty.subst(&inst);
+                    // Func fields in structs are 8 bytes (func_idx only).
+                    // Construct a 16-byte fat pointer locally for indirect calls.
+                    if matches!(&*field_ty, Type::Func(_, _)) {
+                        let func_idx_reg = self.alloc_reg();
+                        self.emit_load_offset(&mk_type(Type::Int32), func_idx_reg, lhs, offset, func);
+                        // Actually load as 64-bit since func_idx is i64:
+                        let func_idx_reg2 = self.alloc_reg();
+                        func.emit(Opcode::Load64Off {
+                            dst: func_idx_reg2,
+                            base: lhs,
+                            offset,
+                        });
+                        let fat_slot = self.alloc_local(16);
+                        let fat_addr = self.alloc_reg();
+                        func.emit(Opcode::LocalAddr {
+                            dst: fat_addr,
+                            slot: fat_slot,
+                        });
+                        func.emit(Opcode::Store64 {
+                            addr: fat_addr,
+                            src: func_idx_reg2,
+                        });
+                        let zero = self.alloc_reg();
+                        func.emit(Opcode::LoadImm {
+                            dst: zero,
+                            value: 0,
+                        });
+                        func.emit(Opcode::Store64Off {
+                            base: fat_addr,
+                            offset: 8,
+                            src: zero,
+                        });
+                        return fat_addr;
+                    }
                     // Arrays and other pointer types are stored inline,
                     // so return the address of the field instead of loading.
                     if self.is_ptr_type(&field_ty) {
@@ -2274,8 +2524,18 @@ impl<'a> FunctionTranslator<'a> {
     fn is_ptr_type(&self, ty: &TypeID) -> bool {
         matches!(
             &**ty,
-            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
+            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_) | Type::Func(_, _)
         )
+    }
+
+    /// Size of a type in the VM. Function types use 16-byte fat pointers
+    /// {func_idx, closure_ptr} rather than the language-level 8 bytes.
+    fn vm_type_size(&self, ty: &TypeID) -> u32 {
+        if matches!(&**ty, Type::Func(_, _)) {
+            16
+        } else {
+            ty.size(self.decls) as u32
+        }
     }
 
     /// Emit a load instruction based on type.
@@ -2330,7 +2590,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Emit a store instruction based on type.
     fn emit_store(&self, ty: &TypeID, addr: Reg, src: Reg, func: &mut VMFunction) {
         if self.is_ptr_type(ty) {
-            let size = ty.size(self.decls) as u32;
+            let size = self.vm_type_size(ty);
             func.emit(Opcode::MemCopy {
                 dst: addr,
                 src,
@@ -2377,6 +2637,135 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(Opcode::Store32Off { base, offset, src });
             }
         }
+    }
+}
+
+/// Collect free variable names referenced in a lambda body that come from the enclosing scope.
+fn collect_free_var_names(
+    body: crate::ExprID,
+    arena: &crate::ExprArena,
+    exclude: &std::collections::HashSet<String>,
+    local_vars: &HashMap<Name, Reg>,
+    types: &[crate::TypeID],
+) -> Vec<(String, crate::TypeID)> {
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    collect_free_vars_rec(body, arena, exclude, local_vars, types, &mut result, &mut seen);
+    result
+}
+
+fn collect_free_vars_rec(
+    expr: crate::ExprID,
+    arena: &crate::ExprArena,
+    exclude: &std::collections::HashSet<String>,
+    local_vars: &HashMap<Name, Reg>,
+    types: &[crate::TypeID],
+    result: &mut Vec<(String, crate::TypeID)>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match &arena[expr] {
+        Expr::Id(name) => {
+            let s = name.to_string();
+            if local_vars.contains_key(name) && !exclude.contains(&s) && !seen.contains(&s) {
+                result.push((s.clone(), types[expr]));
+                seen.insert(s);
+            }
+        }
+        Expr::Call(fn_id, args) => {
+            collect_free_vars_rec(*fn_id, arena, exclude, local_vars, types, result, seen);
+            for a in args {
+                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Binop(_, lhs, rhs) => {
+            collect_free_vars_rec(*lhs, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Unop(_, arg) => {
+            collect_free_vars_rec(*arg, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Let(_, init, _) => {
+            collect_free_vars_rec(*init, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Var(_, init, _) => {
+            if let Some(init_id) = init {
+                collect_free_vars_rec(*init_id, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::If(cond, then, else_) => {
+            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*then, arena, exclude, local_vars, types, result, seen);
+            if let Some(e) = else_ {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::While(cond, body) => {
+            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::For {
+            start, end, body, ..
+        } => {
+            collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Return(e) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Field(e, _) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::ArrayIndex(arr, idx) => {
+            collect_free_vars_rec(*arr, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*idx, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::ArrayLiteral(elems) => {
+            for e in elems {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Tuple(elems) => {
+            for e in elems {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::AsTy(e, _) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Arena(e) => {
+            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Array(ty_expr, size_expr) => {
+            collect_free_vars_rec(*ty_expr, arena, exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(*size_expr, arena, exclude, local_vars, types, result, seen);
+        }
+        Expr::Lambda { params, body } => {
+            let mut inner_exclude = exclude.clone();
+            for p in params {
+                inner_exclude.insert(p.name.to_string());
+            }
+            collect_free_vars_rec(*body, arena, &inner_exclude, local_vars, types, result, seen);
+        }
+        Expr::Macro(_, args) => {
+            for a in args {
+                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Int(_)
+        | Expr::UInt(_)
+        | Expr::Real(_)
+        | Expr::String(_)
+        | Expr::Char(_)
+        | Expr::True
+        | Expr::False
+        | Expr::Enum(_)
+        | Expr::Error => {}
     }
 }
 

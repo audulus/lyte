@@ -230,6 +230,8 @@ mod tags {
     pub const I32_TO_I8: u8 = 151;
     pub const I8_TO_I32: u8 = 152;
     pub const I64_TO_U32: u8 = 153;
+    pub const CALL_CLOSURE: u8 = 154;
+    pub const GET_CLOSURE_PTR: u8 = 155;
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -520,6 +522,12 @@ impl LinkedProgram {
                 args_start,
                 arg_count,
             } => PackedOp::abc(tags::CALL_INDIRECT, func_reg, args_start, arg_count),
+            Opcode::CallClosure {
+                fat_ptr,
+                args_start,
+                arg_count,
+            } => PackedOp::abc(tags::CALL_CLOSURE, fat_ptr, args_start, arg_count),
+            Opcode::GetClosurePtr { dst } => PackedOp::abc(tags::GET_CLOSURE_PTR, dst, 0, 0),
             Opcode::Return => PackedOp::abc(tags::RETURN, 0, 0, 0),
             Opcode::ReturnReg { src } => PackedOp::abc(tags::RETURN_REG, src, 0, 0),
             // Stack frame — AD or ABC
@@ -1229,6 +1237,19 @@ pub enum Opcode {
         arg_count: u8,
     },
 
+    /// Call through a fat pointer {func_idx, closure_ptr} stored at the address in fat_ptr.
+    /// Sets VM.closure_ptr before entering the callee.
+    CallClosure {
+        fat_ptr: Reg,
+        args_start: Reg,
+        arg_count: u8,
+    },
+
+    /// Load the current closure pointer into dst (set by CallClosure).
+    GetClosurePtr {
+        dst: Reg,
+    },
+
     /// Return from function (return value in register 0)
     Return,
 
@@ -1671,6 +1692,9 @@ pub struct VM {
 
     /// Set to true if execution was cancelled via cancel_ptr()
     pub cancelled: bool,
+
+    /// Closure pointer set by CallClosure, read by GetClosurePtr.
+    closure_ptr: u64,
 }
 
 impl Default for VM {
@@ -1692,6 +1716,7 @@ impl VM {
             locals_base: 0,
             debug_func_name: String::new(),
             cancelled: false,
+            closure_ptr: 0,
         }
     }
 
@@ -2341,6 +2366,52 @@ impl VM {
                             self.debug_func_name =
                                 program.functions[func_idx as usize].name.clone();
                         }
+                    }
+
+                    // CallClosure — ABC: A=fat_ptr_reg, B=args_start, C=arg_count
+                    // fat_ptr points to {func_idx: i64, closure_ptr: i64}
+                    tags::CALL_CLOSURE => {
+                        let fat_ptr = r!(op.a()) as *const u64;
+                        let func_idx = *fat_ptr as FuncIdx;
+                        let closure_ptr_val = *fat_ptr.add(1);
+                        let args_start = op.b() as usize;
+                        let arg_count = op.c() as usize;
+
+                        let frame = CallFrame {
+                            func_idx: self.current_func,
+                            ip: ip,
+                            locals_base: locals_base,
+                            return_reg: 0,
+                        };
+                        self.call_stack.push(frame);
+
+                        for i in 0..arg_count {
+                            if i != args_start + i {
+                                self.registers[i] = self.registers[args_start + i];
+                            }
+                        }
+
+                        self.closure_ptr = closure_ptr_val;
+
+                        locals_base += linked.func_locals[self.current_func as usize] as usize;
+                        self.current_func = func_idx;
+                        ip = linked.func_offsets[func_idx as usize];
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.debug_func_name =
+                                program.functions[func_idx as usize].name.clone();
+                        }
+
+                        let needed = locals_base + linked.func_locals[func_idx as usize] as usize;
+                        if needed > self.locals.len() {
+                            self.locals.resize(needed * 2, 0);
+                        }
+                    }
+
+                    // GetClosurePtr — A: dst register
+                    tags::GET_CLOSURE_PTR => {
+                        set_i64!(op.a(), self.closure_ptr as i64);
                     }
 
                     tags::RETURN => {

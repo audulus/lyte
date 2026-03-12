@@ -1,4 +1,3 @@
-// skip-backend: vm
 // expected stdout:
 // compilation successful
 // assert(true)
