@@ -18,6 +18,7 @@ use inkwell::IntPredicate;
 use inkwell::OptimizationLevel;
 
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 // Re-export CANCEL_FLAG_RESERVED so it matches the Cranelift JIT layout.
 pub use crate::jit::CANCEL_FLAG_RESERVED;
@@ -368,7 +369,7 @@ fn compile_and_run_with_context(
     context: &Context,
     decls: &DeclTable,
     print_ir: bool,
-) -> Result<bool, String> {
+) -> Result<(bool, Duration, Duration), String> {
     let mut state = LLVMJITState {
         context,
         module: context.create_module("lyte"),
@@ -380,6 +381,8 @@ fn compile_and_run_with_context(
         print_ir,
         extern_fns: Vec::new(),
     };
+
+    let compile_start = Instant::now();
 
     state.declare_globals(decls);
 
@@ -420,9 +423,12 @@ fn compile_and_run_with_context(
         .get_function_address(name)
         .map_err(|e| format!("function '{}' not found in JIT: {:?}", name, e))?;
 
+    let compile_elapsed = compile_start.elapsed();
+
     println!("compilation successful");
 
     // Execute while the EE and context are still alive.
+    let exec_start = Instant::now();
     type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
     let mut globals: Vec<u8> = vec![0u8; state.globals_size];
     let cancelled = unsafe {
@@ -439,8 +445,9 @@ fn compile_and_run_with_context(
             true
         }
     };
+    let exec_elapsed = exec_start.elapsed();
 
-    Ok(cancelled)
+    Ok((cancelled, compile_elapsed, exec_elapsed))
 }
 
 impl LLVMJIT {
@@ -448,8 +455,8 @@ impl LLVMJIT {
         Self { print_ir: false }
     }
 
-    /// Compile and execute main. Returns Ok(cancelled) or Err.
-    pub fn compile_and_run(&self, decls: &DeclTable) -> Result<bool, String> {
+    /// Compile and execute main. Returns Ok((cancelled, compile_time, exec_time)) or Err.
+    pub fn compile_and_run(&self, decls: &DeclTable) -> Result<(bool, Duration, Duration), String> {
         // Initialize native target (needed for JIT).
         Target::initialize_native(&InitializationConfig::default())
             .map_err(|e| format!("LLVM target init failed: {}", e))?;

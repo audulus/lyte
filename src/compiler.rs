@@ -491,14 +491,15 @@ impl Compiler {
     }
 
     #[cfg(feature = "llvm")]
-    pub fn run_llvm(&mut self) {
+    pub fn run_llvm(&mut self) -> (std::time::Duration, std::time::Duration) {
         let mut jit = LLVMJIT::new();
         jit.print_ir = self.print_ir;
         match jit.compile_and_run(&self.decls) {
-            Ok(cancelled) => {
+            Ok((cancelled, compile_time, exec_time)) => {
                 if cancelled {
                     println!("execution cancelled");
                 }
+                (compile_time, exec_time)
             }
             Err(e) => {
                 println!("{}", e);
