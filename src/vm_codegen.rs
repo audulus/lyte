@@ -188,12 +188,12 @@ impl VMCodegen {
             // Update debug register names with the new physical register numbers.
             for entry in &mut func.reg_names {
                 let preg = mapping[entry.0 as usize];
-                if preg != 255 {
+                if preg != Reg::MAX {
                     entry.0 = preg;
                 }
             }
             // Remove entries where the register was optimized away.
-            func.reg_names.retain(|&(reg, _)| reg != 255);
+            func.reg_names.retain(|&(reg, _)| reg != Reg::MAX);
         }
 
         let idx = self.program.add_function(func);
@@ -427,7 +427,7 @@ impl<'a> FunctionTranslator<'a> {
             0u8
         };
         for (i, param) in self.decl.params.iter().enumerate() {
-            let src_reg = i as Reg + param_offset;
+            let src_reg = i as Reg + param_offset as Reg;
             let ty = param.ty.expect("parameter must have type");
 
             if !self.is_ptr_type(&ty) {
@@ -549,7 +549,7 @@ impl<'a> FunctionTranslator<'a> {
         for op in &mut func.code {
             match op {
                 Opcode::SaveRegs { count, slot, .. } => {
-                    *count = reg_count;
+                    *count = reg_count as u8;
                     *slot = self.save_regs_offset;
                 }
                 Opcode::RestoreRegs {
@@ -559,10 +559,10 @@ impl<'a> FunctionTranslator<'a> {
                     ..
                 } => {
                     if *start_reg == 1 {
-                        *count = if reg_count > 1 { reg_count - 1 } else { 0 };
+                        *count = if reg_count > 1 { (reg_count - 1) as u8 } else { 0 };
                         *slot = self.save_regs_offset + 8;
                     } else {
-                        *count = reg_count;
+                        *count = reg_count as u8;
                         *slot = self.save_regs_offset;
                     }
                 }
@@ -579,9 +579,6 @@ impl<'a> FunctionTranslator<'a> {
     fn alloc_reg(&mut self) -> Reg {
         let reg = self.next_reg;
         self.next_reg += 1;
-        if self.next_reg > 250 {
-            panic!("VM codegen: register limit exceeded (max 250)");
-        }
         reg
     }
 
@@ -1746,7 +1743,7 @@ impl<'a> FunctionTranslator<'a> {
 
             let args_start = self.next_reg;
             for (i, &arg_reg) in arg_values.iter().enumerate() {
-                let target = args_start + i as u8;
+                let target = args_start + i as Reg;
                 let _ = self.alloc_reg();
                 if arg_reg != target {
                     func.emit(Opcode::Move {
@@ -1953,7 +1950,7 @@ impl<'a> FunctionTranslator<'a> {
             };
 
             for (i, &arg_reg) in arg_values.iter().enumerate() {
-                let target_reg = first_arg_reg + i as u8;
+                let target_reg = first_arg_reg + i as Reg;
                 // Allocate the target register (to keep next_reg in sync).
                 let _ = self.alloc_reg();
                 if arg_reg != target_reg {
@@ -2018,7 +2015,7 @@ impl<'a> FunctionTranslator<'a> {
 
             let args_start = self.next_reg;
             for (i, &arg_reg) in arg_values.iter().enumerate() {
-                let target = args_start + i as u8;
+                let target = args_start + i as Reg;
                 let _ = self.alloc_reg();
                 if arg_reg != target {
                     func.emit(Opcode::Move {

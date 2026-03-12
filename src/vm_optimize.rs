@@ -6,9 +6,26 @@
 use crate::vm::{Opcode, Reg};
 use std::collections::HashSet;
 
+/// Sentinel value for unassigned registers in mapping vectors.
+const UNASSIGNED: Reg = Reg::MAX;
+
+/// Find the number of virtual registers used in the code (max reg + 1).
+fn num_vregs(code: &[Opcode]) -> usize {
+    let mut max_r: Reg = 0;
+    for op in code {
+        if let Some(dst) = get_dst(op) {
+            max_r = max_r.max(dst);
+        }
+        for_each_src(op, |r| {
+            max_r = max_r.max(r);
+        });
+    }
+    max_r as usize + 1
+}
+
 /// Phase 1: Peephole optimizations (NOP-safe, preserves instruction indices).
 /// Returns (new_reg_count, vreg_to_preg_mapping) after register allocation.
-pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, [u8; 256])> {
+pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>)> {
     if code.is_empty() {
         return None;
     }
@@ -516,17 +533,17 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
             args_start,
             arg_count,
             ..
-        } => reg >= *args_start && reg < *args_start + *arg_count,
+        } => reg >= *args_start && reg < *args_start + *arg_count as Reg,
         Opcode::CallIndirect {
             func_reg,
             args_start,
             arg_count,
-        } => *func_reg == reg || (reg >= *args_start && reg < *args_start + *arg_count),
+        } => *func_reg == reg || (reg >= *args_start && reg < *args_start + *arg_count as Reg),
         Opcode::CallClosure {
             fat_ptr,
             args_start,
             arg_count,
-        } => *fat_ptr == reg || (reg >= *args_start && reg < *args_start + *arg_count),
+        } => *fat_ptr == reg || (reg >= *args_start && reg < *args_start + *arg_count as Reg),
 
         Opcode::GetClosurePtr { .. } => false,
 
@@ -606,10 +623,11 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
 }
 
 /// Count how many times each register is read as a source operand.
-fn compute_use_counts(code: &[Opcode]) -> [u16; 256] {
-    let mut counts = [0u16; 256];
+fn compute_use_counts(code: &[Opcode]) -> Vec<u16> {
+    let n = num_vregs(code);
+    let mut counts = vec![0u16; n];
     for op in code {
-        for r in 0..=255u8 {
+        for r in 0..n as Reg {
             if reads_reg(op, r) {
                 counts[r as usize] = counts[r as usize].saturating_add(1);
             }
@@ -619,8 +637,9 @@ fn compute_use_counts(code: &[Opcode]) -> [u16; 256] {
 }
 
 /// Efficiently compute use counts by only checking registers that exist.
-fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
-    let mut counts = [0u16; 256];
+fn compute_use_counts_fast(code: &[Opcode]) -> Vec<u16> {
+    let n = num_vregs(code);
+    let mut counts = vec![0u16; n];
     for op in code {
         // Extract source registers directly from each instruction
         match op {
@@ -736,7 +755,7 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
                 arg_count,
                 ..
             } => {
-                for r in *args_start..(*args_start + *arg_count) {
+                for r in *args_start..(*args_start + *arg_count as Reg) {
                     counts[r as usize] += 1;
                 }
             }
@@ -746,7 +765,7 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
                 arg_count,
             } => {
                 counts[*func_reg as usize] += 1;
-                for r in *args_start..(*args_start + *arg_count) {
+                for r in *args_start..(*args_start + *arg_count as Reg) {
                     counts[r as usize] += 1;
                 }
             }
@@ -756,7 +775,7 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
                 arg_count,
             } => {
                 counts[*fat_ptr as usize] += 1;
-                for r in *args_start..(*args_start + *arg_count) {
+                for r in *args_start..(*args_start + *arg_count as Reg) {
                     counts[r as usize] += 1;
                 }
             }
@@ -1294,7 +1313,7 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
             arg_count,
             ..
         } => {
-            for r in *args_start..(*args_start + *arg_count) {
+            for r in *args_start..(*args_start + *arg_count as Reg) {
                 if r == old && r == *args_start {
                     *args_start = new;
                     break;
@@ -1309,7 +1328,7 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
             if *func_reg == old {
                 *func_reg = new;
             }
-            for r in *args_start..(*args_start + *arg_count) {
+            for r in *args_start..(*args_start + *arg_count as Reg) {
                 if r == old && r == *args_start {
                     *args_start = new;
                     break;
@@ -1324,7 +1343,7 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
             if *fat_ptr == old {
                 *fat_ptr = new;
             }
-            for r in *args_start..(*args_start + *arg_count) {
+            for r in *args_start..(*args_start + *arg_count as Reg) {
                 if r == old && r == *args_start {
                     *args_start = new;
                     break;
@@ -1460,11 +1479,12 @@ fn fuse_compare_branch(code: &mut Vec<Opcode>) {
 }
 
 /// Compute live ranges for all virtual registers.
-/// Returns (def_point, last_use, is_used) arrays indexed by register number.
-fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256]) {
-    let mut def_point = [u32::MAX; 256];
-    let mut last_use = [0u32; 256];
-    let mut is_used = [false; 256];
+/// Returns (def_point, last_use, is_used) vectors indexed by register number.
+fn compute_live_ranges(code: &[Opcode]) -> (Vec<u32>, Vec<u32>, Vec<bool>) {
+    let n = num_vregs(code);
+    let mut def_point = vec![u32::MAX; n];
+    let mut last_use = vec![0u32; n];
+    let mut is_used = vec![false; n];
 
     for (i, op) in code.iter().enumerate() {
         let i = i as u32;
@@ -1501,7 +1521,7 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
             if target <= i {
                 let loop_start = target;
                 let loop_end = i;
-                for r in 0..256 {
+                for r in 0..n {
                     if !is_used[r] {
                         continue;
                     }
@@ -1517,7 +1537,7 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
                         && last_use[r] <= loop_end
                     {
                         for j in loop_start..def_point[r] {
-                            if reads_reg(&code[j as usize], r as u8) {
+                            if reads_reg(&code[j as usize], r as Reg) {
                                 def_point[r] = loop_start;
                                 last_use[r] = loop_end;
                                 break;
@@ -1536,10 +1556,11 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
 /// when their live ranges don't interfere. This eliminates moves and reduces
 /// register pressure. Runs as a pre-pass before linear scan allocation.
 fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
+    let n = num_vregs(code);
     // Union-find for register coalescing.
-    let mut parent: [u8; 256] = std::array::from_fn(|i| i as u8);
+    let mut parent: Vec<Reg> = (0..n as Reg).collect();
 
-    fn find(parent: &mut [u8; 256], mut x: u8) -> u8 {
+    fn find(parent: &mut [Reg], mut x: Reg) -> Reg {
         while parent[x as usize] != x {
             parent[x as usize] = parent[parent[x as usize] as usize]; // path compression
             x = parent[x as usize];
@@ -1547,7 +1568,7 @@ fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
         x
     }
 
-    fn union(parent: &mut [u8; 256], a: u8, b: u8) {
+    fn union(parent: &mut [Reg], a: Reg, b: Reg) {
         // Prefer lower-numbered register as representative (keeps reg 0 as itself).
         let ra = find(parent, a);
         let rb = find(parent, b);
@@ -1561,7 +1582,7 @@ fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
     }
 
     // Don't coalesce registers used as call arguments (contiguity requirement).
-    let mut call_arg_reg = [false; 256];
+    let mut call_arg_reg = vec![false; n];
     for op in code.iter() {
         let (args_start, arg_count) = match op {
             Opcode::Call {
@@ -1581,7 +1602,7 @@ fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
             } => (*args_start, *arg_count),
             _ => continue,
         };
-        for r in args_start..(args_start + arg_count) {
+        for r in args_start..(args_start + arg_count as Reg) {
             call_arg_reg[r as usize] = true;
         }
     }
@@ -1618,7 +1639,7 @@ fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
                 // The src register is the physical parameter position at function entry.
                 // Coalescing would eliminate the copy, leaving the value stranded in
                 // the parameter register when regalloc maps the vreg elsewhere.
-                if src < param_count {
+                if src < param_count as Reg {
                     continue;
                 }
 
@@ -1682,24 +1703,26 @@ fn rewrite_coalesced_reg(op: &mut Opcode, old: Reg, new: Reg) {
 /// Maps virtual registers (0..N, potentially sparse and high-numbered) to
 /// compacted physical registers (0..M where M << N). This reduces SaveRegs
 /// count and improves cache utilization of the register file.
-fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256]) {
+fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>) {
     if code.is_empty() {
-        return (0, [255; 256]);
+        return (0, Vec::new());
     }
 
     // Pre-pass: copy coalescing to eliminate moves.
     copy_coalesce(code, param_count);
 
+    let n = num_vregs(code);
+
     // Step 1: Find live ranges.
     let (def_point, last_use, is_used) = compute_live_ranges(code);
 
     // Step 3: Build sorted interval list.
-    let mut intervals: Vec<(u8, u32, u32)> = Vec::new(); // (vreg, start, end)
-    for r in 0..256u16 {
-        if is_used[r as usize] {
-            let start = def_point[r as usize];
-            let end = last_use[r as usize].max(start);
-            intervals.push((r as u8, start, end));
+    let mut intervals: Vec<(Reg, u32, u32)> = Vec::new(); // (vreg, start, end)
+    for r in 0..n {
+        if is_used[r] {
+            let start = def_point[r];
+            let end = last_use[r].max(start);
+            intervals.push((r as Reg, start, end));
         }
     }
     intervals.sort_by_key(|&(_, start, end)| (start, end));
@@ -1708,14 +1731,14 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
     // Calls clobber all low registers (callee uses its own register range from 0).
     // Registers that span calls must keep their original (high) virtual register numbers
     // to avoid conflicts with callee registers.
-    let mut pinned = [false; 256];
+    let mut pinned = vec![false; n];
     for (i, op) in code.iter().enumerate() {
         let is_call = matches!(op, Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. });
         if !is_call {
             continue;
         }
         let i = i as u32;
-        for r in 0..256 {
+        for r in 0..n {
             if is_used[r] && def_point[r] < i && last_use[r] > i {
                 pinned[r] = true;
             }
@@ -1724,7 +1747,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
 
     // Step 3.5b: Identify call argument groups that must be contiguous.
     // Map vreg → (group_start_vreg, offset_in_group).
-    let mut call_group: [Option<(u8, u8)>; 256] = [None; 256];
+    let mut call_group: Vec<Option<(Reg, u8)>> = vec![None; n];
     for op in code.iter() {
         let (args_start, arg_count) = match op {
             Opcode::Call {
@@ -1746,7 +1769,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
         };
         if arg_count >= 2 {
             for offset in 0..arg_count {
-                let vreg = args_start + offset;
+                let vreg = args_start + offset as Reg;
                 call_group[vreg as usize] = Some((args_start, offset));
             }
         }
@@ -1754,7 +1777,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
 
     // Step 3.5c: Build register hints from remaining Move instructions.
     // If Move { dst: D, src: S } exists, hint that D should use the same preg as S.
-    let mut hint: [u8; 256] = [255; 256]; // vreg -> hinted vreg (255 = no hint)
+    let mut hint: Vec<Reg> = vec![UNASSIGNED; n]; // vreg -> hinted vreg
     for op in code.iter() {
         if let Opcode::Move { dst, src } = op {
             if *dst != *src && !pinned[*dst as usize] && !pinned[*src as usize] {
@@ -1764,11 +1787,11 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
     }
 
     // Step 4: Linear scan — assign physical registers.
-    let mut mapping = [255u8; 256]; // vreg -> preg (255 = unassigned)
-                                    // Track which physical registers are free. Use a simple bitset.
+    let mut mapping = vec![UNASSIGNED; n]; // vreg -> preg (UNASSIGNED = not yet assigned)
+    // Track which physical registers are free. Use a simple bitset.
     let mut preg_free = [true; 256];
     // Active intervals sorted by end point: (end, vreg, preg)
-    let mut active: Vec<(u32, u8, u8)> = Vec::new();
+    let mut active: Vec<(u32, Reg, u8)> = Vec::new();
 
     // Pin virtual register 0 to physical register 0 (implicit return value).
     if is_used[0] {
@@ -1790,7 +1813,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
             continue;
         }
         // Skip if already allocated (part of a group that was allocated earlier)
-        if mapping[vreg as usize] != 255 {
+        if mapping[vreg as usize] != UNASSIGNED {
             continue;
         }
 
@@ -1808,9 +1831,11 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
             // This vreg is part of a call arg group. Allocate the entire group contiguously.
             // Find group size (excluding pinned regs in the group).
             let mut group_size: u8 = 0;
-            while call_group[(group_start + group_size) as usize]
-                .map_or(false, |(gs, _)| gs == group_start)
-            {
+            while {
+                let idx = (group_start + group_size as Reg) as usize;
+                idx < call_group.len()
+                    && call_group[idx].map_or(false, |(gs, _)| gs == group_start)
+            } {
                 group_size += 1;
             }
 
@@ -1822,9 +1847,9 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
 
             // Assign the entire group.
             for j in 0..group_size {
-                let gvreg = group_start + j;
+                let gvreg = group_start + j as Reg;
                 if is_used[gvreg as usize] && !pinned[gvreg as usize] {
-                    mapping[gvreg as usize] = block_start + j;
+                    mapping[gvreg as usize] = (block_start + j) as Reg;
                     preg_free[(block_start + j) as usize] = false;
                     let gend = last_use[gvreg as usize].max(def_point[gvreg as usize]);
                     active.push((gend, gvreg, block_start + j));
@@ -1833,13 +1858,13 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
         } else {
             // Normal register — try hinted register first, then lowest free.
             let hinted_vreg = hint[vreg as usize];
-            let hinted_preg = if hinted_vreg != 255 {
+            let hinted_preg = if hinted_vreg != UNASSIGNED {
                 mapping[hinted_vreg as usize]
             } else {
-                255
+                UNASSIGNED
             };
-            let preg = if hinted_preg != 255 && preg_free[hinted_preg as usize] {
-                hinted_preg
+            let preg = if hinted_preg != UNASSIGNED && preg_free[hinted_preg as usize] {
+                hinted_preg as u8
             } else {
                 preg_free
                     .iter()
@@ -1848,7 +1873,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
                     as u8
             };
             preg_free[preg as usize] = false;
-            mapping[vreg as usize] = preg;
+            mapping[vreg as usize] = preg as Reg;
             active.push((end, vreg, preg));
         }
     }
@@ -1856,24 +1881,24 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256
     // Step 4b: Assign cross-call registers above the compacted range.
     // Find max physical register assigned so far.
     let mut max_compact: u8 = 0;
-    for r in 0..256 {
-        if mapping[r] != 255 {
-            max_compact = max_compact.max(mapping[r]);
+    for r in 0..n {
+        if mapping[r] != UNASSIGNED {
+            max_compact = max_compact.max(mapping[r] as u8);
         }
     }
     let mut next_cross_call = max_compact + 1;
-    for r in 0..256 {
-        if pinned[r] && is_used[r] && mapping[r] == 255 {
-            mapping[r] = next_cross_call;
+    for r in 0..n {
+        if pinned[r] && is_used[r] && mapping[r] == UNASSIGNED {
+            mapping[r] = next_cross_call as Reg;
             next_cross_call += 1;
         }
     }
 
     // Step 5: Find max physical register used.
     let mut max_preg: u8 = 0;
-    for r in 0..256 {
-        if is_used[r] && mapping[r] != 255 {
-            max_preg = max_preg.max(mapping[r]);
+    for r in 0..n {
+        if is_used[r] && mapping[r] != UNASSIGNED {
+            max_preg = max_preg.max(mapping[r] as u8);
         }
     }
     let new_count = max_preg
@@ -2018,7 +2043,7 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
             arg_count,
             ..
         } => {
-            for r in *args_start..(*args_start + *arg_count) {
+            for r in *args_start..(*args_start + *arg_count as Reg) {
                 f(r);
             }
         }
@@ -2028,7 +2053,7 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
             arg_count,
         } => {
             f(*func_reg);
-            for r in *args_start..(*args_start + *arg_count) {
+            for r in *args_start..(*args_start + *arg_count as Reg) {
                 f(r);
             }
         }
@@ -2038,7 +2063,7 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
             arg_count,
         } => {
             f(*fat_ptr);
-            for r in *args_start..(*args_start + *arg_count) {
+            for r in *args_start..(*args_start + *arg_count as Reg) {
                 f(r);
             }
         }
@@ -2119,7 +2144,7 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
 }
 
 /// Rewrite all register references in an instruction using a mapping table.
-fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
+fn rewrite_regs(op: &mut Opcode, map: &[Reg]) {
     match op {
         Opcode::Move { dst, src } => {
             *dst = map[*dst as usize];
@@ -3111,8 +3136,8 @@ mod tests {
         // r0 pinned to preg 0
         assert_eq!(mapping[0], 0);
         // r5 and r10 should map to pregs 1 and 2 (or 2 and 1)
-        assert!(mapping[5] < count);
-        assert!(mapping[10] < count);
+        assert!(mapping[5] < count as Reg);
+        assert!(mapping[10] < count as Reg);
         assert_ne!(mapping[5], mapping[10]);
         assert!(count <= 3, "expected at most 3 pregs, got {}", count);
         // Verify instruction was rewritten

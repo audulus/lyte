@@ -19,15 +19,25 @@ use std::fmt;
 struct PackedOp(u32);
 
 impl PackedOp {
-    /// ABC format: 3 register operands
+    /// ABC format: 3 register operands (u8)
     #[inline(always)]
     fn abc(tag: u8, a: u8, b: u8, c: u8) -> Self {
         Self(tag as u32 | (a as u32) << 8 | (b as u32) << 16 | (c as u32) << 24)
+    }
+    /// ABC format accepting Reg (u16) — truncates to u8 (valid post-register-allocation)
+    #[inline(always)]
+    fn abc_r(tag: u8, a: Reg, b: Reg, c: Reg) -> Self {
+        Self::abc(tag, a as u8, b as u8, c as u8)
     }
     /// AD format: 1 register + 16-bit signed immediate
     #[inline(always)]
     fn ad(tag: u8, a: u8, d: i16) -> Self {
         Self(tag as u32 | (a as u32) << 8 | (d as u16 as u32) << 16)
+    }
+    /// AD format accepting Reg (u16) — truncates to u8 (valid post-register-allocation)
+    #[inline(always)]
+    fn ad_r(tag: u8, a: Reg, d: i16) -> Self {
+        Self::ad(tag, a as u8, d)
     }
     /// Raw data word (for extended instructions like MemEq)
     #[inline(always)]
@@ -285,28 +295,28 @@ impl LinkedProgram {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
-                        ops[packed_idx] = PackedOp::ad(tags::JUMP_IF_ZERO, cond, new_offset as i16);
+                        ops[packed_idx] = PackedOp::ad(tags::JUMP_IF_ZERO, cond as u8, new_offset as i16);
                     }
                     Opcode::JumpIfNotZero { cond, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
                         ops[packed_idx] =
-                            PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond, new_offset as i16);
+                            PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond as u8, new_offset as i16);
                     }
                     Opcode::ILtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
                         ops[packed_idx] =
-                            PackedOp::abc(tags::ILT_JUMP, a, b, new_offset as i8 as u8);
+                            PackedOp::abc(tags::ILT_JUMP, a as u8, b as u8, new_offset as i8 as u8);
                     }
                     Opcode::FLtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
                         ops[packed_idx] =
-                            PackedOp::abc(tags::FLT_JUMP, a, b, new_offset as i8 as u8);
+                            PackedOp::abc(tags::FLT_JUMP, a as u8, b as u8, new_offset as i8 as u8);
                     }
                     _ => {}
                 }
@@ -336,178 +346,180 @@ impl LinkedProgram {
         wide_f64: &mut Vec<f64>,
         f32_pool: &mut Vec<f32>,
     ) {
+        // Helper: truncate Reg (u16) to u8 for packing (valid post-register-allocation).
+        let r = |reg: Reg| -> u8 { reg as u8 };
         let packed = match *op {
             Opcode::Nop => PackedOp::abc(tags::NOP, 0, 0, 0),
             Opcode::Halt => PackedOp::abc(tags::HALT, 0, 0, 0),
-            Opcode::Move { dst, src } => PackedOp::abc(tags::MOVE, dst, src, 0),
+            Opcode::Move { dst, src } => PackedOp::abc(tags::MOVE, r(dst), r(src), 0),
             Opcode::LoadImm { dst, value } => {
                 if value >= i16::MIN as i64 && value <= i16::MAX as i64 {
-                    PackedOp::ad(tags::LOAD_IMM, dst, value as i16)
+                    PackedOp::ad(tags::LOAD_IMM, r(dst), value as i16)
                 } else {
                     let idx = wide_i64.len();
                     wide_i64.push(value);
-                    PackedOp::ad(tags::LOAD_IMM_WIDE, dst, idx as i16)
+                    PackedOp::ad(tags::LOAD_IMM_WIDE, r(dst), idx as i16)
                 }
             }
             Opcode::LoadF32 { dst, value } => {
                 let idx = f32_pool.len();
                 f32_pool.push(value);
-                PackedOp::ad(tags::LOAD_F32, dst, idx as i16)
+                PackedOp::ad(tags::LOAD_F32, r(dst), idx as i16)
             }
             Opcode::LoadF64 { dst, value } => {
                 let idx = wide_f64.len();
                 wide_f64.push(value);
-                PackedOp::ad(tags::LOAD_F64_WIDE, dst, idx as i16)
+                PackedOp::ad(tags::LOAD_F64_WIDE, r(dst), idx as i16)
             }
-            Opcode::LoadConst { dst, idx } => PackedOp::ad(tags::LOAD_CONST, dst, idx as i16),
+            Opcode::LoadConst { dst, idx } => PackedOp::ad(tags::LOAD_CONST, r(dst), idx as i16),
             // Integer arithmetic — ABC
-            Opcode::IAdd { dst, a, b } => PackedOp::abc(tags::IADD, dst, a, b),
-            Opcode::ISub { dst, a, b } => PackedOp::abc(tags::ISUB, dst, a, b),
-            Opcode::IMul { dst, a, b } => PackedOp::abc(tags::IMUL, dst, a, b),
-            Opcode::IDiv { dst, a, b } => PackedOp::abc(tags::IDIV, dst, a, b),
-            Opcode::UDiv { dst, a, b } => PackedOp::abc(tags::UDIV, dst, a, b),
-            Opcode::IRem { dst, a, b } => PackedOp::abc(tags::IREM, dst, a, b),
-            Opcode::IPow { dst, a, b } => PackedOp::abc(tags::IPOW, dst, a, b),
-            Opcode::INeg { dst, src } => PackedOp::abc(tags::INEG, dst, src, 0),
+            Opcode::IAdd { dst, a, b } => PackedOp::abc(tags::IADD, r(dst), r(a), r(b)),
+            Opcode::ISub { dst, a, b } => PackedOp::abc(tags::ISUB, r(dst), r(a), r(b)),
+            Opcode::IMul { dst, a, b } => PackedOp::abc(tags::IMUL, r(dst), r(a), r(b)),
+            Opcode::IDiv { dst, a, b } => PackedOp::abc(tags::IDIV, r(dst), r(a), r(b)),
+            Opcode::UDiv { dst, a, b } => PackedOp::abc(tags::UDIV, r(dst), r(a), r(b)),
+            Opcode::IRem { dst, a, b } => PackedOp::abc(tags::IREM, r(dst), r(a), r(b)),
+            Opcode::IPow { dst, a, b } => PackedOp::abc(tags::IPOW, r(dst), r(a), r(b)),
+            Opcode::INeg { dst, src } => PackedOp::abc(tags::INEG, r(dst), r(src), 0),
             Opcode::IAddImm { dst, src, imm } => {
-                PackedOp::abc(tags::IADD_IMM, dst, src, imm as i8 as u8)
+                PackedOp::abc(tags::IADD_IMM, r(dst), r(src), imm as i8 as u8)
             }
             // Float32 arithmetic — ABC
-            Opcode::FAdd { dst, a, b } => PackedOp::abc(tags::FADD, dst, a, b),
-            Opcode::FSub { dst, a, b } => PackedOp::abc(tags::FSUB, dst, a, b),
-            Opcode::FMul { dst, a, b } => PackedOp::abc(tags::FMUL, dst, a, b),
-            Opcode::FDiv { dst, a, b } => PackedOp::abc(tags::FDIV, dst, a, b),
-            Opcode::FNeg { dst, src } => PackedOp::abc(tags::FNEG, dst, src, 0),
-            Opcode::FPow { dst, a, b } => PackedOp::abc(tags::FPOW, dst, a, b),
+            Opcode::FAdd { dst, a, b } => PackedOp::abc(tags::FADD, r(dst), r(a), r(b)),
+            Opcode::FSub { dst, a, b } => PackedOp::abc(tags::FSUB, r(dst), r(a), r(b)),
+            Opcode::FMul { dst, a, b } => PackedOp::abc(tags::FMUL, r(dst), r(a), r(b)),
+            Opcode::FDiv { dst, a, b } => PackedOp::abc(tags::FDIV, r(dst), r(a), r(b)),
+            Opcode::FNeg { dst, src } => PackedOp::abc(tags::FNEG, r(dst), r(src), 0),
+            Opcode::FPow { dst, a, b } => PackedOp::abc(tags::FPOW, r(dst), r(a), r(b)),
             Opcode::FMulAdd { .. } | Opcode::FMulSub { .. } => {
                 panic!("FMulAdd/FMulSub not supported in 4-byte encoding")
             }
             // Float64 arithmetic — ABC
-            Opcode::DAdd { dst, a, b } => PackedOp::abc(tags::DADD, dst, a, b),
-            Opcode::DSub { dst, a, b } => PackedOp::abc(tags::DSUB, dst, a, b),
-            Opcode::DMul { dst, a, b } => PackedOp::abc(tags::DMUL, dst, a, b),
-            Opcode::DDiv { dst, a, b } => PackedOp::abc(tags::DDIV, dst, a, b),
-            Opcode::DNeg { dst, src } => PackedOp::abc(tags::DNEG, dst, src, 0),
-            Opcode::DPow { dst, a, b } => PackedOp::abc(tags::DPOW, dst, a, b),
+            Opcode::DAdd { dst, a, b } => PackedOp::abc(tags::DADD, r(dst), r(a), r(b)),
+            Opcode::DSub { dst, a, b } => PackedOp::abc(tags::DSUB, r(dst), r(a), r(b)),
+            Opcode::DMul { dst, a, b } => PackedOp::abc(tags::DMUL, r(dst), r(a), r(b)),
+            Opcode::DDiv { dst, a, b } => PackedOp::abc(tags::DDIV, r(dst), r(a), r(b)),
+            Opcode::DNeg { dst, src } => PackedOp::abc(tags::DNEG, r(dst), r(src), 0),
+            Opcode::DPow { dst, a, b } => PackedOp::abc(tags::DPOW, r(dst), r(a), r(b)),
             Opcode::DMulAdd { .. } | Opcode::DMulSub { .. } => {
                 panic!("DMulAdd/DMulSub not supported in 4-byte encoding")
             }
             // Bitwise — ABC
-            Opcode::And { dst, a, b } => PackedOp::abc(tags::AND, dst, a, b),
-            Opcode::Or { dst, a, b } => PackedOp::abc(tags::OR, dst, a, b),
-            Opcode::Xor { dst, a, b } => PackedOp::abc(tags::XOR, dst, a, b),
-            Opcode::Not { dst, src } => PackedOp::abc(tags::NOT, dst, src, 0),
-            Opcode::Shl { dst, a, b } => PackedOp::abc(tags::SHL, dst, a, b),
-            Opcode::Shr { dst, a, b } => PackedOp::abc(tags::SHR, dst, a, b),
-            Opcode::UShr { dst, a, b } => PackedOp::abc(tags::USHR, dst, a, b),
+            Opcode::And { dst, a, b } => PackedOp::abc(tags::AND, r(dst), r(a), r(b)),
+            Opcode::Or { dst, a, b } => PackedOp::abc(tags::OR, r(dst), r(a), r(b)),
+            Opcode::Xor { dst, a, b } => PackedOp::abc(tags::XOR, r(dst), r(a), r(b)),
+            Opcode::Not { dst, src } => PackedOp::abc(tags::NOT, r(dst), r(src), 0),
+            Opcode::Shl { dst, a, b } => PackedOp::abc(tags::SHL, r(dst), r(a), r(b)),
+            Opcode::Shr { dst, a, b } => PackedOp::abc(tags::SHR, r(dst), r(a), r(b)),
+            Opcode::UShr { dst, a, b } => PackedOp::abc(tags::USHR, r(dst), r(a), r(b)),
             // Comparisons — ABC
-            Opcode::IEq { dst, a, b } => PackedOp::abc(tags::IEQ, dst, a, b),
-            Opcode::INe { dst, a, b } => PackedOp::abc(tags::INE, dst, a, b),
-            Opcode::ILt { dst, a, b } => PackedOp::abc(tags::ILT, dst, a, b),
-            Opcode::ILe { dst, a, b } => PackedOp::abc(tags::ILE, dst, a, b),
-            Opcode::ULt { dst, a, b } => PackedOp::abc(tags::ULT, dst, a, b),
-            Opcode::FEq { dst, a, b } => PackedOp::abc(tags::FEQ, dst, a, b),
-            Opcode::FNe { dst, a, b } => PackedOp::abc(tags::FNE, dst, a, b),
-            Opcode::FLt { dst, a, b } => PackedOp::abc(tags::FLT, dst, a, b),
-            Opcode::FLe { dst, a, b } => PackedOp::abc(tags::FLE, dst, a, b),
+            Opcode::IEq { dst, a, b } => PackedOp::abc(tags::IEQ, r(dst), r(a), r(b)),
+            Opcode::INe { dst, a, b } => PackedOp::abc(tags::INE, r(dst), r(a), r(b)),
+            Opcode::ILt { dst, a, b } => PackedOp::abc(tags::ILT, r(dst), r(a), r(b)),
+            Opcode::ILe { dst, a, b } => PackedOp::abc(tags::ILE, r(dst), r(a), r(b)),
+            Opcode::ULt { dst, a, b } => PackedOp::abc(tags::ULT, r(dst), r(a), r(b)),
+            Opcode::FEq { dst, a, b } => PackedOp::abc(tags::FEQ, r(dst), r(a), r(b)),
+            Opcode::FNe { dst, a, b } => PackedOp::abc(tags::FNE, r(dst), r(a), r(b)),
+            Opcode::FLt { dst, a, b } => PackedOp::abc(tags::FLT, r(dst), r(a), r(b)),
+            Opcode::FLe { dst, a, b } => PackedOp::abc(tags::FLE, r(dst), r(a), r(b)),
             // MemEq/MemNe — extended: ABC + data word for size
             Opcode::MemEq { dst, a, b, size } => {
-                ops.push(PackedOp::abc(tags::MEM_EQ, dst, a, b));
+                ops.push(PackedOp::abc(tags::MEM_EQ, r(dst), r(a), r(b)));
                 ops.push(PackedOp::data(size));
                 return;
             }
             Opcode::MemNe { dst, a, b, size } => {
-                ops.push(PackedOp::abc(tags::MEM_NE, dst, a, b));
+                ops.push(PackedOp::abc(tags::MEM_NE, r(dst), r(a), r(b)));
                 ops.push(PackedOp::data(size));
                 return;
             }
-            Opcode::DEq { dst, a, b } => PackedOp::abc(tags::DEQ, dst, a, b),
-            Opcode::DLt { dst, a, b } => PackedOp::abc(tags::DLT, dst, a, b),
-            Opcode::DLe { dst, a, b } => PackedOp::abc(tags::DLE, dst, a, b),
+            Opcode::DEq { dst, a, b } => PackedOp::abc(tags::DEQ, r(dst), r(a), r(b)),
+            Opcode::DLt { dst, a, b } => PackedOp::abc(tags::DLT, r(dst), r(a), r(b)),
+            Opcode::DLe { dst, a, b } => PackedOp::abc(tags::DLE, r(dst), r(a), r(b)),
             // Type conversions — AB
-            Opcode::I32ToF32 { dst, src } => PackedOp::abc(tags::I32_TO_F32, dst, src, 0),
-            Opcode::F32ToI32 { dst, src } => PackedOp::abc(tags::F32_TO_I32, dst, src, 0),
-            Opcode::I32ToF64 { dst, src } => PackedOp::abc(tags::I32_TO_F64, dst, src, 0),
-            Opcode::F64ToI32 { dst, src } => PackedOp::abc(tags::F64_TO_I32, dst, src, 0),
-            Opcode::F32ToF64 { dst, src } => PackedOp::abc(tags::F32_TO_F64, dst, src, 0),
-            Opcode::F64ToF32 { dst, src } => PackedOp::abc(tags::F64_TO_F32, dst, src, 0),
-            Opcode::I32ToI8 { dst, src } => PackedOp::abc(tags::I32_TO_I8, dst, src, 0),
-            Opcode::I8ToI32 { dst, src } => PackedOp::abc(tags::I8_TO_I32, dst, src, 0),
-            Opcode::I64ToU32 { dst, src } => PackedOp::abc(tags::I64_TO_U32, dst, src, 0),
+            Opcode::I32ToF32 { dst, src } => PackedOp::abc(tags::I32_TO_F32, r(dst), r(src), 0),
+            Opcode::F32ToI32 { dst, src } => PackedOp::abc(tags::F32_TO_I32, r(dst), r(src), 0),
+            Opcode::I32ToF64 { dst, src } => PackedOp::abc(tags::I32_TO_F64, r(dst), r(src), 0),
+            Opcode::F64ToI32 { dst, src } => PackedOp::abc(tags::F64_TO_I32, r(dst), r(src), 0),
+            Opcode::F32ToF64 { dst, src } => PackedOp::abc(tags::F32_TO_F64, r(dst), r(src), 0),
+            Opcode::F64ToF32 { dst, src } => PackedOp::abc(tags::F64_TO_F32, r(dst), r(src), 0),
+            Opcode::I32ToI8 { dst, src } => PackedOp::abc(tags::I32_TO_I8, r(dst), r(src), 0),
+            Opcode::I8ToI32 { dst, src } => PackedOp::abc(tags::I8_TO_I32, r(dst), r(src), 0),
+            Opcode::I64ToU32 { dst, src } => PackedOp::abc(tags::I64_TO_U32, r(dst), r(src), 0),
             // Memory — AB or ABC
-            Opcode::Load8 { dst, addr } => PackedOp::abc(tags::LOAD8, dst, addr, 0),
-            Opcode::Load32 { dst, addr } => PackedOp::abc(tags::LOAD32, dst, addr, 0),
-            Opcode::Load64 { dst, addr } => PackedOp::abc(tags::LOAD64, dst, addr, 0),
+            Opcode::Load8 { dst, addr } => PackedOp::abc(tags::LOAD8, r(dst), r(addr), 0),
+            Opcode::Load32 { dst, addr } => PackedOp::abc(tags::LOAD32, r(dst), r(addr), 0),
+            Opcode::Load64 { dst, addr } => PackedOp::abc(tags::LOAD64, r(dst), r(addr), 0),
             Opcode::Load32Off { dst, base, offset } => {
                 if offset >= 0 && offset <= 255 {
-                    PackedOp::abc(tags::LOAD32_OFF, dst, base, offset as u8)
+                    PackedOp::abc(tags::LOAD32_OFF, r(dst), r(base), offset as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::LOAD32_OFF_WIDE, dst, base, 0));
+                    ops.push(PackedOp::abc(tags::LOAD32_OFF_WIDE, r(dst), r(base), 0));
                     ops.push(PackedOp::data(offset as u32));
                     return;
                 }
             }
             Opcode::Load64Off { dst, base, offset } => {
                 if offset >= 0 && offset <= 255 {
-                    PackedOp::abc(tags::LOAD64_OFF, dst, base, offset as u8)
+                    PackedOp::abc(tags::LOAD64_OFF, r(dst), r(base), offset as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::LOAD64_OFF_WIDE, dst, base, 0));
+                    ops.push(PackedOp::abc(tags::LOAD64_OFF_WIDE, r(dst), r(base), 0));
                     ops.push(PackedOp::data(offset as u32));
                     return;
                 }
             }
-            Opcode::Store8 { addr, src } => PackedOp::abc(tags::STORE8, addr, src, 0),
-            Opcode::Store32 { addr, src } => PackedOp::abc(tags::STORE32, addr, src, 0),
-            Opcode::Store64 { addr, src } => PackedOp::abc(tags::STORE64, addr, src, 0),
+            Opcode::Store8 { addr, src } => PackedOp::abc(tags::STORE8, r(addr), r(src), 0),
+            Opcode::Store32 { addr, src } => PackedOp::abc(tags::STORE32, r(addr), r(src), 0),
+            Opcode::Store64 { addr, src } => PackedOp::abc(tags::STORE64, r(addr), r(src), 0),
             Opcode::Store8Off { base, offset, src } => {
                 if offset >= 0 && offset <= 255 {
-                    PackedOp::abc(tags::STORE8_OFF, base, src, offset as u8)
+                    PackedOp::abc(tags::STORE8_OFF, r(base), r(src), offset as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::STORE8_OFF_WIDE, base, src, 0));
+                    ops.push(PackedOp::abc(tags::STORE8_OFF_WIDE, r(base), r(src), 0));
                     ops.push(PackedOp::data(offset as u32));
                     return;
                 }
             }
             Opcode::Store32Off { base, offset, src } => {
                 if offset >= 0 && offset <= 255 {
-                    PackedOp::abc(tags::STORE32_OFF, base, src, offset as u8)
+                    PackedOp::abc(tags::STORE32_OFF, r(base), r(src), offset as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::STORE32_OFF_WIDE, base, src, 0));
+                    ops.push(PackedOp::abc(tags::STORE32_OFF_WIDE, r(base), r(src), 0));
                     ops.push(PackedOp::data(offset as u32));
                     return;
                 }
             }
             Opcode::Store64Off { base, offset, src } => {
                 if offset >= 0 && offset <= 255 {
-                    PackedOp::abc(tags::STORE64_OFF, base, src, offset as u8)
+                    PackedOp::abc(tags::STORE64_OFF, r(base), r(src), offset as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::STORE64_OFF_WIDE, base, src, 0));
+                    ops.push(PackedOp::abc(tags::STORE64_OFF_WIDE, r(base), r(src), 0));
                     ops.push(PackedOp::data(offset as u32));
                     return;
                 }
             }
             // Addressing — AD
-            Opcode::LocalAddr { dst, slot } => PackedOp::ad(tags::LOCAL_ADDR, dst, slot as i16),
+            Opcode::LocalAddr { dst, slot } => PackedOp::ad(tags::LOCAL_ADDR, r(dst), slot as i16),
             Opcode::GlobalAddr { dst, offset } => {
-                PackedOp::ad(tags::GLOBAL_ADDR, dst, offset as i16)
+                PackedOp::ad(tags::GLOBAL_ADDR, r(dst), offset as i16)
             }
             // Control flow — jump offsets are placeholders, fixed up after packing
             Opcode::Jump { offset } => PackedOp::ad(tags::JUMP, 0, offset as i16),
             Opcode::JumpIfZero { cond, offset } => {
-                PackedOp::ad(tags::JUMP_IF_ZERO, cond, offset as i16)
+                PackedOp::ad(tags::JUMP_IF_ZERO, r(cond), offset as i16)
             }
             Opcode::JumpIfNotZero { cond, offset } => {
-                PackedOp::ad(tags::JUMP_IF_NOT_ZERO, cond, offset as i16)
+                PackedOp::ad(tags::JUMP_IF_NOT_ZERO, r(cond), offset as i16)
             }
             Opcode::ILtJump { a, b, offset } => {
-                PackedOp::abc(tags::ILT_JUMP, a, b, offset as i8 as u8)
+                PackedOp::abc(tags::ILT_JUMP, r(a), r(b), offset as i8 as u8)
             }
             Opcode::FLtJump { a, b, offset } => {
-                PackedOp::abc(tags::FLT_JUMP, a, b, offset as i8 as u8)
+                PackedOp::abc(tags::FLT_JUMP, r(a), r(b), offset as i8 as u8)
             }
             // Superinstructions — AD
-            Opcode::LoadSlot32 { dst, slot } => PackedOp::ad(tags::LOAD_SLOT32, dst, slot as i16),
-            Opcode::StoreSlot32 { slot, src } => PackedOp::ad(tags::STORE_SLOT32, src, slot as i16),
+            Opcode::LoadSlot32 { dst, slot } => PackedOp::ad(tags::LOAD_SLOT32, r(dst), slot as i16),
+            Opcode::StoreSlot32 { slot, src } => PackedOp::ad(tags::STORE_SLOT32, r(src), slot as i16),
             // Calls — ABC
             Opcode::Call {
                 func,
@@ -515,21 +527,21 @@ impl LinkedProgram {
                 arg_count,
             } => {
                 assert!(func <= 255, "Call func index {} out of u8 range", func);
-                PackedOp::abc(tags::CALL, args_start, arg_count, func as u8)
+                PackedOp::abc(tags::CALL, r(args_start), arg_count, func as u8)
             }
             Opcode::CallIndirect {
                 func_reg,
                 args_start,
                 arg_count,
-            } => PackedOp::abc(tags::CALL_INDIRECT, func_reg, args_start, arg_count),
+            } => PackedOp::abc(tags::CALL_INDIRECT, r(func_reg), r(args_start), arg_count),
             Opcode::CallClosure {
                 fat_ptr,
                 args_start,
                 arg_count,
-            } => PackedOp::abc(tags::CALL_CLOSURE, fat_ptr, args_start, arg_count),
-            Opcode::GetClosurePtr { dst } => PackedOp::abc(tags::GET_CLOSURE_PTR, dst, 0, 0),
+            } => PackedOp::abc(tags::CALL_CLOSURE, r(fat_ptr), r(args_start), arg_count),
+            Opcode::GetClosurePtr { dst } => PackedOp::abc(tags::GET_CLOSURE_PTR, r(dst), 0, 0),
             Opcode::Return => PackedOp::abc(tags::RETURN, 0, 0, 0),
-            Opcode::ReturnReg { src } => PackedOp::abc(tags::RETURN_REG, src, 0, 0),
+            Opcode::ReturnReg { src } => PackedOp::abc(tags::RETURN_REG, r(src), 0, 0),
             // Stack frame — AD or ABC
             Opcode::AllocLocals { size } => {
                 assert!(
@@ -541,9 +553,9 @@ impl LinkedProgram {
             }
             Opcode::MemCopy { dst, src, size } => {
                 if size <= 255 {
-                    PackedOp::abc(tags::MEM_COPY, dst, src, size as u8)
+                    PackedOp::abc(tags::MEM_COPY, r(dst), r(src), size as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::MEM_COPY_WIDE, dst, src, 0));
+                    ops.push(PackedOp::abc(tags::MEM_COPY_WIDE, r(dst), r(src), 0));
                     ops.push(PackedOp::data(size));
                     return;
                 }
@@ -554,7 +566,7 @@ impl LinkedProgram {
                     "MemZero size {} out of u16 range",
                     size
                 );
-                PackedOp::ad(tags::MEM_ZERO, dst, size as u16 as i16)
+                PackedOp::ad(tags::MEM_ZERO, r(dst), size as u16 as i16)
             }
             Opcode::SaveRegs {
                 start_reg,
@@ -562,9 +574,9 @@ impl LinkedProgram {
                 slot,
             } => {
                 if slot % 8 == 0 && slot / 8 <= 255 {
-                    PackedOp::abc(tags::SAVE_REGS, start_reg, count, (slot / 8) as u8)
+                    PackedOp::abc(tags::SAVE_REGS, r(start_reg), count, (slot / 8) as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::SAVE_REGS_WIDE, start_reg, count, 0));
+                    ops.push(PackedOp::abc(tags::SAVE_REGS_WIDE, r(start_reg), count, 0));
                     ops.push(PackedOp::data(slot));
                     return;
                 }
@@ -575,84 +587,86 @@ impl LinkedProgram {
                 slot,
             } => {
                 if slot % 8 == 0 && slot / 8 <= 255 {
-                    PackedOp::abc(tags::RESTORE_REGS, start_reg, count, (slot / 8) as u8)
+                    PackedOp::abc(tags::RESTORE_REGS, r(start_reg), count, (slot / 8) as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::RESTORE_REGS_WIDE, start_reg, count, 0));
+                    ops.push(PackedOp::abc(tags::RESTORE_REGS_WIDE, r(start_reg), count, 0));
                     ops.push(PackedOp::data(slot));
                     return;
                 }
             }
             // Debugging
-            Opcode::PrintI32 { src } => PackedOp::abc(tags::PRINT_I32, src, 0, 0),
-            Opcode::PrintF32 { src } => PackedOp::abc(tags::PRINT_F32, src, 0, 0),
-            Opcode::Assert { src } => PackedOp::abc(tags::ASSERT, src, 0, 0),
-            Opcode::Putc { src } => PackedOp::abc(tags::PUTC, src, 0, 0),
+            Opcode::PrintI32 { src } => PackedOp::abc(tags::PRINT_I32, r(src), 0, 0),
+            Opcode::PrintF32 { src } => PackedOp::abc(tags::PRINT_F32, r(src), 0, 0),
+            Opcode::Assert { src } => PackedOp::abc(tags::ASSERT, r(src), 0, 0),
+            Opcode::Putc { src } => PackedOp::abc(tags::PUTC, r(src), 0, 0),
             // Math builtins — unary f32
-            Opcode::SinF32 { dst, src } => PackedOp::abc(tags::SIN_F32, dst, src, 0),
-            Opcode::CosF32 { dst, src } => PackedOp::abc(tags::COS_F32, dst, src, 0),
-            Opcode::TanF32 { dst, src } => PackedOp::abc(tags::TAN_F32, dst, src, 0),
-            Opcode::AsinF32 { dst, src } => PackedOp::abc(tags::ASIN_F32, dst, src, 0),
-            Opcode::AcosF32 { dst, src } => PackedOp::abc(tags::ACOS_F32, dst, src, 0),
-            Opcode::AtanF32 { dst, src } => PackedOp::abc(tags::ATAN_F32, dst, src, 0),
-            Opcode::SinhF32 { dst, src } => PackedOp::abc(tags::SINH_F32, dst, src, 0),
-            Opcode::CoshF32 { dst, src } => PackedOp::abc(tags::COSH_F32, dst, src, 0),
-            Opcode::TanhF32 { dst, src } => PackedOp::abc(tags::TANH_F32, dst, src, 0),
-            Opcode::AsinhF32 { dst, src } => PackedOp::abc(tags::ASINH_F32, dst, src, 0),
-            Opcode::AcoshF32 { dst, src } => PackedOp::abc(tags::ACOSH_F32, dst, src, 0),
-            Opcode::AtanhF32 { dst, src } => PackedOp::abc(tags::ATANH_F32, dst, src, 0),
-            Opcode::LnF32 { dst, src } => PackedOp::abc(tags::LN_F32, dst, src, 0),
-            Opcode::ExpF32 { dst, src } => PackedOp::abc(tags::EXP_F32, dst, src, 0),
-            Opcode::Exp2F32 { dst, src } => PackedOp::abc(tags::EXP2_F32, dst, src, 0),
-            Opcode::Log10F32 { dst, src } => PackedOp::abc(tags::LOG10_F32, dst, src, 0),
-            Opcode::Log2F32 { dst, src } => PackedOp::abc(tags::LOG2_F32, dst, src, 0),
-            Opcode::SqrtF32 { dst, src } => PackedOp::abc(tags::SQRT_F32, dst, src, 0),
-            Opcode::AbsF32 { dst, src } => PackedOp::abc(tags::ABS_F32, dst, src, 0),
-            Opcode::FloorF32 { dst, src } => PackedOp::abc(tags::FLOOR_F32, dst, src, 0),
-            Opcode::CeilF32 { dst, src } => PackedOp::abc(tags::CEIL_F32, dst, src, 0),
+            Opcode::SinF32 { dst, src } => PackedOp::abc(tags::SIN_F32, r(dst), r(src), 0),
+            Opcode::CosF32 { dst, src } => PackedOp::abc(tags::COS_F32, r(dst), r(src), 0),
+            Opcode::TanF32 { dst, src } => PackedOp::abc(tags::TAN_F32, r(dst), r(src), 0),
+            Opcode::AsinF32 { dst, src } => PackedOp::abc(tags::ASIN_F32, r(dst), r(src), 0),
+            Opcode::AcosF32 { dst, src } => PackedOp::abc(tags::ACOS_F32, r(dst), r(src), 0),
+            Opcode::AtanF32 { dst, src } => PackedOp::abc(tags::ATAN_F32, r(dst), r(src), 0),
+            Opcode::SinhF32 { dst, src } => PackedOp::abc(tags::SINH_F32, r(dst), r(src), 0),
+            Opcode::CoshF32 { dst, src } => PackedOp::abc(tags::COSH_F32, r(dst), r(src), 0),
+            Opcode::TanhF32 { dst, src } => PackedOp::abc(tags::TANH_F32, r(dst), r(src), 0),
+            Opcode::AsinhF32 { dst, src } => PackedOp::abc(tags::ASINH_F32, r(dst), r(src), 0),
+            Opcode::AcoshF32 { dst, src } => PackedOp::abc(tags::ACOSH_F32, r(dst), r(src), 0),
+            Opcode::AtanhF32 { dst, src } => PackedOp::abc(tags::ATANH_F32, r(dst), r(src), 0),
+            Opcode::LnF32 { dst, src } => PackedOp::abc(tags::LN_F32, r(dst), r(src), 0),
+            Opcode::ExpF32 { dst, src } => PackedOp::abc(tags::EXP_F32, r(dst), r(src), 0),
+            Opcode::Exp2F32 { dst, src } => PackedOp::abc(tags::EXP2_F32, r(dst), r(src), 0),
+            Opcode::Log10F32 { dst, src } => PackedOp::abc(tags::LOG10_F32, r(dst), r(src), 0),
+            Opcode::Log2F32 { dst, src } => PackedOp::abc(tags::LOG2_F32, r(dst), r(src), 0),
+            Opcode::SqrtF32 { dst, src } => PackedOp::abc(tags::SQRT_F32, r(dst), r(src), 0),
+            Opcode::AbsF32 { dst, src } => PackedOp::abc(tags::ABS_F32, r(dst), r(src), 0),
+            Opcode::FloorF32 { dst, src } => PackedOp::abc(tags::FLOOR_F32, r(dst), r(src), 0),
+            Opcode::CeilF32 { dst, src } => PackedOp::abc(tags::CEIL_F32, r(dst), r(src), 0),
             // Math builtins — unary f64
-            Opcode::SinF64 { dst, src } => PackedOp::abc(tags::SIN_F64, dst, src, 0),
-            Opcode::CosF64 { dst, src } => PackedOp::abc(tags::COS_F64, dst, src, 0),
-            Opcode::TanF64 { dst, src } => PackedOp::abc(tags::TAN_F64, dst, src, 0),
-            Opcode::AsinF64 { dst, src } => PackedOp::abc(tags::ASIN_F64, dst, src, 0),
-            Opcode::AcosF64 { dst, src } => PackedOp::abc(tags::ACOS_F64, dst, src, 0),
-            Opcode::AtanF64 { dst, src } => PackedOp::abc(tags::ATAN_F64, dst, src, 0),
-            Opcode::SinhF64 { dst, src } => PackedOp::abc(tags::SINH_F64, dst, src, 0),
-            Opcode::CoshF64 { dst, src } => PackedOp::abc(tags::COSH_F64, dst, src, 0),
-            Opcode::TanhF64 { dst, src } => PackedOp::abc(tags::TANH_F64, dst, src, 0),
-            Opcode::AsinhF64 { dst, src } => PackedOp::abc(tags::ASINH_F64, dst, src, 0),
-            Opcode::AcoshF64 { dst, src } => PackedOp::abc(tags::ACOSH_F64, dst, src, 0),
-            Opcode::AtanhF64 { dst, src } => PackedOp::abc(tags::ATANH_F64, dst, src, 0),
-            Opcode::LnF64 { dst, src } => PackedOp::abc(tags::LN_F64, dst, src, 0),
-            Opcode::ExpF64 { dst, src } => PackedOp::abc(tags::EXP_F64, dst, src, 0),
-            Opcode::Exp2F64 { dst, src } => PackedOp::abc(tags::EXP2_F64, dst, src, 0),
-            Opcode::Log10F64 { dst, src } => PackedOp::abc(tags::LOG10_F64, dst, src, 0),
-            Opcode::Log2F64 { dst, src } => PackedOp::abc(tags::LOG2_F64, dst, src, 0),
-            Opcode::SqrtF64 { dst, src } => PackedOp::abc(tags::SQRT_F64, dst, src, 0),
-            Opcode::AbsF64 { dst, src } => PackedOp::abc(tags::ABS_F64, dst, src, 0),
-            Opcode::FloorF64 { dst, src } => PackedOp::abc(tags::FLOOR_F64, dst, src, 0),
-            Opcode::CeilF64 { dst, src } => PackedOp::abc(tags::CEIL_F64, dst, src, 0),
+            Opcode::SinF64 { dst, src } => PackedOp::abc(tags::SIN_F64, r(dst), r(src), 0),
+            Opcode::CosF64 { dst, src } => PackedOp::abc(tags::COS_F64, r(dst), r(src), 0),
+            Opcode::TanF64 { dst, src } => PackedOp::abc(tags::TAN_F64, r(dst), r(src), 0),
+            Opcode::AsinF64 { dst, src } => PackedOp::abc(tags::ASIN_F64, r(dst), r(src), 0),
+            Opcode::AcosF64 { dst, src } => PackedOp::abc(tags::ACOS_F64, r(dst), r(src), 0),
+            Opcode::AtanF64 { dst, src } => PackedOp::abc(tags::ATAN_F64, r(dst), r(src), 0),
+            Opcode::SinhF64 { dst, src } => PackedOp::abc(tags::SINH_F64, r(dst), r(src), 0),
+            Opcode::CoshF64 { dst, src } => PackedOp::abc(tags::COSH_F64, r(dst), r(src), 0),
+            Opcode::TanhF64 { dst, src } => PackedOp::abc(tags::TANH_F64, r(dst), r(src), 0),
+            Opcode::AsinhF64 { dst, src } => PackedOp::abc(tags::ASINH_F64, r(dst), r(src), 0),
+            Opcode::AcoshF64 { dst, src } => PackedOp::abc(tags::ACOSH_F64, r(dst), r(src), 0),
+            Opcode::AtanhF64 { dst, src } => PackedOp::abc(tags::ATANH_F64, r(dst), r(src), 0),
+            Opcode::LnF64 { dst, src } => PackedOp::abc(tags::LN_F64, r(dst), r(src), 0),
+            Opcode::ExpF64 { dst, src } => PackedOp::abc(tags::EXP_F64, r(dst), r(src), 0),
+            Opcode::Exp2F64 { dst, src } => PackedOp::abc(tags::EXP2_F64, r(dst), r(src), 0),
+            Opcode::Log10F64 { dst, src } => PackedOp::abc(tags::LOG10_F64, r(dst), r(src), 0),
+            Opcode::Log2F64 { dst, src } => PackedOp::abc(tags::LOG2_F64, r(dst), r(src), 0),
+            Opcode::SqrtF64 { dst, src } => PackedOp::abc(tags::SQRT_F64, r(dst), r(src), 0),
+            Opcode::AbsF64 { dst, src } => PackedOp::abc(tags::ABS_F64, r(dst), r(src), 0),
+            Opcode::FloorF64 { dst, src } => PackedOp::abc(tags::FLOOR_F64, r(dst), r(src), 0),
+            Opcode::CeilF64 { dst, src } => PackedOp::abc(tags::CEIL_F64, r(dst), r(src), 0),
             // Math builtins — predicates
-            Opcode::IsinfF32 { dst, src } => PackedOp::abc(tags::ISINF_F32, dst, src, 0),
-            Opcode::IsinfF64 { dst, src } => PackedOp::abc(tags::ISINF_F64, dst, src, 0),
-            Opcode::IsnanF32 { dst, src } => PackedOp::abc(tags::ISNAN_F32, dst, src, 0),
-            Opcode::IsnanF64 { dst, src } => PackedOp::abc(tags::ISNAN_F64, dst, src, 0),
+            Opcode::IsinfF32 { dst, src } => PackedOp::abc(tags::ISINF_F32, r(dst), r(src), 0),
+            Opcode::IsinfF64 { dst, src } => PackedOp::abc(tags::ISINF_F64, r(dst), r(src), 0),
+            Opcode::IsnanF32 { dst, src } => PackedOp::abc(tags::ISNAN_F32, r(dst), r(src), 0),
+            Opcode::IsnanF64 { dst, src } => PackedOp::abc(tags::ISNAN_F64, r(dst), r(src), 0),
             // Math builtins — binary f32
-            Opcode::PowF32 { dst, a, b } => PackedOp::abc(tags::POW_F32, dst, a, b),
-            Opcode::Atan2F32 { dst, a, b } => PackedOp::abc(tags::ATAN2_F32, dst, a, b),
-            Opcode::MinF32 { dst, a, b } => PackedOp::abc(tags::MIN_F32, dst, a, b),
-            Opcode::MaxF32 { dst, a, b } => PackedOp::abc(tags::MAX_F32, dst, a, b),
+            Opcode::PowF32 { dst, a, b } => PackedOp::abc(tags::POW_F32, r(dst), r(a), r(b)),
+            Opcode::Atan2F32 { dst, a, b } => PackedOp::abc(tags::ATAN2_F32, r(dst), r(a), r(b)),
+            Opcode::MinF32 { dst, a, b } => PackedOp::abc(tags::MIN_F32, r(dst), r(a), r(b)),
+            Opcode::MaxF32 { dst, a, b } => PackedOp::abc(tags::MAX_F32, r(dst), r(a), r(b)),
             // Math builtins — binary f64
-            Opcode::PowF64 { dst, a, b } => PackedOp::abc(tags::POW_F64, dst, a, b),
-            Opcode::Atan2F64 { dst, a, b } => PackedOp::abc(tags::ATAN2_F64, dst, a, b),
-            Opcode::MinF64 { dst, a, b } => PackedOp::abc(tags::MIN_F64, dst, a, b),
-            Opcode::MaxF64 { dst, a, b } => PackedOp::abc(tags::MAX_F64, dst, a, b),
+            Opcode::PowF64 { dst, a, b } => PackedOp::abc(tags::POW_F64, r(dst), r(a), r(b)),
+            Opcode::Atan2F64 { dst, a, b } => PackedOp::abc(tags::ATAN2_F64, r(dst), r(a), r(b)),
+            Opcode::MinF64 { dst, a, b } => PackedOp::abc(tags::MIN_F64, r(dst), r(a), r(b)),
+            Opcode::MaxF64 { dst, a, b } => PackedOp::abc(tags::MAX_F64, r(dst), r(a), r(b)),
         };
         ops.push(packed);
     }
 }
 
-/// Register index (0-255)
-pub type Reg = u8;
+/// Register index.
+/// Virtual registers during codegen/optimization may exceed 255.
+/// Physical registers (after allocation) are always 0-255.
+pub type Reg = u16;
 
 /// Instruction pointer offset for jumps
 pub type Offset = i32;
