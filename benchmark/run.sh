@@ -48,8 +48,8 @@ avg() {
 echo "Running benchmarks..."
 
 C_TIME=$(avg benchmark/biquad_c)
-LYTE_JIT=$(avg "$LYTE benchmark/biquad.lyte -c --timing 2>&1 | grep 'jit exec:'")
-LYTE_VM=$(avg "$LYTE benchmark/biquad.lyte -r --timing 2>&1 | grep 'vm exec:'")
+LYTE_JIT=$(avg "LYTE_BACKEND=jit $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
+LYTE_VM=$(avg "LYTE_BACKEND=vm $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
 LUA=$(avg lua benchmark/biquad.lua)
 LUAJIT_JIT=$(avg luajit benchmark/biquad.lua)
 LUAJIT_INT=$(avg luajit -joff benchmark/biquad.lua)
