@@ -1,7 +1,6 @@
 // Test all math builtins and stdlib math functions (JIT only).
 // The VM register allocator can't handle this many calls in one function.
 // skip-backend: vm
-// args: -c
 // expected stdout:
 // compilation successful
 // assert(true)

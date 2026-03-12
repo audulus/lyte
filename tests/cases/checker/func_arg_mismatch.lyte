@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/func_arg_mismatch.lyte:7:5: no solution for (i32, i32) → i32 == (f32, f32) → i32
+// ❌ ../tests/cases/checker/func_arg_mismatch.lyte:8:5: no solution for (i32, i32) → i32 == (f32, f32) → i32
 //         add(1.0, 2.0)
 //         ^
 add(a: i32, b: i32) → i32 { return a + b }

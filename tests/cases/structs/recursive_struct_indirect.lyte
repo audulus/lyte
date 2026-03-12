@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/structs/recursive_struct_indirect.lyte:7:5: struct 'A' is recursive
+// ❌ ../tests/cases/structs/recursive_struct_indirect.lyte:8:5: struct 'A' is recursive
 //         b: B
 //         ^
 

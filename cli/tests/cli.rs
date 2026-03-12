@@ -1,5 +1,5 @@
 /// Golden tests: run the suite once per backend.
-/// The LYTE_BACKEND env var selects which backend `-c` uses.
+/// The LYTE_BACKEND env var selects the backend (default: jit).
 /// Each backend produces identical output, so the same expected stdout works for all.
 ///
 /// Tests can opt out of specific backends with `// skip-backend: vm` (or `llvm`, `jit`).

@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/repeated_macro.lyte:10:10: duplicate macro: foo
+// ❌ ../tests/cases/repeated_macro.lyte:11:10: duplicate macro: foo
 //     macro foo(x) {
 //              ^
 

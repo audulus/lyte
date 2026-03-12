@@ -1,14 +1,15 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/call_non_function.lyte:16:5: no solution for i32 == ?3 → ?2
+// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: no solution for i32 == ?3 → ?2
 //         x(2)
 //         ^
-// ❌ ../tests/cases/checker/call_non_function.lyte:16:5: no solution for i32 == (i32) → ?2
+// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: no solution for i32 == (i32) → ?2
 //         x(2)
 //         ^
-// ❌ ../tests/cases/checker/call_non_function.lyte:16:5: ambiguous constraint: i32 == ?3 → ?2
+// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: ambiguous constraint: i32 == ?3 → ?2
 //         x(2)
 //         ^
-// ❌ ../tests/cases/checker/call_non_function.lyte:16:5: ambiguous constraint: i32 == (i32) → ?2
+// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: ambiguous constraint: i32 == (i32) → ?2
 //         x(2)
 //         ^
 f {

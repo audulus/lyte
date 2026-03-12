@@ -1,6 +1,5 @@
-// args: -c
 // expected stdout:
-// ❌ ../tests/cases/lambdas/lambda_escape_indirect.lyte:10:12: closure with captured variables cannot be returned (captured addresses would dangle after the frame exits)
+// ❌ ../tests/cases/lambdas/lambda_escape_indirect.lyte:9:12: closure with captured variables cannot be returned (captured addresses would dangle after the frame exits)
 //         return f
 //                ^
 

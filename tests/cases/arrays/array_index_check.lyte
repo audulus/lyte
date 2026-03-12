@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/arrays/array_index_check.lyte:8:12: couldn't prove index is less than array length
+// ❌ ../tests/cases/arrays/array_index_check.lyte:9:12: couldn't prove index is less than array length
 //         assert(array[1] == 0)
 //                ^
 

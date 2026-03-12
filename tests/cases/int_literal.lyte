@@ -1,3 +1,4 @@
+// args: --check
 
 main {
    var x: i8

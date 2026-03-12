@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/generics/interface_missing_impl.lyte:28:5: interface constraint "Compare" not satisfied
+// ❌ ../tests/cases/generics/interface_missing_impl.lyte:29:5: interface constraint "Compare" not satisfied
 //         bigger(a, b)
 //         ^
 

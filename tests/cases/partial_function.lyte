@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ../tests/cases/partial_function.lyte:5: expected Rparen, got Endl
+// ../tests/cases/partial_function.lyte:6: expected Rparen, got Endl
 
 foo(
 

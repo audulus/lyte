@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/generics/interface_unknown.lyte:6:4: unknown interface: Nonexistent
+// ❌ ../tests/cases/generics/interface_unknown.lyte:7:4: unknown interface: Nonexistent
 //     foo<T>(a: T) -> T where Nonexistent<T> {
 //        ^
 

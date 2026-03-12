@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/while_bad_cond.lyte:6:11: no solution for i32 == bool
+// ❌ ../tests/cases/checker/while_bad_cond.lyte:7:11: no solution for i32 == bool
 //         while 42 { }
 //               ^
 f {

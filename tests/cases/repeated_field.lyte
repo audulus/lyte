@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/repeated_field.lyte:8:5: repeated field: x
+// ❌ ../tests/cases/repeated_field.lyte:9:5: repeated field: x
 //         x: i32
 //         ^
 

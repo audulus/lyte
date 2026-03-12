@@ -1,5 +1,4 @@
 
-// args: -c
 // expected stdout:
 // compilation successful
 // assert(true)

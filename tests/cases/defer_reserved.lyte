@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ../tests/cases/defer_reserved.lyte:4: defer is reserved for future use
+// ../tests/cases/defer_reserved.lyte:5: defer is reserved for future use
 
 defer {
 }

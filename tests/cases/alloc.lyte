@@ -1,3 +1,4 @@
+// args: --check
 
 struct pool<T> {
     data: [T; 10000], // storage

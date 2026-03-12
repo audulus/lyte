@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/arrays/bad_array_equality.lyte:7:19: no solution for [i32; 2] == [i32; 3]
+// ❌ ../tests/cases/arrays/bad_array_equality.lyte:8:19: no solution for [i32; 2] == [i32; 3]
 //         let x = [1,2] == [1,2,3]
 //                       ^
 

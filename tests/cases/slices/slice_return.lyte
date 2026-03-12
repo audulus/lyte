@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ❌ ../tests/cases/slices/slice_return.lyte:6:2: slice type [i32] is not allowed as a return type
+// ❌ ../tests/cases/slices/slice_return.lyte:7:2: slice type [i32] is not allowed as a return type
 //     f(a: [i32]) -> [i32] { a }
 //      ^
 

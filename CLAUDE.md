@@ -31,14 +31,17 @@ cargo build --release
 
 ### Running the CLI
 ```bash
-# Compile and run a single file
-cargo run --bin lyte <file.lyte> -c
+# Compile and run a single file (Cranelift JIT by default)
+cargo run --bin lyte <file.lyte>
 
-# Compile and run a single file with the VM
-cargo run --bin lyte <file.lyte> -r
+# Compile and run with the VM backend
+LYTE_BACKEND=vm cargo run --bin lyte <file.lyte>
 
-# Run both JIT and VM (used for tests)
-cargo run --bin lyte <file.lyte> -t
+# Compile and run with the LLVM backend (requires llvm feature)
+LYTE_BACKEND=llvm cargo run --bin lyte <file.lyte>
+
+# Parse and type-check only (no compilation or execution)
+cargo run --bin lyte <file.lyte> --check
 
 # Parse and show AST
 cargo run --bin lyte <file.lyte> --ast
@@ -50,7 +53,7 @@ cargo run --bin lyte <file.lyte> --ir
 cargo run --bin lyte <file.lyte> --bytecode
 
 # Process entire directory
-cargo run --bin lyte <directory/> --c
+cargo run --bin lyte <directory/>
 ```
 
 ### Fuzzing
@@ -90,13 +93,13 @@ The compiler is structured as a multi-pass system:
 Tests use the `goldentests` crate (v1.4.1). The test runner is in `cli/tests/cli.rs` and invokes the `../target/debug/lyte` binary against all `.lyte` files in `tests/cases/`. You must `cargo build` before running tests since the binary is invoked directly.
 
 Each test file uses comment directives:
-- `// args: <flags>` — CLI args (e.g., `-c` to compile, `-r` for VM)
+- `// args: <flags>` — CLI args (e.g., `--check` for parse-only, `--bytecode` for bytecode output)
 - `// expected stdout:` — followed by `// <line>` lines for expected output
-- Omit `args:` for error tests (binary runs with just the file path)
+- Omit `args:` for tests that compile and run (default behavior)
+- Use `// args: --check` for error tests that only parse and type-check
 
 Example passing test:
 ```
-// args: -c
 // expected stdout:
 // compilation successful
 ```

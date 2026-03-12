@@ -1,5 +1,6 @@
+// args: --check
 // expected stdout:
-// ../tests/cases/arenas.lyte:4: arena is reserved for future use
+// ../tests/cases/arenas.lyte:5: arena is reserved for future use
 main {
     arena {}
 }

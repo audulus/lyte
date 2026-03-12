@@ -8,6 +8,10 @@ use std::time::Instant;
 struct Args {
     file: String,
 
+    /// Parse and type-check only, do not compile or run.
+    #[clap(long)]
+    check: bool,
+
     #[clap(long)]
     ast: bool,
 
@@ -16,20 +20,6 @@ struct Args {
 
     #[clap(long)]
     bytecode: bool,
-
-    /// Compile and run. Backend is selected by LYTE_BACKEND env var:
-    /// "jit" (default), "vm", or "llvm".
-    #[clap(short)]
-    c: bool,
-
-    /// Compile and run with the VM backend.
-    #[clap(short)]
-    r: bool,
-
-    /// Compile and run with the LLVM backend.
-    #[cfg(feature = "llvm")]
-    #[clap(short)]
-    l: bool,
 
     #[clap(long)]
     timing: bool,
@@ -98,17 +88,13 @@ fn run(args: Args) -> i32 {
 
     compiler.print_ir = args.ir;
 
-    #[cfg(feature = "llvm")]
-    let use_llvm = args.l;
-    #[cfg(not(feature = "llvm"))]
-    let use_llvm = false;
-
-    // Resolve which backend `-c` should use via LYTE_BACKEND env var.
+    // Select backend via LYTE_BACKEND env var: "jit" (default), "vm", or "llvm".
     let backend = std::env::var("LYTE_BACKEND").unwrap_or_default();
-    let run_jit = args.c && (backend.is_empty() || backend == "jit");
-    let run_vm = args.r || (args.c && backend == "vm");
+    let should_run = !args.check && !args.ast && !args.bytecode;
+    let run_jit = should_run && (backend.is_empty() || backend == "jit");
+    let run_vm = should_run && backend == "vm";
     #[cfg(feature = "llvm")]
-    let run_llvm = use_llvm || (args.c && backend == "llvm");
+    let run_llvm = should_run && backend == "llvm";
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
 

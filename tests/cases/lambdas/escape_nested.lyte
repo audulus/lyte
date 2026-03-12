@@ -1,6 +1,5 @@
-// args: -c
 // expected stdout:
-// ❌ ../tests/cases/lambdas/escape_nested.lyte:11:16: closure with captured variables cannot be returned (captured addresses would dangle after the frame exits)
+// ❌ ../tests/cases/lambdas/escape_nested.lyte:10:16: closure with captured variables cannot be returned (captured addresses would dangle after the frame exits)
 //             return f
 //                    ^
 
