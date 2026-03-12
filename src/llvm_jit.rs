@@ -1227,18 +1227,37 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let ty = decl.types[expr];
                 let sz = ty.size(self.decls) as usize;
                 assert!(sz > 0, "var size must be > 0");
-                // Allocate in entry block to avoid stack growth in loops.
-                let storage =
-                    self.entry_array_alloca(self.i8_ty(), sz as u64, &format!("{}_storage", name));
-                let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
-                self.builder().build_store(alloca, storage).unwrap();
-                self.variables.insert(name.to_string(), alloca);
 
-                if let Some(init_id) = init_id {
-                    let init_val = self.translate_expr(init_id, decl);
-                    self.gen_copy(ty, storage, init_val);
+                if !ty.is_ptr() {
+                    // Scalar var: use a single typed alloca (same as let bindings).
+                    // This avoids double-indirection and lets LLVM promote to SSA.
+                    let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
+                    if let Some(init_id) = init_id {
+                        let init_val = self.translate_expr(init_id, decl);
+                        self.builder().build_store(alloca, init_val).unwrap();
+                    } else {
+                        let zero = ty.llvm_basic_type(self.ctx()).const_zero();
+                        self.builder().build_store(alloca, zero).unwrap();
+                    }
+                    self.variables.insert(name.to_string(), alloca);
+                    self.let_bindings.insert(name.to_string());
                 } else {
-                    self.gen_zero_mem(storage, sz);
+                    // Pointer/struct var: allocate byte storage + ptr alloca.
+                    let storage = self.entry_array_alloca(
+                        self.i8_ty(),
+                        sz as u64,
+                        &format!("{}_storage", name),
+                    );
+                    let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
+                    self.builder().build_store(alloca, storage).unwrap();
+                    self.variables.insert(name.to_string(), alloca);
+
+                    if let Some(init_id) = init_id {
+                        let init_val = self.translate_expr(init_id, decl);
+                        self.gen_copy(ty, storage, init_val);
+                    } else {
+                        self.gen_zero_mem(storage, sz);
+                    }
                 }
                 self.zero_i32()
             }
@@ -1335,20 +1354,22 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         let var_ty = decl.types[new_val_id];
                         let is_scalar_float =
                             matches!(*var_ty, crate::Type::Float32 | crate::Type::Float64);
-                        let is_var = !self.let_bindings.contains(&var_name.to_string());
                         if is_scalar_float
-                            && is_var
                             && self.variables.contains_key(&var_name.to_string())
                         {
                             let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
                             let cond_val = self.to_i1(cond_raw);
                             let alloca = self.variables[&var_name.to_string()];
-                            // load current value from slot
-                            let slot_ptr = self
-                                .builder()
-                                .build_load(self.ptr_ty(), alloca, "slot")
-                                .unwrap()
-                                .into_pointer_value();
+                            let is_let = self.let_bindings.contains(&var_name.to_string());
+                            // Get the storage pointer.
+                            let slot_ptr = if is_let {
+                                alloca
+                            } else {
+                                self.builder()
+                                    .build_load(self.ptr_ty(), alloca, "slot")
+                                    .unwrap()
+                                    .into_pointer_value()
+                            };
                             let old_val = self
                                 .builder()
                                 .build_load(var_ty.llvm_basic_type(self.ctx()), slot_ptr, "old")
