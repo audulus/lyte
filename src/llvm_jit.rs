@@ -2090,13 +2090,31 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             };
 
             // Check for math builtin by name.
-            let math_sym = if let Expr::Id(name) = &decl.arena[fn_id] {
-                self.math_builtin_name(name, from)
+            let math_intrinsic = if let Expr::Id(name) = &decl.arena[fn_id] {
+                self.llvm_intrinsic_name(name)
+            } else {
+                None
+            };
+            let math_sym = if math_intrinsic.is_none() {
+                if let Expr::Id(name) = &decl.arena[fn_id] {
+                    self.math_builtin_name(name, from)
+                } else {
+                    None
+                }
             } else {
                 None
             };
 
-            let result_val: BasicValueEnum<'ctx> = if let Some((sym, fn_ty, addr)) = math_sym {
+            let result_val: BasicValueEnum<'ctx> = if let Some((intrinsic_name, float_ty)) =
+                math_intrinsic
+            {
+                // Use LLVM intrinsic directly.
+                let mut intrinsic_args: Vec<BasicValueEnum<'ctx>> = vec![];
+                for arg_id in arg_ids {
+                    intrinsic_args.push(self.translate_expr(*arg_id, decl));
+                }
+                self.emit_llvm_intrinsic(&intrinsic_name, float_ty, &intrinsic_args)
+            } else if let Some((sym, fn_ty, addr)) = math_sym {
                 let callee = self.state.get_or_declare_extern(&sym, fn_ty, addr);
                 let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![];
                 if let Some(slot) = output_slot {
@@ -2212,6 +2230,78 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         } else {
             panic!("LLVM JIT call: expected function type, got {:?}", fn_type)
         }
+    }
+
+    /// Returns (intrinsic_name, float_type) for math builtins that have LLVM intrinsics.
+    fn llvm_intrinsic_name(
+        &self,
+        name: &Name,
+    ) -> Option<(String, BasicTypeEnum<'ctx>)> {
+        let (base, ty): (&str, BasicTypeEnum<'ctx>) = if name.contains("$f32") {
+            let stripped = name.strip_suffix("$f32").unwrap_or(&**name);
+            (stripped, self.state.f32_ty().into())
+        } else if name.contains("$f64") {
+            let stripped = name.strip_suffix("$f64").unwrap_or(&**name);
+            (stripped, self.state.f64_ty().into())
+        } else if name.contains("$f32$f32") {
+            let stripped = name.strip_suffix("$f32$f32").unwrap_or(&**name);
+            (stripped, self.state.f32_ty().into())
+        } else if name.contains("$f64$f64") {
+            let stripped = name.strip_suffix("$f64$f64").unwrap_or(&**name);
+            (stripped, self.state.f64_ty().into())
+        } else {
+            return None;
+        };
+        let intrinsic = match base {
+            "sin" => "llvm.sin",
+            "cos" => "llvm.cos",
+            "exp" => "llvm.exp",
+            "exp2" => "llvm.exp2",
+            "ln" => "llvm.log",
+            "log10" => "llvm.log10",
+            "log2" => "llvm.log2",
+            "sqrt" => "llvm.sqrt",
+            "abs" => "llvm.fabs",
+            "floor" => "llvm.floor",
+            "ceil" => "llvm.ceil",
+            "pow" => "llvm.pow",
+            "min" => "llvm.minnum",
+            "max" => "llvm.maxnum",
+            _ => return None,
+        };
+        let suffix = if ty == self.state.f32_ty().into() {
+            "f32"
+        } else {
+            "f64"
+        };
+        Some((format!("{}.{}", intrinsic, suffix), ty))
+    }
+
+    /// Emit an LLVM intrinsic call.
+    fn emit_llvm_intrinsic(
+        &mut self,
+        intrinsic_name: &str,
+        float_ty: BasicTypeEnum<'ctx>,
+        args: &[BasicValueEnum<'ctx>],
+    ) -> BasicValueEnum<'ctx> {
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
+            args.iter().map(|_| float_ty.into()).collect();
+        let fn_ty = float_ty.fn_type(&param_types, false);
+        let func = if let Some(f) = self.state.module.get_function(intrinsic_name) {
+            f
+        } else {
+            self.state
+                .module
+                .add_function(intrinsic_name, fn_ty, None)
+        };
+        let call_args: Vec<BasicMetadataValueEnum<'ctx>> =
+            args.iter().map(|a| (*a).into()).collect();
+        self.builder()
+            .build_call(func, &call_args, "intrinsic")
+            .unwrap()
+            .try_as_basic_value()
+            .left()
+            .unwrap()
     }
 
     /// Returns (symbol_name, fn_type) for a math builtin, or None.
