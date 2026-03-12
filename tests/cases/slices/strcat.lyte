@@ -1,14 +1,7 @@
-// args: -t
+// args: -c
 // expected stdout:
-// executing compiled code
 // compilation successful
 // hithere
-// executing LLVM code
-// compilation successful
-// hithere
-// executing VM code
-// hithere
-// vm execution successful
 
 main {
     var dst: [i8; 32]

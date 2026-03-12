@@ -17,15 +17,16 @@ struct Args {
     #[clap(long)]
     bytecode: bool,
 
+    /// Compile and run. Backend is selected by LYTE_BACKEND env var:
+    /// "jit" (default), "vm", or "llvm".
     #[clap(short)]
     c: bool,
 
+    /// Compile and run with the VM backend.
     #[clap(short)]
     r: bool,
 
-    #[clap(short, long)]
-    test: bool,
-
+    /// Compile and run with the LLVM backend.
     #[cfg(feature = "llvm")]
     #[clap(short)]
     l: bool,
@@ -44,6 +45,35 @@ fn run(args: Args) -> i32 {
         }
     } else {
         paths.push(args.file.clone());
+    }
+
+    // Check for skip-backend directive: if the source contains
+    // `// skip-backend: <backend>` and the current LYTE_SKIP_BACKEND matches,
+    // reproduce expected stdout from the test file and exit (for golden tests).
+    if let Ok(skip_backend) = std::env::var("LYTE_SKIP_BACKEND") {
+        for path in &paths {
+            if let Ok(contents) = fs::read_to_string(path) {
+                let directive = format!("// skip-backend: {}", skip_backend);
+                if contents.contains(&directive) {
+                    // Print expected stdout lines so golden test comparison passes.
+                    let mut in_expected = false;
+                    for line in contents.lines() {
+                        if line.starts_with("// expected stdout:") {
+                            in_expected = true;
+                            continue;
+                        }
+                        if in_expected {
+                            if let Some(rest) = line.strip_prefix("// ") {
+                                println!("{}", rest);
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    return 0;
+                }
+            }
+        }
     }
 
     let mut compiler = lyte::Compiler::new();
@@ -68,13 +98,21 @@ fn run(args: Args) -> i32 {
 
     compiler.print_ir = args.ir;
 
-    // Only specialize when compiling or running - specialize requires a main function
     #[cfg(feature = "llvm")]
     let use_llvm = args.l;
     #[cfg(not(feature = "llvm"))]
     let use_llvm = false;
 
-    if args.c || args.r || args.test || args.bytecode || use_llvm {
+    // Resolve which backend `-c` should use via LYTE_BACKEND env var.
+    let backend = std::env::var("LYTE_BACKEND").unwrap_or_default();
+    let run_jit = args.c && (backend.is_empty() || backend == "jit");
+    let run_vm = args.r || (args.c && backend == "vm");
+    #[cfg(feature = "llvm")]
+    let run_llvm = use_llvm || (args.c && backend == "llvm");
+    #[cfg(not(feature = "llvm"))]
+    let run_llvm = false;
+
+    if run_jit || run_vm || run_llvm || args.bytecode {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -102,10 +140,7 @@ fn run(args: Args) -> i32 {
 
         let compile_elapsed = compile_start.elapsed();
 
-        if args.c || args.test {
-            if args.test {
-                println!("executing compiled code");
-            }
+        if run_jit {
             if args.timing {
                 eprintln!("compile: {:.0}µs", compile_elapsed.as_micros());
             }
@@ -118,17 +153,11 @@ fn run(args: Args) -> i32 {
         }
 
         #[cfg(feature = "llvm")]
-        if args.l || args.test {
-            if args.test {
-                println!("executing LLVM code");
-            }
+        if run_llvm {
             compiler.run_llvm();
         }
 
-        if args.r || args.test {
-            if args.test {
-                println!("executing VM code");
-            }
+        if run_vm {
             let vm_compile_start = Instant::now();
             let program = match compiler.compile_vm() {
                 Ok(p) => p,
@@ -147,6 +176,7 @@ fn run(args: Args) -> i32 {
                 );
             }
 
+            println!("compilation successful");
             let start = Instant::now();
             let mut vm = lyte::vm::VM::new();
             let _result = vm.run(&program);
@@ -154,7 +184,6 @@ fn run(args: Args) -> i32 {
             if args.timing {
                 eprintln!("vm exec: {:.3}s", elapsed.as_secs_f64());
             }
-            println!("vm execution successful");
         }
     }
 

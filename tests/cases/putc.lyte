@@ -1,14 +1,7 @@
-// args: -t
+// args: -c
 // expected stdout:
-// executing compiled code
 // compilation successful
 // Hi
-// executing LLVM code
-// compilation successful
-// Hi
-// executing VM code
-// Hi
-// vm execution successful
 
 main {
     putc(72)

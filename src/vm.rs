@@ -226,6 +226,10 @@ mod tags {
     pub const MEM_COPY_WIDE: u8 = 148; // ABC+data: A=dst, B=src, next word=size
     pub const SAVE_REGS_WIDE: u8 = 149; // ABC+data: A=start_reg, B=count, next word=slot
     pub const RESTORE_REGS_WIDE: u8 = 150; // ABC+data: A=start_reg, B=count, next word=slot
+
+    pub const I32_TO_I8: u8 = 151;
+    pub const I8_TO_I32: u8 = 152;
+    pub const I64_TO_U32: u8 = 153;
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -425,6 +429,9 @@ impl LinkedProgram {
             Opcode::F64ToI32 { dst, src } => PackedOp::abc(tags::F64_TO_I32, dst, src, 0),
             Opcode::F32ToF64 { dst, src } => PackedOp::abc(tags::F32_TO_F64, dst, src, 0),
             Opcode::F64ToF32 { dst, src } => PackedOp::abc(tags::F64_TO_F32, dst, src, 0),
+            Opcode::I32ToI8 { dst, src } => PackedOp::abc(tags::I32_TO_I8, dst, src, 0),
+            Opcode::I8ToI32 { dst, src } => PackedOp::abc(tags::I8_TO_I32, dst, src, 0),
+            Opcode::I64ToU32 { dst, src } => PackedOp::abc(tags::I64_TO_U32, dst, src, 0),
             // Memory — AB or ABC
             Opcode::Load8 { dst, addr } => PackedOp::abc(tags::LOAD8, dst, addr, 0),
             Opcode::Load32 { dst, addr } => PackedOp::abc(tags::LOAD32, dst, addr, 0),
@@ -1055,6 +1062,24 @@ pub enum Opcode {
 
     /// Convert f64 to f32
     F64ToF32 {
+        dst: Reg,
+        src: Reg,
+    },
+
+    /// Truncate i32 to i8 (sign-extend back to i64 register)
+    I32ToI8 {
+        dst: Reg,
+        src: Reg,
+    },
+
+    /// Sign-extend i8 to i32
+    I8ToI32 {
+        dst: Reg,
+        src: Reg,
+    },
+
+    /// Mask to u32 (zero-extend)
+    I64ToU32 {
         dst: Reg,
         src: Reg,
     },
@@ -2072,6 +2097,15 @@ impl VM {
                     }
                     tags::F64_TO_F32 => {
                         set_f32!(op.a(), r_f64!(op.b()) as f32);
+                    }
+                    tags::I32_TO_I8 => {
+                        set_i64!(op.a(), (get_i64!(op.b()) as i8) as i64);
+                    }
+                    tags::I8_TO_I32 => {
+                        set_i64!(op.a(), (get_i64!(op.b()) as i8) as i32 as i64);
+                    }
+                    tags::I64_TO_U32 => {
+                        set_i64!(op.a(), (get_i64!(op.b()) as u32) as i64);
                     }
 
                     // Memory operations

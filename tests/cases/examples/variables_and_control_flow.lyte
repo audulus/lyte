@@ -1,14 +1,7 @@
-// args: -t
+// args: -c
 // expected stdout:
-// executing compiled code
 // compilation successful
 // positive
-// executing LLVM code
-// compilation successful
-// positive
-// executing VM code
-// positive
-// vm execution successful
 
 main {
     var x = 42

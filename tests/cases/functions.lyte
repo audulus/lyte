@@ -1,20 +1,9 @@
-// args: -t
+// args: -c
 // expected stdout:
-// executing compiled code
 // compilation successful
 // assert(true)
 // assert(true)
 // assert(true)
-// executing LLVM code
-// compilation successful
-// assert(true)
-// assert(true)
-// assert(true)
-// executing VM code
-// assert(true)
-// assert(true)
-// assert(true)
-// vm execution successful
 
 add_ints(a: i32, b: i32) → i32 {
     return a + b

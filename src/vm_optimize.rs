@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 /// Phase 1: Peephole optimizations (NOP-safe, preserves instruction indices).
 /// Returns (new_reg_count, vreg_to_preg_mapping) after register allocation.
-pub fn optimize(code: &mut Vec<Opcode>) -> Option<(u8, [u8; 256])> {
+pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, [u8; 256])> {
     if code.is_empty() {
         return None;
     }
@@ -25,7 +25,7 @@ pub fn optimize(code: &mut Vec<Opcode>) -> Option<(u8, [u8; 256])> {
     // Fuse compare+branch into single instructions
     fuse_compare_branch(code);
     // Register allocation: compact register numbering via linear scan
-    let (count, mapping) = register_allocation(code);
+    let (count, mapping) = register_allocation(code, param_count);
     Some((count, mapping))
 }
 
@@ -181,6 +181,9 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::F64ToI32 { dst, .. }
         | Opcode::F32ToF64 { dst, .. }
         | Opcode::F64ToF32 { dst, .. }
+        | Opcode::I32ToI8 { dst, .. }
+        | Opcode::I8ToI32 { dst, .. }
+        | Opcode::I64ToU32 { dst, .. }
         | Opcode::Load8 { dst, .. }
         | Opcode::Load32 { dst, .. }
         | Opcode::Load64 { dst, .. }
@@ -244,6 +247,9 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::MaxF64 { dst, .. }
         | Opcode::LoadSlot32 { dst, .. } => Some(*dst),
 
+        // Call/CallIndirect implicitly define r0 (return value register).
+        Opcode::Call { .. } | Opcode::CallIndirect { .. } => Some(0),
+
         Opcode::Nop
         | Opcode::StoreSlot32 { .. }
         | Opcode::Halt
@@ -258,8 +264,6 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::JumpIfNotZero { .. }
         | Opcode::ILtJump { .. }
         | Opcode::FLtJump { .. }
-        | Opcode::Call { .. }
-        | Opcode::CallIndirect { .. }
         | Opcode::Return
         | Opcode::ReturnReg { .. }
         | Opcode::AllocLocals { .. }
@@ -335,6 +339,9 @@ fn set_dst(op: &mut Opcode, new_dst: Reg) -> bool {
         | Opcode::F64ToI32 { dst, .. }
         | Opcode::F32ToF64 { dst, .. }
         | Opcode::F64ToF32 { dst, .. }
+        | Opcode::I32ToI8 { dst, .. }
+        | Opcode::I8ToI32 { dst, .. }
+        | Opcode::I64ToU32 { dst, .. }
         | Opcode::Load8 { dst, .. }
         | Opcode::Load32 { dst, .. }
         | Opcode::Load64 { dst, .. }
@@ -479,7 +486,10 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
         | Opcode::I32ToF64 { src, .. }
         | Opcode::F64ToI32 { src, .. }
         | Opcode::F32ToF64 { src, .. }
-        | Opcode::F64ToF32 { src, .. } => *src == reg,
+        | Opcode::F64ToF32 { src, .. }
+        | Opcode::I32ToI8 { src, .. }
+        | Opcode::I8ToI32 { src, .. }
+        | Opcode::I64ToU32 { src, .. } => *src == reg,
 
         Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
             *addr == reg
@@ -681,7 +691,10 @@ fn compute_use_counts_fast(code: &[Opcode]) -> [u16; 256] {
             | Opcode::I32ToF64 { src, .. }
             | Opcode::F64ToI32 { src, .. }
             | Opcode::F32ToF64 { src, .. }
-            | Opcode::F64ToF32 { src, .. } => counts[*src as usize] += 1,
+            | Opcode::F64ToF32 { src, .. }
+            | Opcode::I32ToI8 { src, .. }
+            | Opcode::I8ToI32 { src, .. }
+            | Opcode::I64ToU32 { src, .. } => counts[*src as usize] += 1,
             Opcode::Load8 { addr, .. }
             | Opcode::Load32 { addr, .. }
             | Opcode::Load64 { addr, .. } => counts[*addr as usize] += 1,
@@ -836,9 +849,12 @@ fn move_forwarding(code: &mut [Opcode]) {
                             // Move { dst: R, src: X } + Move { dst: D, src: R }
                             // → Move { dst: D, src: X } + Nop
                         }
-                        // Rewrite: make instruction i write to move_dst directly
-                        set_dst(&mut code[i], move_dst);
-                        code[i + 1] = Opcode::Nop;
+                        // Rewrite: make instruction i write to move_dst directly.
+                        // Only eliminate the Move if set_dst succeeds (e.g. Call
+                        // has an implicit dst that can't be changed).
+                        if set_dst(&mut code[i], move_dst) {
+                            code[i + 1] = Opcode::Nop;
+                        }
                     }
                 }
             }
@@ -1098,7 +1114,10 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
         | Opcode::I32ToF64 { src, .. }
         | Opcode::F64ToI32 { src, .. }
         | Opcode::F32ToF64 { src, .. }
-        | Opcode::F64ToF32 { src, .. } => {
+        | Opcode::F64ToF32 { src, .. }
+        | Opcode::I32ToI8 { src, .. }
+        | Opcode::I8ToI32 { src, .. }
+        | Opcode::I64ToU32 { src, .. } => {
             if *src == old {
                 *src = new;
             }
@@ -1477,7 +1496,7 @@ fn compute_live_ranges(code: &[Opcode]) -> ([u32; 256], [u32; 256], [bool; 256])
 /// Copy coalescing: merge virtual registers connected by Move instructions
 /// when their live ranges don't interfere. This eliminates moves and reduces
 /// register pressure. Runs as a pre-pass before linear scan allocation.
-fn copy_coalesce(code: &mut [Opcode]) {
+fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
     // Union-find for register coalescing.
     let mut parent: [u8; 256] = std::array::from_fn(|i| i as u8);
 
@@ -1551,6 +1570,13 @@ fn copy_coalesce(code: &mut [Opcode]) {
                 if dst == 0 || src == 0 {
                     continue;
                 }
+                // Don't coalesce parameter copies: Move { dst: D, src: param_reg }.
+                // The src register is the physical parameter position at function entry.
+                // Coalescing would eliminate the copy, leaving the value stranded in
+                // the parameter register when regalloc maps the vreg elsewhere.
+                if src < param_count {
+                    continue;
+                }
 
                 let d_def = def_point[d];
                 let s_end = last_use[s].max(def_point[s]);
@@ -1612,13 +1638,13 @@ fn rewrite_coalesced_reg(op: &mut Opcode, old: Reg, new: Reg) {
 /// Maps virtual registers (0..N, potentially sparse and high-numbered) to
 /// compacted physical registers (0..M where M << N). This reduces SaveRegs
 /// count and improves cache utilization of the register file.
-fn register_allocation(code: &mut Vec<Opcode>) -> (u8, [u8; 256]) {
+fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, [u8; 256]) {
     if code.is_empty() {
         return (0, [255; 256]);
     }
 
     // Pre-pass: copy coalescing to eliminate moves.
-    copy_coalesce(code);
+    copy_coalesce(code, param_count);
 
     // Step 1: Find live ranges.
     let (def_point, last_use, is_used) = compute_live_ranges(code);
@@ -1913,7 +1939,10 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
         | Opcode::I32ToF64 { src, .. }
         | Opcode::F64ToI32 { src, .. }
         | Opcode::F32ToF64 { src, .. }
-        | Opcode::F64ToF32 { src, .. } => f(*src),
+        | Opcode::F64ToF32 { src, .. }
+        | Opcode::I32ToI8 { src, .. }
+        | Opcode::I8ToI32 { src, .. }
+        | Opcode::I64ToU32 { src, .. } => f(*src),
         Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
             f(*addr)
         }
@@ -2145,7 +2174,10 @@ fn rewrite_regs(op: &mut Opcode, map: &[u8; 256]) {
         | Opcode::I32ToF64 { dst, src }
         | Opcode::F64ToI32 { dst, src }
         | Opcode::F32ToF64 { dst, src }
-        | Opcode::F64ToF32 { dst, src } => {
+        | Opcode::F64ToF32 { dst, src }
+        | Opcode::I32ToI8 { dst, src }
+        | Opcode::I8ToI32 { dst, src }
+        | Opcode::I64ToU32 { dst, src } => {
             *dst = map[*dst as usize];
             *src = map[*src as usize];
         }
@@ -2940,7 +2972,7 @@ mod tests {
             Opcode::Move { dst: 2, src: 1 },
             Opcode::PrintI32 { src: 2 },
         ];
-        copy_coalesce(&mut code);
+        copy_coalesce(&mut code, 0);
         // Move should be eliminated; r1 and r2 merged to same register
         assert!(matches!(code[1], Opcode::Nop));
         // The PrintI32 should use whichever register the coalescer chose (the lower one = 1)
@@ -2959,7 +2991,7 @@ mod tests {
                 arg_count: 1,
             },
         ];
-        copy_coalesce(&mut code);
+        copy_coalesce(&mut code, 0);
         // r4 is a call arg → should NOT be coalesced
         assert!(matches!(code[1], Opcode::Move { dst: 4, src: 3 }));
     }
@@ -2972,7 +3004,7 @@ mod tests {
             Opcode::Move { dst: 1, src: 1 },
             Opcode::PrintI32 { src: 1 },
         ];
-        copy_coalesce(&mut code);
+        copy_coalesce(&mut code, 0);
         assert_eq!(code[1], Opcode::Nop);
     }
 
@@ -2985,7 +3017,7 @@ mod tests {
             Opcode::Move { dst: 3, src: 1 }, // r1 still live (used below)
             Opcode::IAdd { dst: 0, a: 1, b: 2 },
         ];
-        copy_coalesce(&mut code);
+        copy_coalesce(&mut code, 0);
         // r1 doesn't die at the Move (it's used at IAdd), so can't coalesce
         assert!(matches!(code[2], Opcode::Move { dst: 3, src: 1 }));
     }
@@ -3004,7 +3036,7 @@ mod tests {
                 b: 10,
             },
         ];
-        let (count, mapping) = register_allocation(&mut code);
+        let (count, mapping) = register_allocation(&mut code, 0);
         // r0 pinned to preg 0
         assert_eq!(mapping[0], 0);
         // r5 and r10 should map to pregs 1 and 2 (or 2 and 1)
@@ -3031,7 +3063,7 @@ mod tests {
             Opcode::LoadImm { dst: 2, value: 2 },
             Opcode::IAdd { dst: 0, a: 0, b: 2 }, // r2 dies here
         ];
-        let (count, _mapping) = register_allocation(&mut code);
+        let (count, _mapping) = register_allocation(&mut code, 0);
         // r0 always needed; r1 and r2 don't overlap, so can share → 2 pregs total
         assert!(count <= 2, "expected ≤2 pregs, got {}", count);
     }
@@ -3049,7 +3081,7 @@ mod tests {
             },
             Opcode::LoadImm { dst: 0, value: 0 },
         ];
-        let (_count, mapping) = register_allocation(&mut code);
+        let (_count, mapping) = register_allocation(&mut code, 0);
         // The mapped registers for r3 and r4 must be contiguous
         let p3 = mapping[3];
         let p4 = mapping[4];
@@ -3077,7 +3109,7 @@ mod tests {
     #[test]
     fn test_register_allocation_empty_code() {
         let mut code: Vec<Opcode> = vec![];
-        let result = optimize(&mut code);
+        let result = optimize(&mut code, 0);
         assert!(result.is_none());
     }
 
@@ -3092,7 +3124,7 @@ mod tests {
             Opcode::Move { dst: 10, src: 5 },
             Opcode::PrintI32 { src: 10 },
         ];
-        let result = optimize(&mut code);
+        let result = optimize(&mut code, 0);
         assert!(result.is_some());
         // After optimize, code still has Nops; need compact to remove them
         compact(&mut code);
@@ -3110,7 +3142,7 @@ mod tests {
             Opcode::LocalAddr { dst: 3, slot: 8 },
             Opcode::Load32 { dst: 0, addr: 3 },
         ];
-        let result = optimize(&mut code);
+        let result = optimize(&mut code, 0);
         assert!(result.is_some());
         compact(&mut code);
         assert_eq!(code.len(), 1);

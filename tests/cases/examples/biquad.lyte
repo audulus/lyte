@@ -1,14 +1,7 @@
-// args: -t
+// args: -c
 // expected stdout:
-// executing compiled code
 // compilation successful
 // assert(true)
-// executing LLVM code
-// compilation successful
-// assert(true)
-// executing VM code
-// assert(true)
-// vm execution successful
 
 struct Biquad {
     b0: f32, b1: f32, b2: f32,

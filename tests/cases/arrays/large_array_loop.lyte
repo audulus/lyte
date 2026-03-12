@@ -1,14 +1,7 @@
-// args: -t
+// args: -c
 // expected stdout:
-// executing compiled code
 // compilation successful
 // assert(true)
-// executing LLVM code
-// compilation successful
-// assert(true)
-// executing VM code
-// assert(true)
-// vm execution successful
 
 sum_array(a: [i32; 256]) → i32 {
     var s = 0

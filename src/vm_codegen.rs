@@ -179,7 +179,9 @@ impl VMCodegen {
         }
 
         // Peephole optimize: eliminate redundant instructions + register allocation.
-        if let Some((new_reg_count, mapping)) = crate::vm_optimize::optimize(&mut func.code) {
+        if let Some((new_reg_count, mapping)) =
+            crate::vm_optimize::optimize(&mut func.code, func.param_count as u8)
+        {
             // Register allocation compacted the register numbering.
             // Update locals_size: slot area stays the same, register save area shrinks.
             func.locals_size = func.local_slots as u32 * 8 + new_reg_count as u32 * 8;
@@ -1839,12 +1841,17 @@ impl<'a> FunctionTranslator<'a> {
         // Jump to else branch if condition is false.
         let jump_to_else = func.emit(Opcode::JumpIfZero { cond, offset: 0 });
 
+        // Save has_returned before branches — a return inside one branch
+        // should not suppress the epilogue for the other branch.
+        let saved_has_returned = self.has_returned;
+
         // Then branch.
         let then_result = self.translate_expr(then_id, func);
         func.emit(Opcode::Move {
             dst: result_reg,
             src: then_result,
         });
+        let then_returned = self.has_returned;
 
         if let Some(else_expr_id) = else_id {
             // Jump over else branch.
@@ -1854,17 +1861,24 @@ impl<'a> FunctionTranslator<'a> {
             func.patch_jump(jump_to_else);
 
             // Else branch.
+            self.has_returned = saved_has_returned;
             let else_result = self.translate_expr(else_expr_id, func);
             func.emit(Opcode::Move {
                 dst: result_reg,
                 src: else_result,
             });
+            let else_returned = self.has_returned;
 
             // Patch jump to end.
             func.patch_jump(jump_to_end);
+
+            // Only mark as returned if BOTH branches returned.
+            self.has_returned = then_returned && else_returned;
         } else {
             // No else branch — patch jump to here directly.
             func.patch_jump(jump_to_else);
+            // Single-branch if can never guarantee a return.
+            self.has_returned = saved_has_returned;
         }
 
         result_reg
@@ -2198,6 +2212,16 @@ impl<'a> FunctionTranslator<'a> {
             }
             (Type::Float64, Type::Float32) => {
                 func.emit(Opcode::F64ToF32 { dst, src });
+            }
+            (Type::Int32, Type::Int8) | (Type::UInt32, Type::Int8) => {
+                func.emit(Opcode::I32ToI8 { dst, src });
+            }
+            (Type::Int8, Type::Int32) => {
+                func.emit(Opcode::I8ToI32 { dst, src });
+            }
+            (Type::Int32, Type::UInt32) | (Type::UInt32, Type::Int32) => {
+                // Same size, just reinterpret — mask to u32.
+                func.emit(Opcode::I64ToU32 { dst, src });
             }
             _ => {
                 // No conversion needed or unsupported - just move.
