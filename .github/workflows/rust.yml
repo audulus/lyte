@@ -42,6 +42,27 @@ jobs:
     - name: Run tests with LLVM
       run: cargo test -p lyte -p lyte-cli --features llvm --verbose
 
+  fuzz:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install nightly toolchain
+      run: rustup toolchain install nightly --profile minimal
+    - name: Install cargo-fuzz
+      run: cargo +nightly install cargo-fuzz
+    - name: Fuzz lexer (30s)
+      run: cargo +nightly fuzz run lexer -- -max_total_time=30
+    - name: Fuzz parser (30s)
+      run: cargo +nightly fuzz run parser -- -max_total_time=30
+    - name: Fuzz checker (30s)
+      run: cargo +nightly fuzz run checker -- -max_total_time=30
+    - name: Fuzz compile_jit (30s)
+      run: cargo +nightly fuzz run compile_jit -- -max_total_time=30
+    - name: Fuzz compile_vm (30s)
+      run: cargo +nightly fuzz run compile_vm -- -max_total_time=30
+
   build-llvm:
 
     runs-on: ubuntu-latest
