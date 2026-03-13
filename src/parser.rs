@@ -466,6 +466,7 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                 e = arena.add(Expr::ArrayIndex(e, idx), index_loc);
             }
             Token::Dot => {
+                let dot_loc = cx.lex.loc;
                 cx.next();
                 // Support both named fields (x.foo) and tuple indices (x.0, x.1)
                 let field = if let Token::Integer(n) = cx.lex.tok {
@@ -474,7 +475,7 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                 } else {
                     expect_id(cx)
                 };
-                e = arena.add(Expr::Field(e, field), cx.lex.loc);
+                e = arena.add(Expr::Field(e, field), dot_loc);
             }
             Token::As => {
                 cx.next();

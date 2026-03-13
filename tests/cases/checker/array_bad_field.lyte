@@ -1,11 +1,11 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/array_bad_field.lyte:12:1: array only has len field, not foo
-//     }
-//     ^
-// ❌ ../tests/cases/checker/array_bad_field.lyte:12:1: ambiguous constraint: [i32; 3].foo == ?5
-//     }
-//     ^
+// ❌ ../tests/cases/checker/array_bad_field.lyte:11:6: array only has len field, not foo
+//         a.foo
+//          ^
+// ❌ ../tests/cases/checker/array_bad_field.lyte:11:6: ambiguous constraint: [i32; 3].foo == ?5
+//         a.foo
+//          ^
 f {
     var a = [1, 2, 3]
     a.foo

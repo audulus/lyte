@@ -1,11 +1,11 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/no_such_field.lyte:16:1: no such field: y
-//     }
-//     ^
-// ❌ ../tests/cases/checker/no_such_field.lyte:16:1: ambiguous constraint: Foo.y == ?2
-//     }
-//     ^
+// ❌ ../tests/cases/checker/no_such_field.lyte:15:6: no such field: y
+//         a.y
+//          ^
+// ❌ ../tests/cases/checker/no_such_field.lyte:15:6: ambiguous constraint: Foo.y == ?2
+//         a.y
+//          ^
 struct Foo {
     x: i32
 }
