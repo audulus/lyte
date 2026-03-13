@@ -1,9 +1,4 @@
                                                                                                                                  
-  2. Fuzzing the checker and compiler                                                                                
-
-  The fuzz targets stop at the parser. A third target that runs the full pipeline (parse → check → compile → run) on
-  fuzz input would catch crashes deeper in the stack, especially in the type solver and codegen.
-
   4. Property-based / round-trip tests
 
   - Parser round-trip: Parse → pretty-print → re-parse and check AST equality.
