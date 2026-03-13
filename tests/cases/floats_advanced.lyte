@@ -1,0 +1,28 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+approx(a: f32, b: f32) -> bool {
+    var d = a - b
+    if d < 0.0 { d = 0.0 - d }
+    return d < 0.001
+}
+
+main {
+    // Basic float operations
+    assert(approx(1.5 + 2.5, 4.0))
+    assert(approx(10.0 - 3.5, 6.5))
+    assert(approx(2.5 * 4.0, 10.0))
+    assert(approx(10.0 / 4.0, 2.5))
+
+    // Float comparisons
+    assert(1.5 < 2.0)
+    assert(2.0 > 1.5)
+    assert(1.0 == 1.0)
+}

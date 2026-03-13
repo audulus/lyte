@@ -1,0 +1,6 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/duplicate_field.lyte:6:22: repeated field: x
+//     struct Foo { x: i32, x: f32 }
+//                          ^
+struct Foo { x: i32, x: f32 }

@@ -1,0 +1,50 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct Vec2 { x: f32, y: f32 }
+
+add(a: Vec2, b: Vec2) -> Vec2 {
+    var r: Vec2
+    r.x = a.x + b.x
+    r.y = a.y + b.y
+    return r
+}
+
+dot(a: Vec2, b: Vec2) -> f32 {
+    return a.x * b.x + a.y * b.y
+}
+
+scale(v: Vec2, s: f32) -> Vec2 {
+    var r: Vec2
+    r.x = v.x * s
+    r.y = v.y * s
+    return r
+}
+
+main {
+    var a: Vec2
+    a.x = 1.0
+    a.y = 2.0
+    var b: Vec2
+    b.x = 3.0
+    b.y = 4.0
+
+    // Addition
+    let c = add(a, b)
+    assert(c.x == 4.0)
+    assert(c.y == 6.0)
+
+    // Dot product
+    let d = dot(a, b)
+    assert(d == 11.0)
+
+    // Scaling
+    let e = scale(a, 3.0)
+    assert(e.x == 3.0)
+    assert(e.y == 6.0)
+}

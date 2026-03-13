@@ -1,0 +1,31 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    assert(classify(1) == 10)
+    assert(classify(2) == 20)
+    assert(classify(3) == 30)
+    assert(classify(4) == 40)
+    assert(classify(99) == -1)
+}
+
+classify(n: i32) -> i32 {
+    var result = 0
+    if n == 1 {
+        result = 10
+    } else if n == 2 {
+        result = 20
+    } else if n == 3 {
+        result = 30
+    } else if n == 4 {
+        result = 40
+    } else {
+        result = -1
+    }
+    return result
+}

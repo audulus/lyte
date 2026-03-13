@@ -1,0 +1,22 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+swap<T>(a: T, b: T) -> (T, T) {
+    return (b, a)
+}
+
+main {
+    // Swap integers
+    let r = swap(1, 2)
+    assert(r.0 == 2)
+    assert(r.1 == 1)
+
+    // Swap floats
+    let s = swap(3.0, 4.0)
+    assert(s.0 == 4.0)
+    assert(s.1 == 3.0)
+}

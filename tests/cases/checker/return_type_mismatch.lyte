@@ -1,0 +1,8 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/return_type_mismatch.lyte:6:18: no solution for f32 == i32
+//     f(x: i32) -> i32 {
+//                      ^
+f(x: i32) -> i32 {
+    return 1.0
+}

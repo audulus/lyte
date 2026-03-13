@@ -1,0 +1,46 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Count down
+    var n = 10
+    var count = 0
+    while n > 0 {
+        n = n - 1
+        count = count + 1
+    }
+    assert(count == 10)
+
+    // Power of 2
+    var x = 1
+    var i = 0
+    while i < 10 {
+        x = x * 2
+        i = i + 1
+    }
+    assert(x == 1024)
+
+    // Sum of squares
+    var sum = 0
+    var j = 1
+    while j <= 5 {
+        sum = sum + j * j
+        j = j + 1
+    }
+    assert(sum == 55)
+
+    // Early exit pattern (manual)
+    var found = -1
+    var k = 0
+    while k < 10 {
+        if k * k == 49 {
+            found = k
+        }
+        k = k + 1
+    }
+    assert(found == 7)
+}

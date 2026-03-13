@@ -1,0 +1,38 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Sum of range
+    var sum = 0
+    for i in 0 .. 100 {
+        sum = sum + i
+    }
+    assert(sum == 4950)
+
+    // Factorial via loop
+    var fact = 1
+    for i in 1 .. 11 {
+        fact = fact * i
+    }
+    assert(fact == 3628800)
+
+    // Count matches
+    var count = 0
+    for i in 0 .. 20 {
+        if i % 3 == 0 {
+            count = count + 1
+        }
+    }
+    assert(count == 7)
+
+    // Zero-length range
+    var x = 42
+    for i in 5 .. 5 {
+        x = 0
+    }
+    assert(x == 42)
+}

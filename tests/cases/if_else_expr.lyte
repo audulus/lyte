@@ -1,0 +1,51 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// 100
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Basic if-else expression
+    let a = if true { 10 } else { 20 }
+    assert(a == 10)
+
+    let b = if false { 10 } else { 20 }
+    assert(b == 20)
+
+    // Nested if-else expression
+    let c = if true { if false { 1 } else { 2 } } else { 3 }
+    assert(c == 2)
+
+    // Deeply nested
+    let d = if true { if true { if true { 42 } else { 0 } } else { 0 } } else { 0 }
+    assert(d == 42)
+
+    // if-else expression as function argument
+    print(if true { 100 } else { 200 })
+
+    // if-else with function call returning value
+    assert(pick(true) == 100)
+    assert(pick(false) == 200)
+
+    // if-else with boolean result
+    let flag = if true { true } else { false }
+    assert(flag)
+
+    // if-else expression with variables
+    let z = min(5, 10)
+    assert(z == 5)
+}
+
+pick(c: bool) -> i32 {
+    return if c { 100 } else { 200 }
+}
+
+min(a: i32, b: i32) -> i32 {
+    return if a < b { a } else { b }
+}

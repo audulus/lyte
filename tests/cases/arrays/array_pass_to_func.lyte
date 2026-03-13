@@ -1,0 +1,41 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+sum5(a: [i32; 5]) -> i32 {
+    var s = 0
+    for i in 0 .. 5 {
+        s = s + a[i]
+    }
+    return s
+}
+
+max5(a: [i32; 5]) -> i32 {
+    var m = a[0]
+    for i in 1 .. 5 {
+        if a[i] > m {
+            m = a[i]
+        }
+    }
+    return m
+}
+
+main {
+    var arr: [i32; 5]
+    for i in 0 .. 5 {
+        arr[i] = (i + 1) * 10
+    }
+    assert(sum5(arr) == 150)
+    assert(max5(arr) == 50)
+
+    // Different array
+    var arr2: [i32; 5]
+    arr2[0] = 3
+    arr2[1] = 1
+    arr2[2] = 4
+    arr2[3] = 1
+    arr2[4] = 5
+    assert(max5(arr2) == 5)
+}

@@ -1,0 +1,28 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Unary minus on literals
+    assert(-1 == 0 - 1)
+    assert(-42 == 0 - 42)
+
+    // Unary minus on variables
+    var a = 5
+    var b = -a
+    assert(b == -5)
+
+    // Double negation
+    assert(-(-a) == a)
+
+    // Negation in expressions
+    assert(-a + 10 == 5)
+
+    // Negation of zero
+    assert(-0 == 0)
+}

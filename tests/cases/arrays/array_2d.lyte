@@ -1,0 +1,23 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // 2D array (array of arrays)
+    var grid: [[i32; 3]; 3]
+
+    // Fill with multiplication table
+    for i in 0 .. 3 {
+        for j in 0 .. 3 {
+            grid[i][j] = (i + 1) * (j + 1)
+        }
+    }
+
+    assert(grid[0][0] == 1)
+    assert(grid[1][1] == 4)
+    assert(grid[2][2] == 9)
+    assert(grid[1][2] == 6)
+}

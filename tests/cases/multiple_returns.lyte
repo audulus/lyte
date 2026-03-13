@@ -1,0 +1,41 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+classify(n: i32) -> i32 {
+    if n == 0 { return 0 }
+    if n > 0 { return 1 }
+    return -1
+}
+
+clamp(n: i32, lo: i32, hi: i32) -> i32 {
+    if n < lo { return lo }
+    if n > hi { return hi }
+    return n
+}
+
+abs(n: i32) -> i32 {
+    if n < 0 { return -n }
+    return n
+}
+
+main {
+    // Classify
+    assert(classify(-5) == -1)
+    assert(classify(0) == 0)
+    assert(classify(5) == 1)
+
+    // Clamp
+    assert(clamp(-10, 0, 100) == 0)
+    assert(clamp(50, 0, 100) == 50)
+    assert(clamp(200, 0, 100) == 100)
+
+    // Abs
+    assert(abs(-42) == 42)
+}

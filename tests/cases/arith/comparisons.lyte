@@ -1,0 +1,32 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    var a = 5
+
+    // All comparison operators
+    assert(a > 3)
+    assert(a < 10)
+    assert(a >= 5)
+    assert(a <= 5)
+    assert(a != 4)
+    assert(a == 5)
+
+    // Boundary comparisons
+    assert(a >= 4)
+    assert(a <= 6)
+
+    // Comparisons with expressions
+    assert(a + 1 > a)
+    assert(a - 1 < a)
+}

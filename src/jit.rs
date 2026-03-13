@@ -763,6 +763,9 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Var(name, init, _) => {
                 let ty = &decl.types[expr];
+                // Remove from let_bindings in case this var shadows a let binding
+                // (e.g., a for-loop counter with the same name).
+                self.let_bindings.remove(&name.to_string());
                 let var = self.declare_variable(name, I64);
 
                 let sz = ty.size(decls) as u32;
@@ -946,6 +949,24 @@ impl<'a> FunctionTranslator<'a> {
                 let else_block = self.builder.create_block();
                 let merge_block = self.builder.create_block();
 
+                // Determine if this if-else produces a value. Both branches must
+                // have the same concrete (non-void) type for the result to be usable.
+                let result_ty = decl.types[expr];
+                let is_value = if let Some(else_expr_id) = else_id {
+                    let else_ty = decl.types[*else_expr_id];
+                    !matches!(
+                        &*result_ty,
+                        crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
+                    ) && result_ty == else_ty
+                } else {
+                    false
+                };
+
+                if is_value {
+                    let cl_ty = result_ty.cranelift_type();
+                    self.builder.append_block_param(merge_block, cl_ty);
+                }
+
                 // Branch based on condition.
                 self.builder
                     .ins()
@@ -954,32 +975,40 @@ impl<'a> FunctionTranslator<'a> {
                 // Then block.
                 self.builder.switch_to_block(then_block);
                 self.builder.seal_block(then_block);
-                let _then_val = self.translate_expr(*then_id, decl, decls);
-                // Only jump if block is not already terminated (e.g., by a return).
+                let then_val = self.translate_expr(*then_id, decl, decls);
                 if !self.builder.is_unreachable() {
-                    self.builder.ins().jump(merge_block, &[]);
+                    if is_value {
+                        self.builder.ins().jump(merge_block, &[codegen::ir::BlockArg::Value(then_val)]);
+                    } else {
+                        self.builder.ins().jump(merge_block, &[]);
+                    }
                 }
 
                 // Else block.
                 self.builder.switch_to_block(else_block);
                 self.builder.seal_block(else_block);
-                let _else_val = if let Some(else_expr_id) = else_id {
+                let else_val = if let Some(else_expr_id) = else_id {
                     self.translate_expr(*else_expr_id, decl, decls)
                 } else {
                     self.builder.ins().iconst(I32, 0)
                 };
-                // Only jump if block is not already terminated (e.g., by a return).
                 if !self.builder.is_unreachable() {
-                    self.builder.ins().jump(merge_block, &[]);
+                    if is_value {
+                        self.builder.ins().jump(merge_block, &[codegen::ir::BlockArg::Value(else_val)]);
+                    } else {
+                        self.builder.ins().jump(merge_block, &[]);
+                    }
                 }
 
-                // Merge block - continue execution here.
+                // Merge block.
                 self.builder.switch_to_block(merge_block);
                 self.builder.seal_block(merge_block);
 
-                // Return a dummy value since if-as-statement doesn't produce a value.
-                // If we need if-as-expression, we'd use block parameters.
-                self.builder.ins().iconst(I32, 0)
+                if is_value {
+                    self.builder.block_params(merge_block)[0]
+                } else {
+                    self.builder.ins().iconst(I32, 0)
+                }
             }
             Expr::For {
                 var,
@@ -1856,14 +1885,20 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn declare_variable(&mut self, name: &String, ty: Type) -> Variable {
-        if !self.variables.contains_key(name) {
-            let var = self.builder.declare_var(ty);
-            self.variables.insert(name.into(), var);
-            self.next_index += 1;
-            var
-        } else {
-            *self.variables.get(name).unwrap()
+        if let Some(&existing) = self.variables.get(name) {
+            // If the variable already exists with the same type, reuse it.
+            // If the type differs (e.g., a for-loop counter i32 vs a var binding i64),
+            // create a new variable to shadow the old one.
+            let val = self.builder.use_var(existing);
+            let existing_ty = self.builder.func.dfg.value_type(val);
+            if existing_ty == ty {
+                return existing;
+            }
         }
+        let var = self.builder.declare_var(ty);
+        self.variables.insert(name.into(), var);
+        self.next_index += 1;
+        var
     }
 }
 

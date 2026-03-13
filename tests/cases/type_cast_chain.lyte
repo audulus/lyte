@@ -1,0 +1,35 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+approx(a: f32, b: f32) -> bool {
+    var d = a - b
+    if d < 0.0 { d = 0.0 - d }
+    return d < 0.001
+}
+
+main {
+    // i32 -> f32 -> i32 round trip
+    let a = 42
+    let b = a as f32
+    let c = b as i32
+    assert(c == 42)
+
+    // i32 -> f64 -> i32 round trip
+    let d = 123 as f64
+    let e = d as i32
+    assert(e == 123)
+
+    // f32 truncation
+    assert(3.7 as i32 == 3)
+    assert(3.2 as i32 == 3)
+
+    // i32 -> i8 -> i32 (wrapping)
+    assert((256 as i8) as i32 == 0)
+    assert((127 as i8) as i32 == 127)
+}

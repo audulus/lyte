@@ -1,0 +1,39 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+fib(n: i32) -> i32 {
+    if n <= 1 { return n }
+    return fib(n-1) + fib(n-2)
+}
+
+is_even(n: i32) -> bool {
+    if n == 0 { return true }
+    return is_odd(n - 1)
+}
+
+is_odd(n: i32) -> bool {
+    if n == 0 { return false }
+    return is_even(n - 1)
+}
+
+main {
+    // Fibonacci
+    assert(fib(0) == 0)
+    assert(fib(1) == 1)
+    assert(fib(5) == 5)
+    assert(fib(10) == 55)
+
+    // Mutual recursion
+    assert(is_even(0))
+    assert(is_odd(1))
+    assert(is_even(10))
+    assert(is_odd(7))
+}

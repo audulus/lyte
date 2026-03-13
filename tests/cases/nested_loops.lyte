@@ -1,0 +1,50 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Nested for loops
+    var sum = 0
+    for i in 0 .. 5 {
+        for j in 0 .. 5 {
+            sum = sum + 1
+        }
+    }
+    assert(sum == 25)
+
+    // Nested while loops
+    var product = 0
+    var i = 0
+    while i < 3 {
+        var j = 0
+        while j < 4 {
+            product = product + 1
+            j = j + 1
+        }
+        i = i + 1
+    }
+    assert(product == 12)
+
+    // For loop with while loop nested
+    var count = 0
+    for i in 0 .. 3 {
+        var j = i
+        while j > 0 {
+            count = count + 1
+            j = j - 1
+        }
+    }
+    assert(count == 3)
+
+    // Triangle number via nested loops
+    var tri = 0
+    for i in 0 .. 5 {
+        for j in 0 .. i {
+            tri = tri + 1
+        }
+    }
+    assert(tri == 10)
+}

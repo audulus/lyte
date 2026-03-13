@@ -1,0 +1,30 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+apply(f: i32 -> i32, x: i32) -> i32 {
+    return f(x)
+}
+
+main {
+    // Lambda as argument
+    assert(apply(|x| x * 2, 5) == 10)
+
+    // Lambda with closure
+    var offset = 100
+    var add_offset = |x| x + offset
+    assert(add_offset(5) == 105)
+
+    // Composing lambdas
+    assert(apply(|x| x * 3, apply(|x| x + 1, 2)) == 9)
+
+    // Identity lambda
+    assert(apply(|x| x, 99) == 99)
+
+    // Lambda with multiple operations
+    assert(apply(|x| x * x + x + 1, 3) == 13)
+}

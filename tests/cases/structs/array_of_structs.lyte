@@ -1,0 +1,25 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct Point { x: i32, y: i32 }
+
+main {
+    var points: [Point; 4]
+    for i in 0 .. 4 {
+        points[i].x = i
+        points[i].y = i * 2
+    }
+
+    assert(points[0].x == 0)
+    assert(points[0].y == 0)
+    assert(points[1].x == 1)
+    assert(points[1].y == 2)
+    assert(points[3].x == 3)
+    assert(points[3].y == 6)
+}
