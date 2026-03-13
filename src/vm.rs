@@ -1814,6 +1814,7 @@ impl VM {
 
     /// In debug builds, panic if [ptr, ptr+size) is not within locals or globals.
     #[inline(always)]
+    #[allow(unused_variables)]
     fn check_ptr(&self, ptr: u64, size: usize) {
         #[cfg(debug_assertions)]
         {
