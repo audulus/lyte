@@ -89,7 +89,7 @@
     ldr     x4, [x20, x2, lsl #3]
     \op     x3, x3, x4
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float32 ABC arithmetic: regs[A] = f32(regs[B]) <op> f32(regs[C])
@@ -106,7 +106,7 @@
     \op     s0, s0, s1
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float64 ABC arithmetic: regs[A] = f64(regs[B]) <op> f64(regs[C])
@@ -118,7 +118,7 @@
     ldr     d1, [x20, x2, lsl #3]
     \op     d0, d0, d1
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Integer ABC comparison: regs[A] = (regs[B] <cond> regs[C]) ? 1 : 0
@@ -131,7 +131,7 @@
     cmp     x3, x4
     cset    x3, \cond
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float32 ABC comparison: regs[A] = (f32(regs[B]) <cond> f32(regs[C])) ? 1 : 0
@@ -146,7 +146,7 @@
     fcmp    s0, s1
     cset    x3, \cond
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float64 ABC comparison
@@ -159,7 +159,17 @@
     fcmp    d0, d1
     cset    x3, \cond
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
+.endm
+
+// Threaded dispatch: inline the dispatch sequence at end of each handler.
+// This gives each handler its own indirect branch, improving branch prediction.
+.macro next
+    ldr     w16, [x19, x21, lsl #2]
+    add     x21, x21, #1
+    and     w17, w16, #0xff
+    ldr     x17, [x25, x17, lsl #3]
+    br      x17
 .endm
 
 // Float32 unary math (calls libm): regs[A] = func(f32(regs[B]))
@@ -172,7 +182,7 @@
     bl      \func
     fmov    w0, s0
     str     x0, [x20, x27, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float64 unary math: regs[A] = func(f64(regs[B]))
@@ -182,7 +192,7 @@
     ldr     d0, [x20, x1, lsl #3]
     bl      \func
     str     d0, [x20, x27, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float32 binary math: regs[A] = func(f32(regs[B]), f32(regs[C]))
@@ -197,7 +207,7 @@
     bl      \func
     fmov    w0, s0
     str     x0, [x20, x27, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // Float64 binary math: regs[A] = func(f64(regs[B]), f64(regs[C]))
@@ -209,7 +219,7 @@
     ldr     d1, [x20, x2, lsl #3]
     bl      \func
     str     d0, [x20, x27, lsl #3]
-    b       Ldispatch
+    next
 .endm
 
 // =============================================================================
@@ -278,7 +288,7 @@ Lcancelled:
 // 0: NOP
 // =============================================================================
 Lop_nop:
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 1: HALT — return regs[0]
@@ -295,7 +305,7 @@ Lop_move:
     extract_b w1
     ldr     x2, [x20, x1, lsl #3]
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 3: LOAD_IMM — regs[A] = sign_extend(D)
@@ -304,7 +314,7 @@ Lop_load_imm:
     extract_a w0
     extract_d x1
     str     x1, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 4: LOAD_F32 — regs[A] = f32_pool[Du]
@@ -316,7 +326,7 @@ Lop_load_f32:
     ldr     s0, [x2, x1, lsl #2]       // f32_pool[Du]
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]      // zero-extended
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 5: LOAD_CONST — regs[A] = constants[Du]
@@ -327,7 +337,7 @@ Lop_load_const:
     ldr     x2, [x24, #CTX_CONSTANTS]
     ldr     x3, [x2, x1, lsl #3]
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 6-13: Integer arithmetic
@@ -348,7 +358,7 @@ Lop_idiv:
     cbz     x4, Ldiv_by_zero
     sdiv    x3, x3, x4
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_udiv:
     extract_a w0
@@ -359,7 +369,7 @@ Lop_udiv:
     cbz     x4, Ldiv_by_zero
     udiv    x3, x3, x4
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_irem:
     extract_a w0
@@ -371,7 +381,7 @@ Lop_irem:
     sdiv    x5, x3, x4
     msub    x3, x5, x4, x3             // rem = a - (a/b)*b
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_ipow:
     extract_a w0
@@ -392,7 +402,7 @@ Lipow_skip:
     cbnz    w4, Lipow_loop
 Lipow_done:
     str     x5, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_ineg:
     extract_a w0
@@ -400,7 +410,7 @@ Lop_ineg:
     ldr     x2, [x20, x1, lsl #3]
     neg     x2, x2
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // 14: IADD_IMM — regs[A] = regs[B] + sign_extend(C as i8)
 Lop_iadd_imm:
@@ -410,7 +420,7 @@ Lop_iadd_imm:
     ldr     x3, [x20, x1, lsl #3]
     add     x3, x3, x2
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Ldiv_by_zero:
     brk     #1                          // trap: division by zero
@@ -435,7 +445,7 @@ Lop_fneg:
     fneg    s0, s0
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_fpow:
     f32_binary_math _powf
@@ -458,7 +468,7 @@ Lop_dneg:
     ldr     d0, [x20, x1, lsl #3]
     fneg    d0, d0
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_dpow:
     f64_binary_math _pow
@@ -479,7 +489,7 @@ Lop_not:
     ldr     x2, [x20, x1, lsl #3]
     mvn     x2, x2
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_shl:
     extract_a w0
@@ -490,7 +500,7 @@ Lop_shl:
     and     x4, x4, #63
     lsl     x3, x3, x4
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_shr:
     extract_a w0
@@ -501,7 +511,7 @@ Lop_shr:
     and     x4, x4, #63
     asr     x3, x3, x4                 // arithmetic shift (signed)
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_ushr:
     extract_a w0
@@ -512,7 +522,7 @@ Lop_ushr:
     and     x4, x4, #63
     lsr     x3, x3, x4                 // logical shift (unsigned)
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 34-38: Integer comparisons
@@ -564,10 +574,10 @@ Lmem_eq_loop:
 Lmem_eq_true:
     mov     x3, #1
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 Lmem_eq_false:
     str     xzr, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_mem_ne:
     extract_a w0
@@ -589,11 +599,11 @@ Lmem_ne_loop:
     b.lt    Lmem_ne_loop
 Lmem_ne_equal:
     str     xzr, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 Lmem_ne_diff:
     mov     x3, #1
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 45-47: Float64 comparisons
@@ -615,7 +625,7 @@ Lop_i32_to_f32:
     scvtf   s0, w2                      // i32 -> f32
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_f32_to_i32:
     extract_a w0
@@ -625,7 +635,7 @@ Lop_f32_to_i32:
     fcvtzs  w2, s0                      // f32 -> i32 (truncate)
     sxtw    x2, w2                      // sign-extend to i64
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_i32_to_f64:
     extract_a w0
@@ -633,7 +643,7 @@ Lop_i32_to_f64:
     ldr     x2, [x20, x1, lsl #3]
     scvtf   d0, w2                      // i32 -> f64
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_f64_to_i32:
     extract_a w0
@@ -642,7 +652,7 @@ Lop_f64_to_i32:
     fcvtzs  w2, d0                      // f64 -> i32 (truncate)
     sxtw    x2, w2                      // sign-extend to i64
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_f32_to_f64:
     extract_a w0
@@ -651,7 +661,7 @@ Lop_f32_to_f64:
     ldr     s0, [x3]
     fcvt    d0, s0                      // f32 -> f64
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_f64_to_f32:
     extract_a w0
@@ -660,7 +670,7 @@ Lop_f64_to_f32:
     fcvt    s0, d0                      // f64 -> f32
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 54-58: Memory loads
@@ -671,7 +681,7 @@ Lop_load8:
     ldr     x2, [x20, x1, lsl #3]      // ptr
     ldrb    w3, [x2]                    // load byte (zero-extends to x3)
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_load32:
     extract_a w0
@@ -679,7 +689,7 @@ Lop_load32:
     ldr     x2, [x20, x1, lsl #3]
     ldrsw   x3, [x2]                   // load i32, sign-extend to i64
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_load64:
     extract_a w0
@@ -687,7 +697,7 @@ Lop_load64:
     ldr     x2, [x20, x1, lsl #3]
     ldr     x3, [x2]
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_load32_off:
     extract_a w0
@@ -697,7 +707,7 @@ Lop_load32_off:
     add     x3, x3, x2                 // base + offset (u8)
     ldrsw   x4, [x3]
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_load64_off:
     extract_a w0
@@ -707,7 +717,7 @@ Lop_load64_off:
     add     x3, x3, x2
     ldr     x4, [x3]
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 59-64: Memory stores
@@ -718,7 +728,7 @@ Lop_store8:
     ldr     x2, [x20, x0, lsl #3]      // ptr (in A for stores)
     ldr     x3, [x20, x1, lsl #3]      // value
     strb    w3, [x2]
-    b       Ldispatch
+    next
 
 Lop_store32:
     extract_a w0
@@ -726,7 +736,7 @@ Lop_store32:
     ldr     x2, [x20, x0, lsl #3]
     ldr     x3, [x20, x1, lsl #3]
     str     w3, [x2]
-    b       Ldispatch
+    next
 
 Lop_store64:
     extract_a w0
@@ -734,7 +744,7 @@ Lop_store64:
     ldr     x2, [x20, x0, lsl #3]
     ldr     x3, [x20, x1, lsl #3]
     str     x3, [x2]
-    b       Ldispatch
+    next
 
 Lop_store8_off:
     extract_a w0
@@ -743,7 +753,7 @@ Lop_store8_off:
     ldr     x3, [x20, x0, lsl #3]      // base ptr
     ldr     x4, [x20, x1, lsl #3]      // value
     strb    w4, [x3, x2]
-    b       Ldispatch
+    next
 
 Lop_store32_off:
     extract_a w0
@@ -752,7 +762,7 @@ Lop_store32_off:
     ldr     x3, [x20, x0, lsl #3]
     ldr     x4, [x20, x1, lsl #3]
     str     w4, [x3, x2]
-    b       Ldispatch
+    next
 
 Lop_store64_off:
     extract_a w0
@@ -761,7 +771,7 @@ Lop_store64_off:
     ldr     x3, [x20, x0, lsl #3]
     ldr     x4, [x20, x1, lsl #3]
     str     x4, [x3, x2]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 65: LOCAL_ADDR — regs[A] = locals_ptr + locals_base + Du*8
@@ -772,7 +782,7 @@ Lop_local_addr:
     add     x2, x23, x22               // locals_ptr + locals_base
     add     x2, x2, x1, lsl #3         // + slot * 8
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 66: GLOBAL_ADDR — regs[A] = globals_ptr + Du
@@ -782,7 +792,7 @@ Lop_global_addr:
     extract_du w1
     add     x2, x26, x1                // globals_ptr + offset
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 67-71: Control flow (jumps)
@@ -791,7 +801,7 @@ Lop_jump:
     extract_d x0                        // signed offset
     add     x21, x21, x0               // ip += offset
     tbnz    x0, #63, Lcheck_cancel     // backward jump? check cancel
-    b       Ldispatch
+    next
 
 Lop_jump_if_zero:
     extract_a w0
@@ -800,7 +810,7 @@ Lop_jump_if_zero:
     extract_d x0
     add     x21, x21, x0
     tbnz    x0, #63, Lcheck_cancel
-    b       Ldispatch
+    next
 
 Lop_jump_if_not_zero:
     extract_a w0
@@ -809,7 +819,7 @@ Lop_jump_if_not_zero:
     extract_d x0
     add     x21, x21, x0
     tbnz    x0, #63, Lcheck_cancel
-    b       Ldispatch
+    next
 
 // ILT_JUMP: jump if regs[A] >= regs[B] (i.e., NOT less-than)
 Lop_ilt_jump:
@@ -822,7 +832,7 @@ Lop_ilt_jump:
     sbfx    x0, x16, #24, #8           // C as signed i8 offset
     add     x21, x21, x0
     tbnz    x0, #63, Lcheck_cancel
-    b       Ldispatch
+    next
 
 // FLT_JUMP: jump if f32(regs[A]) >= f32(regs[B])
 Lop_flt_jump:
@@ -837,13 +847,13 @@ Lop_flt_jump:
     sbfx    x0, x16, #24, #8           // C as signed i8 offset
     add     x21, x21, x0
     tbnz    x0, #63, Lcheck_cancel
-    b       Ldispatch
+    next
 
 Lcheck_cancel:
     ldr     x1, [x24, #CTX_CANCELLED_PTR]
     ldrb    w2, [x1]
     cbnz    w2, Lcancelled
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 72: CALL — A=args_start, B=arg_count, C=func_idx
@@ -896,7 +906,7 @@ Lcall_args_done:
     ldr     x9, [x24, #CTX_LOCALS_CAP]
     cmp     x8, x9
     b.hi    Lcall_grow
-    b       Ldispatch
+    next
 
 Lcall_grow:
     str     x21, [x24, #CTX_IP]
@@ -907,7 +917,7 @@ Lcall_grow:
     blr     x2
     ldr     x23, [x24, #CTX_LOCALS_PTR]
     ldr     x9, [x24, #CTX_LOCALS_CAP]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 73: CALL_INDIRECT — A=func_reg, B=args_start, C=arg_count
@@ -952,7 +962,7 @@ Lcalli_args_done:
     str     x0, [x24, #CTX_CURRENT_FUNC]
     ldr     x3, [x24, #CTX_FUNC_OFFSETS]
     ldr     x21, [x3, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 74: RETURN
@@ -969,7 +979,7 @@ Lop_return:
     ldr     x21, [x1, #FRAME_IP]
     ldr     x22, [x1, #FRAME_LOCALS_BASE]
     str     x3, [x24, #CTX_CURRENT_FUNC]
-    b       Ldispatch
+    next
 
 Lreturn_exit:
     ldr     x0, [x20]                  // regs[0]
@@ -993,7 +1003,7 @@ Lop_return_reg:
     ldr     x21, [x1, #FRAME_IP]
     ldr     x22, [x1, #FRAME_LOCALS_BASE]
     str     x3, [x24, #CTX_CURRENT_FUNC]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 76: ALLOC_LOCALS — zero locals[locals_base..locals_base+Du]
@@ -1024,7 +1034,7 @@ Lalloc_byte:
     strb    wzr, [x4], #1
     subs    w1, w1, #1
     b.ne    Lalloc_byte
-    b       Ldispatch
+    next
 
 Lalloc_grow:
     str     x21, [x24, #CTX_IP]
@@ -1036,7 +1046,7 @@ Lalloc_grow:
     ldr     x23, [x24, #CTX_LOCALS_PTR]
     // Re-read size and redo the zero
     sub     x21, x21, #1               // back up ip to re-execute
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 77: MEM_COPY — copy C bytes from regs[B] to regs[A]
@@ -1053,7 +1063,7 @@ Lmemcpy_loop:
     strb    w5, [x3], #1
     subs    w2, w2, #1
     b.ne    Lmemcpy_loop
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 78: MEM_ZERO — zero Du bytes at regs[A]
@@ -1067,7 +1077,7 @@ Lmemzero_loop:
     strb    wzr, [x2], #1
     subs    w1, w1, #1
     b.ne    Lmemzero_loop
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 79: SAVE_REGS — save regs[A..A+B) to locals at base=locals_base+C*8
@@ -1087,7 +1097,7 @@ Lsave_loop:
     add     w4, w4, #1
     cmp     w4, w1
     b.lt    Lsave_loop
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 80: RESTORE_REGS — restore regs[A..A+B) from locals at base=locals_base+C*8
@@ -1107,7 +1117,7 @@ Lrestore_loop:
     add     w4, w4, #1
     cmp     w4, w1
     b.lt    Lrestore_loop
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 81: PRINT_I32
@@ -1117,7 +1127,7 @@ Lop_print_i32:
     ldr     x0, [x20, x0, lsl #3]      // val as i64
     ldr     x1, [x24, #CTX_FN_PRINT_I32]
     blr     x1
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 82: PRINT_F32
@@ -1128,7 +1138,7 @@ Lop_print_f32:
     ldr     w0, [x1]                    // f32 bits (low 32)
     ldr     x1, [x24, #CTX_FN_PRINT_F32]
     blr     x1
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 83: ASSERT
@@ -1140,7 +1150,7 @@ Lop_assert:
     ldr     x2, [x24, #CTX_FN_ASSERT]
     blr     x2
     cbnz    x0, Lassert_fail
-    b       Ldispatch
+    next
 Lassert_fail:
     mov     x0, #1
     b       Lexit
@@ -1153,7 +1163,7 @@ Lop_putc:
     ldr     x0, [x20, x0, lsl #3]
     ldr     x1, [x24, #CTX_FN_PUTC]
     blr     x1
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 85-105: Float32 unary math builtins
@@ -1201,7 +1211,7 @@ Lop_sqrt_f32:
     fsqrt   s0, s0
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_abs_f32:
     extract_a w0
@@ -1211,7 +1221,7 @@ Lop_abs_f32:
     fabs    s0, s0
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_floor_f32:
     extract_a w0
@@ -1221,7 +1231,7 @@ Lop_floor_f32:
     frintm  s0, s0
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_ceil_f32:
     extract_a w0
@@ -1231,7 +1241,7 @@ Lop_ceil_f32:
     frintp  s0, s0
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 106-126: Float64 unary math builtins
@@ -1277,7 +1287,7 @@ Lop_sqrt_f64:
     ldr     d0, [x20, x1, lsl #3]
     fsqrt   d0, d0
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_abs_f64:
     extract_a w0
@@ -1285,7 +1295,7 @@ Lop_abs_f64:
     ldr     d0, [x20, x1, lsl #3]
     fabs    d0, d0
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_floor_f64:
     extract_a w0
@@ -1293,7 +1303,7 @@ Lop_floor_f64:
     ldr     d0, [x20, x1, lsl #3]
     frintm  d0, d0
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_ceil_f64:
     extract_a w0
@@ -1301,7 +1311,7 @@ Lop_ceil_f64:
     ldr     d0, [x20, x1, lsl #3]
     frintp  d0, d0
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 127-130: Float predicates
@@ -1316,7 +1326,7 @@ Lop_isinf_f32:
     cmp     w2, w3
     cset    x4, eq
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_isinf_f64:
     extract_a w0
@@ -1327,7 +1337,7 @@ Lop_isinf_f64:
     cmp     x2, x3
     cset    x4, eq
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_isnan_f32:
     extract_a w0
@@ -1337,7 +1347,7 @@ Lop_isnan_f32:
     fcmp    s0, s0                      // NaN != NaN
     cset    x4, ne                      // ne if unordered (NaN)
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_isnan_f64:
     extract_a w0
@@ -1346,7 +1356,7 @@ Lop_isnan_f64:
     fcmp    d0, d0
     cset    x4, ne
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 131-134: Float32 binary math
@@ -1367,7 +1377,7 @@ Lop_min_f32:
     fmin    s0, s0, s1
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_max_f32:
     extract_a w0
@@ -1380,7 +1390,7 @@ Lop_max_f32:
     fmax    s0, s0, s1
     fmov    w3, s0
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 135-138: Float64 binary math
@@ -1398,7 +1408,7 @@ Lop_min_f64:
     ldr     d1, [x20, x2, lsl #3]
     fmin    d0, d0, d1
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_max_f64:
     extract_a w0
@@ -1408,7 +1418,7 @@ Lop_max_f64:
     ldr     d1, [x20, x2, lsl #3]
     fmax    d0, d0, d1
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 139: LOAD_SLOT32 — fused LocalAddr + Load32
@@ -1420,7 +1430,7 @@ Lop_load_slot32:
     add     x2, x2, x1, lsl #3         // + slot * 8
     ldrsw   x3, [x2]                   // load i32, sign-extend
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 140: STORE_SLOT32 — fused LocalAddr + Store32
@@ -1432,7 +1442,7 @@ Lop_store_slot32:
     add     x2, x2, x1, lsl #3
     ldr     x3, [x20, x0, lsl #3]
     str     w3, [x2]                   // store as i32
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 141: LOAD_IMM_WIDE — regs[A] = wide_i64[Du]
@@ -1443,7 +1453,7 @@ Lop_load_imm_wide:
     ldr     x2, [x24, #CTX_WIDE_I64]
     ldr     x3, [x2, x1, lsl #3]
     str     x3, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 142: LOAD_F64_WIDE — regs[A] = wide_f64[Du]
@@ -1454,7 +1464,7 @@ Lop_load_f64_wide:
     ldr     x2, [x24, #CTX_WIDE_F64]
     ldr     d0, [x2, x1, lsl #3]
     str     d0, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 143-144: Wide offset loads (AB + data word for offset)
@@ -1470,7 +1480,7 @@ Lop_load32_off_wide:
     add     x3, x3, x2
     ldrsw   x4, [x3]
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_load64_off_wide:
     extract_a w0
@@ -1482,7 +1492,7 @@ Lop_load64_off_wide:
     add     x3, x3, x2
     ldr     x4, [x3]
     str     x4, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 145-147: Wide offset stores
@@ -1497,7 +1507,7 @@ Lop_store8_off_wide:
     sxtw    x2, w2
     add     x3, x3, x2
     strb    w4, [x3]
-    b       Ldispatch
+    next
 
 Lop_store32_off_wide:
     extract_a w0
@@ -1509,7 +1519,7 @@ Lop_store32_off_wide:
     sxtw    x2, w2
     add     x3, x3, x2
     str     w4, [x3]
-    b       Ldispatch
+    next
 
 Lop_store64_off_wide:
     extract_a w0
@@ -1521,7 +1531,7 @@ Lop_store64_off_wide:
     sxtw    x2, w2
     add     x3, x3, x2
     str     x4, [x3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 148: MEM_COPY_WIDE — copy next_word bytes from regs[B] to regs[A]
@@ -1539,7 +1549,7 @@ Lmcw_loop:
     strb    w5, [x3], #1
     subs    w2, w2, #1
     b.ne    Lmcw_loop
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 149-150: SAVE_REGS_WIDE / RESTORE_REGS_WIDE
@@ -1560,7 +1570,7 @@ Lsrw_loop:
     add     w4, w4, #1
     cmp     w4, w1
     b.lt    Lsrw_loop
-    b       Ldispatch
+    next
 
 Lop_restore_regs_wide:
     extract_a w0
@@ -1578,7 +1588,7 @@ Lrrw_loop:
     add     w4, w4, #1
     cmp     w4, w1
     b.lt    Lrrw_loop
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 151-153: More type conversions
@@ -1589,7 +1599,7 @@ Lop_i32_to_i8:
     ldr     x2, [x20, x1, lsl #3]
     sxtb    x2, w2                      // sign-extend low 8 bits to 64
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_i8_to_i32:
     extract_a w0
@@ -1598,7 +1608,7 @@ Lop_i8_to_i32:
     sxtb    w2, w2                      // sign-extend i8 to i32
     sxtw    x2, w2                      // sign-extend i32 to i64
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 Lop_i64_to_u32:
     extract_a w0
@@ -1615,7 +1625,7 @@ Lop_i64_to_u32:
     // then as u64 is bitwise same
     // So result is just the low 32 bits, zero-extended.
     str     x2, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 154: CALL_CLOSURE — A=fat_ptr_reg, B=args_start, C=arg_count
@@ -1670,7 +1680,7 @@ Lcloscall_args_done:
     ldr     x9, [x24, #CTX_LOCALS_CAP]
     cmp     x8, x9
     b.hi    Lcall_grow
-    b       Ldispatch
+    next
 
 // =============================================================================
 // 155: GET_CLOSURE_PTR — regs[A] = closure_ptr
@@ -1679,7 +1689,7 @@ Lop_get_closure_ptr:
     extract_a w0
     ldr     x1, [x24, #CTX_CLOSURE_PTR]
     str     x1, [x20, x0, lsl #3]
-    b       Ldispatch
+    next
 
 // =============================================================================
 // Invalid opcode handler
