@@ -1,0 +1,46 @@
+  1. Coverage gaps by category                                                                                       
+                                                                                                                     
+  - Lexer: Only 1 unit test, and the fuzzer just checks for crashes, not correctness. Adding lexer unit tests for    
+  edge cases (unicode, nested comments, numeric literals, string escapes) would help.                                
+  - Loops: Only 2 golden tests — for and while loops probably deserve more coverage (nested loops, break/continue if 
+  supported, loop with early returns).                                                                               
+  - Globals: Only 2 golden tests — could test global mutation, ordering, shadowing.                                  
+  - Enums: Only 3 golden tests — pattern matching, nested enums, generic enums could use more coverage.              
+                                                                                                                     
+  2. Fuzzing the checker and compiler                                                                                
+
+  The fuzz targets stop at the parser. A third target that runs the full pipeline (parse → check → compile → run) on
+  fuzz input would catch crashes deeper in the stack, especially in the type solver and codegen.
+
+  3. Error message tests
+
+  There are only 9 tests in checker/. Adding more negative tests (programs that should fail) would verify that error
+  messages are stable and helpful — especially for type inference failures, arity mismatches, and interface
+  constraint violations.
+
+  4. Property-based / round-trip tests
+
+  - Parser round-trip: Parse → pretty-print → re-parse and check AST equality.
+  - VM/JIT equivalence: Automatically run the same programs on both backends and assert identical output (the golden
+  tests do this, but a programmatic property test could generate random valid programs).
+
+  5. Safety checker coverage
+
+  46 unit tests is good, but the golden tests in arrays/ could be expanded to test more bounds-checking edge cases
+  (e.g., aliased array indices, bounds in nested loops, slices of slices).
+
+  6. Regression test workflow
+
+  There's no mechanism to easily add a regression test from a bug report. A script like ./add_test.sh
+  tests/cases/regression/issue_42.lyte that scaffolds the file with the right directives would lower the friction.
+
+  7. CI improvements
+
+  - CI doesn't run the benchmarks — even a single-iteration smoke test would catch benchmark regressions.
+  - No fuzzing in CI (even a short 30-second run per target would catch regressions).
+  - No macOS CI job despite the project being developed on macOS.
+
+  What would you like to focus on?
+
+  I'd recommend starting with either more fuzzing depth (target #2) or expanding error/negative tests (target #3), as
+   those tend to catch the most real bugs per effort invested. Want me to implement any of these?
