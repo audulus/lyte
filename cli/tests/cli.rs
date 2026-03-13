@@ -28,3 +28,9 @@ fn golden_tests_llvm() -> goldentests::TestResult<()> {
 fn golden_tests_vm() -> goldentests::TestResult<()> {
     run_golden_tests("vm")
 }
+
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn golden_tests_asm() -> goldentests::TestResult<()> {
+    run_golden_tests("asm")
+}

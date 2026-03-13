@@ -60,6 +60,7 @@ C_O2_TIME=$(avg benchmark/biquad_c_o2)
 C_O3_TIME=$(avg benchmark/biquad_c_o3)
 LYTE_JIT=$(avg "$LYTE --backend jit benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
 LYTE_VM=$(avg "$LYTE --backend vm benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
+LYTE_ASM=$(avg "$LYTE --backend asm benchmark/biquad.lyte --timing 2>&1 | grep 'asm exec:'")
 if [ "$HAS_LLVM" = "1" ]; then
     LYTE_LLVM=$(avg "$LYTE --backend llvm benchmark/biquad.lyte --timing 2>&1 | grep 'llvm exec:'")
 else
@@ -87,6 +88,7 @@ row() {
 row "Lua 5.5"           "$LUA"        "$LUA"
 row "LuaJIT (interp)"   "$LUAJIT_INT" "$LUA"
 row "Lyte VM"           "$LYTE_VM"    "$LUA"
+row "Lyte VM (ARM64)"   "$LYTE_ASM"   "$LUA"
 row "LuaJIT (JIT)"      "$LUAJIT_JIT" "$LUA"
 row "Lyte JIT"          "$LYTE_JIT"   "$LUA"
 row "Lyte LLVM"         "$LYTE_LLVM"  "$LUA"

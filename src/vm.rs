@@ -16,7 +16,7 @@ use std::fmt;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-struct PackedOp(u32);
+pub(crate) struct PackedOp(pub(crate) u32);
 
 impl PackedOp {
     /// ABC format: 3 register operands (u8)
@@ -75,7 +75,7 @@ impl PackedOp {
 }
 
 // Tag constants — one per opcode variant
-mod tags {
+pub(crate) mod tags {
     pub const NOP: u8 = 0;
     pub const HALT: u8 = 1;
     pub const MOVE: u8 = 2;
@@ -245,20 +245,20 @@ mod tags {
 }
 
 /// Linked program: all function code flattened into packed bytecode
-struct LinkedProgram {
-    ops: Vec<PackedOp>,
-    func_offsets: Vec<usize>,
-    func_locals: Vec<u32>,
+pub(crate) struct LinkedProgram {
+    pub(crate) ops: Vec<PackedOp>,
+    pub(crate) func_offsets: Vec<usize>,
+    pub(crate) func_locals: Vec<u32>,
     /// Pool for i64 values that don't fit in 16-bit immediate
-    wide_i64: Vec<i64>,
+    pub(crate) wide_i64: Vec<i64>,
     /// Pool for f64 values
-    wide_f64: Vec<f64>,
+    pub(crate) wide_f64: Vec<f64>,
     /// Pool for f32 values (can't fit 32-bit f32 in 16-bit D field)
-    f32_pool: Vec<f32>,
+    pub(crate) f32_pool: Vec<f32>,
 }
 
 impl LinkedProgram {
-    fn from_program(program: &VMProgram) -> Self {
+    pub(crate) fn from_program(program: &VMProgram) -> Self {
         let mut ops = Vec::new();
         let mut func_offsets = Vec::with_capacity(program.functions.len());
         let mut func_locals = Vec::with_capacity(program.functions.len());
@@ -1678,10 +1678,10 @@ struct CallFrame {
 /// The virtual machine state
 pub struct VM {
     /// 256 general-purpose registers (64-bit each)
-    registers: [u64; 256],
+    pub(crate) registers: [u64; 256],
 
     /// Memory for local variables (stack-allocated per frame)
-    locals: Vec<u8>,
+    pub(crate) locals: Vec<u8>,
 
     /// Call stack
     call_stack: Vec<CallFrame>,
@@ -1690,13 +1690,13 @@ pub struct VM {
     heap: Vec<u8>,
 
     /// Global variable memory (zero-initialized)
-    globals: Vec<u8>,
+    pub(crate) globals: Vec<u8>,
 
     /// Current instruction pointer
     ip: usize,
 
     /// Current function index
-    current_func: FuncIdx,
+    pub(crate) current_func: FuncIdx,
 
     /// Base pointer for current frame's locals
     locals_base: usize,

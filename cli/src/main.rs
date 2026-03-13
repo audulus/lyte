@@ -113,12 +113,16 @@ fn run(args: Args) -> i32 {
     let should_run = !args.check && !args.ast && !args.bytecode;
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     let run_vm = should_run && backend == "vm";
+    #[cfg(target_arch = "aarch64")]
+    let run_asm = should_run && backend == "asm";
+    #[cfg(not(target_arch = "aarch64"))]
+    let run_asm = false;
     #[cfg(feature = "llvm")]
     let run_llvm = should_run && backend == "llvm";
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
 
-    if run_jit || run_vm || run_llvm || args.bytecode {
+    if run_jit || run_vm || run_asm || run_llvm || args.bytecode {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -172,7 +176,7 @@ fn run(args: Args) -> i32 {
             }
         }
 
-        if run_vm {
+        if run_vm || run_asm {
             let vm_compile_start = Instant::now();
             let program = match compiler.compile_vm() {
                 Ok(p) => p,
@@ -183,10 +187,12 @@ fn run(args: Args) -> i32 {
             };
             let vm_compile_elapsed = vm_compile_start.elapsed();
             if args.timing {
+                let label = if run_asm { "asm" } else { "vm" };
                 eprintln!(
-                    "compile: {:.0}µs (front {:.0}µs + vm codegen {:.0}µs)",
+                    "compile: {:.0}µs (front {:.0}µs + {} codegen {:.0}µs)",
                     compile_elapsed.as_micros() as f64 + vm_compile_elapsed.as_micros() as f64,
                     compile_elapsed.as_micros(),
+                    label,
                     vm_compile_elapsed.as_micros()
                 );
             }
@@ -194,10 +200,19 @@ fn run(args: Args) -> i32 {
             println!("compilation successful");
             let start = Instant::now();
             let mut vm = lyte::vm::VM::new();
-            let _result = vm.run(&program);
-            let elapsed = start.elapsed();
-            if args.timing {
-                eprintln!("vm exec: {:.3}s", elapsed.as_secs_f64());
+            if run_asm {
+                #[cfg(target_arch = "aarch64")]
+                {
+                    let _result = vm.run_asm(&program);
+                }
+                if args.timing {
+                    eprintln!("asm exec: {:.3}s", start.elapsed().as_secs_f64());
+                }
+            } else {
+                let _result = vm.run(&program);
+                if args.timing {
+                    eprintln!("vm exec: {:.3}s", start.elapsed().as_secs_f64());
+                }
             }
         }
     }
