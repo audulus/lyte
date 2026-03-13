@@ -1386,6 +1386,15 @@ impl<'a> FunctionTranslator<'a> {
                         size,
                     });
                 }
+                Type::Slice(elem) => {
+                    let elem_size = elem.size(self.decls) as u32;
+                    func.emit(Opcode::SliceEq {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                        elem_size,
+                    });
+                }
                 _ => {
                     func.emit(Opcode::IEq {
                         dst,
@@ -1410,6 +1419,15 @@ impl<'a> FunctionTranslator<'a> {
                         a: lhs,
                         b: rhs,
                         size,
+                    });
+                }
+                Type::Slice(elem) => {
+                    let elem_size = elem.size(self.decls) as u32;
+                    func.emit(Opcode::SliceNe {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                        elem_size,
                     });
                 }
                 _ => {

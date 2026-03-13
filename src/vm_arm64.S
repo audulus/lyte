@@ -606,6 +606,76 @@ Lmem_ne_diff:
     next
 
 // =============================================================================
+// 156-157: Slice comparisons (extended: ABC + data word for elem_size)
+// Fat pointer layout: data_ptr (8 bytes) + len (4 bytes)
+// =============================================================================
+Lop_slice_eq:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]      // fat_a ptr
+    ldr     x4, [x20, x2, lsl #3]      // fat_b ptr
+    ldr     w5, [x19, x21, lsl #2]      // elem_size from next word
+    add     x21, x21, #1
+    ldr     w6, [x3, #8]                // len_a
+    ldr     w7, [x4, #8]                // len_b
+    cmp     w6, w7
+    b.ne    Lslice_eq_false             // lengths differ -> not equal
+    mul     w5, w6, w5                  // total bytes = len * elem_size
+    cbz     w5, Lslice_eq_true          // zero length -> equal
+    ldr     x3, [x3]                    // data_ptr_a
+    ldr     x4, [x4]                    // data_ptr_b
+    mov     w6, #0
+Lslice_eq_loop:
+    ldrb    w7, [x3, x6]
+    ldrb    w8, [x4, x6]
+    cmp     w7, w8
+    b.ne    Lslice_eq_false
+    add     w6, w6, #1
+    cmp     w6, w5
+    b.lt    Lslice_eq_loop
+Lslice_eq_true:
+    mov     x3, #1
+    str     x3, [x20, x0, lsl #3]
+    next
+Lslice_eq_false:
+    str     xzr, [x20, x0, lsl #3]
+    next
+
+Lop_slice_ne:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]      // fat_a ptr
+    ldr     x4, [x20, x2, lsl #3]      // fat_b ptr
+    ldr     w5, [x19, x21, lsl #2]      // elem_size from next word
+    add     x21, x21, #1
+    ldr     w6, [x3, #8]                // len_a
+    ldr     w7, [x4, #8]                // len_b
+    cmp     w6, w7
+    b.ne    Lslice_ne_diff              // lengths differ -> not equal
+    mul     w5, w6, w5                  // total bytes = len * elem_size
+    cbz     w5, Lslice_ne_equal         // zero length -> equal
+    ldr     x3, [x3]                    // data_ptr_a
+    ldr     x4, [x4]                    // data_ptr_b
+    mov     w6, #0
+Lslice_ne_loop:
+    ldrb    w7, [x3, x6]
+    ldrb    w8, [x4, x6]
+    cmp     w7, w8
+    b.ne    Lslice_ne_diff
+    add     w6, w6, #1
+    cmp     w6, w5
+    b.lt    Lslice_ne_loop
+Lslice_ne_equal:
+    str     xzr, [x20, x0, lsl #3]
+    next
+Lslice_ne_diff:
+    mov     x3, #1
+    str     x3, [x20, x0, lsl #3]
+    next
+
+// =============================================================================
 // 45-47: Float64 comparisons
 // =============================================================================
 Lop_deq:
@@ -1859,8 +1929,10 @@ Ljump_table:
     .quad Lop_i64_to_u32        // 153: I64_TO_U32
     .quad Lop_call_closure      // 154: CALL_CLOSURE
     .quad Lop_get_closure_ptr   // 155: GET_CLOSURE_PTR
-    // 156-255: invalid
-    .fill 100, 8, 0            // will be Lop_invalid pointers
+    .quad Lop_slice_eq          // 156: SLICE_EQ
+    .quad Lop_slice_ne          // 157: SLICE_NE
+    // 158-255: invalid
+    .fill 98, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

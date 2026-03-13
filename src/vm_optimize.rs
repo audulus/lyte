@@ -190,6 +190,8 @@ pub fn get_dst(op: &Opcode) -> Option<Reg> {
         | Opcode::FLe { dst, .. }
         | Opcode::MemEq { dst, .. }
         | Opcode::MemNe { dst, .. }
+        | Opcode::SliceEq { dst, .. }
+        | Opcode::SliceNe { dst, .. }
         | Opcode::DEq { dst, .. }
         | Opcode::DLt { dst, .. }
         | Opcode::DLe { dst, .. }
@@ -350,6 +352,8 @@ fn set_dst(op: &mut Opcode, new_dst: Reg) -> bool {
         | Opcode::FLe { dst, .. }
         | Opcode::MemEq { dst, .. }
         | Opcode::MemNe { dst, .. }
+        | Opcode::SliceEq { dst, .. }
+        | Opcode::SliceNe { dst, .. }
         | Opcode::DEq { dst, .. }
         | Opcode::DLt { dst, .. }
         | Opcode::DLe { dst, .. }
@@ -497,7 +501,10 @@ fn reads_reg(op: &Opcode, reg: Reg) -> bool {
         | Opcode::FNe { a, b, .. }
         | Opcode::FLt { a, b, .. }
         | Opcode::FLe { a, b, .. } => *a == reg || *b == reg,
-        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => *a == reg || *b == reg,
+        Opcode::MemEq { a, b, .. }
+        | Opcode::MemNe { a, b, .. }
+        | Opcode::SliceEq { a, b, .. }
+        | Opcode::SliceNe { a, b, .. } => *a == reg || *b == reg,
         Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => {
             *a == reg || *b == reg
         }
@@ -708,7 +715,10 @@ fn compute_use_counts_fast(code: &[Opcode]) -> Vec<u16> {
                 counts[*a as usize] += 1;
                 counts[*b as usize] += 1;
             }
-            Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => {
+            Opcode::MemEq { a, b, .. }
+            | Opcode::MemNe { a, b, .. }
+            | Opcode::SliceEq { a, b, .. }
+            | Opcode::SliceNe { a, b, .. } => {
                 counts[*a as usize] += 1;
                 counts[*b as usize] += 1;
             }
@@ -1136,7 +1146,10 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
                 *b = new;
             }
         }
-        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => {
+        Opcode::MemEq { a, b, .. }
+        | Opcode::MemNe { a, b, .. }
+        | Opcode::SliceEq { a, b, .. }
+        | Opcode::SliceNe { a, b, .. } => {
             if *a == old {
                 *a = new;
             }
@@ -2000,7 +2013,10 @@ fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
             f(*a);
             f(*b);
         }
-        Opcode::MemEq { a, b, .. } | Opcode::MemNe { a, b, .. } => {
+        Opcode::MemEq { a, b, .. }
+        | Opcode::MemNe { a, b, .. }
+        | Opcode::SliceEq { a, b, .. }
+        | Opcode::SliceNe { a, b, .. } => {
             f(*a);
             f(*b);
         }
@@ -2244,7 +2260,10 @@ fn rewrite_regs(op: &mut Opcode, map: &[Reg]) {
             *a = map[*a as usize];
             *b = map[*b as usize];
         }
-        Opcode::MemEq { dst, a, b, .. } | Opcode::MemNe { dst, a, b, .. } => {
+        Opcode::MemEq { dst, a, b, .. }
+        | Opcode::MemNe { dst, a, b, .. }
+        | Opcode::SliceEq { dst, a, b, .. }
+        | Opcode::SliceNe { dst, a, b, .. } => {
             *dst = map[*dst as usize];
             *a = map[*a as usize];
             *b = map[*b as usize];

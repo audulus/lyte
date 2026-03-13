@@ -219,6 +219,21 @@ unsafe extern "C" fn llvm_lyte_abort(globals: *mut u8) {
     longjmp(globals.add(8), 1);
 }
 
+/// Called from LLVM JIT code to compare two slices by contents.
+/// Each slice is a fat pointer: data_ptr (8 bytes) + len (4 bytes).
+/// Returns 1 if equal, 0 if not.
+unsafe extern "C" fn lyte_slice_eq(a: *const u8, b: *const u8, elem_size: u64) -> u64 {
+    let ptr_a = (a as *const u64).read_unaligned() as *const u8;
+    let len_a = (a.add(8) as *const u32).read_unaligned() as usize;
+    let ptr_b = (b as *const u64).read_unaligned() as *const u8;
+    let len_b = (b.add(8) as *const u32).read_unaligned() as usize;
+    if len_a != len_b {
+        return 0;
+    }
+    let total = len_a * elem_size as usize;
+    (std::slice::from_raw_parts(ptr_a, total) == std::slice::from_raw_parts(ptr_b, total)) as u64
+}
+
 const BUILTIN_NAMES: &[&str] = &["assert", "print", "putc"];
 
 fn is_builtin_name(name: &Name) -> bool {
@@ -1010,6 +1025,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
+        if let crate::Type::Slice(elem) = &*ty {
+            let elem_size = elem.size(self.decls) as u64;
+            return self.gen_slice_eq(lhs, rhs, elem_size);
+        }
         if ty.is_ptr() {
             // memcmp via LLVM memcmp intrinsic or byte-by-byte.
             // Simple approach: call memcmp.
@@ -1064,6 +1083,46 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
         }
+    }
+
+    /// Compare two slices by contents. Calls `lyte_slice_eq(a, b, elem_size)`.
+    fn gen_slice_eq(
+        &mut self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        elem_size: u64,
+    ) -> BasicValueEnum<'ctx> {
+        let fn_ty = self.i64_ty().fn_type(
+            &[
+                self.ptr_ty().into(),
+                self.ptr_ty().into(),
+                self.i64_ty().into(),
+            ],
+            false,
+        );
+        let slice_eq_fn = self.state.get_or_declare_extern(
+            "__llvm_lyte_slice_eq",
+            fn_ty,
+            lyte_slice_eq as *const () as usize,
+        );
+        let elem_size_val = self.i64_ty().const_int(elem_size, false);
+        let result = self
+            .builder()
+            .build_call(
+                slice_eq_fn,
+                &[lhs.into(), rhs.into(), elem_size_val.into()],
+                "slice_eq",
+            )
+            .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
+            .into_int_value();
+        // Truncate i64 result to i1
+        let zero = self.i64_ty().const_int(0, false);
+        self.builder()
+            .build_int_compare(IntPredicate::NE, result, zero, "slice_eq_bool")
+            .unwrap()
+            .into()
     }
 
     /// Match `{ var = expr }` or `var = expr` — returns (var_name, rhs_id) if matched.

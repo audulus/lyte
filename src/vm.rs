@@ -242,6 +242,8 @@ pub(crate) mod tags {
     pub const I64_TO_U32: u8 = 153;
     pub const CALL_CLOSURE: u8 = 154;
     pub const GET_CLOSURE_PTR: u8 = 155;
+    pub const SLICE_EQ: u8 = 156; // ABC+data: A=dst, B=a, C=b, next word=elem_size
+    pub const SLICE_NE: u8 = 157; // ABC+data: A=dst, B=a, C=b, next word=elem_size
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -271,7 +273,7 @@ impl LinkedProgram {
             func_locals.push(func.locals_size);
 
             // Build mapping from opcode index → packed index (for jump fixups)
-            // MemEq/MemNe emit 2 words, all others emit 1.
+            // MemEq/MemNe/SliceEq/SliceNe emit 2 words, all others emit 1.
             let mut opcode_to_packed: Vec<usize> = Vec::with_capacity(func.code.len());
             for op in &func.code {
                 opcode_to_packed.push(ops.len());
@@ -280,7 +282,7 @@ impl LinkedProgram {
             // Sentinel for "one past the last instruction"
             opcode_to_packed.push(ops.len());
 
-            // Fix up jump offsets if any instructions expanded (MemEq/MemNe → 2 words)
+            // Fix up jump offsets if any instructions expanded (MemEq/MemNe/SliceEq/SliceNe → 2 words)
             let _func_start = func_offsets[func_offsets.len() - 1];
             for (opcode_idx, op) in func.code.iter().enumerate() {
                 let packed_idx = opcode_to_packed[opcode_idx];
@@ -431,6 +433,26 @@ impl LinkedProgram {
             Opcode::MemNe { dst, a, b, size } => {
                 ops.push(PackedOp::abc(tags::MEM_NE, r(dst), r(a), r(b)));
                 ops.push(PackedOp::data(size));
+                return;
+            }
+            Opcode::SliceEq {
+                dst,
+                a,
+                b,
+                elem_size,
+            } => {
+                ops.push(PackedOp::abc(tags::SLICE_EQ, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(elem_size));
+                return;
+            }
+            Opcode::SliceNe {
+                dst,
+                a,
+                b,
+                elem_size,
+            } => {
+                ops.push(PackedOp::abc(tags::SLICE_NE, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(elem_size));
                 return;
             }
             Opcode::DEq { dst, a, b } => PackedOp::abc(tags::DEQ, r(dst), r(a), r(b)),
@@ -1028,6 +1050,23 @@ pub enum Opcode {
         a: Reg,
         b: Reg,
         size: u32,
+    },
+
+    /// Slice equal: compare two fat pointers (ptr+len) by contents.
+    /// `elem_size` is the size of each element in bytes.
+    SliceEq {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        elem_size: u32,
+    },
+
+    /// Slice not equal: compare two fat pointers (ptr+len) by contents.
+    SliceNe {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+        elem_size: u32,
     },
 
     /// Float64 equal
@@ -2116,6 +2155,38 @@ impl VM {
                         ip += 1;
                         let ne = std::slice::from_raw_parts(pa, size)
                             != std::slice::from_raw_parts(pb, size);
+                        r_set!(op.a(), ne as u64);
+                    }
+
+                    // SliceEq/SliceNe — compare slice contents by value
+                    // Fat pointer layout: data_ptr (8 bytes) + len (4 bytes)
+                    tags::SLICE_EQ => {
+                        let fat_a = r!(op.b()) as *const u8;
+                        let fat_b = r!(op.c()) as *const u8;
+                        let elem_size = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        let ptr_a = *(fat_a as *const u64) as *const u8;
+                        let len_a = *(fat_a.add(8) as *const u32) as usize;
+                        let ptr_b = *(fat_b as *const u64) as *const u8;
+                        let len_b = *(fat_b.add(8) as *const u32) as usize;
+                        let eq = len_a == len_b
+                            && std::slice::from_raw_parts(ptr_a, len_a * elem_size)
+                                == std::slice::from_raw_parts(ptr_b, len_b * elem_size);
+                        r_set!(op.a(), eq as u64);
+                    }
+
+                    tags::SLICE_NE => {
+                        let fat_a = r!(op.b()) as *const u8;
+                        let fat_b = r!(op.c()) as *const u8;
+                        let elem_size = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        let ptr_a = *(fat_a as *const u64) as *const u8;
+                        let len_a = *(fat_a.add(8) as *const u32) as usize;
+                        let ptr_b = *(fat_b as *const u64) as *const u8;
+                        let len_b = *(fat_b.add(8) as *const u32) as usize;
+                        let ne = len_a != len_b
+                            || std::slice::from_raw_parts(ptr_a, len_a * elem_size)
+                                != std::slice::from_raw_parts(ptr_b, len_b * elem_size);
                         r_set!(op.a(), ne as u64);
                     }
 

@@ -1,0 +1,32 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+check_eq(a: [i32], b: [i32]) -> bool {
+    a == b
+}
+
+check_ne(a: [i32], b: [i32]) -> bool {
+    a != b
+}
+
+main {
+    // same contents
+    assert(check_eq([1, 2, 3], [1, 2, 3]))
+
+    // different contents
+    assert(check_ne([1, 2, 3], [4, 5, 6]))
+
+    // different lengths
+    assert(check_ne([1, 2], [1, 2, 3]))
+
+    // single element
+    assert(check_eq([42], [42]))
+
+    // same length, one element differs
+    assert(check_ne([1, 2, 3], [1, 9, 3]))
+}

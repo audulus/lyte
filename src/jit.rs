@@ -41,6 +41,21 @@ unsafe extern "C" fn lyte_abort(globals: *mut u8) {
     longjmp(globals.add(8), 1);
 }
 
+/// Called from JIT-generated code to compare two slices by contents.
+/// Each slice is a fat pointer: data_ptr (8 bytes) + len (4 bytes).
+/// Returns 1 if equal, 0 if not.
+unsafe extern "C" fn lyte_slice_eq(a: *const u8, b: *const u8, elem_size: u64) -> u64 {
+    let ptr_a = (a as *const u64).read_unaligned() as *const u8;
+    let len_a = (a.add(8) as *const u32).read_unaligned() as usize;
+    let ptr_b = (b as *const u64).read_unaligned() as *const u8;
+    let len_b = (b.add(8) as *const u32).read_unaligned() as usize;
+    if len_a != len_b {
+        return 0;
+    }
+    let total = len_a * elem_size as usize;
+    (std::slice::from_raw_parts(ptr_a, total) == std::slice::from_raw_parts(ptr_b, total)) as u64
+}
+
 /// The basic JIT class.
 pub struct JIT {
     /// The function builder context, which is reused across multiple
@@ -91,6 +106,7 @@ impl Default for JIT {
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         builder.symbol("__lyte_abort", lyte_abort as *const u8);
+        builder.symbol("__lyte_slice_eq", lyte_slice_eq as *const u8);
         register_math_symbols(&mut builder);
 
         let module = JITModule::new(builder);
@@ -1543,6 +1559,10 @@ impl<'a> FunctionTranslator<'a> {
         src: Value,
         decls: &crate::DeclTable,
     ) -> Value {
+        if let crate::types::Type::Slice(elem) = &*t {
+            let elem_size = elem.size(decls) as i64;
+            return self.gen_slice_eq(dst, src, elem_size);
+        }
         if t.is_ptr() {
             let size = t.size(decls) as u64;
             let align = std::num::NonZeroU8::new(Self::type_align(&t, decls)).unwrap();
@@ -1569,6 +1589,27 @@ impl<'a> FunctionTranslator<'a> {
                 _ => self.builder.ins().icmp(IntCC::Equal, dst, src),
             }
         }
+    }
+
+    /// Generate a call to `lyte_slice_eq(a, b, elem_size)` which compares slice contents.
+    fn gen_slice_eq(&mut self, a: Value, b: Value, elem_size: i64) -> Value {
+        let fn_ptr = self
+            .builder
+            .ins()
+            .iconst(I64, lyte_slice_eq as *const () as usize as i64);
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(I64)); // a: fat pointer
+        sig.params.push(AbiParam::new(I64)); // b: fat pointer
+        sig.params.push(AbiParam::new(I64)); // elem_size
+        sig.returns.push(AbiParam::new(I64)); // result: 0 or 1
+        let sref = self.builder.import_signature(sig);
+        let elem_size_val = self.builder.ins().iconst(I64, elem_size);
+        let call = self
+            .builder
+            .ins()
+            .call_indirect(sref, fn_ptr, &[a, b, elem_size_val]);
+        let result = self.builder.inst_results(call)[0];
+        self.builder.ins().ireduce(I8, result)
     }
 
     fn translate_binop(
