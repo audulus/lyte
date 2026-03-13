@@ -1,22 +1,8 @@
-  1. Coverage gaps by category                                                                                       
-                                                                                                                     
-  - Lexer: Only 1 unit test, and the fuzzer just checks for crashes, not correctness. Adding lexer unit tests for    
-  edge cases (unicode, nested comments, numeric literals, string escapes) would help.                                
-  - Loops: Only 2 golden tests — for and while loops probably deserve more coverage (nested loops, break/continue if 
-  supported, loop with early returns).                                                                               
-  - Globals: Only 2 golden tests — could test global mutation, ordering, shadowing.                                  
-  - Enums: Only 3 golden tests — pattern matching, nested enums, generic enums could use more coverage.              
-                                                                                                                     
+                                                                                                                                 
   2. Fuzzing the checker and compiler                                                                                
 
   The fuzz targets stop at the parser. A third target that runs the full pipeline (parse → check → compile → run) on
   fuzz input would catch crashes deeper in the stack, especially in the type solver and codegen.
-
-  3. Error message tests
-
-  There are only 9 tests in checker/. Adding more negative tests (programs that should fail) would verify that error
-  messages are stable and helpful — especially for type inference failures, arity mismatches, and interface
-  constraint violations.
 
   4. Property-based / round-trip tests
 
@@ -38,7 +24,6 @@
 
   - CI doesn't run the benchmarks — even a single-iteration smoke test would catch benchmark regressions.
   - No fuzzing in CI (even a short 30-second run per target would catch regressions).
-  - No macOS CI job despite the project being developed on macOS.
 
   What would you like to focus on?
 
