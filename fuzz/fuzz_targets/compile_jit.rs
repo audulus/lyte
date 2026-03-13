@@ -15,9 +15,8 @@ fuzz_target!(|data: String| {
     if compiler.specialize().is_err() {
         return;
     }
-    // Compile and run via Cranelift JIT.
-    // catch_unwind guards against panics in codegen.
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compiler.run();
-    }));
+    // Compile only — don't execute. Execution can trigger assert() failures
+    // from fuzzed programs, which abort under libfuzzer's panic hook.
+    // We still exercise the full compile pipeline (parse, check, specialize, JIT codegen).
+    let _ = compiler.jit();
 });
