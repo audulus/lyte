@@ -6,6 +6,8 @@ use crate::defs::*;
 use crate::expr::*;
 use crate::DeclTable;
 
+use std::convert::TryFrom;
+
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
@@ -1026,8 +1028,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 )
                 .unwrap()
                 .try_as_basic_value()
-                .left()
-                .unwrap()
+                .unwrap_basic()
                 .into_int_value();
             let zero = self.i32_ty().const_int(0, false);
             self.builder()
@@ -2011,8 +2012,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             .build_call(fma_fn, &[a.into(), b.into(), c.into()], "fma")
             .unwrap()
             .try_as_basic_value()
-            .left()
-            .unwrap()
+            .unwrap_basic()
             .into_float_value()
     }
 
@@ -2161,7 +2161,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     slot.into()
                 } else {
                     call.try_as_basic_value()
-                        .left()
+                        .basic()
                         .unwrap_or_else(|| self.zero_i32())
                 }
             } else if is_builtin {
@@ -2174,7 +2174,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     .into_pointer_value();
                 // Build the LLVM function type without globals/closure.
                 let raw_fn_ty = self.build_raw_fn_type(from, to);
-                let param_types: Vec<BasicTypeEnum<'ctx>> = raw_fn_ty.get_param_types();
+                let param_types = raw_fn_ty.get_param_types();
                 let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![];
                 let mut pi = 0;
                 if let Some(slot) = output_slot {
@@ -2184,7 +2184,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 for arg_id in arg_ids {
                     let val = self.translate_expr(*arg_id, decl);
                     let val = if pi < param_types.len() {
-                        self.coerce_to_type(val, param_types[pi])
+                        if let Ok(basic_ty) = BasicTypeEnum::try_from(param_types[pi]) {
+                            self.coerce_to_type(val, basic_ty)
+                        } else {
+                            val
+                        }
                     } else {
                         val
                     };
@@ -2199,7 +2203,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     slot.into()
                 } else {
                     call.try_as_basic_value()
-                        .left()
+                        .basic()
                         .unwrap_or_else(|| self.zero_i32())
                 }
             } else {
@@ -2236,7 +2240,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     } else {
                         let pi = arg_start + i;
                         let arg_val = if pi < full_param_types.len() {
-                            self.coerce_to_type(arg_val, full_param_types[pi])
+                            if let Ok(basic_ty) = BasicTypeEnum::try_from(full_param_types[pi]) {
+                                self.coerce_to_type(arg_val, basic_ty)
+                            } else {
+                                arg_val
+                            }
                         } else {
                             arg_val
                         };
@@ -2251,7 +2259,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     slot.into()
                 } else {
                     call.try_as_basic_value()
-                        .left()
+                        .basic()
                         .unwrap_or_else(|| self.zero_i32())
                 }
             };
@@ -2330,8 +2338,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             .build_call(func, &call_args, "intrinsic")
             .unwrap()
             .try_as_basic_value()
-            .left()
-            .unwrap()
+            .unwrap_basic()
     }
 
     /// Returns (symbol_name, fn_type) for a math builtin, or None.
