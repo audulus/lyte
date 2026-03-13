@@ -207,9 +207,14 @@ impl TypeID {
             Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
             Type::Name(name, vars) => {
                 let decl = decls.find(*name);
-                // Must be a unique struct or enum decl.
                 if decl.len() != 1 {
-                    panic!("expected exactly one struct/enum decl for type {}", name);
+                    // Unknown or ambiguous type — should have been caught by the checker.
+                    eprintln!(
+                        "internal error: no unique decl for type '{}' (found {})",
+                        name,
+                        decl.len()
+                    );
+                    return 0;
                 }
                 match &decl[0] {
                     Decl::Struct(sdecl) => {
@@ -226,17 +231,26 @@ impl TypeID {
                             .sum()
                     }
                     Decl::Enum { .. } => 4, // i32 discriminant
-                    _ => panic!(
-                        "expected struct or enum decl for type {}, got {:?}",
-                        name, decl[0]
-                    ),
+                    _ => {
+                        eprintln!(
+                            "internal error: expected struct or enum for type '{}', got {:?}",
+                            name, decl[0]
+                        );
+                        0
+                    }
                 }
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),
             Type::Slice(_) => 12, // fat pointer: data_ptr (8) + len (4)
             Type::Func(_, _) => 16,
-            Type::Anon(i) => panic!("asked for size of anonymous type variable {}", i),
-            Type::Var(name) => panic!("asked for size of type variable {}", name),
+            Type::Anon(i) => {
+                eprintln!("internal error: asked for size of anonymous type variable {}", i);
+                0
+            }
+            Type::Var(name) => {
+                eprintln!("internal error: asked for size of type variable {}", name);
+                0
+            }
         }
     }
 

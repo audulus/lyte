@@ -784,9 +784,22 @@ impl Checker {
             self.constraints.clear();
 
             for param in &func_decl.params {
+                let ty = match param.ty {
+                    Some(ty) => ty,
+                    None => {
+                        self.errors.push(TypeError {
+                            location: func_decl.loc,
+                            message: format!(
+                                "parameter '{}' is missing a type annotation",
+                                *param.name
+                            ),
+                        });
+                        return;
+                    }
+                };
                 self.vars.push(Var {
                     name: param.name,
-                    ty: param.ty.unwrap(),
+                    ty,
                     mutable: false,
                 });
             }

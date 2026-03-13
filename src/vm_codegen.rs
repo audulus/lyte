@@ -198,9 +198,12 @@ impl VMCodegen {
             func.locals_size = func.local_slots as u32 * 8 + new_reg_count as u32 * 8;
             // Update debug register names with the new physical register numbers.
             for entry in &mut func.reg_names {
-                let preg = mapping[entry.0 as usize];
-                if preg != Reg::MAX {
-                    entry.0 = preg;
+                let idx = entry.0 as usize;
+                if idx < mapping.len() {
+                    let preg = mapping[idx];
+                    if preg != Reg::MAX {
+                        entry.0 = preg;
+                    }
                 }
             }
             // Remove entries where the register was optimized away.

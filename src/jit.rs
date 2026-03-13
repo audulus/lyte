@@ -792,7 +792,10 @@ impl<'a> FunctionTranslator<'a> {
                 let var = self.declare_variable(name, I64);
 
                 let sz = ty.size(decls) as u32;
-                assert!(sz > 0, "variable size must be greater than 0");
+                if sz == 0 {
+                    // Unknown or void type — skip codegen for this variable.
+                    return self.builder.ins().iconst(I64, 0);
+                }
 
                 // Allocate a new stack slot with a size of the variable.
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {

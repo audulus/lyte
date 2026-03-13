@@ -549,7 +549,7 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             loop {
                 let rr = parse_lambda(arena, typevars, cx);
                 tup.push(rr);
-                if cx.lex.tok == Token::Rparen {
+                if cx.lex.tok == Token::Rparen || cx.lex.tok == Token::End {
                     break;
                 }
                 expect(Token::Comma, cx);
@@ -609,7 +609,7 @@ fn parse_array_literal(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseC
     expect(Token::Lbracket, cx);
     let mut r = vec![];
 
-    while cx.lex.tok != Token::Rbracket {
+    while cx.lex.tok != Token::Rbracket && cx.lex.tok != Token::End {
         r.push(parse_lambda(arena, typevars, cx));
 
         if cx.lex.tok == Token::Comma {
@@ -773,7 +773,7 @@ fn parse_fieldlist(typevars: &[Name], cx: &mut ParseContext) -> Vec<Field> {
 
     skip_newlines(cx.lex);
 
-    while cx.lex.tok != Token::Rbrace {
+    while cx.lex.tok != Token::Rbrace && cx.lex.tok != Token::End {
         skip_newlines(cx.lex);
 
         let loc = cx.lex.loc;
@@ -957,7 +957,7 @@ fn parse_interface(cx: &mut ParseContext) -> Decl {
 
     let mut funcs = vec![];
 
-    while cx.lex.tok != Token::Rbrace {
+    while cx.lex.tok != Token::Rbrace && cx.lex.tok != Token::End {
         let name = expect_id(cx);
         funcs.push(parse_func_decl(name, cx));
         skip_newlines(cx.lex);
