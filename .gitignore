@@ -22,3 +22,7 @@ Cargo.lock
 # built xcframework
 CLyte.xcframework
 CLyte.xcframework.zip
+
+# benchmark stuff
+benchmark/biquad_c_o3
+benchmark/biquad_c_o2
