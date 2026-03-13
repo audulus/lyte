@@ -80,7 +80,7 @@ impl Type {
     pub fn is_ptr(&self) -> bool {
         matches!(
             self,
-            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
+            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_) | Type::Func(_, _)
         )
     }
 }
@@ -234,7 +234,7 @@ impl TypeID {
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),
             Type::Slice(_) => 12, // fat pointer: data_ptr (8) + len (4)
-            Type::Func(_, _) => 8,
+            Type::Func(_, _) => 16,
             Type::Anon(i) => panic!("asked for size of anonymous type variable {}", i),
             Type::Var(name) => panic!("asked for size of type variable {}", name),
         }

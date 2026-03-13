@@ -448,8 +448,13 @@ fn compile_and_run_with_context(
         .map_err(|e| format!("failed to create JIT execution engine: {}", e))?;
 
     // Register external symbol mappings.
+    // Only map functions that still exist in the module after optimization —
+    // LLVM O3 may remove unused declarations, leaving dangling FunctionValues.
     for (fv, addr) in &state.extern_fns {
-        ee.add_global_mapping(fv, *addr);
+        let name = fv.get_name().to_str().unwrap_or("");
+        if state.module.get_function(name).is_some() {
+            ee.add_global_mapping(fv, *addr);
+        }
     }
 
     let fn_addr = ee
@@ -1420,6 +1425,20 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     }
                 }
 
+                // Determine if this if-else produces a value (both branches
+                // have the same concrete, non-void type).
+                let result_ty = decl.types[expr];
+                let is_value = if let Some(else_expr_id) = else_id {
+                    let else_ty = decl.types[else_expr_id];
+                    !matches!(
+                        &*result_ty,
+                        crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
+                    ) && result_ty == else_ty
+                        && !result_ty.is_ptr()
+                } else {
+                    false
+                };
+
                 let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
                 let cond_val = self.to_i1(cond_raw);
                 let then_bb = self.append_bb("then");
@@ -1432,22 +1451,36 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 // Then block.
                 self.builder().position_at_end(then_bb);
-                self.translate_expr(then_id, decl);
+                let then_val = self.translate_expr(then_id, decl);
+                let then_exit_bb = self.builder().get_insert_block().unwrap();
                 if !self.is_block_terminated() {
                     self.builder().build_unconditional_branch(merge_bb).unwrap();
                 }
 
                 // Else block.
                 self.builder().position_at_end(else_bb);
-                if let Some(else_id) = else_id {
-                    self.translate_expr(else_id, decl);
-                }
+                let else_val = if let Some(else_id) = else_id {
+                    self.translate_expr(else_id, decl)
+                } else {
+                    self.zero_i32()
+                };
+                let else_exit_bb = self.builder().get_insert_block().unwrap();
                 if !self.is_block_terminated() {
                     self.builder().build_unconditional_branch(merge_bb).unwrap();
                 }
 
                 self.builder().position_at_end(merge_bb);
-                self.zero_i32()
+                if is_value {
+                    let llvm_ty = result_ty.llvm_basic_type(self.ctx());
+                    let phi = self.builder().build_phi(llvm_ty, "if_val").unwrap();
+                    phi.add_incoming(&[
+                        (&then_val, then_exit_bb),
+                        (&else_val, else_exit_bb),
+                    ]);
+                    phi.as_basic_value().into()
+                } else {
+                    self.zero_i32()
+                }
             }
             Expr::While(cond_id, body_id) => {
                 let (cond_id, body_id) = (*cond_id, *body_id);
