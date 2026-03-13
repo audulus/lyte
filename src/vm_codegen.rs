@@ -622,7 +622,23 @@ impl<'a> FunctionTranslator<'a> {
     /// Get the address of a variable's storage (for closure capture).
     /// For register-promoted vars, spills to a local slot first.
     fn get_var_address(&mut self, name: &Name, func: &mut VMFunction) -> Reg {
-        if self.reg_promoted.contains(name) {
+        if self.captured_vars.contains(name) {
+            // This variable was itself captured from an enclosing scope.
+            // Our local slot holds a *pointer* to the actual storage, so we
+            // must follow the indirection to return the real address.
+            let slot = *self.local_slots.get(name).unwrap();
+            let slot_addr = self.alloc_reg();
+            func.emit(Opcode::LocalAddr {
+                dst: slot_addr,
+                slot,
+            });
+            let actual_addr = self.alloc_reg();
+            func.emit(Opcode::Load64 {
+                dst: actual_addr,
+                addr: slot_addr,
+            });
+            actual_addr
+        } else if self.reg_promoted.contains(name) {
             // Register-promoted scalar: spill to a local slot so we have a stable address.
             let val_reg = *self.variables.get(name).unwrap();
             let slot = self.alloc_local(8);

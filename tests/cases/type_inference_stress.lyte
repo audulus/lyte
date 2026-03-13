@@ -85,7 +85,10 @@ test_chained_boolean {
 
 test_nested_lambdas {
     var f = |x| {
-        var g = |y| x + y + 3
+        var g = |y| {
+            var h = |z| x + y + z
+            h(3)
+        }
         g(2)
     }
     assert(f(1) == 6)
