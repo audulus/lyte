@@ -2667,6 +2667,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         closure: Option<PointerValue<'ctx>>,
     ) -> BasicValueEnum<'ctx> {
         let storage = self.entry_array_alloca(self.i8_ty(), 16, "fat_ptr");
+        storage
+            .as_instruction()
+            .unwrap()
+            .set_alignment(8)
+            .unwrap();
         self.builder().build_store(storage, fn_ptr).unwrap();
         let clos_slot = self.ptr_at_offset(storage, 8);
         let clos_val: PointerValue<'ctx> = closure.unwrap_or_else(|| self.ptr_ty().const_null());
@@ -2684,6 +2689,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             crate::Type::Array(_, sz) => {
                 let len = self.i32_ty().const_int(sz.known() as u64, false);
                 let storage = self.entry_array_alloca(self.i8_ty(), 12, "slice_fat");
+                storage
+                    .as_instruction()
+                    .unwrap()
+                    .set_alignment(8)
+                    .unwrap();
                 self.builder().build_store(storage, val).unwrap();
                 let len_ptr = self.ptr_at_offset(storage, 8);
                 self.builder().build_store(len_ptr, len).unwrap();
