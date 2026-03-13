@@ -8,6 +8,7 @@ use crate::DeclTable;
 
 use std::convert::TryFrom;
 
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
