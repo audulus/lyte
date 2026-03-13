@@ -1,0 +1,16 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/no_such_field.lyte:16:1: no such field: y
+//     }
+//     ^
+// ❌ ../tests/cases/checker/no_such_field.lyte:16:1: ambiguous constraint: Foo.y == ?2
+//     }
+//     ^
+struct Foo {
+    x: i32
+}
+f {
+    var a: Foo
+    a.x = 1
+    a.y
+}

@@ -1,0 +1,6 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/recursive_struct.lyte:6:27: struct 'Node' is recursive
+//     struct Node { value: i32, next: Node }
+//                               ^
+struct Node { value: i32, next: Node }

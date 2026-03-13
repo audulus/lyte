@@ -1,0 +1,8 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/assign_not_assignable.lyte:7:7: left-hand side of assignment isn't assignable
+//         1 = 2
+//           ^
+f {
+    1 = 2
+}

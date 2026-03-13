@@ -1,0 +1,10 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/if_branch_mismatch.lyte:8:32: no solution for i32 == f32
+//         if true { x = 1 } else { x = 2.0 }
+//                                    ^
+f → i32 {
+    var x: i32
+    if true { x = 1 } else { x = 2.0 }
+    return x
+}

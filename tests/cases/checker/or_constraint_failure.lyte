@@ -1,0 +1,21 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/or_constraint_failure.lyte:20:7: no solution for (Foo, Foo) → ?5 is one of []
+//         a + b
+//           ^
+// ❌ ../tests/cases/checker/or_constraint_failure.lyte:20:7: ambiguous constraint: (Foo, Foo) → ?5 is one of []
+//         a + b
+//           ^
+// ❌ ../tests/cases/checker/or_constraint_failure.lyte:20:7: ambiguous constraint: (Foo, Foo) → ?5 == (Foo, Foo) → ?5
+//         a + b
+//           ^
+struct Foo {
+    x: i32
+}
+f {
+    var a: Foo
+    var b: Foo
+    a.x = 1
+    b.x = 2
+    a + b
+}

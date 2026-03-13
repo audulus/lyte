@@ -1,0 +1,12 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/array_bad_field.lyte:12:1: array only has len field, not foo
+//     }
+//     ^
+// ❌ ../tests/cases/checker/array_bad_field.lyte:12:1: ambiguous constraint: [i32; 3].foo == ?5
+//     }
+//     ^
+f {
+    var a = [1, 2, 3]
+    a.foo
+}

@@ -1,0 +1,12 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/not_a_struct.lyte:12:1: ambiguous constraint: i32.foo == ?3
+//     }
+//     ^
+// ❌ ../tests/cases/checker/not_a_struct.lyte:12:1: ambiguous constraint: ?3 == ?3
+//     }
+//     ^
+f {
+    var x = 42
+    var y = x.foo
+}

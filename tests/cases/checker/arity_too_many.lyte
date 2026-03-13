@@ -1,0 +1,9 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/arity_too_many.lyte:8:5: no solution for (i32, i32) → i32 == (i32, i32, i32) → i32
+//         add(1, 2, 3)
+//         ^
+add(a: i32, b: i32) → i32 { return a + b }
+f {
+    add(1, 2, 3)
+}

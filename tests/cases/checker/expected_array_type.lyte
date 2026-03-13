@@ -1,0 +1,12 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/expected_array_type.lyte:11:5: expected array type, got i32
+//         x[0]
+//         ^
+// ❌ ../tests/cases/checker/expected_array_type.lyte:11:5: ambiguous constraint: array_of(i32, ?2)
+//         x[0]
+//         ^
+f {
+    var x = 42
+    x[0]
+}

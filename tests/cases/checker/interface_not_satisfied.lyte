@@ -1,0 +1,24 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/interface_not_satisfied.lyte:23:5: interface constraint "Addable" not satisfied
+//         do_add(a, b)
+//         ^
+interface Addable<A> {
+    add_them(a: A, b: A) -> A
+}
+do_add<T>(a: T, b: T) -> T where Addable<T> {
+    return add_them(a, b)
+}
+struct Foo {
+    val: i32
+}
+make_foo(v: i32) -> Foo {
+    var f: Foo
+    f.val = v
+    return f
+}
+main {
+    var a = make_foo(1)
+    var b = make_foo(2)
+    do_add(a, b)
+}

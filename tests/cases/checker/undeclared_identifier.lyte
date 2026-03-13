@@ -1,0 +1,8 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/undeclared_identifier.lyte:7:5: undeclared identifier: x
+//         x + 1
+//         ^
+f {
+    x + 1
+}
