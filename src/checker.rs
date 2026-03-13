@@ -52,6 +52,9 @@ pub struct Checker {
 
     /// Accumulated type errors while checking.
     pub errors: Vec<TypeError>,
+
+    /// Nesting depth of loops (>0 means we're inside a loop).
+    loop_depth: usize,
 }
 
 /// Returns true if the type is or contains a slice (unsized array `[T]`).
@@ -162,6 +165,7 @@ impl Checker {
             cast_overloads,
             constraints: vec![],
             errors: vec![],
+            loop_depth: 0,
         }
     }
 
@@ -570,6 +574,24 @@ impl Checker {
             }
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
             Expr::Return(expr) => self.check_expr(*expr, arena, decls),
+            Expr::Break => {
+                if self.loop_depth == 0 {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: "break outside of loop".to_string(),
+                    });
+                }
+                mk_type(Type::Void)
+            }
+            Expr::Continue => {
+                if self.loop_depth == 0 {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: "continue outside of loop".to_string(),
+                    });
+                }
+                mk_type(Type::Void)
+            }
             Expr::ArrayLiteral(exprs) => {
                 if exprs.is_empty() {
                     self.errors.push(TypeError {
@@ -638,7 +660,9 @@ impl Checker {
                     arena.locs[*cond],
                     "while loop control must be a bool",
                 );
+                self.loop_depth += 1;
                 self.check_expr(*body, arena, decls);
+                self.loop_depth -= 1;
                 mk_type(Type::Void)
             }
             Expr::If(cond, then_expr, else_expr) => {
@@ -686,7 +710,9 @@ impl Checker {
                     mutable: false,
                 });
 
+                self.loop_depth += 1;
                 self.check_expr(*body, arena, decls);
+                self.loop_depth -= 1;
 
                 self.vars.pop();
 

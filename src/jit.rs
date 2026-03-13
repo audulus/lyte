@@ -457,6 +457,9 @@ struct FunctionTranslator<'a> {
 
     /// Output pointer for functions returning via pointer (arrays, structs, tuples).
     output_ptr: Option<Value>,
+
+    /// Stack of (continue_block, break_block) for nested loops.
+    loop_stack: Vec<(Block, Block)>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -481,6 +484,7 @@ impl<'a> FunctionTranslator<'a> {
             globals_base,
             output_ptr,
             lambda_counter,
+            loop_stack: Vec::new(),
         }
     }
 
@@ -938,6 +942,10 @@ impl<'a> FunctionTranslator<'a> {
                     let mut result = None;
                     for expr in exprs {
                         result = Some(self.translate_expr(*expr, decl, decls));
+                        // Stop emitting after a terminator (return, break, continue).
+                        if self.builder.is_unreachable() {
+                            break;
+                        }
                     }
                     result.unwrap()
                 }
@@ -1025,10 +1033,14 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.def_var(loop_var, start_val);
                 self.let_bindings.insert(var.to_string());
 
-                // Create blocks for header, body, and exit.
+                // Create blocks for header, body, latch, and exit.
                 let header_block = self.builder.create_block();
                 let body_block = self.builder.create_block();
+                let latch_block = self.builder.create_block();
                 let exit_block = self.builder.create_block();
+
+                // continue → latch (increment then re-check), break → exit.
+                self.loop_stack.push((latch_block, exit_block));
 
                 // Jump to header.
                 self.builder.ins().jump(header_block, &[]);
@@ -1049,18 +1061,25 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.seal_block(body_block);
                 self.translate_expr(*body, decl, decls);
 
-                // Increment loop variable.
+                // Fall through to latch if not already terminated.
+                if !self.builder.is_unreachable() {
+                    self.builder.ins().jump(latch_block, &[]);
+                }
+
+                // Latch block: increment and jump back to header.
+                self.builder.switch_to_block(latch_block);
+                self.builder.seal_block(latch_block);
                 let current_val = self.builder.use_var(loop_var);
                 let incremented = self.builder.ins().iadd_imm(current_val, 1);
                 self.builder.def_var(loop_var, incremented);
 
                 // Check for cancellation before jumping back.
-                if !self.builder.is_unreachable() {
-                    self.emit_cancel_check();
-                }
+                self.emit_cancel_check();
 
                 // Jump back to header.
                 self.builder.ins().jump(header_block, &[]);
+
+                self.loop_stack.pop();
 
                 // Seal header after all predecessors are known.
                 self.builder.seal_block(header_block);
@@ -1099,11 +1118,36 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().trap(TrapCode::user(1).unwrap());
                 dummy
             }
+            Expr::Break => {
+                let (_, break_block) = *self.loop_stack.last().expect("break outside loop");
+                self.builder.ins().jump(break_block, &[]);
+                // Unreachable block for any code after break.
+                let unreachable_block = self.builder.create_block();
+                self.builder.switch_to_block(unreachable_block);
+                self.builder.seal_block(unreachable_block);
+                let dummy = self.builder.ins().iconst(I32, 0);
+                self.builder.ins().trap(TrapCode::user(1).unwrap());
+                dummy
+            }
+            Expr::Continue => {
+                let (continue_block, _) = *self.loop_stack.last().expect("continue outside loop");
+                self.builder.ins().jump(continue_block, &[]);
+                // Unreachable block for any code after continue.
+                let unreachable_block = self.builder.create_block();
+                self.builder.switch_to_block(unreachable_block);
+                self.builder.seal_block(unreachable_block);
+                let dummy = self.builder.ins().iconst(I32, 0);
+                self.builder.ins().trap(TrapCode::user(1).unwrap());
+                dummy
+            }
             Expr::While(cond_id, body_id) => {
                 // Create blocks for header, body, and exit.
                 let header_block = self.builder.create_block();
                 let body_block = self.builder.create_block();
                 let exit_block = self.builder.create_block();
+
+                // continue → re-check condition, break → exit.
+                self.loop_stack.push((header_block, exit_block));
 
                 // Jump to header.
                 self.builder.ins().jump(header_block, &[]);
@@ -1126,7 +1170,11 @@ impl<'a> FunctionTranslator<'a> {
                 }
 
                 // Jump back to header.
-                self.builder.ins().jump(header_block, &[]);
+                if !self.builder.is_unreachable() {
+                    self.builder.ins().jump(header_block, &[]);
+                }
+
+                self.loop_stack.pop();
 
                 // Seal header after all predecessors are known.
                 self.builder.seal_block(header_block);
@@ -2047,6 +2095,8 @@ fn collect_free_vars_rec(
         | Expr::True
         | Expr::False
         | Expr::Enum(_)
+        | Expr::Break
+        | Expr::Continue
         | Expr::Error => {}
     }
 }

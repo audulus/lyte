@@ -664,6 +664,7 @@ impl<'ctx> LLVMJITState<'ctx> {
             decls,
             called_functions: HashSet::new(),
             pending_lambdas: Vec::new(),
+            loop_stack: Vec::new(),
         };
 
         // Cancel-check at function entry.
@@ -735,6 +736,8 @@ struct FunctionTranslator<'a, 'ctx> {
     decls: &'a DeclTable,
     called_functions: HashSet<Name>,
     pending_lambdas: Vec<FuncDecl>,
+    /// Stack of (continue_bb, break_bb) for nested loops.
+    loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
 }
 
 impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
@@ -1451,6 +1454,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let body_bb = self.append_bb("while_body");
                 let exit_bb = self.append_bb("while_exit");
 
+                // continue → header (re-check condition), break → exit.
+                self.loop_stack.push((header_bb, exit_bb));
+
                 self.builder()
                     .build_unconditional_branch(header_bb)
                     .unwrap();
@@ -1471,6 +1477,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         .unwrap();
                 }
 
+                self.loop_stack.pop();
                 self.builder().position_at_end(exit_bb);
                 self.zero_i32()
             }
@@ -1493,7 +1500,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 let header_bb = self.append_bb("for_header");
                 let body_bb = self.append_bb("for_body");
+                let latch_bb = self.append_bb("for_latch");
                 let exit_bb = self.append_bb("for_exit");
+
+                // continue → latch (increment then re-check), break → exit.
+                self.loop_stack.push((latch_bb, exit_bb));
 
                 self.builder()
                     .build_unconditional_branch(header_bb)
@@ -1517,24 +1528,30 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.translate_expr(body, decl);
 
                 if !self.is_block_terminated() {
-                    // Increment.
-                    let cur2 = self
-                        .builder()
-                        .build_load(self.i32_ty(), loop_alloca, "loop_i2")
-                        .unwrap()
-                        .into_int_value();
-                    let one = self.i32_ty().const_int(1, false);
-                    let next = self
-                        .builder()
-                        .build_int_add(cur2, one, "loop_next")
-                        .unwrap();
-                    self.builder().build_store(loop_alloca, next).unwrap();
-                    self.emit_cancel_check();
                     self.builder()
-                        .build_unconditional_branch(header_bb)
+                        .build_unconditional_branch(latch_bb)
                         .unwrap();
                 }
 
+                // Latch block: increment and jump back to header.
+                self.builder().position_at_end(latch_bb);
+                let cur2 = self
+                    .builder()
+                    .build_load(self.i32_ty(), loop_alloca, "loop_i2")
+                    .unwrap()
+                    .into_int_value();
+                let one = self.i32_ty().const_int(1, false);
+                let next = self
+                    .builder()
+                    .build_int_add(cur2, one, "loop_next")
+                    .unwrap();
+                self.builder().build_store(loop_alloca, next).unwrap();
+                self.emit_cancel_check();
+                self.builder()
+                    .build_unconditional_branch(header_bb)
+                    .unwrap();
+
+                self.loop_stack.pop();
                 self.builder().position_at_end(exit_bb);
                 self.zero_i32()
             }
@@ -1633,6 +1650,24 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let val = self.translate_expr(src_id, decl);
                 let src_ty = decl.types[src_id];
                 self.translate_cast(val, src_ty, target_ty)
+            }
+            Expr::Break => {
+                let (_, break_bb) = *self.loop_stack.last().expect("break outside loop");
+                self.builder()
+                    .build_unconditional_branch(break_bb)
+                    .unwrap();
+                let unreachable_bb = self.append_bb("after_break");
+                self.builder().position_at_end(unreachable_bb);
+                self.zero_i32()
+            }
+            Expr::Continue => {
+                let (continue_bb, _) = *self.loop_stack.last().expect("continue outside loop");
+                self.builder()
+                    .build_unconditional_branch(continue_bb)
+                    .unwrap();
+                let unreachable_bb = self.append_bb("after_continue");
+                self.builder().position_at_end(unreachable_bb);
+                self.zero_i32()
             }
             _ => {
                 panic!(

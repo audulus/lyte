@@ -11,6 +11,17 @@ use crate::vm::*;
 use crate::DeclTable;
 use std::collections::{HashMap, HashSet};
 
+/// Loop context for break/continue support.
+struct LoopContext {
+    /// Code position to jump to for continue. For while loops, this is set
+    /// before the body. For for loops, this is set after the body (the increment).
+    continue_target: usize,
+    /// Continue jumps that need patching (for For loops where target isn't known yet).
+    continue_patches: Vec<usize>,
+    /// Break jumps that need patching to point past the loop.
+    break_patches: Vec<usize>,
+}
+
 /// A call that needs to be patched with the correct function index.
 #[derive(Clone, Debug)]
 struct PendingCall {
@@ -330,6 +341,12 @@ struct FunctionTranslator<'a> {
     /// Tracks if a return has been emitted (so we don't emit epilogue).
     has_returned: bool,
 
+    /// Stack of loop context for nested loops.
+    /// continue_target: code position to jump to for continue (0 = use continue_patches).
+    /// continue_patches: positions of Jump instructions needing patching to continue target.
+    /// break_patches: positions of Jump instructions needing patching to loop exit.
+    loop_stack: Vec<LoopContext>,
+
     /// Byte offset in locals where registers are saved.
     save_regs_offset: u32,
 
@@ -376,6 +393,7 @@ impl<'a> FunctionTranslator<'a> {
             has_returned: false,
             save_regs_offset: 0,
             captured_vars: HashSet::new(),
+            loop_stack: Vec::new(),
         }
     }
 
@@ -936,6 +954,32 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(Opcode::Return);
                 }
                 self.has_returned = true;
+                result
+            }
+
+            Expr::Break => {
+                let break_jump = func.emit(Opcode::Jump { offset: 0 });
+                self.loop_stack.last_mut().expect("break outside loop").break_patches.push(break_jump);
+                let result = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst: result, value: 0 });
+                result
+            }
+
+            Expr::Continue => {
+                let ctx = self.loop_stack.last().expect("continue outside loop");
+                let continue_target = ctx.continue_target;
+                if continue_target == 0 {
+                    // For-loop: target not known yet, emit patch.
+                    let jump_pos = func.emit(Opcode::Jump { offset: 0 });
+                    self.loop_stack.last_mut().unwrap().continue_patches.push(jump_pos);
+                } else {
+                    let pos = func.code.len();
+                    func.emit(Opcode::Jump {
+                        offset: (continue_target as i32) - (pos as i32) - 1,
+                    });
+                }
+                let result = self.alloc_reg();
+                func.emit(Opcode::LoadImm { dst: result, value: 0 });
                 result
             }
 
@@ -2101,6 +2145,13 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_while(&mut self, cond_id: ExprID, body_id: ExprID, func: &mut VMFunction) -> Reg {
         let loop_start = func.code.len();
 
+        // continue → loop_start (re-check condition), break patches collected below.
+        self.loop_stack.push(LoopContext {
+            continue_target: loop_start,
+            continue_patches: Vec::new(),
+            break_patches: Vec::new(),
+        });
+
         // Evaluate condition.
         let cond = self.translate_expr(cond_id, func);
 
@@ -2116,8 +2167,12 @@ impl<'a> FunctionTranslator<'a> {
             offset: (loop_start as i32) - (loop_end as i32) - 1,
         });
 
-        // Patch jump to end.
+        // Patch jump to end and all break jumps.
         func.patch_jump(jump_to_end);
+        let ctx = self.loop_stack.pop().unwrap();
+        for bp in ctx.break_patches {
+            func.patch_jump(bp);
+        }
 
         // While loops return 0.
         let result = self.alloc_reg();
@@ -2161,8 +2216,19 @@ impl<'a> FunctionTranslator<'a> {
         // Jump to end if condition is false.
         let jump_to_end = func.emit(Opcode::JumpIfZero { cond, offset: 0 });
 
+        // Push loop stack: continue target will be set to the increment position.
+        // Use 0 as placeholder; continue jumps will be collected as patches.
+        self.loop_stack.push(LoopContext {
+            continue_target: 0,
+            continue_patches: Vec::new(),
+            break_patches: Vec::new(),
+        });
+
         // Execute body.
         self.translate_expr(body_id, func);
+
+        // Increment position — this is where continue jumps to.
+        let increment_pos = func.code.len();
 
         // Increment loop variable.
         func.emit(Opcode::IAddImm {
@@ -2177,8 +2243,19 @@ impl<'a> FunctionTranslator<'a> {
             offset: (loop_start as i32) - (loop_end as i32) - 1,
         });
 
-        // Patch jump to end.
+        // Patch jump to end, break jumps, and continue jumps.
         func.patch_jump(jump_to_end);
+        let ctx = self.loop_stack.pop().unwrap();
+        for bp in ctx.break_patches {
+            func.patch_jump(bp);
+        }
+        // Patch continue jumps to point to the increment position.
+        for cp in ctx.continue_patches {
+            let jump_offset = (increment_pos as i32) - (cp as i32) - 1;
+            if let Opcode::Jump { offset } = &mut func.code[cp] {
+                *offset = jump_offset;
+            }
+        }
 
         // For loops return 0.
         let result = self.alloc_reg();
@@ -2762,6 +2839,8 @@ fn collect_free_vars_rec(
         | Expr::True
         | Expr::False
         | Expr::Enum(_)
+        | Expr::Break
+        | Expr::Continue
         | Expr::Error => {}
     }
 }

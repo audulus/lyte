@@ -704,6 +704,16 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             let e = parse_expr(arena, typevars, cx);
             arena.add(Expr::Return(e), cx.lex.loc)
         }
+        Token::Break => {
+            let loc = cx.lex.loc;
+            cx.next();
+            arena.add(Expr::Break, loc)
+        }
+        Token::Continue => {
+            let loc = cx.lex.loc;
+            cx.next();
+            arena.add(Expr::Continue, loc)
+        }
         Token::Defer => {
             cx.err(String::from("defer is reserved for future use"));
             skip_reserved(cx);

@@ -89,6 +89,12 @@ pub enum Expr {
     /// Return expression.
     Return(ExprID),
 
+    /// Break out of the innermost loop.
+    Break,
+
+    /// Continue to the next iteration of the innermost loop.
+    Continue,
+
     /// Enum variant access.
     Enum(Name),
 
@@ -282,6 +288,9 @@ impl Expr {
                 format!("return {}", expr_str)
             }
 
+            Expr::Break => "break".to_string(),
+            Expr::Continue => "continue".to_string(),
+
             Expr::Tuple(exprs) => {
                 let exprs_str = exprs
                     .iter()
@@ -434,6 +443,8 @@ pub fn copy_expr(
             let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
             dst_arena.add(Expr::Return(new_expr), loc)
         }
+        Expr::Break => dst_arena.add(Expr::Break, loc),
+        Expr::Continue => dst_arena.add(Expr::Continue, loc),
         Expr::Tuple(exprs) => {
             let new_exprs: Vec<ExprID> = exprs
                 .iter()

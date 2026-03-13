@@ -1,0 +1,27 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+main {
+    // Skip multiples of 3 with continue in for loop
+    var sum = 0
+    for i in 0 .. 10 {
+        if i % 3 == 0 {
+            continue
+        }
+        sum = sum + i
+    }
+    // 1+2+4+5+7+8 = 27
+    assert(sum == 27)
+
+    // Continue should still increment loop variable
+    var last = 0
+    for i in 0 .. 5 {
+        last = i
+        if i < 4 {
+            continue
+        }
+    }
+    assert(last == 4)
+}

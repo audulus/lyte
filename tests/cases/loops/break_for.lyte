@@ -1,0 +1,35 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Break out of for loop
+    var last = 0
+    for i in 0 .. 100 {
+        last = i
+        if i == 7 {
+            break
+        }
+    }
+    assert(last == 7)
+
+    // Break from first iteration
+    var count = 0
+    for i in 0 .. 10 {
+        count = count + 1
+        break
+    }
+    assert(count == 1)
+
+    // Sum until threshold
+    var sum = 0
+    for i in 0 .. 100 {
+        sum = sum + i
+        if sum > 20 {
+            break
+        }
+    }
+    assert(sum == 21)
+}

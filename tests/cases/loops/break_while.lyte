@@ -1,0 +1,39 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // Break out of while loop
+    var i = 0
+    while i < 100 {
+        if i == 5 {
+            break
+        }
+        i = i + 1
+    }
+    assert(i == 5)
+
+    // Break from nested loop (inner only)
+    var sum = 0
+    for j in 0 .. 5 {
+        var k = 0
+        while k < 100 {
+            if k == 3 {
+                break
+            }
+            k = k + 1
+        }
+        sum = sum + k
+    }
+    assert(sum == 15)
+
+    // Break with no iterations
+    var x = 42
+    while x < 0 {
+        break
+        x = 0
+    }
+    assert(x == 42)
+}

@@ -1,0 +1,9 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/continue_outside_loop.lyte:8:5: continue outside of loop
+//         continue
+//         ^
+
+main {
+    continue
+}

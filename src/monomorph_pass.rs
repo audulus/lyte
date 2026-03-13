@@ -300,7 +300,9 @@ impl MonomorphPass {
             | Expr::False
             | Expr::Enum(_)
             | Expr::Error
-            | Expr::Macro(_, _) => {}
+            | Expr::Macro(_, _)
+            | Expr::Break
+            | Expr::Continue => {}
         }
         Ok(())
     }
