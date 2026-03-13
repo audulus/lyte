@@ -61,8 +61,17 @@ cargo run --bin lyte <directory/>
 # Fuzz the lexer
 cargo fuzz run lexer
 
-# Fuzz the parser  
+# Fuzz the parser
 cargo fuzz run parser
+
+# Fuzz the type checker + safety checker
+cargo fuzz run checker
+
+# Fuzz the full JIT compile pipeline (no execution)
+cargo fuzz run compile_jit
+
+# Fuzz the full VM compile pipeline (no execution)
+cargo fuzz run compile_vm
 ```
 
 ## Architecture
