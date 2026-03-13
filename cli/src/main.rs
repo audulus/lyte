@@ -110,7 +110,7 @@ fn run(args: Args) -> i32 {
     } else {
         args.backend.clone()
     };
-    let should_run = !args.check && !args.ast && !args.bytecode;
+    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir;
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     let run_vm = should_run && backend == "vm";
     #[cfg(target_arch = "aarch64")]
@@ -122,7 +122,7 @@ fn run(args: Args) -> i32 {
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
 
-    if run_jit || run_vm || run_asm || run_llvm || args.bytecode {
+    if run_jit || run_vm || run_asm || run_llvm || args.bytecode || args.ir {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -173,6 +173,16 @@ fn run(args: Args) -> i32 {
                     llvm_compile.as_micros()
                 );
                 eprintln!("llvm exec: {:.3}s", llvm_exec.as_secs_f64());
+            }
+        }
+
+        if args.ir && !should_run {
+            if backend == "llvm" {
+                #[cfg(feature = "llvm")]
+                compiler.print_llvm_ir();
+            } else {
+                // Cranelift JIT: compile (prints IR via print_ir flag) but don't execute.
+                let _ = compiler.jit();
             }
         }
 

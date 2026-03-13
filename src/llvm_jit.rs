@@ -381,6 +381,7 @@ fn build_fn_type<'ctx>(
 
 pub struct LLVMJIT {
     pub print_ir: bool,
+    pub ir_only: bool,
 }
 
 /// Compile and run result: Ok(cancelled) or Err(msg).
@@ -388,6 +389,7 @@ fn compile_and_run_with_context(
     context: &Context,
     decls: &DeclTable,
     print_ir: bool,
+    ir_only: bool,
 ) -> Result<(bool, Duration, Duration), String> {
     let mut state = LLVMJITState {
         context,
@@ -419,7 +421,13 @@ fn compile_and_run_with_context(
     state.compile_function(decls, main_decl)?;
 
     if print_ir {
-        println!("LLVM IR:\n{}", state.module.print_to_string().to_string());
+        let ir = state.module.print_to_string().to_string();
+        println!("LLVM IR:");
+        for line in ir.lines() {
+            if !line.is_empty() {
+                println!("{}", line);
+            }
+        }
     }
 
     state
@@ -450,10 +458,18 @@ fn compile_and_run_with_context(
         .map_err(|e| format!("LLVM pass pipeline failed: {}", e))?;
 
     if print_ir {
-        println!(
-            "Optimized LLVM IR:\n{}",
-            state.module.print_to_string().to_string()
-        );
+        let ir = state.module.print_to_string().to_string();
+        println!("Optimized LLVM IR:");
+        for line in ir.lines() {
+            if !line.is_empty() {
+                println!("{}", line);
+            }
+        }
+    }
+
+    if ir_only {
+        let compile_elapsed = compile_start.elapsed();
+        return Ok((false, compile_elapsed, Duration::ZERO));
     }
 
     // Create JIT execution engine.
@@ -505,7 +521,10 @@ fn compile_and_run_with_context(
 
 impl LLVMJIT {
     pub fn new() -> Self {
-        Self { print_ir: false }
+        Self {
+            print_ir: false,
+            ir_only: false,
+        }
     }
 
     /// Compile and execute main. Returns Ok((cancelled, compile_time, exec_time)) or Err.
@@ -515,7 +534,7 @@ impl LLVMJIT {
             .map_err(|e| format!("LLVM target init failed: {}", e))?;
 
         let context = Context::create();
-        compile_and_run_with_context(&context, decls, self.print_ir)
+        compile_and_run_with_context(&context, decls, self.print_ir, self.ir_only)
     }
 }
 

@@ -508,6 +508,21 @@ impl Compiler {
         }
     }
 
+    /// Compile with LLVM and print IR, but do not execute.
+    #[cfg(feature = "llvm")]
+    pub fn print_llvm_ir(&mut self) {
+        let mut jit = LLVMJIT::new();
+        jit.print_ir = true;
+        jit.ir_only = true;
+        match jit.compile_and_run(&self.decls) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("{}", e);
+                panic!();
+            }
+        }
+    }
+
     pub fn jit(&self) -> Result<(*const u8, usize), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
