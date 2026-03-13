@@ -21,6 +21,17 @@ jobs:
     - name: Run tests
       run: cargo test --workspace --verbose
 
+  build-macos:
+
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Build
+      run: cargo build --workspace --verbose
+    - name: Run tests
+      run: cargo test --workspace --verbose
+
   build-llvm:
 
     runs-on: ubuntu-latest
