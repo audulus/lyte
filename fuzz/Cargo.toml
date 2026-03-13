@@ -1,3 +1,4 @@
+[workspace]
 
 [package]
 name = "lyte-fuzz"
@@ -22,5 +23,23 @@ doc = false
 [[bin]]
 name = "parser"
 path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "checker"
+path = "fuzz_targets/checker.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "compile_jit"
+path = "fuzz_targets/compile_jit.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "compile_vm"
+path = "fuzz_targets/compile_vm.rs"
 test = false
 doc = false

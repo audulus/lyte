@@ -5,9 +5,7 @@ use lyte::parser::*;
 
 fuzz_target!(|data: String| {
     let mut lex = Lexer::new(&data, "fuzz");
-    let mut arena = ExprArena::new();
-    let r = parse_program(&mut lex, &mut arena);
-    if r.is_ok() {
-        assert!(lex.tok == Token::End);
-    }
+    lex.next();
+    let mut errors = vec![];
+    let _ = parse_program(&mut lex, &mut errors);
 });

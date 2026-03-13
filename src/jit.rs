@@ -149,6 +149,9 @@ impl JIT {
         decls: &DeclTable,
         decl: &FuncDecl,
     ) -> Result<cranelift_module::FuncId, String> {
+        if decl.body.is_none() {
+            return Err(format!("function '{}' has no body", decl.name));
+        }
         self.ctx.func.signature = fn_sig(&self.module, decl.domain(), decl.ret);
 
         // Add globals base pointer as first parameter to all functions.

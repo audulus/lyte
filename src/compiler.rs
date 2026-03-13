@@ -543,9 +543,8 @@ impl Compiler {
             if cancelled {
                 println!("execution cancelled");
             }
-        } else {
-            println!("{:?}", r);
-            panic!();
+        } else if let Err(e) = r {
+            eprintln!("compilation error: {}", e);
         }
     }
 
