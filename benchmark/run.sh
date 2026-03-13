@@ -58,10 +58,10 @@ echo "Running benchmarks..."
 
 C_O2_TIME=$(avg benchmark/biquad_c_o2)
 C_O3_TIME=$(avg benchmark/biquad_c_o3)
-LYTE_JIT=$(avg "LYTE_BACKEND=jit $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
-LYTE_VM=$(avg "LYTE_BACKEND=vm $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
+LYTE_JIT=$(avg "$LYTE --backend jit benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
+LYTE_VM=$(avg "$LYTE --backend vm benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
 if [ "$HAS_LLVM" = "1" ]; then
-    LYTE_LLVM=$(avg "LYTE_BACKEND=llvm $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'llvm exec:'")
+    LYTE_LLVM=$(avg "$LYTE --backend llvm benchmark/biquad.lyte --timing 2>&1 | grep 'llvm exec:'")
 else
     LYTE_LLVM=""
 fi

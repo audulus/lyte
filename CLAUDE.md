@@ -35,10 +35,10 @@ cargo build --release
 cargo run --bin lyte <file.lyte>
 
 # Compile and run with the VM backend
-LYTE_BACKEND=vm cargo run --bin lyte <file.lyte>
+cargo run --bin lyte <file.lyte> --backend vm
 
 # Compile and run with the LLVM backend (requires llvm feature)
-LYTE_BACKEND=llvm cargo run --bin lyte <file.lyte>
+cargo run --bin lyte <file.lyte> --backend llvm
 
 # Parse and type-check only (no compilation or execution)
 cargo run --bin lyte <file.lyte> --check
