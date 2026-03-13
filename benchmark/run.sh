@@ -25,8 +25,9 @@ else
 fi
 LYTE=./target/release/lyte
 
-echo "Building C benchmark..."
-cc -O2 -o benchmark/biquad_c benchmark/biquad.c -lm
+echo "Building C benchmarks..."
+cc -O2 -o benchmark/biquad_c_o2 benchmark/biquad.c -lm
+cc -O3 -o benchmark/biquad_c_o3 benchmark/biquad.c -lm
 
 if ! command -v lua &>/dev/null; then
     echo "Error: lua not found. Install with: brew install lua" >&2
@@ -55,7 +56,8 @@ avg() {
 
 echo "Running benchmarks..."
 
-C_TIME=$(avg benchmark/biquad_c)
+C_O2_TIME=$(avg benchmark/biquad_c_o2)
+C_O3_TIME=$(avg benchmark/biquad_c_o3)
 LYTE_JIT=$(avg "LYTE_BACKEND=jit $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
 LYTE_VM=$(avg "LYTE_BACKEND=vm $LYTE benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
 if [ "$HAS_LLVM" = "1" ]; then
@@ -88,4 +90,5 @@ row "Lyte VM"           "$LYTE_VM"    "$LUA"
 row "LuaJIT (JIT)"      "$LUAJIT_JIT" "$LUA"
 row "Lyte JIT"          "$LYTE_JIT"   "$LUA"
 row "Lyte LLVM"         "$LYTE_LLVM"  "$LUA"
-row "C (-O2)"           "$C_TIME"     "$LUA"
+row "C (-O2)"           "$C_O2_TIME"  "$LUA"
+row "C (-O3)"           "$C_O3_TIME"  "$LUA"
