@@ -23,6 +23,17 @@ struct Args {
 
     #[clap(long)]
     timing: bool,
+
+    /// Select backend: "jit" (default), "vm", or "llvm".
+    /// Falls back to LYTE_BACKEND env var if not specified.
+    #[clap(long, default_value = "")]
+    backend: String,
+
+    /// Skip this backend (for golden tests). If the source contains
+    /// `// skip-backend: <value>`, reproduce expected stdout and exit.
+    /// Falls back to LYTE_SKIP_BACKEND env var if not specified.
+    #[clap(long, default_value = "")]
+    skip_backend: String,
 }
 
 fn run(args: Args) -> i32 {
@@ -38,9 +49,14 @@ fn run(args: Args) -> i32 {
     }
 
     // Check for skip-backend directive: if the source contains
-    // `// skip-backend: <backend>` and the current LYTE_SKIP_BACKEND matches,
+    // `// skip-backend: <backend>` and the current skip-backend matches,
     // reproduce expected stdout from the test file and exit (for golden tests).
-    if let Ok(skip_backend) = std::env::var("LYTE_SKIP_BACKEND") {
+    let skip_backend = if args.skip_backend.is_empty() {
+        std::env::var("LYTE_SKIP_BACKEND").unwrap_or_default()
+    } else {
+        args.skip_backend.clone()
+    };
+    if !skip_backend.is_empty() {
         for path in &paths {
             if let Ok(contents) = fs::read_to_string(path) {
                 let directive = format!("// skip-backend: {}", skip_backend);
@@ -88,8 +104,12 @@ fn run(args: Args) -> i32 {
 
     compiler.print_ir = args.ir;
 
-    // Select backend via LYTE_BACKEND env var: "jit" (default), "vm", or "llvm".
-    let backend = std::env::var("LYTE_BACKEND").unwrap_or_default();
+    // Select backend via --backend flag, falling back to LYTE_BACKEND env var.
+    let backend = if args.backend.is_empty() {
+        std::env::var("LYTE_BACKEND").unwrap_or_default()
+    } else {
+        args.backend.clone()
+    };
     let should_run = !args.check && !args.ast && !args.bytecode;
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     let run_vm = should_run && backend == "vm";
