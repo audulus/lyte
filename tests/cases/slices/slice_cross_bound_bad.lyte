@@ -1,0 +1,13 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/slices/slice_cross_bound_bad.lyte:11:9: couldn't prove index is less than slice length
+//             b[i]
+//             ^
+
+// Index bounded by a.len should not be valid for b
+f(a: [i32], b: [i32]) {
+    for i in 0 .. a.len {
+        a[i]
+        b[i]
+    }
+}

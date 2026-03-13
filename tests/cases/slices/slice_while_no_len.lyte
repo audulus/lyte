@@ -1,0 +1,14 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/slices/slice_while_no_len.lyte:11:9: couldn't prove index is less than slice length
+//             s[i]
+//             ^
+
+// While loop with numeric bound (not .len) should fail for slices
+f(s: [i32]) {
+    var i = 0
+    while i < 100 {
+        s[i]
+        i = i + 1
+    }
+}

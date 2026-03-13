@@ -1,0 +1,11 @@
+// args: --check
+// expected stdout:
+
+// While loop with i < s.len should allow s[i]
+f(s: [i32]) {
+    var i = 0
+    while i < s.len {
+        s[i]
+        i = i + 1
+    }
+}

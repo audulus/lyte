@@ -1,0 +1,18 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/array_else_branch.lyte:16:9: couldn't prove index is >= 0
+//             a[i]
+//             ^
+// ❌ ../tests/cases/arrays/array_else_branch.lyte:16:9: couldn't prove index is less than array length
+//             a[i]
+//             ^
+
+// Else branch must NOT inherit then-branch constraints
+f(i: i32) {
+    var a: [i32; 100]
+    if i >= 0 && i < 100 {
+        a[i]
+    } else {
+        a[i]
+    }
+}

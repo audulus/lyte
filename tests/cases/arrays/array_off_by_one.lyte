@@ -1,0 +1,28 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/array_off_by_one.lyte:26:9: couldn't prove index is less than array length
+//             a[i]
+//             ^
+// ❌ ../tests/cases/arrays/array_off_by_one.lyte:19:5: couldn't prove index is less than array length
+//         a[10]
+//         ^
+
+// Last valid index — should be safe
+last_valid {
+    var a: [i32; 10]
+    a[9]
+}
+
+// One past the end — should fail
+one_past {
+    var a: [i32; 10]
+    a[10]
+}
+
+// for i in 0 .. 11 on [i32; 10] — off by one
+loop_off_by_one {
+    var a: [i32; 10]
+    for i in 0 .. 11 {
+        a[i]
+    }
+}

@@ -10,11 +10,6 @@
   - VM/JIT equivalence: Automatically run the same programs on both backends and assert identical output (the golden
   tests do this, but a programmatic property test could generate random valid programs).
 
-  5. Safety checker coverage
-
-  46 unit tests is good, but the golden tests in arrays/ could be expanded to test more bounds-checking edge cases
-  (e.g., aliased array indices, bounds in nested loops, slices of slices).
-
   6. Regression test workflow
 
   There's no mechanism to easily add a regression test from a bug report. A script like ./add_test.sh

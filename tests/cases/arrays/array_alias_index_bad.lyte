@@ -1,0 +1,14 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/array_alias_index_bad.lyte:12:9: couldn't prove index is less than array length
+//             a[j]
+//             ^
+
+// Computed alias overflow: let j = i + 1 where i in [0, 99] gives j in [1, 100]
+f(i: i32) {
+    var a: [i32; 100]
+    if i >= 0 && i < 100 {
+        let j = i + 1
+        a[j]
+    }
+}

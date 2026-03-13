@@ -1,0 +1,16 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/array_reassign_bad.lyte:15:5: couldn't prove index is >= 0
+//         a[i]
+//         ^
+// ❌ ../tests/cases/arrays/array_reassign_bad.lyte:15:5: couldn't prove index is less than array length
+//         a[i]
+//         ^
+
+// Reassigning from unconstrained should invalidate bounds
+f(j: i32) {
+    var a: [i32; 5]
+    var i = 3
+    i = j
+    a[i]
+}

@@ -332,16 +332,18 @@ impl SafetyChecker {
 
                 let mut r = self.check_expr(*then_expr, decl, decls);
 
-                if let Some(else_expr) = else_expr {
-                    let else_r = self.check_expr(*else_expr, decl, decls);
-                    r = enclose(r, else_r);
-                }
-
-                // Pop off any constraints not already invalidated by changing data.
+                // Pop condition constraints before checking else branch —
+                // the else branch executes when the condition is false,
+                // so it must not inherit the then-branch constraints.
                 while self.constraints.len() > initial_constraint_count {
                     self.constraints.pop();
                 }
                 self.len_bounds.truncate(initial_len_bound_count);
+
+                if let Some(else_expr) = else_expr {
+                    let else_r = self.check_expr(*else_expr, decl, decls);
+                    r = enclose(r, else_r);
+                }
 
                 r
             }
@@ -486,9 +488,12 @@ impl SafetyChecker {
                     self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
 
-                    if rhs_range != IndexInterval::default() {
-                        if let Expr::Id(name) = &decl.arena[*lhs] {
+                    if let Expr::Id(name) = &decl.arena[*lhs] {
+                        if rhs_range != IndexInterval::default() {
                             self.replace(*name, Some(rhs_range.min), Some(rhs_range.max));
+                        } else {
+                            // RHS is unconstrained — clear old constraints on LHS.
+                            self.replace(*name, None, None);
                         }
                     }
 
@@ -1332,6 +1337,345 @@ mod tests {
         f(a: i32, x: i32) → i32 {
             if x > 4 {
                 a / (x - 1)
+            } else {
+                0
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    // --- Bug fix tests ---
+
+    #[test]
+    pub fn test_else_branch_no_condition_constraints() {
+        // The else branch runs when the condition is FALSE,
+        // so condition constraints must NOT apply there.
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                a[i]
+            } else {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        // a[i] in else should fail: can't prove >= 0 and can't prove < length
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_else_branch_safe_literal() {
+        // Else branch with a safe literal should still be fine.
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                a[i]
+            } else {
+                a[0]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_assign_unconstrained_clears_bounds() {
+        // Assigning an unconstrained variable should clear old constraints.
+        let s = "
+        f(j: i32) {
+            var a: [i32; 5]
+            var i = 3
+            i = j
+            a[i]
+        }
+        ";
+        let errors = check(s);
+        // i was [3,3] but after i = j it's unconstrained
+        assert_eq!(errors.len(), 2); // can't prove >= 0 and can't prove < length
+    }
+
+    #[test]
+    pub fn test_assign_constrained_updates_bounds() {
+        // Assigning a constrained value should update bounds correctly.
+        let s = "
+        f(j: i32) {
+            var a: [i32; 10]
+            var i = 50
+            if j >= 0 && j < 10 {
+                i = j
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    // --- Aliased index tests ---
+
+    #[test]
+    pub fn test_aliased_index_let() {
+        // let j = i should propagate i's constraints to j
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                let j = i
+                a[j]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_aliased_index_computed() {
+        // let j = i + 1, where i in [0, 98], j in [1, 99], safe for [i32; 100]
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 99 {
+                let j = i + 1
+                a[j]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_aliased_index_unsafe() {
+        // let j = i + 1, where i in [0, 99], j in [1, 100], NOT safe for [i32; 100]
+        let s = "
+        f(i: i32) {
+            var a: [i32; 100]
+            if i >= 0 && i < 100 {
+                let j = i + 1
+                a[j]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    // --- Nested loop tests ---
+
+    #[test]
+    pub fn test_nested_for_loops_2d() {
+        // Nested for loops indexing a flat array with i * cols + j
+        let s = "
+        f {
+            var a: [i32; 100]
+            for i in 0 .. 10 {
+                for j in 0 .. 10 {
+                    a[i * 10 + j]
+                }
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_nested_for_loops_2d_overflow() {
+        // i * 10 + j where i in [0,9] and j in [0,9] gives [0,99],
+        // but array is only 50 elements
+        let s = "
+        f {
+            var a: [i32; 50]
+            for i in 0 .. 10 {
+                for j in 0 .. 10 {
+                    a[i * 10 + j]
+                }
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_while_loop_slice_bounded() {
+        // while i < s.len should allow s[i]
+        let s = "
+        f(s: [i32]) {
+            var i = 0
+            while i < s.len {
+                s[i]
+                i = i + 1
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    // --- Off-by-one edge cases ---
+
+    #[test]
+    pub fn test_exact_last_element() {
+        // Accessing index length-1 should be safe
+        let s = "
+        f {
+            var a: [i32; 10]
+            a[9]
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_one_past_end() {
+        // Accessing index == length should be caught
+        let s = "
+        f {
+            var a: [i32; 10]
+            a[10]
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_for_loop_last_element() {
+        // for i in 0 .. 10: i ranges [0, 9], a[i] in [i32; 10] is safe
+        let s = "
+        f {
+            var a: [i32; 10]
+            for i in 0 .. 10 {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_for_loop_one_past_end() {
+        // for i in 0 .. 11: i ranges [0, 10], a[i] in [i32; 10] is NOT safe
+        let s = "
+        f {
+            var a: [i32; 10]
+            for i in 0 .. 11 {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_single_element_array_bounds() {
+        // [i32; 1] — only index 0 is valid
+        let s = "
+        f(i: i32) {
+            var a: [i32; 1]
+            if i >= 0 && i < 1 {
+                a[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    // --- Slice edge cases ---
+
+    #[test]
+    pub fn test_slice_two_slices_same_index() {
+        // i bounded by a.len should work for a[i] but not b[i]
+        let s = "
+        f(a: [i32], b: [i32]) {
+            for i in 0 .. a.len {
+                a[i]
+                b[i]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1); // b[i] fails
+    }
+
+    #[test]
+    pub fn test_slice_both_bounded() {
+        // Both bounded by their own .len
+        let s = "
+        f(a: [i32], b: [i32]) {
+            for i in 0 .. a.len {
+                a[i]
+            }
+            for j in 0 .. b.len {
+                b[j]
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_slice_while_no_bound() {
+        // while loop without len comparison — should fail
+        let s = "
+        f(s: [i32]) {
+            var i = 0
+            while i < 100 {
+                s[i]
+                i = i + 1
+            }
+        }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1); // can't prove < slice length
+    }
+
+    // --- Division edge cases ---
+
+    #[test]
+    pub fn test_div_by_zero_literal() {
+        let s = "
+        f(x: i32) → i32 { x / 0 }
+        ";
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_mod_guarded_nonzero() {
+        let s = "
+        f(a: i32, b: i32) → i32 {
+            if b != 0 {
+                a % b
+            } else {
+                0
+            }
+        }
+        ";
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_div_negative_divisor_safe() {
+        // b < 0 means b <= -1, which excludes zero
+        let s = "
+        f(a: i32, b: i32) → i32 {
+            if b < 0 {
+                a / b
             } else {
                 0
             }

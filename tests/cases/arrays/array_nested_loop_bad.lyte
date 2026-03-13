@@ -1,0 +1,15 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/array_nested_loop_bad.lyte:12:13: couldn't prove index is less than array length
+//                 a[i * 10 + j]
+//                 ^
+
+// Nested loops where computed index exceeds array length
+flat_2d_overflow {
+    var a: [i32; 50]
+    for i in 0 .. 10 {
+        for j in 0 .. 10 {
+            a[i * 10 + j]
+        }
+    }
+}

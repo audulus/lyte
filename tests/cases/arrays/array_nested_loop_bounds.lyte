@@ -1,0 +1,22 @@
+// args: --check
+// expected stdout:
+
+// Nested for loops: 2D indexing into a flat array
+flat_2d {
+    var a: [i32; 100]
+    for i in 0 .. 10 {
+        for j in 0 .. 10 {
+            a[i * 10 + j]
+        }
+    }
+}
+
+// Nested loops with different sizes
+flat_rect {
+    var a: [i32; 20]
+    for i in 0 .. 4 {
+        for j in 0 .. 5 {
+            a[i * 5 + j]
+        }
+    }
+}

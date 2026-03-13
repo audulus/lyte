@@ -1,0 +1,20 @@
+// args: --check
+// expected stdout:
+
+// Aliased index: let j = i should propagate bounds
+f(i: i32) {
+    var a: [i32; 100]
+    if i >= 0 && i < 100 {
+        let j = i
+        a[j]
+    }
+}
+
+// Computed alias: let j = i + 1 where i in [0, 98]
+g(i: i32) {
+    var a: [i32; 100]
+    if i >= 0 && i < 99 {
+        let j = i + 1
+        a[j]
+    }
+}
