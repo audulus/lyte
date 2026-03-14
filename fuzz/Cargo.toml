@@ -10,6 +10,9 @@ edition = "2018"
 [package.metadata]
 cargo-fuzz = true
 
+[features]
+llvm = ["lyte/llvm"]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 lyte = { path = "../" }

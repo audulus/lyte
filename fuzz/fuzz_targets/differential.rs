@@ -180,6 +180,15 @@ fn run_backend(program: &str, backend: &str) -> Option<String> {
             });
             Some(output)
         }
+        #[cfg(feature = "llvm")]
+        "llvm" => {
+            let output = capture_stdout(|| {
+                compiler.run_llvm();
+            });
+            // Strip the "compilation successful" prefix line
+            let output = strip_prefix_line(&output, "compilation successful");
+            Some(output)
+        }
         _ => None,
     }
 }
@@ -189,6 +198,41 @@ fn strip_prefix_line(s: &str, prefix: &str) -> String {
         rest.strip_prefix('\n').unwrap_or(rest).to_string()
     } else {
         s.to_string()
+    }
+}
+
+fn assert_same(
+    name_a: &str,
+    out_a: &Option<String>,
+    name_b: &str,
+    out_b: &Option<String>,
+    program: &str,
+) {
+    match (out_a, out_b) {
+        (Some(a), Some(b)) => {
+            if a != b {
+                panic!(
+                    "DIFFERENTIAL BUG: {} and {} produce different output!\n\
+                     \n=== Program ===\n{}\n\
+                     \n=== {} output ===\n{}\n\
+                     \n=== {} output ===\n{}",
+                    name_a, name_b, program, name_a, a, name_b, b
+                );
+            }
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            panic!(
+                "DIFFERENTIAL BUG: one backend compiled but the other didn't!\n\
+                 \n=== Program ===\n{}\n\
+                 \n{}: {}\n{}: {}",
+                program,
+                name_a,
+                out_a.as_deref().unwrap_or("FAILED"),
+                name_b,
+                out_b.as_deref().unwrap_or("FAILED"),
+            );
+        }
+        (None, None) => {}
     }
 }
 
@@ -211,32 +255,15 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
-    // Run on both backends.
+    // Run on all backends.
     let jit_output = run_backend(&program, "jit");
     let vm_output = run_backend(&program, "vm");
 
-    match (&jit_output, &vm_output) {
-        (Some(jit), Some(vm)) => {
-            if jit != vm {
-                panic!(
-                    "DIFFERENTIAL BUG: JIT and VM produce different output!\n\
-                     \n=== Program ===\n{}\n\
-                     \n=== JIT output ===\n{}\n\
-                     \n=== VM output ===\n{}",
-                    program, jit, vm
-                );
-            }
-        }
-        (Some(_), None) | (None, Some(_)) => {
-            panic!(
-                "DIFFERENTIAL BUG: one backend compiled but the other didn't!\n\
-                 \n=== Program ===\n{}\n\
-                 \nJIT: {}\nVM: {}",
-                program,
-                jit_output.as_deref().unwrap_or("FAILED"),
-                vm_output.as_deref().unwrap_or("FAILED"),
-            );
-        }
-        (None, None) => {}
+    assert_same("JIT", &jit_output, "VM", &vm_output, &program);
+
+    #[cfg(feature = "llvm")]
+    {
+        let llvm_output = run_backend(&program, "llvm");
+        assert_same("VM", &vm_output, "LLVM", &llvm_output, &program);
     }
 });
