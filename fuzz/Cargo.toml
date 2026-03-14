@@ -13,6 +13,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 lyte = { path = "../" }
+libc = "0.2"
 
 [[bin]]
 name = "lexer"
@@ -41,5 +42,11 @@ doc = false
 [[bin]]
 name = "compile_vm"
 path = "fuzz_targets/compile_vm.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
 test = false
 doc = false

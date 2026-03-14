@@ -72,6 +72,9 @@ cargo fuzz run compile_jit
 
 # Fuzz the full VM compile pipeline (no execution)
 cargo fuzz run compile_vm
+
+# Differential fuzz: generate valid programs, run on JIT and VM, compare output
+cargo fuzz run differential
 ```
 
 ## Architecture
