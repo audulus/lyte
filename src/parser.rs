@@ -891,7 +891,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
     if cx.lex.tok == Token::Where {
         cx.next();
 
-        while !token_in(&cx.lex.tok, &[Token::Lbrace, Token::Rbrace, Token::Endl]) {
+        while !token_in(&cx.lex.tok, &[Token::Lbrace, Token::Rbrace, Token::Endl, Token::End]) {
             let interface_name = expect_id(cx);
             let typevars = parse_typevar_list(cx);
             constraints.push(InterfaceConstraint {
