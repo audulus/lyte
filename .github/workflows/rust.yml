@@ -101,33 +101,9 @@ jobs:
       run: cargo +nightly install cargo-fuzz
     - name: Differential fuzz JIT vs VM vs LLVM (30s)
       run: cargo +nightly fuzz run differential --features llvm -- -max_total_time=30
-    - name: Debug empty_string (LLVM backend, 10 runs + IR dump)
-      if: always()
+    - name: LLVM backend stress test (10 runs)
       run: |
-        echo "=== LLVM IR dump ==="
-        ./target/debug/lyte tests/cases/slices/empty_string.lyte --backend llvm --ir 2>&1 || true
-        echo "=== Running 10 times to detect intermittent failure ==="
         for i in $(seq 1 10); do
           echo -n "Run $i: "
-          RUST_BACKTRACE=1 ./target/debug/lyte tests/cases/slices/empty_string.lyte --backend llvm 2>&1 || echo "FAILED (exit $?)"
-        done
-    - name: Install nightly + rust-src for ASAN build
-      if: always()
-      run: |
-        rustup toolchain install nightly --profile minimal
-        rustup component add rust-src --toolchain nightly
-    - name: Build with LLVM + ASAN
-      if: always()
-      run: |
-        RUSTFLAGS="-Zsanitizer=address" cargo +nightly build -p lyte -p lyte-cli --features llvm --target x86_64-unknown-linux-gnu -Zbuild-std --verbose
-    - name: Run empty_string with ASAN
-      if: always()
-      run: |
-        ASAN_BIN=./target/x86_64-unknown-linux-gnu/debug/lyte
-        echo "=== ASAN single run ==="
-        RUST_BACKTRACE=1 $ASAN_BIN tests/cases/slices/empty_string.lyte --backend llvm 2>&1 || true
-        echo "=== ASAN 10 runs ==="
-        for i in $(seq 1 10); do
-          echo -n "Run $i: "
-          RUST_BACKTRACE=1 $ASAN_BIN tests/cases/slices/empty_string.lyte --backend llvm 2>&1 || echo "FAILED (exit $?)"
+          ./target/debug/lyte tests/cases/slices/empty_string.lyte --backend llvm
         done
