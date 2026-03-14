@@ -539,7 +539,7 @@ impl Compiler {
 
     pub fn run(&mut self) {
         let r = self.jit();
-        if let Ok((code_ptr, globals_size, _jit)) = r {
+        if let Ok((code_ptr, globals_size, jit)) = r {
             println!("compilation successful");
 
             // Allocate zeroed global memory and pass to main.
@@ -563,6 +563,8 @@ impl Compiler {
             if cancelled {
                 println!("execution cancelled");
             }
+            // Free JIT executable memory now that code is no longer running.
+            jit.free_memory();
         } else if let Err(e) = r {
             eprintln!("compilation error: {}", e);
         }
@@ -616,7 +618,7 @@ mod tests {
         assert!(compiler.check());
         compiler.specialize().unwrap();
 
-        let (code_ptr, globals_size, _jit) = compiler.jit().expect("JIT compilation failed");
+        let (code_ptr, globals_size, jit) = compiler.jit().expect("JIT compilation failed");
         let mut globals: Vec<u8> = vec![0u8; globals_size];
 
         // Wrap the raw pointer so it can be sent to another thread.
@@ -646,6 +648,7 @@ mod tests {
         };
 
         assert!(cancelled, "expected the infinite loop to be cancelled");
+        jit.free_memory();
     }
 
     fn run(code: &str) {

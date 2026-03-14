@@ -57,6 +57,14 @@ pub struct LyteCompiler {
     ice_occurred: bool,
 }
 
+impl Drop for LyteCompiler {
+    fn drop(&mut self) {
+        if let Some((_, _, jit)) = self.jit_result.take() {
+            jit.free_memory();
+        }
+    }
+}
+
 impl LyteCompiler {
     fn set_error(&mut self, msg: &str) {
         self.last_error = Some(CString::new(msg).unwrap_or_default());
@@ -184,7 +192,10 @@ pub unsafe extern "C" fn lyte_compiler_jit(ptr: *mut LyteCompiler) -> bool {
     }
     catch_panic(ptr, |c| {
         c.last_error = None;
-        c.jit_result = None;
+        // Free previous JIT executable memory before compiling again.
+        if let Some((_, _, jit)) = c.jit_result.take() {
+            jit.free_memory();
+        }
         c.globals.clear();
         match c.compiler.jit() {
             Ok(result) => {

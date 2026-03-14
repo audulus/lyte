@@ -124,6 +124,12 @@ impl Default for JIT {
 }
 
 impl JIT {
+    /// Free executable memory allocated by the JIT.
+    /// Must only be called after JIT'd code is no longer running.
+    pub fn free_memory(self) {
+        unsafe { self.module.free_memory() };
+    }
+
     /// Compile our AST into native code.
     /// Returns (code_ptr, globals_size).
     pub fn compile(&mut self, decls: &DeclTable) -> Result<(*const u8, usize), String> {

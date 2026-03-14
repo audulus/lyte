@@ -73,7 +73,7 @@ jobs:
     - name: Fuzz compile_vm (30s)
       run: cargo +nightly fuzz run compile_vm -- -max_total_time=30
     - name: Differential fuzz JIT vs VM (30s)
-      run: cargo +nightly fuzz run differential -- -max_total_time=30 -detect_leaks=0
+      run: cargo +nightly fuzz run differential -- -max_total_time=30
 
   build-llvm:
 
