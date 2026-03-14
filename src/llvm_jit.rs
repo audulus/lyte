@@ -12,7 +12,8 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
-use inkwell::targets::{InitializationConfig, Target};
+use inkwell::passes::PassBuilderOptions;
+use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
@@ -434,6 +435,28 @@ fn compile_and_run_with_context(
         .verify()
         .map_err(|e| format!("LLVM module verification failed: {}", e))?;
 
+    // Run a light LLVM optimization pipeline.
+    let triple = TargetMachine::get_default_triple();
+    let cpu = TargetMachine::get_host_cpu_name();
+    let features = TargetMachine::get_host_cpu_features();
+    let target = Target::from_triple(&triple)
+        .map_err(|e| format!("LLVM target from triple: {}", e))?;
+    let machine = target
+        .create_target_machine(
+            &triple,
+            cpu.to_str().unwrap_or("generic"),
+            features.to_str().unwrap_or(""),
+            OptimizationLevel::Aggressive,
+            RelocMode::Default,
+            CodeModel::JITDefault,
+        )
+        .ok_or("failed to create target machine")?;
+    let pass_options = PassBuilderOptions::create();
+    state
+        .module
+        .run_passes("default<O1>", &machine, pass_options)
+        .map_err(|e| format!("LLVM pass pipeline failed: {}", e))?;
+
     if print_ir {
         let ir = state.module.print_to_string().to_string();
         println!("Optimized LLVM IR:");
@@ -456,12 +479,10 @@ fn compile_and_run_with_context(
         .map_err(|e| format!("failed to create JIT execution engine: {}", e))?;
 
     // Register external symbol mappings.
-    // Only map functions that still exist in the module after optimization —
-    // LLVM O3 may remove unused declarations, leaving dangling FunctionValues.
-    for (fv, addr) in &state.extern_fns {
-        let name = fv.get_name().to_str().unwrap_or("");
-        if state.module.get_function(name).is_some() {
-            ee.add_global_mapping(fv, *addr);
+    // Only map functions that still exist in the module after optimization.
+    for (sym, addr) in &state.extern_fns {
+        if let Some(fv) = state.module.get_function(sym) {
+            ee.add_global_mapping(&fv, *addr);
         }
     }
 
@@ -526,8 +547,8 @@ struct LLVMJITState<'ctx> {
     defined_functions: HashSet<Name>,
     lambda_counter: usize,
     print_ir: bool,
-    /// External function values declared in the module, to be mapped after EE creation.
-    extern_fns: Vec<(FunctionValue<'ctx>, usize)>,
+    /// External symbols declared in the module, to be mapped after EE creation.
+    extern_fns: Vec<(String, usize)>,
 }
 
 impl<'ctx> LLVMJITState<'ctx> {
@@ -574,7 +595,7 @@ impl<'ctx> LLVMJITState<'ctx> {
             let f = self
                 .module
                 .add_function(sym, fn_type, Some(Linkage::External));
-            self.extern_fns.push((f, addr));
+            self.extern_fns.push((sym.to_string(), addr));
             f
         }
     }

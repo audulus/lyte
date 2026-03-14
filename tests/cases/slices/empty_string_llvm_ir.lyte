@@ -56,52 +56,21 @@
 // Optimized LLVM IR:
 // ; ModuleID = 'lyte'
 // source_filename = "lyte"
-// define void @main(ptr %0, ptr %1) {
+// define void @main(ptr %0, ptr nocapture readnone %1) local_unnamed_addr {
 // entry:
-//   %str6 = alloca i8, i64 1, align 1
-//   %fat_ptr2 = alloca i8, i64 16, align 8
-//   %fat_ptr = alloca i8, i64 16, align 8
-//   %str = alloca i8, i64 1, align 1
-//   %s = alloca ptr, align 8
-//   %s_storage = alloca i8, i64 1, align 1
 //   %cancel_flag = load i8, ptr %0, align 1
-//   %is_cancelled = icmp ne i8 %cancel_flag, 0
-//   br i1 %is_cancelled, label %cancel, label %cont
+//   %is_cancelled.not = icmp eq i8 %cancel_flag, 0
+//   br i1 %is_cancelled.not, label %cont, label %cancel
 // cancel:                                           ; preds = %entry
-//   call void @__llvm_lyte_abort(ptr %0)
+//   tail call void @__llvm_lyte_abort(ptr nonnull %0)
 //   unreachable
 // cont:                                             ; preds = %entry
-//   store ptr %s_storage, ptr %s, align 8
-//   store i8 0, ptr %str, align 1
-//   call void @llvm.memcpy.p0.p0.i64(ptr align 1 %s_storage, ptr align 1 %str, i64 1, i1 false)
-//   store ptr @__llvm_lyte_assert, ptr %fat_ptr, align 8
-//   %gep = getelementptr inbounds i8, ptr %fat_ptr, i64 8
-//   store ptr null, ptr %gep, align 8
-//   %builtin_fn_ptr = load ptr, ptr %fat_ptr, align 8
-//   %s1 = load ptr, ptr %s, align 8
-//   %ptr_add = getelementptr inbounds i8, ptr %s1, i64 0
-//   %elem = load i8, ptr %ptr_add, align 1
-//   %ieq = icmp eq i8 %elem, 0
-//   %zext = zext i1 %ieq to i8
-//   call void %builtin_fn_ptr(i8 %zext)
-//   store ptr @__llvm_lyte_assert, ptr %fat_ptr2, align 8
-//   %gep3 = getelementptr inbounds i8, ptr %fat_ptr2, i64 8
-//   store ptr null, ptr %gep3, align 8
-//   %builtin_fn_ptr4 = load ptr, ptr %fat_ptr2, align 8
-//   %s5 = load ptr, ptr %s, align 8
-//   store i8 0, ptr %str6, align 1
-//   %memcmp = call i32 @memcmp(ptr %s5, ptr %str6, i64 1)
-//   %eq = icmp eq i32 %memcmp, 0
-//   %zext7 = zext i1 %eq to i8
-//   call void %builtin_fn_ptr4(i8 %zext7)
+//   tail call void @__llvm_lyte_assert(i8 1)
+//   tail call void @__llvm_lyte_assert(i8 1)
 //   ret void
 // }
-// declare void @__llvm_lyte_abort(ptr)
-// ; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
-// declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias nocapture readonly, i64, i1 immarg) #0
-// declare void @__llvm_lyte_assert(i8)
-// declare i32 @memcmp(ptr, ptr, i64)
-// attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
+// declare void @__llvm_lyte_abort(ptr) local_unnamed_addr
+// declare void @__llvm_lyte_assert(i8) local_unnamed_addr
 
 main {
     var s = ""
