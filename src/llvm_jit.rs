@@ -216,7 +216,7 @@ unsafe extern "C" fn llvm_lyte_abort(globals: *mut u8) {
     extern "C" {
         fn longjmp(env: *mut u8, val: i32) -> !;
     }
-    longjmp(globals.add(8), 1);
+    longjmp(globals.add(crate::jit::JMPBUF_OFFSET), 1);
 }
 
 /// Called from LLVM JIT code to compare two slices by contents.
@@ -504,7 +504,7 @@ fn compile_and_run_with_context(
         extern "C" {
             fn setjmp(env: *mut u8) -> i32;
         }
-        let jmp_buf_ptr = globals.as_mut_ptr().add(8);
+        let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
         if setjmp(jmp_buf_ptr) == 0 {
             let code_fn: Entry = std::mem::transmute(fn_addr);
             let null_closure: *mut u8 = std::ptr::null_mut();

@@ -543,15 +543,14 @@ impl Compiler {
             println!("compilation successful");
 
             // Allocate zeroed global memory and pass to main.
-            // globals[0] is the cancel flag; globals[8] holds the longjmp target.
+            // globals[0] is the cancel flag; globals[JMPBUF_OFFSET] holds the longjmp target.
             type Entry = fn(*mut u8) -> ();
             let mut globals: Vec<u8> = vec![0u8; globals_size];
             let cancelled = unsafe {
-                // globals[0]: cancel flag; globals[8]: JmpBuf for longjmp target.
                 extern "C" {
                     fn setjmp(env: *mut u8) -> i32;
                 }
-                let jmp_buf_ptr = globals.as_mut_ptr().add(8);
+                let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
                 if setjmp(jmp_buf_ptr) == 0 {
                     let code_fn = mem::transmute::<_, Entry>(code_ptr);
                     code_fn(globals.as_mut_ptr());
@@ -636,7 +635,7 @@ mod tests {
             extern "C" {
                 fn setjmp(env: *mut u8) -> i32;
             }
-            let jmp_buf_ptr = globals.as_mut_ptr().add(8);
+            let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
             if setjmp(jmp_buf_ptr) == 0 {
                 type Entry = fn(*mut u8) -> ();
                 let code_fn = mem::transmute::<_, Entry>(code_ptr);

@@ -17,10 +17,9 @@ use cranelift_module::{Linkage, Module};
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
-// Opaque jmp_buf: 256 bytes (32 * u64), 8-byte aligned.
-// macOS arm64 jmp_buf ≤ 192 bytes; macOS x86_64 ≤ 148 bytes.
-#[repr(C, align(8))]
-struct JmpBuf([u64; 32]);
+// Opaque jmp_buf: 512 bytes (64 * u64), 16-byte aligned.
+// Must be at least as large as the platform's jmp_buf.
+struct JmpBuf([u64; 64]);
 
 extern "C" {
     fn setjmp(env: *mut u8) -> i32;
@@ -29,16 +28,33 @@ extern "C" {
 
 /// Bytes reserved at the start of the globals buffer for the runtime header:
 ///   offset 0: cancel flag (u8) — write non-zero to cancel running JIT code
-///   offset 8..(8 + size_of::<JmpBuf>): the longjmp target
+///   offset 16..(16 + size_of::<JmpBuf>): the longjmp target
 ///
 /// User globals start at `CANCEL_FLAG_RESERVED`.
-/// The jmp_buf starts at offset 8 so it is naturally aligned.
-pub const CANCEL_FLAG_RESERVED: i32 = 8 + std::mem::size_of::<JmpBuf>() as i32;
+/// The jmp_buf starts at offset 16 for 16-byte alignment (required on Linux x86_64
+/// where setjmp may save SSE registers with aligned stores).
+pub const JMPBUF_OFFSET: usize = 16;
+pub const CANCEL_FLAG_RESERVED: i32 = (JMPBUF_OFFSET + std::mem::size_of::<JmpBuf>()) as i32;
+
+/// Panics if our JmpBuf is smaller than the platform's actual jmp_buf.
+/// The size is measured at build time by build.rs compiling a C snippet.
+fn assert_jmpbuf_size() {
+    if let Some(size) = option_env!("PLATFORM_JMPBUF_SIZE") {
+        let platform_size: usize = size.parse().unwrap();
+        assert!(
+            std::mem::size_of::<JmpBuf>() >= platform_size,
+            "JmpBuf ({} bytes) is too small for this platform's jmp_buf ({} bytes)",
+            std::mem::size_of::<JmpBuf>(),
+            platform_size,
+        );
+    }
+}
 
 /// Called from JIT-generated code when `globals[0]` (the cancel flag) is non-zero.
-/// Receives the globals base pointer and longjmps to the checkpoint stored at `globals[8]`.
+/// Receives the globals base pointer and longjmps to the checkpoint stored at
+/// `globals[JMPBUF_OFFSET]`.
 unsafe extern "C" fn lyte_abort(globals: *mut u8) {
-    longjmp(globals.add(8), 1);
+    longjmp(globals.add(JMPBUF_OFFSET), 1);
 }
 
 /// Called from JIT-generated code to compare two slices by contents.
@@ -87,6 +103,7 @@ pub struct JIT {
 
 impl Default for JIT {
     fn default() -> Self {
+        assert_jmpbuf_size();
         // let builder = JITBuilder::new(cranelift_module::default_libcall_names());
 
         // See https://github.com/bytecodealliance/wasmtime/issues/2735#issuecomment-801476541
@@ -522,7 +539,7 @@ impl<'a> FunctionTranslator<'a> {
     ///
     /// Reads `globals[0]` (the cancel flag).  If it is non-zero, calls
     /// `lyte_abort(globals_base)` which longjmps to the checkpoint stored at
-    /// `globals[8]`, immediately unwinding the entire JIT call stack.
+    /// `globals[JMPBUF_OFFSET]`, immediately unwinding the entire JIT call stack.
     /// Falls through into a fresh `continue_block` when the flag is clear.
     fn emit_cancel_check(&mut self) {
         let cancel_block = self.builder.create_block();
