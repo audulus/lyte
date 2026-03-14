@@ -454,7 +454,7 @@ fn compile_and_run_with_context(
     let pass_options = PassBuilderOptions::create();
     state
         .module
-        .run_passes("default<O1>", &machine, pass_options)
+        .run_passes("default<O2>", &machine, pass_options)
         .map_err(|e| format!("LLVM pass pipeline failed: {}", e))?;
 
     if print_ir {
