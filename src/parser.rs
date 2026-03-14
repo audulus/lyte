@@ -1333,4 +1333,118 @@ mod tests {
             &["", "\n", "\nf()", "f(){} g(){}", "f(){}\n g(){}", "f()\n{}"],
         );
     }
+
+    // --- Round-trip tests: parse → pretty-print → re-parse → pretty-print, compare ---
+
+    /// Parse source, pretty-print, re-parse, pretty-print again, assert equal.
+    fn assert_round_trip(src: &str) {
+        // First parse.
+        let mut errors1 = vec![];
+        let decls1 = parse_program_str(src, &mut errors1);
+        assert!(errors1.is_empty(), "first parse failed: {:?}", errors1);
+
+        // Pretty-print.
+        let printed1: String = decls1
+            .iter()
+            .map(|d| d.pretty_print())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Re-parse the pretty-printed output.
+        let mut errors2 = vec![];
+        let decls2 = parse_program_str(&printed1, &mut errors2);
+        assert!(
+            errors2.is_empty(),
+            "re-parse of pretty-printed output failed: {:?}\n--- pretty-printed ---\n{}",
+            errors2,
+            printed1
+        );
+
+        // Pretty-print the second parse.
+        let printed2: String = decls2
+            .iter()
+            .map(|d| d.pretty_print())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // The two pretty-printed forms must be identical (idempotent).
+        assert_eq!(
+            printed1, printed2,
+            "round-trip not idempotent:\n--- first ---\n{}\n--- second ---\n{}",
+            printed1, printed2
+        );
+    }
+
+    #[test]
+    fn round_trip_functions() {
+        assert_round_trip("f() {}");
+        assert_round_trip("f(x: i32) { x }");
+        assert_round_trip("f(x: i32) → i32 { x + 1 }");
+        assert_round_trip("f(x: i32, y: i32) → i32 { x + y }");
+    }
+
+    #[test]
+    fn round_trip_generics() {
+        assert_round_trip("f<T>() {}");
+        assert_round_trip("f<T>(x: ⟨T⟩) → ⟨T⟩ { x }");
+        assert_round_trip("f<T>() where MyInterface<T> {}");
+    }
+
+    #[test]
+    fn round_trip_structs() {
+        assert_round_trip("struct Point { x: i32, y: i32 }");
+        assert_round_trip("struct Empty {}");
+        assert_round_trip("struct Wrapper<T> { val: ⟨T⟩ }");
+    }
+
+    #[test]
+    fn round_trip_enums() {
+        assert_round_trip("enum Color { Red, Green, Blue }");
+        assert_round_trip("enum Empty {}");
+    }
+
+    #[test]
+    fn round_trip_interfaces() {
+        assert_round_trip("interface Eq<A> {\n    eq(a: ⟨A⟩, b: ⟨A⟩) → bool\n}");
+    }
+
+    #[test]
+    fn round_trip_expressions() {
+        assert_round_trip("f() {\n    let x = 42\n    var y: i32\n    y = x + 1\n}");
+        assert_round_trip("f(x: i32) {\n    if x > 0 {\n        x\n    } else {\n        0\n    }\n}");
+        assert_round_trip("f() {\n    var a: [i32; 10]\n    for i in 0 .. 10 {\n        a[i] = i\n    }\n}");
+        assert_round_trip("f() {\n    var i = 0\n    while i < 10 {\n        i = i + 1\n    }\n}");
+    }
+
+    #[test]
+    fn round_trip_lambdas() {
+        assert_round_trip("f() {\n    let g = |x: i32| x + 1\n}");
+    }
+
+    #[test]
+    fn round_trip_strings_and_chars() {
+        assert_round_trip("f() {\n    let s = \"hello\"\n    let c = 'a'\n}");
+    }
+
+    #[test]
+    fn round_trip_array_literals() {
+        assert_round_trip("f() {\n    let a = [1, 2, 3]\n}");
+    }
+
+    #[test]
+    fn round_trip_return() {
+        assert_round_trip("f(x: i32) → i32 {\n    return x + 1\n}");
+    }
+
+    #[test]
+    fn round_trip_globals() {
+        assert_round_trip("var g: i32");
+    }
+
+    #[test]
+    fn round_trip_multi_decl() {
+        assert_round_trip(
+            "struct Point {\n    x: f32,\n    y: f32\n}\ndist(a: Point, b: Point) → f32 {\n    0.0\n}",
+        );
+    }
 }

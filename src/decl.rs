@@ -310,7 +310,7 @@ fn format_struct_decl(st: &StructDecl) -> String {
         .iter()
         .map(|f| format!("    {}: {}", f.name, f.ty.pretty_print()))
         .collect::<Vec<_>>()
-        .join("\n");
+        .join(",\n");
 
     if fields.is_empty() {
         format!("struct {}{} {{}}", st.name, typevars)
@@ -320,16 +320,15 @@ fn format_struct_decl(st: &StructDecl) -> String {
 }
 
 fn format_enum_decl(name: Name, cases: &[Name]) -> String {
-    let cases_str = cases
-        .iter()
-        .map(|c| format!("    {}", c))
-        .collect::<Vec<_>>()
-        .join("\n");
-
     if cases.is_empty() {
         format!("enum {} {{}}", name)
     } else {
-        format!("enum {} {{\n{}\n}}", name, cases_str)
+        let cases_str = cases
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("enum {} {{ {} }}", name, cases_str)
     }
 }
 
@@ -431,7 +430,7 @@ mod tests {
 
         let decl = Decl::Struct(st);
         let output = decl.pretty_print();
-        assert_eq!(output, "struct Point {\n    x: f32\n    y: f32\n}");
+        assert_eq!(output, "struct Point {\n    x: f32,\n    y: f32\n}");
     }
 
     #[test]
@@ -491,7 +490,7 @@ mod tests {
         };
 
         let output = decl.pretty_print();
-        assert_eq!(output, "enum Status {\n    Active\n    Inactive\n}");
+        assert_eq!(output, "enum Status { Active, Inactive }");
     }
 
     #[test]
