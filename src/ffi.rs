@@ -45,7 +45,7 @@ pub struct LyteCompiler {
     compiler: Compiler,
     last_error: Option<CString>,
     /// JIT result: code pointer and globals size.
-    jit_result: Option<(*const u8, usize)>,
+    jit_result: Option<(*const u8, usize, crate::jit::JIT)>,
     /// Cached global variable info (populated after JIT or VM compile).
     globals: Vec<GlobalInfo>,
     /// VM program (populated after VM compile).
@@ -219,7 +219,7 @@ pub unsafe extern "C" fn lyte_compiler_get_code_ptr(ptr: *const LyteCompiler) ->
         return ptr::null();
     }
     match (*ptr).jit_result {
-        Some((code_ptr, _)) => code_ptr,
+        Some((code_ptr, _, _)) => code_ptr,
         None => ptr::null(),
     }
 }
@@ -232,7 +232,7 @@ pub unsafe extern "C" fn lyte_compiler_get_globals_size(ptr: *const LyteCompiler
         return 0;
     }
     match (*ptr).jit_result {
-        Some((_, size)) => size,
+        Some((_, size, _)) => size,
         None => 0,
     }
 }

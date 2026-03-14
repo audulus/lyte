@@ -523,18 +523,23 @@ impl Compiler {
         }
     }
 
-    pub fn jit(&self) -> Result<(*const u8, usize), String> {
+    /// Compile to native code via Cranelift JIT.
+    /// Returns (code_ptr, globals_size, jit_module).
+    /// The JIT module must be kept alive while the code pointer is in use —
+    /// dropping it frees the executable memory.
+    pub fn jit(&self) -> Result<(*const u8, usize, JIT), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
         if self.decls.decls.is_empty() {
             return Err(String::from("No declarations to compile"));
         }
-        jit.compile(&self.decls)
+        let (code_ptr, globals_size) = jit.compile(&self.decls)?;
+        Ok((code_ptr, globals_size, jit))
     }
 
     pub fn run(&mut self) {
         let r = self.jit();
-        if let Ok((code_ptr, globals_size)) = r {
+        if let Ok((code_ptr, globals_size, _jit)) = r {
             println!("compilation successful");
 
             // Allocate zeroed global memory and pass to main.
@@ -611,7 +616,7 @@ mod tests {
         assert!(compiler.check());
         compiler.specialize().unwrap();
 
-        let (code_ptr, globals_size) = compiler.jit().expect("JIT compilation failed");
+        let (code_ptr, globals_size, _jit) = compiler.jit().expect("JIT compilation failed");
         let mut globals: Vec<u8> = vec![0u8; globals_size];
 
         // Wrap the raw pointer so it can be sent to another thread.
