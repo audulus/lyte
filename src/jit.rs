@@ -17,6 +17,27 @@ use cranelift_module::{Linkage, Module};
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
+#[derive(Clone, Copy)]
+#[repr(align(16))]
+struct Align16([u8; 16]);
+
+pub struct AlignedGlobals {
+    storage: Vec<Align16>,
+}
+
+impl AlignedGlobals {
+    fn new(size: usize) -> Self {
+        let chunks = (size.saturating_add(15) / 16).max(1);
+        Self {
+            storage: vec![Align16([0; 16]); chunks],
+        }
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.storage.as_mut_ptr().cast()
+    }
+}
+
 // Opaque jmp_buf: 512 bytes (64 * u64), 16-byte aligned.
 // Must be at least as large as the platform's jmp_buf.
 struct JmpBuf([u64; 64]);
@@ -48,6 +69,11 @@ fn assert_jmpbuf_size() {
             platform_size,
         );
     }
+}
+
+pub fn alloc_globals(size: usize) -> AlignedGlobals {
+    assert_jmpbuf_size();
+    AlignedGlobals::new(size)
 }
 
 /// Called from JIT-generated code when `globals[0]` (the cancel flag) is non-zero.

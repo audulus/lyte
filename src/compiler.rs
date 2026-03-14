@@ -545,7 +545,7 @@ impl Compiler {
             // Allocate zeroed global memory and pass to main.
             // globals[0] is the cancel flag; globals[JMPBUF_OFFSET] holds the longjmp target.
             type Entry = fn(*mut u8) -> ();
-            let mut globals: Vec<u8> = vec![0u8; globals_size];
+            let mut globals = crate::jit::alloc_globals(globals_size);
             let cancelled = unsafe {
                 extern "C" {
                     fn setjmp(env: *mut u8) -> i32;
@@ -618,10 +618,10 @@ mod tests {
         compiler.specialize().unwrap();
 
         let (code_ptr, globals_size, jit) = compiler.jit().expect("JIT compilation failed");
-        let mut globals: Vec<u8> = vec![0u8; globals_size];
+            let mut globals = crate::jit::alloc_globals(globals_size);
 
-        // Wrap the raw pointer so it can be sent to another thread.
-        struct CancelPtr(*mut u8);
+            // Wrap the raw pointer so it can be sent to another thread.
+            struct CancelPtr(*mut u8);
         unsafe impl Send for CancelPtr {}
         let sender = CancelPtr(globals.as_mut_ptr());
 
