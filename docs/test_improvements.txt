@@ -9,13 +9,3 @@
 
   There's no mechanism to easily add a regression test from a bug report. A script like ./add_test.sh
   tests/cases/regression/issue_42.lyte that scaffolds the file with the right directives would lower the friction.
-
-  7. CI improvements
-
-  - CI doesn't run the benchmarks — even a single-iteration smoke test would catch benchmark regressions.
-  - No fuzzing in CI (even a short 30-second run per target would catch regressions).
-
-  What would you like to focus on?
-
-  I'd recommend starting with either more fuzzing depth (target #2) or expanding error/negative tests (target #3), as
-   those tend to catch the most real bugs per effort invested. Want me to implement any of these?
