@@ -60,7 +60,11 @@ C_O2_TIME=$(avg benchmark/biquad_c_o2)
 C_O3_TIME=$(avg benchmark/biquad_c_o3)
 LYTE_JIT=$(avg "$LYTE --backend jit benchmark/biquad.lyte --timing 2>&1 | grep 'jit exec:'")
 LYTE_VM=$(avg "$LYTE --backend vm benchmark/biquad.lyte --timing 2>&1 | grep 'vm exec:'")
-LYTE_ASM=$(avg "$LYTE --backend asm benchmark/biquad.lyte --timing 2>&1 | grep 'asm exec:'")
+if [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ]; then
+    LYTE_ASM=$(avg "$LYTE --backend asm benchmark/biquad.lyte --timing 2>&1 | grep 'asm exec:'")
+else
+    LYTE_ASM=""
+fi
 if [ "$HAS_LLVM" = "1" ]; then
     LYTE_LLVM=$(avg "$LYTE --backend llvm benchmark/biquad.lyte --timing 2>&1 | grep 'llvm exec:'")
 else
