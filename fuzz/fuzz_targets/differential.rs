@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 use std::io::Write;
-use std::os::unix::io::IntoRawFd;
+use std::os::unix::io::AsRawFd;
 
 /// Byte-driven generator for valid Lyte programs.
 struct Gen<'a> {
@@ -122,23 +122,23 @@ impl<'a> Gen<'a> {
 fn capture_stdout<F: FnOnce()>(f: F) -> String {
     std::io::stdout().flush().ok();
 
-    // Create a temp file and get its raw fd for dup2.
     let tmp = std::env::temp_dir().join("lyte_diff_fuzz_capture.txt");
     let file = match std::fs::File::create(&tmp) {
         Ok(f) => f,
         Err(_) => { f(); return String::new(); }
     };
-    let tmp_fd = file.into_raw_fd();
 
     // Save stdout fd, redirect to temp file.
+    // as_raw_fd() borrows — `file` keeps ownership and will close the fd on drop.
     let saved_fd = unsafe { libc::dup(1) };
     if saved_fd < 0 {
-        unsafe { libc::close(tmp_fd) };
+        drop(file);
         f();
         return String::new();
     }
-    unsafe { libc::dup2(tmp_fd, 1) };
-    unsafe { libc::close(tmp_fd) };
+    unsafe { libc::dup2(file.as_raw_fd(), 1) };
+    // Drop the File now — fd 1 is a dup'd copy, so closing the original is fine.
+    drop(file);
 
     f();
 
