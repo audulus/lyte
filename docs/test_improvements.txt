@@ -1,7 +1,6 @@
                                                                                                                                  
   4. Property-based / round-trip tests
 
-  - Parser round-trip: Parse → pretty-print → re-parse and check AST equality.
   - VM/JIT equivalence: Automatically run the same programs on both backends and assert identical output (the golden
   tests do this, but a programmatic property test could generate random valid programs).
 
