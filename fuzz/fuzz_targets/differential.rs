@@ -1,6 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 use std::io::Write;
+use std::os::unix::io::IntoRawFd;
 
 /// Byte-driven generator for valid Lyte programs.
 struct Gen<'a> {
@@ -116,46 +117,39 @@ impl<'a> Gen<'a> {
 
 /// Capture everything written to stdout (fd 1) during `f()`.
 ///
-/// Uses dup2 to redirect fd 1 to a temp file, then reads it back.
-/// Not thread-safe, but fuzz targets are single-threaded.
+/// Redirects fd 1 to a temp file, runs `f()`, restores fd 1, reads the file.
+/// The only unsafe is the dup/dup2 for fd redirection (no safe Rust API for that).
 fn capture_stdout<F: FnOnce()>(f: F) -> String {
-    // Flush any pending stdout
     std::io::stdout().flush().ok();
 
-    let tmp = unsafe { libc::tmpfile() };
-    if tmp.is_null() {
-        f();
-        return String::new();
-    }
-    let tmp_fd = unsafe { libc::fileno(tmp) };
+    // Create a temp file and get its raw fd for dup2.
+    let tmp = std::env::temp_dir().join("lyte_diff_fuzz_capture.txt");
+    let file = match std::fs::File::create(&tmp) {
+        Ok(f) => f,
+        Err(_) => { f(); return String::new(); }
+    };
+    let tmp_fd = file.into_raw_fd();
+
+    // Save stdout fd, redirect to temp file.
     let saved_fd = unsafe { libc::dup(1) };
     if saved_fd < 0 {
-        unsafe { libc::fclose(tmp) };
+        unsafe { libc::close(tmp_fd) };
         f();
         return String::new();
     }
     unsafe { libc::dup2(tmp_fd, 1) };
+    unsafe { libc::close(tmp_fd) };
 
     f();
 
-    // Flush Rust's buffered stdout so everything reaches the fd
     std::io::stdout().flush().ok();
 
-    // Restore original stdout
+    // Restore original stdout.
     unsafe { libc::dup2(saved_fd, 1) };
     unsafe { libc::close(saved_fd) };
 
-    // Read captured output
-    unsafe { libc::lseek(tmp_fd, 0, libc::SEEK_SET) };
-    let mut buf = vec![0u8; 65536];
-    let n = unsafe { libc::read(tmp_fd, buf.as_mut_ptr() as *mut _, buf.len()) };
-    unsafe { libc::fclose(tmp) };
-
-    if n > 0 {
-        String::from_utf8_lossy(&buf[..n as usize]).to_string()
-    } else {
-        String::new()
-    }
+    // Read the captured output with normal file I/O.
+    std::fs::read_to_string(&tmp).unwrap_or_default()
 }
 
 /// Run a program on a given backend, return stdout or None if compilation fails.
