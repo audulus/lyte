@@ -12,8 +12,7 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
-use inkwell::passes::PassBuilderOptions;
-use inkwell::targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::targets::{InitializationConfig, Target};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::AddressSpace;
@@ -434,28 +433,6 @@ fn compile_and_run_with_context(
         .module
         .verify()
         .map_err(|e| format!("LLVM module verification failed: {}", e))?;
-
-    // Run LLVM optimization passes (mem2reg, GVN, LICM, vectorization, etc.).
-    let triple = TargetMachine::get_default_triple();
-    let cpu = TargetMachine::get_host_cpu_name();
-    let features = TargetMachine::get_host_cpu_features();
-    let target = Target::from_triple(&triple)
-        .map_err(|e| format!("LLVM target from triple: {}", e))?;
-    let machine = target
-        .create_target_machine(
-            &triple,
-            cpu.to_str().unwrap_or("generic"),
-            features.to_str().unwrap_or(""),
-            OptimizationLevel::Aggressive,
-            RelocMode::Default,
-            CodeModel::JITDefault,
-        )
-        .ok_or("failed to create target machine")?;
-    let pass_options = PassBuilderOptions::create();
-    state
-        .module
-        .run_passes("default<O3>", &machine, pass_options)
-        .map_err(|e| format!("LLVM pass pipeline failed: {}", e))?;
 
     if print_ir {
         let ir = state.module.print_to_string().to_string();
