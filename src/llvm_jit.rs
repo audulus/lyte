@@ -1451,6 +1451,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if exprs.is_empty() {
                     self.zero_i32()
                 } else {
+                    // Save variable scope — declarations inside this block
+                    // shadow outer names only for the duration of the block.
+                    let saved_vars = self.variables.clone();
+                    let saved_lets = self.let_bindings.clone();
                     let mut result = self.zero_i32();
                     for e in &exprs {
                         if self.is_block_terminated() {
@@ -1458,6 +1462,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         }
                         result = self.translate_expr(*e, decl);
                     }
+                    self.variables = saved_vars;
+                    self.let_bindings = saved_lets;
                     result
                 }
             }
