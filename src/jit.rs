@@ -961,6 +961,10 @@ impl<'a> FunctionTranslator<'a> {
                 if exprs.is_empty() {
                     self.builder.ins().iconst(I32, 0)
                 } else {
+                    // Save variable scope — variables declared inside this block
+                    // shadow outer names only for the duration of the block.
+                    let saved_vars = self.variables.clone();
+                    let saved_lets = self.let_bindings.clone();
                     let mut result = None;
                     for expr in exprs {
                         result = Some(self.translate_expr(*expr, decl, decls));
@@ -969,6 +973,8 @@ impl<'a> FunctionTranslator<'a> {
                             break;
                         }
                     }
+                    self.variables = saved_vars;
+                    self.let_bindings = saved_lets;
                     result.unwrap()
                 }
             }
@@ -1980,16 +1986,8 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn declare_variable(&mut self, name: &String, ty: Type) -> Variable {
-        if let Some(&existing) = self.variables.get(name) {
-            // If the variable already exists with the same type, reuse it.
-            // If the type differs (e.g., a for-loop counter i32 vs a var binding i64),
-            // create a new variable to shadow the old one.
-            let val = self.builder.use_var(existing);
-            let existing_ty = self.builder.func.dfg.value_type(val);
-            if existing_ty == ty {
-                return existing;
-            }
-        }
+        // Always create a fresh Cranelift variable — even if a variable with
+        // the same name exists, this declaration shadows it.
         let var = self.builder.declare_var(ty);
         self.variables.insert(name.into(), var);
         self.next_index += 1;

@@ -914,10 +914,18 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(Opcode::LoadImm { dst, value: 0 });
                     dst
                 } else {
+                    // Save variable scope — declarations inside this block
+                    // shadow outer names only for the duration of the block.
+                    let saved_vars = self.variables.clone();
+                    let saved_slots = self.local_slots.clone();
+                    let saved_promoted = self.reg_promoted.clone();
                     let mut result = 0;
                     for expr_id in exprs {
                         result = self.translate_expr(*expr_id, func);
                     }
+                    self.variables = saved_vars;
+                    self.local_slots = saved_slots;
+                    self.reg_promoted = saved_promoted;
                     result
                 }
             }

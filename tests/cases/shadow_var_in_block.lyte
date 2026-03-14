@@ -1,0 +1,22 @@
+// Regression test: nested block with shadowed variable name.
+// The inner block's `acc` shadows the outer `acc`. The block expression
+// value (inner acc = 30) must be added to 1 before assigning to outer acc.
+// Correct answer: 31.
+//
+// expected stdout:
+// compilation successful
+// 31
+
+main {
+    var acc = 0
+    for i in 0 .. 1 {
+        acc = acc + ({
+            var acc = 0
+            for i in 0 .. 3 {
+                acc = acc + 10
+            }
+            acc
+        } + 1)
+    }
+    print(acc)
+}

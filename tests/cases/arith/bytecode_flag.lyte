@@ -7,8 +7,6 @@
 //      2: Move { dst: 0, src: 1 }
 //      3: RestoreRegs { start_reg: 1, count: 1, slot: 8 }
 //      4: Return
-// locals:
-//   r1	x
 
 main {
     var x = 42

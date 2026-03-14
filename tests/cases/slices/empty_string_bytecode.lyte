@@ -3,7 +3,7 @@
 // expected stdout:
 // fn main (params: 0, locals: 64 bytes):
 //      0: SaveRegs { start_reg: 0, count: 5, slot: 24 }
-//      1: LocalAddr { dst: 1, slot: 0 }  ; s
+//      1: LocalAddr { dst: 1, slot: 0 }
 //      2: LocalAddr { dst: 2, slot: 1 }
 //      3: LoadImm { dst: 3, value: 0 }
 //      4: Store8Off { base: 2, offset: 0, src: 3 }
@@ -26,8 +26,6 @@
 //     21: Move { dst: 0, src: 1 }
 //     22: RestoreRegs { start_reg: 1, count: 4, slot: 32 }
 //     23: Return
-// locals:
-//   slot 0	s
 
 main {
     var s = ""
