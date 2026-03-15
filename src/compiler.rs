@@ -512,7 +512,8 @@ impl Compiler {
     pub fn run_llvm(&mut self) -> (std::time::Duration, std::time::Duration) {
         let mut jit = LLVMJIT::new();
         jit.print_ir = self.print_ir;
-        match jit.compile_and_run(&self.decls) {
+        let entry_points = self.effective_entry_points();
+        match jit.compile_and_run_multi(&self.decls, &entry_points) {
             Ok((cancelled, compile_time, exec_time)) => {
                 if cancelled {
                     println!("execution cancelled");
@@ -532,7 +533,8 @@ impl Compiler {
         let mut jit = LLVMJIT::new();
         jit.print_ir = true;
         jit.ir_only = true;
-        match jit.compile_and_run(&self.decls) {
+        let entry_points = self.effective_entry_points();
+        match jit.compile_and_run_multi(&self.decls, &entry_points) {
             Ok(_) => {}
             Err(e) => {
                 println!("{}", e);

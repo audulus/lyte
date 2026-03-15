@@ -384,13 +384,14 @@ pub struct LLVMJIT {
     pub ir_only: bool,
 }
 
-/// Compile and run result: Ok(cancelled) or Err(msg).
-fn compile_and_run_with_context(
-    context: &Context,
+/// Compile entry points and prepare the LLVM module (shared by compile_and_run and compile-only).
+/// Returns (state, compile_time).
+fn compile_with_context<'ctx>(
+    context: &'ctx Context,
     decls: &DeclTable,
+    entry_points: &[Name],
     print_ir: bool,
-    ir_only: bool,
-) -> Result<(bool, Duration, Duration), String> {
+) -> Result<(LLVMJITState<'ctx>, Duration), String> {
     let mut state = LLVMJITState {
         context,
         module: context.create_module("lyte"),
@@ -407,18 +408,21 @@ fn compile_and_run_with_context(
 
     state.declare_globals(decls);
 
-    let name = "main";
-    let main_decls = decls.find(Name::new(name.into()));
-    if main_decls.is_empty() {
-        return Err("no main function found".to_string());
+    for &ep_name in entry_points {
+        let ep_decls = decls.find(ep_name);
+        if ep_decls.is_empty() {
+            return Err(format!(
+                "entry point function '{}' not found",
+                ep_name
+            ));
+        }
+        let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
+            d
+        } else {
+            return Err(format!("'{}' is not a function", ep_name));
+        };
+        state.compile_function(decls, ep_decl)?;
     }
-    let main_decl = if let Decl::Func(d) = &main_decls[0] {
-        d
-    } else {
-        return Err("main is not a function".to_string());
-    };
-
-    state.compile_function(decls, main_decl)?;
 
     if print_ir {
         let ir = state.module.print_to_string().to_string();
@@ -467,8 +471,21 @@ fn compile_and_run_with_context(
         }
     }
 
+    let compile_elapsed = compile_start.elapsed();
+    Ok((state, compile_elapsed))
+}
+
+/// Compile and run result: Ok(cancelled) or Err(msg).
+fn compile_and_run_with_context(
+    context: &Context,
+    decls: &DeclTable,
+    entry_points: &[Name],
+    print_ir: bool,
+    ir_only: bool,
+) -> Result<(bool, Duration, Duration), String> {
+    let (state, compile_elapsed) = compile_with_context(context, decls, entry_points, print_ir)?;
+
     if ir_only {
-        let compile_elapsed = compile_start.elapsed();
         return Ok((false, compile_elapsed, Duration::ZERO));
     }
 
@@ -487,11 +504,11 @@ fn compile_and_run_with_context(
         }
     }
 
+    // Look up the first entry point for execution.
+    let run_name = &*entry_points[0];
     let fn_addr = ee
-        .get_function_address(name)
-        .map_err(|e| format!("function '{}' not found in JIT: {:?}", name, e))?;
-
-    let compile_elapsed = compile_start.elapsed();
+        .get_function_address(run_name)
+        .map_err(|e| format!("function '{}' not found in JIT: {:?}", run_name, e))?;
 
     println!("compilation successful");
 
@@ -528,12 +545,22 @@ impl LLVMJIT {
 
     /// Compile and execute main. Returns Ok((cancelled, compile_time, exec_time)) or Err.
     pub fn compile_and_run(&self, decls: &DeclTable) -> Result<(bool, Duration, Duration), String> {
-        // Initialize native target (needed for JIT).
+        let main = Name::new("main".into());
+        self.compile_and_run_multi(decls, &[main])
+    }
+
+    /// Compile multiple entry points and execute the first one.
+    /// Returns Ok((cancelled, compile_time, exec_time)) or Err.
+    pub fn compile_and_run_multi(
+        &self,
+        decls: &DeclTable,
+        entry_points: &[Name],
+    ) -> Result<(bool, Duration, Duration), String> {
         Target::initialize_native(&InitializationConfig::default())
             .map_err(|e| format!("LLVM target init failed: {}", e))?;
 
         let context = Context::create();
-        compile_and_run_with_context(&context, decls, self.print_ir, self.ir_only)
+        compile_and_run_with_context(&context, decls, entry_points, self.print_ir, self.ir_only)
     }
 }
 
