@@ -120,6 +120,17 @@ pub unsafe extern "C" fn lyte_compiler_get_error(ptr: *const LyteCompiler) -> *c
     }
 }
 
+/// Add source code to the compiler. May be called multiple times.
+/// Returns true on success.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_add_source(
+    ptr: *mut LyteCompiler,
+    source: *const c_char,
+    filename: *const c_char,
+) -> bool {
+    lyte_compiler_parse(ptr, source, filename)
+}
+
 /// Parse source code. Returns true on success.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_compiler_parse(
@@ -624,8 +635,9 @@ pub struct LyteEntryPoint {
     name: CString,
 }
 
-/// Compile to a backend-agnostic LyteProgram (auto-selects LLVM or VM).
-/// Must call parse, check, and specialize first. Returns NULL on error.
+/// Parse, type-check, specialize, and compile all added source into
+/// a LyteProgram (auto-selects JIT or VM backend).
+/// Returns NULL on error. Caller must free with lyte_program_free.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut LyteProgram {
     if ptr.is_null() {
@@ -638,6 +650,17 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
     }
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         c.last_error = None;
+
+        // Run all compilation phases.
+        if !c.compiler.check() {
+            c.set_error("type check error");
+            return ptr::null_mut();
+        }
+        if let Err(e) = c.compiler.specialize() {
+            c.set_error(&e);
+            return ptr::null_mut();
+        }
+
         match c.compiler.compile_program() {
             Ok(compiled) => {
                 let globals_size = compiled.globals_size();
@@ -699,26 +722,6 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             ptr::null_mut()
         }
     }
-}
-
-/// Convenience: parse, check, specialize, and compile in one call.
-/// Returns NULL on error.
-#[no_mangle]
-pub unsafe extern "C" fn lyte_compile_program(
-    ptr: *mut LyteCompiler,
-    source: *const c_char,
-    filename: *const c_char,
-) -> *mut LyteProgram {
-    if !lyte_compiler_parse(ptr, source, filename) {
-        return ptr::null_mut();
-    }
-    if !lyte_compiler_check(ptr) {
-        return ptr::null_mut();
-    }
-    if !lyte_compiler_specialize(ptr) {
-        return ptr::null_mut();
-    }
-    lyte_compiler_compile(ptr)
 }
 
 /// Free a compiled program.

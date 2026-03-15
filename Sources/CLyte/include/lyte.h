@@ -32,26 +32,18 @@ bool lyte_compiler_had_ice(const LyteCompiler* compiler);
 /// Get the last error message, or NULL if no error.
 const char* lyte_compiler_get_error(const LyteCompiler* compiler);
 
-/// Parse source code. Returns true on success.
-bool lyte_compiler_parse(LyteCompiler* compiler, const char* source, const char* filename);
+/// Add source code to the compiler. May be called multiple times
+/// to add multiple files. Returns true on success.
+bool lyte_compiler_add_source(LyteCompiler* compiler, const char* source, const char* filename);
 
-/// Type-check the parsed source. Returns true on success.
-bool lyte_compiler_check(LyteCompiler* compiler);
-
-/// Set entry point function names before calling specialize.
-/// If not called, defaults to ["main"].
+/// Set entry point function names. If not called, defaults to ["main"].
+/// Must be called before lyte_compiler_compile.
 bool lyte_compiler_set_entry_points(LyteCompiler* compiler, const char** names, size_t count);
 
-/// Monomorphize generics. Returns true on success.
-bool lyte_compiler_specialize(LyteCompiler* compiler);
-
-/// Compile to a LyteProgram (auto-selects JIT or VM backend).
+/// Parse, type-check, specialize, and compile all added source into
+/// a LyteProgram (auto-selects JIT or VM backend).
 /// Returns NULL on error. Caller must free with lyte_program_free.
 LyteProgram* lyte_compiler_compile(LyteCompiler* compiler);
-
-/// Convenience: parse, check, specialize, and compile in one call.
-/// Returns NULL on error. Caller must free with lyte_program_free.
-LyteProgram* lyte_compile_program(LyteCompiler* compiler, const char* source, const char* filename);
 
 // ============ Program ============
 

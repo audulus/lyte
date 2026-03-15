@@ -19,28 +19,19 @@ public final class LyteCompiler {
         return String(cString: cStr)
     }
 
-    /// Parse source code.
+    /// Add source code to the compiler. May be called multiple times.
     @discardableResult
-    public func parse(source: String, filename: String = "<string>") throws -> Bool {
+    public func addSource(_ source: String, filename: String = "<string>") throws -> Bool {
         let ok = source.withCString { src in
             filename.withCString { file in
-                lyte_compiler_parse(handle, src, file)
+                lyte_compiler_add_source(handle, src, file)
             }
         }
         if !ok { throw LyteError(message: lastError ?? "parse error") }
         return true
     }
 
-    /// Type-check the parsed source.
-    @discardableResult
-    public func check() throws -> Bool {
-        if !lyte_compiler_check(handle) {
-            throw LyteError(message: lastError ?? "type check error")
-        }
-        return true
-    }
-
-    /// Set entry point function names before calling specialize.
+    /// Set entry point function names. Must be called before compile().
     public func setEntryPoints(_ names: [String]) throws {
         let cNames = names.map { strdup($0)! }
         defer { cNames.forEach { free($0) } }
@@ -55,16 +46,8 @@ public final class LyteCompiler {
         if !ok { throw LyteError(message: lastError ?? "set entry points error") }
     }
 
-    /// Monomorphize generics.
-    @discardableResult
-    public func specialize() throws -> Bool {
-        if !lyte_compiler_specialize(handle) {
-            throw LyteError(message: lastError ?? "specialization error")
-        }
-        return true
-    }
-
-    /// Compile to a program (auto-selects JIT or VM backend).
+    /// Parse, type-check, specialize, and compile all added source.
+    /// Auto-selects JIT or VM backend.
     public func compile() throws -> Program {
         guard let ptr = lyte_compiler_compile(handle) else {
             throw LyteError(message: lastError ?? "compilation error")
@@ -72,11 +55,9 @@ public final class LyteCompiler {
         return Program(handle: ptr)
     }
 
-    /// Convenience: parse, check, specialize, and compile in one call.
+    /// Convenience: add source and compile in one call.
     public func compile(source: String, filename: String = "<string>") throws -> Program {
-        try parse(source: source, filename: filename)
-        try check()
-        try specialize()
+        try addSource(source, filename: filename)
         return try compile()
     }
 }
