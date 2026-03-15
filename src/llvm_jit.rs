@@ -480,9 +480,13 @@ fn compile_and_run_with_context(
 
     // Register external symbol mappings.
     // Only map functions that still exist in the module after optimization.
-    for (sym, addr) in &state.extern_fns {
-        if let Some(fv) = state.module.get_function(sym) {
-            ee.add_global_mapping(&fv, *addr);
+    for (sym, orig_fv, addr) in &state.extern_fns {
+        if state.use_postpass_symbol_mapping() {
+            if let Some(fv) = state.module.get_function(sym) {
+                ee.add_global_mapping(&fv, *addr);
+            }
+        } else if state.module.get_function(sym).is_some() {
+            ee.add_global_mapping(orig_fv, *addr);
         }
     }
 
@@ -497,16 +501,25 @@ fn compile_and_run_with_context(
     // Execute while the EE and context are still alive.
     let exec_start = Instant::now();
     type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
-    let mut globals = crate::jit::alloc_globals(state.globals_size);
+    let (mut aligned_globals, mut legacy_globals) = if state.use_aligned_globals() {
+        (Some(crate::jit::alloc_globals(state.globals_size)), None)
+    } else {
+        (None, Some(vec![0u8; state.globals_size]))
+    };
+    let globals_ptr = if let Some(globals) = aligned_globals.as_mut() {
+        globals.as_mut_ptr()
+    } else {
+        legacy_globals.as_mut().unwrap().as_mut_ptr()
+    };
     let cancelled = unsafe {
         extern "C" {
             fn setjmp(env: *mut u8) -> i32;
         }
-        let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
+        let jmp_buf_ptr = globals_ptr.add(crate::jit::JMPBUF_OFFSET);
         if setjmp(jmp_buf_ptr) == 0 {
             let code_fn: Entry = std::mem::transmute(fn_addr);
             let null_closure: *mut u8 = std::ptr::null_mut();
-            code_fn(globals.as_mut_ptr(), null_closure);
+            code_fn(globals_ptr, null_closure);
             false
         } else {
             true
@@ -547,8 +560,9 @@ struct LLVMJITState<'ctx> {
     defined_functions: HashSet<Name>,
     lambda_counter: usize,
     print_ir: bool,
-    /// External symbols declared in the module, to be mapped after EE creation.
-    extern_fns: Vec<(String, usize)>,
+    /// External symbols declared in the module, tracked by both name and original handle
+    /// so CI can compare pre/post-pass mapping behavior on x64.
+    extern_fns: Vec<(String, FunctionValue<'ctx>, usize)>,
 }
 
 impl<'ctx> LLVMJITState<'ctx> {
@@ -595,9 +609,21 @@ impl<'ctx> LLVMJITState<'ctx> {
             let f = self
                 .module
                 .add_function(sym, fn_type, Some(Linkage::External));
-            self.extern_fns.push((sym.to_string(), addr));
+            self.extern_fns.push((sym.to_string(), f, addr));
             f
         }
+    }
+
+    fn use_postpass_symbol_mapping(&self) -> bool {
+        std::env::var("LYTE_LLVM_USE_POSTPASS_SYMBOL_MAPPING")
+            .map(|v| v != "0")
+            .unwrap_or(true)
+    }
+
+    fn use_aligned_globals(&self) -> bool {
+        std::env::var("LYTE_LLVM_USE_ALIGNED_GLOBALS")
+            .map(|v| v != "0")
+            .unwrap_or(true)
     }
 
     fn compile_function(
