@@ -576,13 +576,18 @@ impl Compiler {
             println!("compilation successful");
 
             // Allocate zeroed global memory and pass to main.
-            // globals[0] is the cancel flag; globals[JMPBUF_OFFSET] holds the longjmp target.
             type Entry = fn(*mut u8) -> ();
             let mut globals: Vec<u8> = vec![0u8; globals_size];
             let cancelled = unsafe {
                 extern "C" {
                     fn setjmp(env: *mut u8) -> i32;
                 }
+                // Initialize cancel counter (no callback = no cancellation).
+                crate::jit::set_cancel_callback(
+                    globals.as_mut_ptr(),
+                    None,
+                    std::ptr::null_mut(),
+                );
                 let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
                 if setjmp(jmp_buf_ptr) == 0 {
                     let code_fn = mem::transmute::<_, Entry>(code_ptr);
@@ -654,21 +659,20 @@ mod tests {
         let (code_ptr, globals_size, jit) = compiler.jit().expect("JIT compilation failed");
         let mut globals: Vec<u8> = vec![0u8; globals_size];
 
-        // Wrap the raw pointer so it can be sent to another thread.
-        struct CancelPtr(*mut u8);
-        unsafe impl Send for CancelPtr {}
-        let sender = CancelPtr(globals.as_mut_ptr());
-
-        // After 50 ms, set globals[0] = 1 to trigger cancellation.
-        let _handle = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            unsafe { sender.0.write_volatile(1) };
-        });
+        // Cancel callback that always cancels (first invocation).
+        unsafe extern "C" fn always_cancel(_user_data: *mut u8) -> bool {
+            true
+        }
 
         let cancelled = unsafe {
             extern "C" {
                 fn setjmp(env: *mut u8) -> i32;
             }
+            crate::jit::set_cancel_callback(
+                globals.as_mut_ptr(),
+                Some(always_cancel),
+                std::ptr::null_mut(),
+            );
             let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
             if setjmp(jmp_buf_ptr) == 0 {
                 type Entry = fn(*mut u8) -> ();

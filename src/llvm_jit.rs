@@ -211,12 +211,28 @@ extern "C" fn llvm_lyte_maxd(x: f64, y: f64) -> f64 {
     x.max(y)
 }
 
-/// Called from JIT code when the cancel flag (globals[0]) is non-zero.
-unsafe extern "C" fn llvm_lyte_abort(globals: *mut u8) {
+/// Called from LLVM JIT code when the cancel counter reaches zero.
+/// Same logic as lyte_cancel_check in jit.rs.
+unsafe extern "C" fn llvm_lyte_cancel_check(globals: *mut u8) {
     extern "C" {
         fn longjmp(env: *mut u8, val: i32) -> !;
     }
-    longjmp(globals.add(crate::jit::JMPBUF_OFFSET), 1);
+    use crate::jit::*;
+
+    // Reset counter
+    *(globals.add(CANCEL_COUNTER_OFFSET as usize) as *mut i32) = CANCEL_CHECK_INTERVAL;
+
+    // Read callback
+    let cb_ptr = *(globals.add(CANCEL_CALLBACK_OFFSET) as *const usize);
+    if cb_ptr == 0 {
+        return;
+    }
+    let callback: CancelCallback = std::mem::transmute(cb_ptr);
+    let user_data = *(globals.add(CANCEL_USERDATA_OFFSET) as *const *mut u8);
+
+    if callback(user_data) {
+        longjmp(globals.add(JMPBUF_OFFSET), 1);
+    }
 }
 
 /// Called from LLVM JIT code to compare two slices by contents.
@@ -520,6 +536,8 @@ fn compile_and_run_with_context(
         extern "C" {
             fn setjmp(env: *mut u8) -> i32;
         }
+        // Initialize cancel counter (no callback = no cancellation).
+        crate::jit::set_cancel_callback(globals.as_mut_ptr(), None, std::ptr::null_mut());
         let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
         if setjmp(jmp_buf_ptr) == 0 {
             let code_fn: Entry = std::mem::transmute(fn_addr);
@@ -940,39 +958,56 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     fn emit_cancel_check(&mut self) {
-        let cancel_bb = self.append_bb("cancel");
+        let check_bb = self.append_bb("cancel_check");
         let cont_bb = self.append_bb("cont");
 
-        // Load cancel flag (byte 0 of globals).
-        let flag = self
+        // Load cancel counter (i32 at offset 0 of globals).
+        let counter_ptr = self.globals_base; // offset 0
+        let counter = self
             .builder()
-            .build_load(self.i8_ty(), self.globals_base, "cancel_flag")
+            .build_load(self.i32_ty(), counter_ptr, "cancel_counter")
             .unwrap()
             .into_int_value();
-        let zero = self.i8_ty().const_int(0, false);
-        let is_set = self
+
+        // Decrement counter
+        let one = self.i32_ty().const_int(1, false);
+        let new_counter = self
             .builder()
-            .build_int_compare(IntPredicate::NE, flag, zero, "is_cancelled")
+            .build_int_sub(counter, one, "new_counter")
             .unwrap();
         self.builder()
-            .build_conditional_branch(is_set, cancel_bb, cont_bb)
+            .build_store(counter_ptr, new_counter)
             .unwrap();
 
-        // Cancel block: call __llvm_lyte_abort(globals_base).
-        self.builder().position_at_end(cancel_bb);
-        let abort_ty = self
+        // If counter <= 0, call the cancel check function
+        let zero = self.i32_ty().const_int(0, false);
+        let is_zero = self
+            .builder()
+            .build_int_compare(IntPredicate::SLE, new_counter, zero, "counter_expired")
+            .unwrap();
+        self.builder()
+            .build_conditional_branch(is_zero, check_bb, cont_bb)
+            .unwrap();
+
+        // Check block: call __llvm_lyte_cancel_check(globals_base).
+        // It resets the counter and calls the user callback.
+        // If callback returns true, it longjmps (never returns).
+        self.builder().position_at_end(check_bb);
+        let check_ty = self
             .ctx()
             .void_type()
             .fn_type(&[self.ptr_ty().into()], false);
-        let abort_fn = self.state.get_or_declare_extern(
-            "__llvm_lyte_abort",
-            abort_ty,
-            llvm_lyte_abort as *const () as usize,
+        let check_fn = self.state.get_or_declare_extern(
+            "__llvm_lyte_cancel_check",
+            check_ty,
+            llvm_lyte_cancel_check as *const () as usize,
         );
         self.builder()
-            .build_call(abort_fn, &[self.globals_base.into()], "")
+            .build_call(check_fn, &[self.globals_base.into()], "")
             .unwrap();
-        self.builder().build_unreachable().unwrap();
+        self.builder()
+            .build_unconditional_branch(cont_bb)
+            .unwrap();
 
         self.builder().position_at_end(cont_bb);
     }

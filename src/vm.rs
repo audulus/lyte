@@ -1746,11 +1746,18 @@ pub struct VM {
     /// Current function name for debug diagnostics
     debug_func_name: String,
 
-    /// Set to true if execution was cancelled via cancel_ptr()
+    /// Set to true if execution was cancelled
     pub cancelled: bool,
 
     /// Closure pointer set by CallClosure, read by GetClosurePtr.
     closure_ptr: u64,
+
+    /// Cancel callback, called periodically at backward jumps.
+    /// Returns true to cancel execution.
+    cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+
+    /// User data passed to cancel callback.
+    cancel_userdata: *mut u8,
 }
 
 impl Default for VM {
@@ -1773,7 +1780,20 @@ impl VM {
             debug_func_name: String::new(),
             cancelled: false,
             closure_ptr: 0,
+            cancel_callback: None,
+            cancel_userdata: std::ptr::null_mut(),
         }
+    }
+
+    /// Set a cancel callback that is called periodically at backward jumps.
+    /// If it returns true, execution is cancelled.
+    pub fn set_cancel_callback(
+        &mut self,
+        callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+        user_data: *mut u8,
+    ) {
+        self.cancel_callback = callback;
+        self.cancel_userdata = user_data;
     }
 
     /// Get register value as i64
@@ -1941,6 +1961,7 @@ impl VM {
         let regs = self.registers.as_mut_ptr();
         let mut ip: usize = linked.func_offsets[func_idx as usize];
         let mut locals_base: usize = 0;
+        let mut cancel_counter: i32 = crate::jit::CANCEL_CHECK_INTERVAL;
 
         loop {
             let op = unsafe { *ops.add(ip) };
@@ -2365,9 +2386,17 @@ impl VM {
                     tags::JUMP => {
                         let off = op.d();
                         ip = (ip as i32 + off as i32) as usize;
-                        if off < 0 && self.cancel_flag() {
-                            self.cancelled = true;
-                            return 0;
+                        if off < 0 {
+                            cancel_counter -= 1;
+                            if cancel_counter <= 0 {
+                                cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                if let Some(cb) = self.cancel_callback {
+                                    if cb(self.cancel_userdata) {
+                                        self.cancelled = true;
+                                        return 0;
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -2375,9 +2404,17 @@ impl VM {
                         if r!(op.a()) == 0 {
                             let off = op.d();
                             ip = (ip as i32 + off as i32) as usize;
-                            if off < 0 && self.cancel_flag() {
-                                self.cancelled = true;
-                                return 0;
+                            if off < 0 {
+                                cancel_counter -= 1;
+                                if cancel_counter <= 0 {
+                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    if let Some(cb) = self.cancel_callback {
+                                        if cb(self.cancel_userdata) {
+                                            self.cancelled = true;
+                                            return 0;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -2386,9 +2423,17 @@ impl VM {
                         if r!(op.a()) != 0 {
                             let off = op.d();
                             ip = (ip as i32 + off as i32) as usize;
-                            if off < 0 && self.cancel_flag() {
-                                self.cancelled = true;
-                                return 0;
+                            if off < 0 {
+                                cancel_counter -= 1;
+                                if cancel_counter <= 0 {
+                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    if let Some(cb) = self.cancel_callback {
+                                        if cb(self.cancel_userdata) {
+                                            self.cancelled = true;
+                                            return 0;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -2398,9 +2443,17 @@ impl VM {
                         if get_i64!(op.a()) >= get_i64!(op.b()) {
                             let off = op.c_i8();
                             ip = (ip as i32 + off as i32) as usize;
-                            if off < 0 && self.cancel_flag() {
-                                self.cancelled = true;
-                                return 0;
+                            if off < 0 {
+                                cancel_counter -= 1;
+                                if cancel_counter <= 0 {
+                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    if let Some(cb) = self.cancel_callback {
+                                        if cb(self.cancel_userdata) {
+                                            self.cancelled = true;
+                                            return 0;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -2409,9 +2462,17 @@ impl VM {
                         if r_f32!(op.a()) >= r_f32!(op.b()) {
                             let off = op.c_i8();
                             ip = (ip as i32 + off as i32) as usize;
-                            if off < 0 && self.cancel_flag() {
-                                self.cancelled = true;
-                                return 0;
+                            if off < 0 {
+                                cancel_counter -= 1;
+                                if cancel_counter <= 0 {
+                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    if let Some(cb) = self.cancel_callback {
+                                        if cb(self.cancel_userdata) {
+                                            self.cancelled = true;
+                                            return 0;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -2874,17 +2935,6 @@ impl VM {
         Ok(self.run_inner(program, func_idx, args))
     }
 
-    /// Returns a pointer to the cancel flag byte.
-    /// Write a non-zero value from another thread to stop execution at the
-    /// next backward jump.  The pointer is valid for the lifetime of this VM.
-    pub fn cancel_ptr(&mut self) -> *mut u8 {
-        &mut self.cancelled as *mut bool as *mut u8
-    }
-
-    #[inline(always)]
-    fn cancel_flag(&self) -> bool {
-        self.cancelled
-    }
 
     /// Get the size of the globals buffer in bytes.
     pub fn globals_size(&self) -> usize {
@@ -3685,22 +3735,16 @@ mod tests {
         func.emit(Opcode::Jump { offset: -1 });
 
         let mut program = VMProgram::new();
-        program.globals_size = 1; // room for the cancel flag
+        program.globals_size = 0;
         program.entry = program.add_function(func);
 
         let mut vm = VM::new();
 
-        struct CancelPtr(*mut u8);
-        unsafe impl Send for CancelPtr {}
-        let cancel = CancelPtr(vm.cancel_ptr());
-
-        // After 50 ms, write 1 to the cancel flag.
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            unsafe {
-                *cancel.0 = 1;
-            }
-        });
+        // Cancel callback that always cancels on first invocation.
+        unsafe extern "C" fn always_cancel(_user_data: *mut u8) -> bool {
+            true
+        }
+        vm.set_cancel_callback(Some(always_cancel), std::ptr::null_mut());
 
         vm.run(&program);
         assert!(vm.cancelled, "expected the infinite loop to be cancelled");

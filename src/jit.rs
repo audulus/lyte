@@ -26,15 +26,44 @@ extern "C" {
     fn longjmp(env: *mut u8, val: i32) -> !;
 }
 
-/// Bytes reserved at the start of the globals buffer for the runtime header:
-///   offset 0: cancel flag (u8) — write non-zero to cancel running JIT code
-///   offset 16..(16 + size_of::<JmpBuf>): the longjmp target
+/// Globals buffer header layout:
+///   offset 0:  cancel_counter (i32) — decremented at backward jumps
+///   offset 8:  cancel_callback fn ptr — called when counter hits 0
+///   offset 16: cancel_userdata ptr — passed to callback
+///   offset 32: jmp_buf — longjmp target for cancellation
 ///
 /// User globals start at `CANCEL_FLAG_RESERVED`.
-/// The jmp_buf starts at offset 16 for 16-byte alignment (required on Linux x86_64
+/// The jmp_buf starts at offset 32 for 16-byte alignment (required on Linux x86_64
 /// where setjmp may save SSE registers with aligned stores).
-pub const JMPBUF_OFFSET: usize = 16;
+pub const CANCEL_COUNTER_OFFSET: i32 = 0;
+pub const CANCEL_CALLBACK_OFFSET: usize = 8;
+pub const CANCEL_USERDATA_OFFSET: usize = 16;
+pub const JMPBUF_OFFSET: usize = 32;
 pub const CANCEL_FLAG_RESERVED: i32 = (JMPBUF_OFFSET + std::mem::size_of::<JmpBuf>()) as i32;
+
+/// How many backward jumps between cancel callback invocations.
+pub const CANCEL_CHECK_INTERVAL: i32 = 1024;
+
+/// Cancel callback type: returns true to cancel execution.
+pub type CancelCallback = unsafe extern "C" fn(user_data: *mut u8) -> bool;
+
+/// Write a cancel callback and user_data into a globals buffer.
+/// Also initializes the cancel counter. Call this before executing JIT code.
+pub unsafe fn set_cancel_callback(
+    globals: *mut u8,
+    callback: Option<CancelCallback>,
+    user_data: *mut u8,
+) {
+    // Set counter
+    *(globals.add(CANCEL_COUNTER_OFFSET as usize) as *mut i32) = CANCEL_CHECK_INTERVAL;
+    // Set callback (null if None)
+    let cb_ptr: usize = match callback {
+        Some(f) => f as usize,
+        None => 0,
+    };
+    *(globals.add(CANCEL_CALLBACK_OFFSET) as *mut usize) = cb_ptr;
+    *(globals.add(CANCEL_USERDATA_OFFSET) as *mut usize) = user_data as usize;
+}
 
 /// Panics if our JmpBuf is smaller than the platform's actual jmp_buf.
 /// The size is measured at build time by build.rs compiling a C snippet.
@@ -50,11 +79,24 @@ fn assert_jmpbuf_size() {
     }
 }
 
-/// Called from JIT-generated code when `globals[0]` (the cancel flag) is non-zero.
-/// Receives the globals base pointer and longjmps to the checkpoint stored at
-/// `globals[JMPBUF_OFFSET]`.
-unsafe extern "C" fn lyte_abort(globals: *mut u8) {
-    longjmp(globals.add(JMPBUF_OFFSET), 1);
+/// Called from JIT-generated code when the cancel counter reaches zero.
+/// Reads the callback from the globals header, calls it, and if it returns
+/// true, longjmps to abort execution. Otherwise resets the counter.
+unsafe extern "C" fn lyte_cancel_check(globals: *mut u8) {
+    // Reset counter
+    *(globals.add(CANCEL_COUNTER_OFFSET as usize) as *mut i32) = CANCEL_CHECK_INTERVAL;
+
+    // Read callback
+    let cb_ptr = *(globals.add(CANCEL_CALLBACK_OFFSET) as *const usize);
+    if cb_ptr == 0 {
+        return; // No callback set, just continue
+    }
+    let callback: CancelCallback = std::mem::transmute(cb_ptr);
+    let user_data = *(globals.add(CANCEL_USERDATA_OFFSET) as *const *mut u8);
+
+    if callback(user_data) {
+        longjmp(globals.add(JMPBUF_OFFSET), 1);
+    }
 }
 
 /// Called from JIT-generated code to compare two slices by contents.
@@ -122,7 +164,7 @@ impl Default for JIT {
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        builder.symbol("__lyte_abort", lyte_abort as *const u8);
+        builder.symbol("__lyte_cancel_check", lyte_cancel_check as *const u8);
         builder.symbol("__lyte_slice_eq", lyte_slice_eq as *const u8);
         register_math_symbols(&mut builder);
 
@@ -553,32 +595,49 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Emit a cancellation check at the current position.
     ///
-    /// Reads `globals[0]` (the cancel flag).  If it is non-zero, calls
-    /// `lyte_abort(globals_base)` which longjmps to the checkpoint stored at
-    /// `globals[JMPBUF_OFFSET]`, immediately unwinding the entire JIT call stack.
-    /// Falls through into a fresh `continue_block` when the flag is clear.
+    /// Decrements the cancel counter at `globals[0]`. When it reaches zero,
+    /// calls `lyte_cancel_check(globals_base)` which invokes the user's cancel
+    /// callback. If the callback returns true, longjmps to abort execution.
+    /// Falls through into a fresh `continue_block` otherwise.
     fn emit_cancel_check(&mut self) {
-        let cancel_block = self.builder.create_block();
+        let check_block = self.builder.create_block();
         let continue_block = self.builder.create_block();
 
         let base = self.globals_base.expect("globals_base not set");
-        let flag = self.builder.ins().load(I8, MemFlags::trusted(), base, 0);
-        let is_set = self.builder.ins().icmp_imm(IntCC::NotEqual, flag, 0);
+
+        // Decrement counter
+        let counter = self
+            .builder
+            .ins()
+            .load(I32, MemFlags::trusted(), base, CANCEL_COUNTER_OFFSET);
+        let one = self.builder.ins().iconst(I32, 1);
+        let new_counter = self.builder.ins().isub(counter, one);
         self.builder
             .ins()
-            .brif(is_set, cancel_block, &[], continue_block, &[]);
+            .store(MemFlags::trusted(), new_counter, base, CANCEL_COUNTER_OFFSET);
 
-        self.builder.switch_to_block(cancel_block);
-        self.builder.seal_block(cancel_block);
+        // If counter <= 0, call the cancel check function
+        let is_zero = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::SignedLessThanOrEqual, new_counter, 0);
+        self.builder
+            .ins()
+            .brif(is_zero, check_block, &[], continue_block, &[]);
+
+        self.builder.switch_to_block(check_block);
+        self.builder.seal_block(check_block);
         let fn_ptr = self
             .builder
             .ins()
-            .iconst(I64, lyte_abort as *const () as usize as i64);
+            .iconst(I64, lyte_cancel_check as *const () as usize as i64);
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(I64)); // globals_base
         let sref = self.builder.import_signature(sig);
         self.builder.ins().call_indirect(sref, fn_ptr, &[base]);
-        self.builder.ins().trap(TrapCode::user(1).unwrap()); // unreachable after longjmp
+        // lyte_cancel_check returns normally if not cancelled (it resets the counter).
+        // If cancelled, it longjmps and never returns.
+        self.builder.ins().jump(continue_block, &[]);
 
         self.builder.switch_to_block(continue_block);
         self.builder.seal_block(continue_block);

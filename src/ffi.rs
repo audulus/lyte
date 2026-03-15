@@ -587,3 +587,19 @@ pub unsafe extern "C" fn lyte_compiler_vm_call(
         }
     })
 }
+
+/// Set a cancel callback for VM execution.
+/// The callback is called approximately every 1024 backward jumps.
+/// If it returns true, execution is cancelled. Pass NULL to disable.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_set_vm_cancel_callback(
+    ptr: *mut LyteCompiler,
+    callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+    user_data: *mut u8,
+) {
+    if ptr.is_null() {
+        return;
+    }
+    let vm = (*ptr).vm.get_or_insert_with(VM::new);
+    vm.set_cancel_callback(callback, user_data);
+}

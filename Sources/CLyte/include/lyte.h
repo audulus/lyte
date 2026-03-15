@@ -115,6 +115,18 @@ bool lyte_compiler_init_vm(LyteCompiler* compiler);
 /// Returns true on success.
 bool lyte_compiler_vm_call(LyteCompiler* compiler, const char* name, const int64_t* args, size_t arg_count);
 
+// ============ Cancel Callback API ============
+
+/// Cancel callback type. Return true to cancel execution.
+typedef bool (*lyte_cancel_fn)(void* user_data);
+
+/// Set a cancel callback for VM execution. The callback is called
+/// approximately every 1024 backward jumps. If it returns true,
+/// execution is cancelled. Pass NULL to disable cancellation.
+void lyte_compiler_set_vm_cancel_callback(LyteCompiler* compiler,
+                                           lyte_cancel_fn callback,
+                                           void* user_data);
+
 #ifdef __cplusplus
 }
 #endif
