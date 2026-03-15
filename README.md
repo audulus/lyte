@@ -344,6 +344,49 @@ process(bq: Biquad, x: f32) -> (Biquad, f32) {
 }
 ```
 
+## Embedding via Swift Package
+
+Lyte is available as a Swift package for embedding in macOS and iOS apps. Add it to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/audulus/lyte.git", from: "0.12.0")
+]
+```
+
+The package auto-selects the best backend: LLVM JIT on ARM macOS, VM on iOS and other platforms.
+
+```swift
+let compiler = LyteCompiler(entryPoints: ["init", "process"])
+try compiler.addSource(source, filename: "node.lyte")
+let program = try compiler.compile()
+
+let globals = program.allocGlobals()
+let initEP = program.entryPoint(named: "init")!
+let processEP = program.entryPoint(named: "process")!
+
+initEP.call(globals: globals)     // initialize state
+processEP.call(globals: globals)  // run on audio thread
+```
+
+Entry point handles are resolved once at compile time and called with zero overhead — no string lookups on the hot path.
+
+## Releasing
+
+Creating a release builds and publishes the xcframework automatically:
+
+```bash
+gh release create v0.12
+```
+
+This triggers the `release.yml` CI workflow which:
+
+1. Builds `CLyte.xcframework` for macOS (ARM64 + x86_64) and iOS
+2. Uploads `CLyte.xcframework.zip` as a release asset
+3. Computes the checksum and updates `Package.swift` on main
+
+The xcframework is self-contained — LLVM dependencies (zstd, ffi) are statically linked into the ARM64 macOS library. Swift consumers only need system libraries (libc++, libz, libcurses).
+
 ## Architecture
 
 The compiler pipeline:
