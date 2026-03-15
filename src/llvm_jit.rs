@@ -553,12 +553,85 @@ fn compile_and_run_with_context(
     Ok((cancelled, compile_elapsed, exec_elapsed))
 }
 
+/// A compiled LLVM JIT program that keeps the execution engine alive.
+/// Function pointers remain valid for the lifetime of this struct.
+pub struct LLVMCompiledProgram {
+    /// Entry point function addresses (name -> address).
+    pub entry_points: HashMap<Name, usize>,
+    /// Total size of globals buffer needed.
+    pub globals_size: usize,
+    /// The execution engine (must be dropped before _context).
+    /// Safety: the 'static lifetime is erased; the actual lifetime is tied to _context.
+    _ee: Option<inkwell::execution_engine::ExecutionEngine<'static>>,
+    /// The LLVM context that owns all IR. Dropped after _ee.
+    _context: Option<Box<Context>>,
+}
+
+impl Drop for LLVMCompiledProgram {
+    fn drop(&mut self) {
+        // Drop EE first (it references the context).
+        self._ee.take();
+        self._context.take();
+    }
+}
+
 impl LLVMJIT {
     pub fn new() -> Self {
         Self {
             print_ir: false,
             ir_only: false,
         }
+    }
+
+    /// Compile entry points and return a handle that keeps function pointers alive.
+    pub fn compile_only(
+        &self,
+        decls: &DeclTable,
+        entry_points: &[Name],
+    ) -> Result<LLVMCompiledProgram, String> {
+        Target::initialize_native(&InitializationConfig::default())
+            .map_err(|e| format!("LLVM target init failed: {}", e))?;
+
+        let context = Box::new(Context::create());
+
+        // Safety: we transmute the context reference to 'static because we own
+        // the Context in the same struct and guarantee drop order (EE before Context).
+        let context_ref: &'static Context = unsafe { &*(context.as_ref() as *const Context) };
+
+        let (state, _compile_elapsed) =
+            compile_with_context(context_ref, decls, entry_points, self.print_ir)?;
+
+        let ee = state
+            .module
+            .create_jit_execution_engine(OptimizationLevel::Aggressive)
+            .map_err(|e| format!("failed to create JIT execution engine: {}", e))?;
+
+        // Register external symbol mappings.
+        for (name, addr) in &state.extern_fns {
+            if let Some(fv) = state.module.get_function(name) {
+                ee.add_global_mapping(&fv, *addr);
+            }
+        }
+
+        // Look up all entry point addresses.
+        let mut ep_map = HashMap::new();
+        for &ep_name in entry_points {
+            let fn_addr = ee
+                .get_function_address(&*ep_name)
+                .map_err(|e| format!("function '{}' not found in JIT: {:?}", ep_name, e))?;
+            ep_map.insert(ep_name, fn_addr);
+        }
+
+        // Erase EE lifetime to 'static (safe because we control drop order).
+        let ee_static: inkwell::execution_engine::ExecutionEngine<'static> =
+            unsafe { std::mem::transmute(ee) };
+
+        Ok(LLVMCompiledProgram {
+            entry_points: ep_map,
+            globals_size: state.globals_size,
+            _ee: Some(ee_static),
+            _context: Some(context),
+        })
     }
 
     /// Compile and execute main. Returns Ok((cancelled, compile_time, exec_time)) or Err.

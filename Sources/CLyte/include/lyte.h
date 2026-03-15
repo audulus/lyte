@@ -9,8 +9,16 @@
 extern "C" {
 #endif
 
-/// Opaque compiler handle.
+// ============ Opaque handles ============
+
 typedef struct LyteCompiler LyteCompiler;
+typedef struct LyteProgram LyteProgram;
+typedef struct LyteEntryPoint LyteEntryPoint;
+
+/// Cancel callback type. Return true to cancel execution.
+typedef bool (*lyte_cancel_fn)(void* user_data);
+
+// ============ Compiler ============
 
 /// Create a new compiler instance.
 LyteCompiler* lyte_compiler_new(void);
@@ -18,8 +26,7 @@ LyteCompiler* lyte_compiler_new(void);
 /// Free a compiler instance.
 void lyte_compiler_free(LyteCompiler* compiler);
 
-/// Returns true if an internal compiler error (panic) occurred,
-/// rendering this compiler instance invalid. Create a new compiler.
+/// Returns true if an internal compiler error (panic) occurred.
 bool lyte_compiler_had_ice(const LyteCompiler* compiler);
 
 /// Get the last error message, or NULL if no error.
@@ -31,101 +38,67 @@ bool lyte_compiler_parse(LyteCompiler* compiler, const char* source, const char*
 /// Type-check the parsed source. Returns true on success.
 bool lyte_compiler_check(LyteCompiler* compiler);
 
+/// Set entry point function names before calling specialize.
+/// If not called, defaults to ["main"].
+bool lyte_compiler_set_entry_points(LyteCompiler* compiler, const char** names, size_t count);
+
 /// Monomorphize generics. Returns true on success.
 bool lyte_compiler_specialize(LyteCompiler* compiler);
 
-/// JIT compile. Returns true on success.
-bool lyte_compiler_jit(LyteCompiler* compiler);
+/// Compile to a LyteProgram (auto-selects JIT or VM backend).
+/// Returns NULL on error. Caller must free with lyte_program_free.
+LyteProgram* lyte_compiler_compile(LyteCompiler* compiler);
 
-/// Get the JIT-compiled code pointer.
-/// The function signature is: void main(uint8_t* globals)
-/// Returns NULL if JIT has not been run or failed.
-const uint8_t* lyte_compiler_get_code_ptr(const LyteCompiler* compiler);
+/// Convenience: parse, check, specialize, and compile in one call.
+/// Returns NULL on error. Caller must free with lyte_program_free.
+LyteProgram* lyte_compile_program(LyteCompiler* compiler, const char* source, const char* filename);
 
-/// Get the size in bytes of the globals buffer needed by the JIT-compiled code.
-/// Returns 0 if JIT has not been run or failed.
-size_t lyte_compiler_get_globals_size(const LyteCompiler* compiler);
+// ============ Program ============
 
-/// Convenience: parse, check, specialize, and JIT compile in one call.
-/// Returns true on success.
-bool lyte_compile(LyteCompiler* compiler, const char* source, const char* filename);
+/// Free a compiled program and all its entry points.
+void lyte_program_free(LyteProgram* program);
 
-/// Get the number of global variables. Available after JIT compilation.
-/// Returns 0 if JIT has not been run.
-size_t lyte_compiler_get_globals_count(const LyteCompiler* compiler);
+/// Get the size in bytes of the globals buffer.
+size_t lyte_program_get_globals_size(const LyteProgram* program);
+
+/// Get the number of global variables.
+size_t lyte_program_get_globals_count(const LyteProgram* program);
 
 /// Get the name of a global variable by index.
-/// Returns NULL if index is out of bounds.
-const char* lyte_compiler_get_global_name(const LyteCompiler* compiler, size_t index);
+const char* lyte_program_get_global_name(const LyteProgram* program, size_t index);
 
 /// Get the byte offset of a global variable within the globals buffer.
-/// Returns 0 if index is out of bounds.
-size_t lyte_compiler_get_global_offset(const LyteCompiler* compiler, size_t index);
+size_t lyte_program_get_global_offset(const LyteProgram* program, size_t index);
 
 /// Get the size in bytes of a global variable.
-/// Returns 0 if index is out of bounds.
-size_t lyte_compiler_get_global_size(const LyteCompiler* compiler, size_t index);
+size_t lyte_program_get_global_size(const LyteProgram* program, size_t index);
 
-/// Get the type of a global variable as a string in lyte syntax (e.g. "f32", "[i32; 4]").
-/// Returns NULL if index is out of bounds.
-const char* lyte_compiler_get_global_type(const LyteCompiler* compiler, size_t index);
+/// Get the type of a global variable as a string.
+const char* lyte_program_get_global_type(const LyteProgram* program, size_t index);
 
-// ============ VM API ============
+/// Look up an entry point by name. Returns NULL if not found.
+/// The returned handle is owned by the program; do NOT free it separately.
+const LyteEntryPoint* lyte_program_get_entry_point(const LyteProgram* program, const char* name);
 
-/// Compile to VM bytecode. Returns true on success.
-/// Must call parse, check, and specialize first.
-bool lyte_compiler_compile_vm(LyteCompiler* compiler);
+/// Set a cancel callback. Called approximately every 1024 backward jumps.
+/// If it returns true, execution is cancelled. Pass NULL to disable.
+void lyte_program_set_cancel_callback(LyteProgram* program, lyte_cancel_fn callback, void* user_data);
 
-/// Run the VM program. Returns true on success.
-/// Must call lyte_compiler_compile_vm first.
-/// After running, globals can be read via lyte_compiler_get_vm_globals_ptr.
-bool lyte_compiler_run_vm(LyteCompiler* compiler);
+// ============ Entry point invocation ============
 
-/// Get a pointer to the VM's globals buffer.
-/// Returns NULL if the VM has not been run.
-/// The pointer is valid until the next call to lyte_compiler_run_vm
-/// or lyte_compiler_free.
-uint8_t* lyte_compiler_get_vm_globals_ptr(LyteCompiler* compiler);
+/// Call an entry point with an external globals buffer.
+/// The buffer must be at least lyte_program_get_globals_size() bytes.
+/// Returns true on success, false if cancelled or error.
+bool lyte_entry_point_call(const LyteEntryPoint* entry, uint8_t* globals);
 
-/// Get the size in bytes of the VM globals buffer.
-/// Returns 0 if no VM program has been compiled.
-size_t lyte_compiler_get_vm_globals_size(const LyteCompiler* compiler);
+// ============ Globals helpers ============
 
-/// Convenience: parse, check, specialize, and compile to VM in one call.
-/// Returns true on success.
-bool lyte_compile_vm(LyteCompiler* compiler, const char* source, const char* filename);
+/// Allocate a zeroed globals buffer of the correct size.
+/// Caller must free with lyte_globals_free().
+uint8_t* lyte_globals_alloc(const LyteProgram* program);
 
-// ============ Multi-Entry-Point API ============
-
-/// Set entry point function names before calling specialize.
-/// If not called, defaults to ["main"].
-/// Returns true on success.
-bool lyte_compiler_set_entry_points(LyteCompiler* compiler, const char** names, size_t count);
-
-/// Get the JIT-compiled code pointer for a named entry point.
-/// Returns NULL if the entry point is not found or JIT has not been run.
-const uint8_t* lyte_compiler_get_entry_point(const LyteCompiler* compiler, const char* name);
-
-/// Initialize VM globals (zeroed) without running any function.
-/// Must call compile_vm first. Returns true on success.
-bool lyte_compiler_init_vm(LyteCompiler* compiler);
-
-/// Call a specific VM function by name with i64 arguments.
-/// Globals persist between calls. Must call init_vm or run_vm first.
-/// Returns true on success.
-bool lyte_compiler_vm_call(LyteCompiler* compiler, const char* name, const int64_t* args, size_t arg_count);
-
-// ============ Cancel Callback API ============
-
-/// Cancel callback type. Return true to cancel execution.
-typedef bool (*lyte_cancel_fn)(void* user_data);
-
-/// Set a cancel callback for VM execution. The callback is called
-/// approximately every 1024 backward jumps. If it returns true,
-/// execution is cancelled. Pass NULL to disable cancellation.
-void lyte_compiler_set_vm_cancel_callback(LyteCompiler* compiler,
-                                           lyte_cancel_fn callback,
-                                           void* user_data);
+/// Free a globals buffer allocated by lyte_globals_alloc.
+void lyte_globals_free(uint8_t* globals, size_t size);
 
 #ifdef __cplusplus
 }

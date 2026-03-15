@@ -247,7 +247,7 @@ pub(crate) mod tags {
 }
 
 /// Linked program: all function code flattened into packed bytecode
-pub(crate) struct LinkedProgram {
+pub struct LinkedProgram {
     pub(crate) ops: Vec<PackedOp>,
     pub(crate) func_offsets: Vec<usize>,
     pub(crate) func_locals: Vec<u32>,
@@ -1926,9 +1926,23 @@ impl VM {
         func_idx: FuncIdx,
         args: &[i64],
     ) -> i64 {
-        // === Link phase: pack all function code into flat bytecode ===
         let linked = LinkedProgram::from_program(program);
+        // Allocate globals if not yet allocated.
+        if self.globals.is_empty() && program.globals_size > 0 {
+            self.globals = vec![0u8; program.globals_size];
+        }
+        self.run_linked(&linked, program, func_idx, args)
+    }
 
+    /// Run a function using a pre-linked program. This is the fast path —
+    /// no re-linking, suitable for repeated calls.
+    pub fn run_linked(
+        &mut self,
+        linked: &LinkedProgram,
+        program: &VMProgram,
+        func_idx: FuncIdx,
+        args: &[i64],
+    ) -> i64 {
         // === Initialize VM state ===
         self.current_func = func_idx;
         self.registers = [0; 256];
@@ -1940,10 +1954,6 @@ impl VM {
             }
         }
 
-        // Allocate globals if not yet allocated.
-        if self.globals.is_empty() && program.globals_size > 0 {
-            self.globals = vec![0u8; program.globals_size];
-        }
         self.cancelled = false;
 
         #[cfg(debug_assertions)]
@@ -2935,6 +2945,33 @@ impl VM {
         Ok(self.run_inner(program, func_idx, args))
     }
 
+
+    /// Call a function using a pre-linked program with an external globals buffer.
+    /// Copies globals in before execution, copies back out after.
+    /// This is the fast path used by the FFI.
+    pub unsafe fn call_with_external_globals(
+        &mut self,
+        linked: &LinkedProgram,
+        program: &VMProgram,
+        func_idx: FuncIdx,
+        external_globals: *mut u8,
+        globals_size: usize,
+    ) -> i64 {
+        // Ensure internal buffer is the right size.
+        if self.globals.len() != globals_size {
+            self.globals = vec![0u8; globals_size];
+        }
+        // Copy in.
+        if globals_size > 0 {
+            std::ptr::copy_nonoverlapping(external_globals, self.globals.as_mut_ptr(), globals_size);
+        }
+        let result = self.run_linked(linked, program, func_idx, &[]);
+        // Copy out.
+        if globals_size > 0 {
+            std::ptr::copy_nonoverlapping(self.globals.as_ptr(), external_globals, globals_size);
+        }
+        result
+    }
 
     /// Get the size of the globals buffer in bytes.
     pub fn globals_size(&self) -> usize {

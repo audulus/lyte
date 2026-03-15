@@ -1,9 +1,53 @@
-use crate::vm::{VMProgram, VM};
+use crate::vm::{LinkedProgram, VMProgram, VM};
 use crate::vm_codegen::VMCodegen;
 use crate::*;
 use core::mem;
 use std::collections::HashMap;
 use std::fs;
+
+/// A compiled program ready for execution, abstracting over backends.
+pub enum CompiledProgram {
+    #[cfg(feature = "llvm")]
+    Llvm(crate::llvm_jit::LLVMCompiledProgram),
+    Vm {
+        program: VMProgram,
+        linked: LinkedProgram,
+        vm: VM,
+    },
+}
+
+impl CompiledProgram {
+    /// Get the size of the globals buffer in bytes.
+    pub fn globals_size(&self) -> usize {
+        match self {
+            #[cfg(feature = "llvm")]
+            CompiledProgram::Llvm(p) => p.globals_size,
+            CompiledProgram::Vm { program, .. } => program.globals_size,
+        }
+    }
+
+    /// Get a function pointer or func index for a named entry point.
+    pub fn get_entry_point(&self, name: Name) -> Option<EntryPoint> {
+        match self {
+            #[cfg(feature = "llvm")]
+            CompiledProgram::Llvm(p) => {
+                p.entry_points.get(&name).map(|&addr| EntryPoint::Jit(addr))
+            }
+            CompiledProgram::Vm { program, .. } => {
+                program.entry_points.get(&name).map(|&idx| EntryPoint::Vm(idx))
+            }
+        }
+    }
+}
+
+/// An entry point handle, either a JIT function pointer or a VM function index.
+#[derive(Clone, Copy)]
+pub enum EntryPoint {
+    /// JIT: raw function address. Signature: `fn(*mut u8, *mut u8)`.
+    Jit(usize),
+    /// VM: function index into the linked program.
+    Vm(crate::vm::FuncIdx),
+}
 
 /// Returns the built-in function declarations (assert, print, etc.)
 fn builtin_decls() -> Vec<Decl> {
@@ -327,7 +371,7 @@ impl Compiler {
     }
 
     /// Returns the effective entry points (defaults to ["main"] if none set).
-    fn effective_entry_points(&self) -> Vec<Name> {
+    pub fn effective_entry_points(&self) -> Vec<Name> {
         if self.entry_points.is_empty() {
             vec![Name::new("main".into())]
         } else {
@@ -622,6 +666,32 @@ impl Compiler {
         let program = self.compile_vm()?;
         let mut vm = VM::new();
         Ok(vm.run(&program))
+    }
+
+    /// Compile to a backend-agnostic CompiledProgram.
+    /// Auto-selects LLVM JIT (when available) or VM.
+    pub fn compile_program(&self) -> Result<CompiledProgram, String> {
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let entry_points = self.effective_entry_points();
+
+        #[cfg(feature = "llvm")]
+        {
+            let mut jit = crate::llvm_jit::LLVMJIT::new();
+            jit.print_ir = self.print_ir;
+            let llvm_prog = jit.compile_only(&self.decls, &entry_points)?;
+            return Ok(CompiledProgram::Llvm(llvm_prog));
+        }
+
+        #[cfg(not(feature = "llvm"))]
+        {
+            let mut codegen = VMCodegen::new();
+            let program = codegen.compile_multi(&self.decls, &entry_points)?;
+            let linked = LinkedProgram::from_program(&program);
+            let vm = VM::new();
+            Ok(CompiledProgram::Vm { program, linked, vm })
+        }
     }
 }
 
@@ -1127,5 +1197,76 @@ mod tests {
         assert!(compiler.check());
         compiler.specialize().unwrap();
         compiler.run_vm().expect("VM run failed");
+    }
+
+    #[test]
+    fn test_compile_program_vm() {
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+
+            process -> i32 {
+                counter = counter + 1
+                counter
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        let mut prog = compiler.compile_program().unwrap();
+        let gs = prog.globals_size();
+        assert!(gs > 0);
+
+        // Allocate globals externally
+        let mut globals = vec![0u8; gs];
+
+        // Look up entry points
+        let init_ep = prog.get_entry_point(Name::new("init".into())).unwrap();
+        let process_ep = prog.get_entry_point(Name::new("process".into())).unwrap();
+
+        // Call init via the compiled program
+        match &mut prog {
+            CompiledProgram::Vm { linked, program, vm, .. } => {
+                unsafe {
+                    vm.call_with_external_globals(
+                        linked, program, match init_ep { EntryPoint::Vm(idx) => idx, _ => panic!() },
+                        globals.as_mut_ptr(), gs,
+                    );
+                }
+            }
+            #[cfg(feature = "llvm")]
+            _ => {} // LLVM path tested separately
+        }
+
+        // Call process — should return 11 (counter was 10, now 11)
+        match &mut prog {
+            CompiledProgram::Vm { linked, program, vm, .. } => {
+                let result = unsafe {
+                    vm.call_with_external_globals(
+                        linked, program, match process_ep { EntryPoint::Vm(idx) => idx, _ => panic!() },
+                        globals.as_mut_ptr(), gs,
+                    )
+                };
+                assert_eq!(result, 11);
+
+                // Call again — globals persist
+                let result = unsafe {
+                    vm.call_with_external_globals(
+                        linked, program, match process_ep { EntryPoint::Vm(idx) => idx, _ => panic!() },
+                        globals.as_mut_ptr(), gs,
+                    )
+                };
+                assert_eq!(result, 12);
+            }
+            #[cfg(feature = "llvm")]
+            _ => {}
+        }
     }
 }

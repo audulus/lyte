@@ -4,7 +4,7 @@ use std::os::raw::c_char;
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 
-use crate::compiler::Compiler;
+use crate::compiler::{CompiledProgram, Compiler, EntryPoint};
 use crate::Name;
 use crate::vm::{VMProgram, VM};
 
@@ -602,4 +602,311 @@ pub unsafe extern "C" fn lyte_compiler_set_vm_cancel_callback(
     }
     let vm = (*ptr).vm.get_or_insert_with(VM::new);
     vm.set_cancel_callback(callback, user_data);
+}
+
+// ============ Backend-Agnostic Program API ============
+
+/// A compiled program, abstracting over JIT and VM backends.
+pub struct LyteProgram {
+    inner: CompiledProgram,
+    globals_size: usize,
+    globals_info: Vec<GlobalInfo>,
+    entry_points: Vec<LyteEntryPoint>,
+    cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+    cancel_userdata: *mut u8,
+    last_error: Option<CString>,
+}
+
+/// An entry point handle for calling compiled functions.
+pub struct LyteEntryPoint {
+    program: *mut LyteProgram,
+    kind: EntryPoint,
+    name: CString,
+}
+
+/// Compile to a backend-agnostic LyteProgram (auto-selects LLVM or VM).
+/// Must call parse, check, and specialize first. Returns NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut LyteProgram {
+    if ptr.is_null() {
+        return ptr::null_mut();
+    }
+    let c = &mut *ptr;
+    if c.ice_occurred {
+        c.set_error("compiler is in an invalid state after a previous internal compiler error");
+        return ptr::null_mut();
+    }
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        c.last_error = None;
+        match c.compiler.compile_program() {
+            Ok(compiled) => {
+                let globals_size = compiled.globals_size();
+                let globals_info: Vec<GlobalInfo> = c
+                    .compiler
+                    .globals_info()
+                    .into_iter()
+                    .map(|(name, offset, size, ty)| GlobalInfo {
+                        name: CString::new(name).unwrap_or_default(),
+                        offset,
+                        size,
+                        ty: CString::new(ty).unwrap_or_default(),
+                    })
+                    .collect();
+
+                let mut program = Box::new(LyteProgram {
+                    inner: compiled,
+                    globals_size,
+                    globals_info,
+                    entry_points: Vec::new(),
+                    cancel_callback: None,
+                    cancel_userdata: ptr::null_mut(),
+                    last_error: None,
+                });
+
+                // Build entry point handles.
+                let prog_ptr: *mut LyteProgram = &mut *program;
+                let entry_point_names = c.compiler.effective_entry_points();
+                for ep_name in &entry_point_names {
+                    if let Some(kind) = program.inner.get_entry_point(*ep_name) {
+                        program.entry_points.push(LyteEntryPoint {
+                            program: prog_ptr,
+                            kind,
+                            name: CString::new(ep_name.to_string()).unwrap_or_default(),
+                        });
+                    }
+                }
+
+                Box::into_raw(program)
+            }
+            Err(e) => {
+                c.set_error(&e);
+                ptr::null_mut()
+            }
+        }
+    }));
+    match result {
+        Ok(p) => p,
+        Err(e) => {
+            let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                format!("internal compiler error: {}", s)
+            } else if let Some(s) = e.downcast_ref::<String>() {
+                format!("internal compiler error: {}", s)
+            } else {
+                "internal compiler error".to_string()
+            };
+            c.set_error(&msg);
+            c.ice_occurred = true;
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Convenience: parse, check, specialize, and compile in one call.
+/// Returns NULL on error.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compile_program(
+    ptr: *mut LyteCompiler,
+    source: *const c_char,
+    filename: *const c_char,
+) -> *mut LyteProgram {
+    if !lyte_compiler_parse(ptr, source, filename) {
+        return ptr::null_mut();
+    }
+    if !lyte_compiler_check(ptr) {
+        return ptr::null_mut();
+    }
+    if !lyte_compiler_specialize(ptr) {
+        return ptr::null_mut();
+    }
+    lyte_compiler_compile(ptr)
+}
+
+/// Free a compiled program.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_free(ptr: *mut LyteProgram) {
+    if !ptr.is_null() {
+        drop(Box::from_raw(ptr));
+    }
+}
+
+/// Get the size in bytes of the globals buffer needed.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_globals_size(ptr: *const LyteProgram) -> usize {
+    if ptr.is_null() { return 0; }
+    (*ptr).globals_size
+}
+
+/// Get the number of global variables.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_globals_count(ptr: *const LyteProgram) -> usize {
+    if ptr.is_null() { return 0; }
+    (*ptr).globals_info.len()
+}
+
+/// Get the name of a global variable by index.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_global_name(
+    ptr: *const LyteProgram,
+    index: usize,
+) -> *const c_char {
+    if ptr.is_null() { return ptr::null(); }
+    let p = &*ptr;
+    p.globals_info.get(index).map_or(ptr::null(), |g| g.name.as_ptr())
+}
+
+/// Get the byte offset of a global variable.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_global_offset(
+    ptr: *const LyteProgram,
+    index: usize,
+) -> usize {
+    if ptr.is_null() { return 0; }
+    let p = &*ptr;
+    p.globals_info.get(index).map_or(0, |g| g.offset)
+}
+
+/// Get the size in bytes of a global variable.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_global_size(
+    ptr: *const LyteProgram,
+    index: usize,
+) -> usize {
+    if ptr.is_null() { return 0; }
+    let p = &*ptr;
+    p.globals_info.get(index).map_or(0, |g| g.size)
+}
+
+/// Get the type of a global variable as a string.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_global_type(
+    ptr: *const LyteProgram,
+    index: usize,
+) -> *const c_char {
+    if ptr.is_null() { return ptr::null(); }
+    let p = &*ptr;
+    p.globals_info.get(index).map_or(ptr::null(), |g| g.ty.as_ptr())
+}
+
+/// Look up an entry point by name. Returns NULL if not found.
+/// The returned handle is owned by the program; do NOT free it.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_entry_point(
+    ptr: *const LyteProgram,
+    name: *const c_char,
+) -> *const LyteEntryPoint {
+    if ptr.is_null() || name.is_null() {
+        return ptr::null();
+    }
+    let name_cstr = CStr::from_ptr(name);
+    for ep in &(*ptr).entry_points {
+        if ep.name.as_c_str() == name_cstr {
+            return ep as *const LyteEntryPoint;
+        }
+    }
+    ptr::null()
+}
+
+/// Call an entry point with an external globals buffer.
+/// For JIT: direct function pointer call.
+/// For VM: runs interpreter with cached linked bytecode.
+/// Returns true on success, false if cancelled.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_entry_point_call(
+    ep: *const LyteEntryPoint,
+    globals: *mut u8,
+) -> bool {
+    if ep.is_null() || globals.is_null() {
+        return false;
+    }
+    let ep = &*ep;
+    let program = &mut *ep.program;
+
+    match ep.kind {
+        EntryPoint::Jit(fn_addr) => {
+            extern "C" {
+                fn setjmp(env: *mut u8) -> i32;
+            }
+            type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
+            crate::jit::set_cancel_callback(
+                globals,
+                program.cancel_callback,
+                program.cancel_userdata,
+            );
+            let jmp_buf_ptr = globals.add(crate::jit::JMPBUF_OFFSET);
+            if setjmp(jmp_buf_ptr) == 0 {
+                let code_fn: Entry = std::mem::transmute(fn_addr);
+                code_fn(globals, ptr::null_mut());
+                true
+            } else {
+                false // cancelled
+            }
+        }
+        EntryPoint::Vm(func_idx) => {
+            // Read cancel callback before borrowing inner mutably.
+            let cancel_cb = program.cancel_callback;
+            let cancel_ud = program.cancel_userdata;
+            let gs = program.globals_size;
+
+            match &mut program.inner {
+                CompiledProgram::Vm {
+                    program: ref vm_program,
+                    ref linked,
+                    ref mut vm,
+                } => {
+                    if let Some(cb) = cancel_cb {
+                        vm.set_cancel_callback(Some(cb), cancel_ud);
+                    }
+                    vm.call_with_external_globals(
+                        linked,
+                        vm_program,
+                        func_idx,
+                        globals,
+                        gs,
+                    );
+                    !vm.cancelled
+                }
+                #[cfg(feature = "llvm")]
+                _ => false, // shouldn't happen
+            }
+        }
+    }
+}
+
+/// Allocate a zeroed globals buffer of the correct size.
+/// Caller must free with lyte_globals_free().
+#[no_mangle]
+pub unsafe extern "C" fn lyte_globals_alloc(ptr: *const LyteProgram) -> *mut u8 {
+    if ptr.is_null() { return ptr::null_mut(); }
+    let size = (*ptr).globals_size;
+    if size == 0 { return ptr::null_mut(); }
+    let layout = std::alloc::Layout::from_size_align(size, 16).unwrap();
+    let mem = std::alloc::alloc_zeroed(layout);
+    // Initialize cancel counter.
+    if !mem.is_null() {
+        *(mem as *mut i32) = crate::jit::CANCEL_CHECK_INTERVAL;
+    }
+    mem
+}
+
+/// Free a globals buffer allocated by lyte_globals_alloc.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_globals_free(globals: *mut u8, size: usize) {
+    if !globals.is_null() && size > 0 {
+        let layout = std::alloc::Layout::from_size_align(size, 16).unwrap();
+        std::alloc::dealloc(globals, layout);
+    }
+}
+
+/// Set a cancel callback for this program.
+/// The callback is called periodically at backward jumps.
+/// If it returns true, execution is cancelled.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_set_cancel_callback(
+    ptr: *mut LyteProgram,
+    callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+    user_data: *mut u8,
+) {
+    if ptr.is_null() { return; }
+    (*ptr).cancel_callback = callback;
+    (*ptr).cancel_userdata = user_data;
 }
