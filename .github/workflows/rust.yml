@@ -147,6 +147,9 @@ jobs:
         - name: legacy-symbol-mapping
           aligned_globals: "1"
           postpass_symbol_mapping: "0"
+        - name: both-legacy
+          aligned_globals: "0"
+          postpass_symbol_mapping: "0"
 
     env:
       LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
