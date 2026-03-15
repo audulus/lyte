@@ -302,6 +302,8 @@ pub struct Compiler {
     pub print_ir: bool,
     /// Number of AST trees that belong to the stdlib (parsed in new()).
     stdlib_trees: usize,
+    /// Entry point function names. If empty, defaults to ["main"].
+    entry_points: Vec<Name>,
 }
 
 impl Compiler {
@@ -311,10 +313,26 @@ impl Compiler {
             decls: DeclTable::new(vec![]),
             print_ir: false,
             stdlib_trees: 0,
+            entry_points: Vec::new(),
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
         c
+    }
+
+    /// Set custom entry point functions. If not called (or called with empty slice),
+    /// defaults to ["main"].
+    pub fn set_entry_points(&mut self, names: &[&str]) {
+        self.entry_points = names.iter().map(|n| Name::new((*n).into())).collect();
+    }
+
+    /// Returns the effective entry points (defaults to ["main"] if none set).
+    fn effective_entry_points(&self) -> Vec<Name> {
+        if self.entry_points.is_empty() {
+            vec![Name::new("main".into())]
+        } else {
+            self.entry_points.clone()
+        }
     }
 
     pub fn parse_file(&mut self, path: &str) {
@@ -442,8 +460,8 @@ impl Compiler {
 
     pub fn specialize(&mut self) -> Result<(), String> {
         let mut pass = MonomorphPass::new();
-        let name = Name::new("main".into());
-        let all_decls = pass.monomorphize(&self.decls, name)?;
+        let entry_points = self.effective_entry_points();
+        let all_decls = pass.monomorphize_multi(&self.decls, &entry_points)?;
         // monomorphize now returns all decls (original + specialized)
         self.decls = DeclTable::new(all_decls);
 
@@ -537,6 +555,19 @@ impl Compiler {
         Ok((code_ptr, globals_size, jit))
     }
 
+    /// Compile to native code via Cranelift JIT with multiple entry points.
+    /// Returns (entry_point_map, globals_size, jit_module).
+    pub fn jit_multi(&self) -> Result<(HashMap<Name, *const u8>, usize, JIT), String> {
+        let mut jit = JIT::default();
+        jit.print_ir = self.print_ir;
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let entry_points = self.effective_entry_points();
+        let (map, globals_size) = jit.compile_multi(&self.decls, &entry_points)?;
+        Ok((map, globals_size, jit))
+    }
+
     pub fn run(&mut self) {
         let r = self.jit();
         if let Ok((code_ptr, globals_size, jit)) = r {
@@ -575,7 +606,8 @@ impl Compiler {
             return Err(String::from("No declarations to compile"));
         }
         let mut codegen = VMCodegen::new();
-        codegen.compile(&self.decls)
+        let entry_points = self.effective_entry_points();
+        codegen.compile_multi(&self.decls, &entry_points)
     }
 
     /// Run the code using the VM interpreter.
@@ -971,5 +1003,123 @@ mod tests {
 
         jit(code);
         run(code);
+    }
+
+    #[test]
+    fn test_multi_entry_points_vm() {
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+
+            process(n: i32) -> i32 {
+                counter = counter + n
+                counter
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        let program = compiler.compile_vm().unwrap();
+        let mut vm = crate::vm::VM::new();
+
+        // Call init — sets counter to 10
+        vm.call(&program, Name::new("init".into()), &[]).unwrap();
+
+        // Call process(5) — counter becomes 15
+        let result = vm.call(&program, Name::new("process".into()), &[5]).unwrap();
+        assert_eq!(result, 15);
+
+        // Call process(3) — counter becomes 18 (globals persist)
+        let result = vm.call(&program, Name::new("process".into()), &[3]).unwrap();
+        assert_eq!(result, 18);
+    }
+
+    #[test]
+    fn test_multi_entry_points_jit() {
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+
+            process(n: i32) -> i32 {
+                counter = counter + n
+                counter
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        let (map, globals_size, jit) = compiler.jit_multi().unwrap();
+
+        assert!(map.contains_key(&Name::new("init".into())));
+        assert!(map.contains_key(&Name::new("process".into())));
+        assert!(globals_size > 0);
+
+        jit.free_memory();
+    }
+
+    #[test]
+    fn test_multi_entry_shared_function() {
+        // Both entry points call the same helper function
+        let code = r#"
+            var state: i32
+
+            helper(x: i32) -> i32 {
+                x * 2
+            }
+
+            init {
+                state = helper(5)
+            }
+
+            process(n: i32) -> i32 {
+                state = state + helper(n)
+                state
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        let program = compiler.compile_vm().unwrap();
+        let mut vm = crate::vm::VM::new();
+
+        vm.call(&program, Name::new("init".into()), &[]).unwrap();
+        let result = vm.call(&program, Name::new("process".into()), &[3]).unwrap();
+        // init sets state=helper(5)=10, process adds helper(3)=6, total=16
+        assert_eq!(result, 16);
+    }
+
+    #[test]
+    fn test_backward_compat_default_main() {
+        // When no entry points are set, defaults to "main"
+        let code = r#"
+            main {
+                assert(1 == 1)
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        // Don't call set_entry_points — should default to "main"
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+        compiler.run_vm().expect("VM run failed");
     }
 }

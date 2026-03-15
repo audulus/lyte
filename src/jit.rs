@@ -150,37 +150,53 @@ impl JIT {
     /// Compile our AST into native code.
     /// Returns (code_ptr, globals_size).
     pub fn compile(&mut self, decls: &DeclTable) -> Result<(*const u8, usize), String> {
-        // First, declare all global variables.
+        let main_name = Name::new("main".into());
+        let (map, globals_size) = self.compile_multi(decls, &[main_name])?;
+        let code_ptr = map
+            .get(&main_name)
+            .copied()
+            .ok_or_else(|| "main function not found".to_string())?;
+        Ok((code_ptr, globals_size))
+    }
+
+    /// Compile multiple entry points into native code.
+    /// Returns (name→code_ptr map, globals_size).
+    pub fn compile_multi(
+        &mut self,
+        decls: &DeclTable,
+        entry_points: &[Name],
+    ) -> Result<(HashMap<Name, *const u8>, usize), String> {
         self.declare_globals(decls);
 
-        let name = "main";
-
-        let main_decls = &decls.find(Name::new(name.into()));
-
-        if main_decls.is_empty() {
-            return Err("no main function found".to_string());
+        let mut func_ids = Vec::new();
+        for &ep_name in entry_points {
+            let ep_decls = decls.find(ep_name);
+            if ep_decls.is_empty() {
+                return Err(format!(
+                    "entry point function '{}' not found",
+                    ep_name
+                ));
+            }
+            let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
+                d
+            } else {
+                return Err(format!("'{}' is not a function", ep_name));
+            };
+            let id = self.compile_function(decls, ep_decl)?;
+            func_ids.push((ep_name, id));
         }
 
-        // Find the main function.
-        let main_decl = if let Decl::Func(d) = &main_decls[0] {
-            d
-        } else {
-            return Err("main is not a function".to_string());
-        };
-
-        let id = self.compile_function(decls, main_decl)?;
-
-        // Finalize the functions which we just defined, which resolves any
-        // outstanding relocations (patching in addresses, now that they're
-        // available).
         self.module
             .finalize_definitions()
             .map_err(|err| err.to_string())?;
 
-        // We can now retrieve a pointer to the machine code.
-        let code = self.module.get_finalized_function(id);
+        let mut map = HashMap::new();
+        for (name, id) in func_ids {
+            let code = self.module.get_finalized_function(id);
+            map.insert(name, code);
+        }
 
-        Ok((code, self.globals_size))
+        Ok((map, self.globals_size))
     }
 
     fn compile_function(

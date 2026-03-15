@@ -97,42 +97,64 @@ impl VMCodegen {
     /// This looks for a "main" function and compiles it along with all
     /// functions it calls.
     pub fn compile(&mut self, decls: &DeclTable) -> Result<VMProgram, String> {
+        let main_name = Name::str("main");
+        self.compile_multi(decls, &[main_name])
+    }
+
+    /// Compile multiple entry points into a VMProgram.
+    pub fn compile_multi(
+        &mut self,
+        decls: &DeclTable,
+        entry_points: &[Name],
+    ) -> Result<VMProgram, String> {
         // First, collect all global variables.
         self.declare_globals(decls);
 
-        let main_name = Name::str("main");
-        let main_decls = decls.find(main_name);
-
-        if main_decls.is_empty() {
-            return Err("no main function found".to_string());
-        }
-
-        let main_decl = match &main_decls[0] {
-            Decl::Func(d) => d,
-            _ => return Err("main is not a function".to_string()),
-        };
-
-        // Compile main function.
-        self.compile_function(main_decl, decls)?;
-
-        // Compile any pending functions (called by main or other functions).
-        while let Some(name) = self.pending_functions.pop() {
-            if self.compiled_functions.contains(&name) {
+        // Compile each entry point root.
+        for &ep_name in entry_points {
+            if self.compiled_functions.contains(&ep_name) {
                 continue;
             }
-
-            let func_decls = decls.find(name);
-            if func_decls.is_empty() {
-                continue;
+            let ep_decls = decls.find(ep_name);
+            if ep_decls.is_empty() {
+                return Err(format!(
+                    "entry point function '{}' not found",
+                    ep_name
+                ));
             }
+            let ep_decl = match &ep_decls[0] {
+                Decl::Func(d) => d,
+                _ => return Err(format!("'{}' is not a function", ep_name)),
+            };
+            self.compile_function(ep_decl, decls)?;
 
-            if let Decl::Func(func_decl) = &func_decls[0] {
-                self.compile_function(func_decl, decls)?;
+            // Compile any pending functions (called by this entry point or transitively).
+            while let Some(name) = self.pending_functions.pop() {
+                if self.compiled_functions.contains(&name) {
+                    continue;
+                }
+                let func_decls = decls.find(name);
+                if func_decls.is_empty() {
+                    continue;
+                }
+                if let Decl::Func(func_decl) = &func_decls[0] {
+                    self.compile_function(func_decl, decls)?;
+                }
             }
         }
 
-        // Set entry point to main.
-        self.program.entry = *self.func_indices.get(&main_name).unwrap();
+        // Set entry point to first entry point for backward compat.
+        self.program.entry = *self
+            .func_indices
+            .get(&entry_points[0])
+            .ok_or_else(|| format!("entry point '{}' not found", entry_points[0]))?;
+
+        // Populate entry_points map.
+        for &ep_name in entry_points {
+            if let Some(&idx) = self.func_indices.get(&ep_name) {
+                self.program.entry_points.insert(ep_name, idx);
+            }
+        }
 
         // Patch all pending calls with the correct function indices.
         for pending in &self.pending_calls {

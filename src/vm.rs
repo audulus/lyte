@@ -1684,6 +1684,9 @@ pub struct VMProgram {
 
     /// Size of global memory needed (in bytes)
     pub globals_size: usize,
+
+    /// Named entry points (for multi-entry-point programs)
+    pub entry_points: std::collections::HashMap<crate::Name, FuncIdx>,
 }
 
 impl VMProgram {
@@ -1887,20 +1890,45 @@ impl VM {
         }
     }
 
-    /// Run the program and return the result
+    /// Run the program and return the result.
+    /// Globals are always re-zeroed.
     pub fn run(&mut self, program: &VMProgram) -> i64 {
+        // Always reinitialize globals for run().
+        self.globals = vec![0u8; program.globals_size];
+        self.run_inner(program, program.entry, &[])
+    }
+
+    /// Run a specific function entry point with arguments.
+    /// Globals are allocated on first call and preserved on subsequent calls.
+    fn run_inner(
+        &mut self,
+        program: &VMProgram,
+        func_idx: FuncIdx,
+        args: &[i64],
+    ) -> i64 {
         // === Link phase: pack all function code into flat bytecode ===
         let linked = LinkedProgram::from_program(program);
 
         // === Initialize VM state ===
-        self.current_func = program.entry;
+        self.current_func = func_idx;
         self.registers = [0; 256];
-        self.globals = vec![0u8; program.globals_size];
+
+        // Set argument registers.
+        for (i, &arg) in args.iter().enumerate() {
+            if i < 256 {
+                self.registers[i] = arg as u64;
+            }
+        }
+
+        // Allocate globals if not yet allocated.
+        if self.globals.is_empty() && program.globals_size > 0 {
+            self.globals = vec![0u8; program.globals_size];
+        }
         self.cancelled = false;
 
         #[cfg(debug_assertions)]
         {
-            self.debug_func_name = program.functions[program.entry as usize].name.clone();
+            self.debug_func_name = program.functions[func_idx as usize].name.clone();
         }
 
         // === Dispatch loop: match on raw u8 tag → LLVM compiles to jump table ===
@@ -1911,7 +1939,7 @@ impl VM {
         // PC=x21, BASE=x19). Going through `self.field` forces a pointer load each time.
         let ops = linked.ops.as_ptr();
         let regs = self.registers.as_mut_ptr();
-        let mut ip: usize = linked.func_offsets[program.entry as usize];
+        let mut ip: usize = linked.func_offsets[func_idx as usize];
         let mut locals_base: usize = 0;
 
         loop {
@@ -2827,6 +2855,23 @@ impl VM {
     /// Only valid after `run` has been called.
     pub fn globals_ptr(&mut self) -> *mut u8 {
         self.globals.as_mut_ptr()
+    }
+
+    /// Call a named entry point function with i64 arguments.
+    /// Globals are allocated on first call and preserved on subsequent calls.
+    pub fn call(
+        &mut self,
+        program: &VMProgram,
+        name: crate::Name,
+        args: &[i64],
+    ) -> Result<i64, String> {
+        let func_idx = program
+            .entry_points
+            .get(&name)
+            .copied()
+            .ok_or_else(|| format!("entry point '{}' not found", name))?;
+
+        Ok(self.run_inner(program, func_idx, args))
     }
 
     /// Returns a pointer to the cancel flag byte.

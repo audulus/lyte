@@ -1,5 +1,5 @@
 // expected stderr:
-// no main function found
+// entry point function 'main' not found
 
 foo {
 }
