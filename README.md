@@ -3,7 +3,7 @@
 ![build status](https://github.com/audulus/lyte/actions/workflows/rust.yml/badge.svg)
 [![dependency status](https://deps.rs/repo/github/audulus/lyte/status.svg)](https://deps.rs/repo/github/audulus/lyte)
 
-Lyte is a simple, statically-typed programming language designed for writing [Audulus](https://audulus.com) nodes. It compiles to native code via Cranelift JIT, with a VM backend for environments where JIT isn't available (iOS).
+Lyte is a simple, statically-typed programming language designed for writing [Audulus](https://audulus.com) nodes. It compiles to native code via Cranelift or LLVM, with a VM backend for environments where JIT isn't available (iOS).
 
 ## Goals
 
@@ -13,7 +13,7 @@ Lyte is a simple, statically-typed programming language designed for writing [Au
 - Type inference
 - No GC — no recursive data structures, no heap allocation
 - Memory safety with static bounds checking
-- Cranelift JIT backend
+- Cranelift and LLVM JIT backends
 - VM backend for sandboxed environments (iOS)
 - Safe cancellation of long-running programs
 
