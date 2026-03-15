@@ -1,0 +1,53 @@
+name: Release xcframework
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  xcframework:
+    runs-on: macos-latest
+
+    env:
+      LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
+      LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install LLVM 18
+      run: brew install llvm@18
+
+    - name: Install libffi
+      run: brew install libffi
+
+    - name: Build xcframework
+      run: ./build-xcframework.sh
+
+    - name: Upload xcframework to release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh release upload "${{ github.event.release.tag_name }}" CLyte.xcframework.zip --clobber
+
+    - name: Update Package.swift with new URL and checksum
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${{ github.event.release.tag_name }}"
+        CHECKSUM=$(swift package compute-checksum CLyte.xcframework.zip)
+        URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/CLyte.xcframework.zip"
+
+        # Update URL and checksum in Package.swift
+        sed -i '' "s|url: \"https://github.com/.*/CLyte.xcframework.zip\"|url: \"${URL}\"|" Package.swift
+        sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+
+        echo "Updated Package.swift:"
+        grep -A1 'url:' Package.swift
+
+    - name: Commit and push Package.swift
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add Package.swift
+        git commit -m "Update Package.swift for release ${{ github.event.release.tag_name }}"
+        git push origin HEAD:main

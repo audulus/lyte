@@ -11,7 +11,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "CLyte",
-            path: "CLyte.xcframework"
+            url: "https://github.com/audulus/lyte/releases/download/0.10/CLyte.xcframework.zip",
+            checksum: "9d41282249eb0a4dbe22bb42216252183d97cbda76babec38448b1fdd883d730"
         ),
         .target(
             name: "Lyte",

@@ -86,7 +86,5 @@ echo "Zipping $XCFRAMEWORK..."
 zip -r "$XCFRAMEWORK.zip" "$XCFRAMEWORK"
 echo "Created $XCFRAMEWORK.zip"
 
-echo "Updating checksum in Package.swift..."
 CHECKSUM=$(swift package compute-checksum "$XCFRAMEWORK.zip")
-sed -i '' "s/checksum: \"[a-f0-9]*\"/checksum: \"$CHECKSUM\"/" Package.swift
-echo "Updated checksum to $CHECKSUM"
+echo "Checksum: $CHECKSUM"
