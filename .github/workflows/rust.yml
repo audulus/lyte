@@ -47,6 +47,8 @@ jobs:
       run: cargo build -p lyte -p lyte-cli --features llvm --verbose
     - name: Run tests with LLVM
       run: cargo test -p lyte -p lyte-cli --features llvm --verbose
+    - name: Build xcframework
+      run: ./build-xcframework.sh
     - name: Install Lua and LuaJIT
       run: brew install lua luajit
     - name: Run benchmarks

@@ -95,6 +95,26 @@ size_t lyte_compiler_get_vm_globals_size(const LyteCompiler* compiler);
 /// Returns true on success.
 bool lyte_compile_vm(LyteCompiler* compiler, const char* source, const char* filename);
 
+// ============ Multi-Entry-Point API ============
+
+/// Set entry point function names before calling specialize.
+/// If not called, defaults to ["main"].
+/// Returns true on success.
+bool lyte_compiler_set_entry_points(LyteCompiler* compiler, const char** names, size_t count);
+
+/// Get the JIT-compiled code pointer for a named entry point.
+/// Returns NULL if the entry point is not found or JIT has not been run.
+const uint8_t* lyte_compiler_get_entry_point(const LyteCompiler* compiler, const char* name);
+
+/// Initialize VM globals (zeroed) without running any function.
+/// Must call compile_vm first. Returns true on success.
+bool lyte_compiler_init_vm(LyteCompiler* compiler);
+
+/// Call a specific VM function by name with i64 arguments.
+/// Globals persist between calls. Must call init_vm or run_vm first.
+/// Returns true on success.
+bool lyte_compiler_vm_call(LyteCompiler* compiler, const char* name, const int64_t* args, size_t arg_count);
+
 #ifdef __cplusplus
 }
 #endif
