@@ -55,9 +55,18 @@ cargo rustc --release --target "$IOS_SIM_TARGET" --crate-type staticlib
 rm -rf "$XCFRAMEWORK" "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
+# Merge LLVM dependency static libraries (zstd, ffi) into the ARM64 macOS
+# library so the xcframework is fully self-contained.
+echo "Merging static dependencies into ARM64 macOS library..."
+ZSTD_LIB="$(brew --prefix zstd)/lib/libzstd.a"
+FFI_LIB="$(brew --prefix libffi)/lib/libffi.a"
+libtool -static -o "$BUILD_DIR/liblyte-arm64.a" \
+    "target/$MACOS_ARM_TARGET/release/liblyte.a" \
+    "$ZSTD_LIB" "$FFI_LIB"
+
 echo "Creating macOS universal static library..."
 lipo -create \
-    "target/$MACOS_ARM_TARGET/release/liblyte.a" \
+    "$BUILD_DIR/liblyte-arm64.a" \
     "target/$MACOS_X86_TARGET/release/liblyte.a" \
     -output "$BUILD_DIR/liblyte-macos.a"
 

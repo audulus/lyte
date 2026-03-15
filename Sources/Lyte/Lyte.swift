@@ -110,10 +110,11 @@ public final class Program {
 
     /// Look up an entry point by name.
     public func entryPoint(named name: String) -> EntryPoint? {
-        name.withCString { cName in
-            guard let ptr = lyte_program_get_entry_point(handle, cName) else { return nil }
-            return EntryPoint(handle: ptr)
+        let ptr = name.withCString { cName in
+            lyte_program_get_entry_point(handle, cName)
         }
+        guard let ptr else { return nil }
+        return EntryPoint(handle: ptr)
     }
 
     /// Set a cancel callback. Called periodically during execution.
@@ -133,7 +134,7 @@ public final class Program {
 
 /// An entry point handle for calling compiled functions.
 public struct EntryPoint {
-    let handle: UnsafePointer<LyteEntryPoint>
+    let handle: OpaquePointer
 
     /// Call this entry point with the given globals buffer.
     /// Returns true on success, false if cancelled.
