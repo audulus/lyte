@@ -501,16 +501,37 @@ fn compile_and_run_with_context(
     // Execute while the EE and context are still alive.
     let exec_start = Instant::now();
     type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
+    let force_misaligned_globals = std::env::var("LYTE_LLVM_FORCE_GLOBALS_MISALIGN")
+        .map(|v| v != "0")
+        .unwrap_or(false);
+    let debug_runtime = std::env::var("LYTE_LLVM_DEBUG_RUNTIME_CONFIG")
+        .map(|v| v != "0")
+        .unwrap_or(false);
     let (mut aligned_globals, mut legacy_globals) = if state.use_aligned_globals() {
         (Some(crate::jit::alloc_globals(state.globals_size)), None)
     } else {
-        (None, Some(vec![0u8; state.globals_size]))
+        let extra = if force_misaligned_globals { 1 } else { 0 };
+        (None, Some(vec![0u8; state.globals_size + extra]))
     };
     let globals_ptr = if let Some(globals) = aligned_globals.as_mut() {
         globals.as_mut_ptr()
     } else {
-        legacy_globals.as_mut().unwrap().as_mut_ptr()
+        let base = legacy_globals.as_mut().unwrap().as_mut_ptr();
+        if force_misaligned_globals {
+            unsafe { base.add(1) }
+        } else {
+            base
+        }
     };
+    if debug_runtime {
+        eprintln!(
+            "llvm runtime: aligned_globals={} postpass_symbol_mapping={} force_misaligned_globals={} globals_mod_16={}",
+            state.use_aligned_globals(),
+            state.use_postpass_symbol_mapping(),
+            force_misaligned_globals,
+            (globals_ptr as usize) & 0xf,
+        );
+    }
     let cancelled = unsafe {
         extern "C" {
             fn setjmp(env: *mut u8) -> i32;

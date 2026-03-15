@@ -150,6 +150,11 @@ jobs:
         - name: both-legacy
           aligned_globals: "0"
           postpass_symbol_mapping: "0"
+          force_misaligned_globals: "0"
+        - name: forced-misaligned-globals
+          aligned_globals: "0"
+          postpass_symbol_mapping: "1"
+          force_misaligned_globals: "1"
 
     env:
       LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
@@ -169,6 +174,8 @@ jobs:
       env:
         LYTE_LLVM_USE_ALIGNED_GLOBALS: ${{ matrix.aligned_globals }}
         LYTE_LLVM_USE_POSTPASS_SYMBOL_MAPPING: ${{ matrix.postpass_symbol_mapping }}
+        LYTE_LLVM_FORCE_GLOBALS_MISALIGN: ${{ matrix.force_misaligned_globals || '0' }}
+        LYTE_LLVM_DEBUG_RUNTIME_CONFIG: "1"
       run: |
         for i in $(seq 1 100); do
           echo -n "Run $i: "
