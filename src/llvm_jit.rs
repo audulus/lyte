@@ -480,11 +480,10 @@ fn compile_and_run_with_context(
 
     // Register external symbol mappings.
     // Only map functions that still exist in the module after optimization —
-    // LLVM O3 may remove unused declarations, leaving dangling FunctionValues.
-    for (fv, addr) in &state.extern_fns {
-        let name = fv.get_name().to_str().unwrap_or("");
-        if state.module.get_function(name).is_some() {
-            ee.add_global_mapping(fv, *addr);
+    // LLVM O3 may remove unused declarations.
+    for (name, addr) in &state.extern_fns {
+        if let Some(fv) = state.module.get_function(name) {
+            ee.add_global_mapping(&fv, *addr);
         }
     }
 
@@ -549,8 +548,10 @@ struct LLVMJITState<'ctx> {
     defined_functions: HashSet<Name>,
     lambda_counter: usize,
     print_ir: bool,
-    /// External function values declared in the module, to be mapped after EE creation.
-    extern_fns: Vec<(FunctionValue<'ctx>, usize)>,
+    /// External function names and addresses, to be mapped after EE creation.
+    /// We store names (not FunctionValues) because LLVM optimization passes may
+    /// delete unused declarations, invalidating FunctionValue pointers.
+    extern_fns: Vec<(String, usize)>,
 }
 
 impl<'ctx> LLVMJITState<'ctx> {
@@ -597,7 +598,7 @@ impl<'ctx> LLVMJITState<'ctx> {
             let f = self
                 .module
                 .add_function(sym, fn_type, Some(Linkage::External));
-            self.extern_fns.push((f, addr));
+            self.extern_fns.push((sym.to_string(), addr));
             f
         }
     }
