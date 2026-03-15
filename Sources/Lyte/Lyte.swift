@@ -5,8 +5,22 @@ import Foundation
 public final class LyteCompiler {
     private let handle: OpaquePointer
 
-    public init() {
-        handle = lyte_compiler_new()
+    /// Create a compiler with the given entry point names.
+    /// Pass an empty array to default to ["main"].
+    public init(entryPoints: [String] = []) {
+        if entryPoints.isEmpty {
+            handle = lyte_compiler_new(nil, 0)
+        } else {
+            let cNames = entryPoints.map { strdup($0)! }
+            defer { cNames.forEach { free($0) } }
+            var ptrs = cNames.map { UnsafePointer($0) as UnsafePointer<CChar>? }
+            handle = ptrs.withUnsafeMutableBufferPointer { buf in
+                lyte_compiler_new(
+                    buf.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buf.count) { $0 },
+                    buf.count
+                )
+            }
+        }
     }
 
     deinit {
@@ -29,21 +43,6 @@ public final class LyteCompiler {
         }
         if !ok { throw LyteError(message: lastError ?? "parse error") }
         return true
-    }
-
-    /// Set entry point function names. Must be called before compile().
-    public func setEntryPoints(_ names: [String]) throws {
-        let cNames = names.map { strdup($0)! }
-        defer { cNames.forEach { free($0) } }
-        var ptrs = cNames.map { UnsafePointer($0) as UnsafePointer<CChar>? }
-        let ok = ptrs.withUnsafeMutableBufferPointer { buf in
-            lyte_compiler_set_entry_points(
-                handle,
-                buf.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buf.count) { $0 },
-                buf.count
-            )
-        }
-        if !ok { throw LyteError(message: lastError ?? "set entry points error") }
     }
 
     /// Parse, type-check, specialize, and compile all added source.

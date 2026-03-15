@@ -20,8 +20,9 @@ typedef bool (*lyte_cancel_fn)(void* user_data);
 
 // ============ Compiler ============
 
-/// Create a new compiler instance.
-LyteCompiler* lyte_compiler_new(void);
+/// Create a new compiler instance with the given entry point names.
+/// Pass NULL/0 to default to a single "main" entry point.
+LyteCompiler* lyte_compiler_new(const char** entry_points, size_t count);
 
 /// Free a compiler instance.
 void lyte_compiler_free(LyteCompiler* compiler);
@@ -35,10 +36,6 @@ const char* lyte_compiler_get_error(const LyteCompiler* compiler);
 /// Add source code to the compiler. May be called multiple times
 /// to add multiple files. Returns true on success.
 bool lyte_compiler_add_source(LyteCompiler* compiler, const char* source, const char* filename);
-
-/// Set entry point function names. If not called, defaults to ["main"].
-/// Must be called before lyte_compiler_compile.
-bool lyte_compiler_set_entry_points(LyteCompiler* compiler, const char** names, size_t count);
 
 /// Parse, type-check, specialize, and compile all added source into
 /// a LyteProgram (auto-selects JIT or VM backend).

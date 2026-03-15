@@ -75,11 +75,31 @@ impl LyteCompiler {
     }
 }
 
-/// Create a new compiler instance.
+/// Create a new compiler instance with the given entry point names.
+/// Pass NULL/0 to default to a single "main" entry point.
 #[no_mangle]
-pub extern "C" fn lyte_compiler_new() -> *mut LyteCompiler {
+pub unsafe extern "C" fn lyte_compiler_new(
+    entry_points: *const *const c_char,
+    count: usize,
+) -> *mut LyteCompiler {
+    let mut compiler = Compiler::new();
+
+    if !entry_points.is_null() && count > 0 {
+        let mut names = Vec::with_capacity(count);
+        for i in 0..count {
+            let name_ptr = *entry_points.add(i);
+            if !name_ptr.is_null() {
+                if let Ok(s) = CStr::from_ptr(name_ptr).to_str() {
+                    names.push(s.to_string());
+                }
+            }
+        }
+        let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        compiler.set_entry_points(&refs);
+    }
+
     Box::into_raw(Box::new(LyteCompiler {
-        compiler: Compiler::new(),
+        compiler,
         last_error: None,
         jit_result: None,
         jit_entry_points: HashMap::new(),
