@@ -144,6 +144,71 @@ ftoa(dst: [i8], n: f32) {
     }
 }
 
+// --- Sorting (in-place via slices) ---
+
+quicksort_i32(a: [i32], lo: i32, hi: i32) {
+    if lo < hi {
+        var pivot = lo
+        if hi >= 0 && hi < a.len {
+            var i = lo
+            var j = lo
+            while j < hi {
+                if j >= 0 && j < a.len && i >= 0 && i < a.len {
+                    if a[j] < a[hi] {
+                        var tmp = a[i]
+                        a[i] = a[j]
+                        a[j] = tmp
+                        i = i + 1
+                    }
+                }
+                j = j + 1
+            }
+            if i >= 0 && i < a.len {
+                var tmp = a[i]
+                a[i] = a[hi]
+                a[hi] = tmp
+            }
+            pivot = i
+        }
+        quicksort_i32(a, lo, pivot - 1)
+        quicksort_i32(a, pivot + 1, hi)
+    }
+}
+
+quicksort_f32(a: [f32], lo: i32, hi: i32) {
+    if lo < hi {
+        var pivot = lo
+        if hi >= 0 && hi < a.len {
+            var i = lo
+            var j = lo
+            while j < hi {
+                if j >= 0 && j < a.len && i >= 0 && i < a.len {
+                    if a[j] < a[hi] {
+                        var tmp = a[i]
+                        a[i] = a[j]
+                        a[j] = tmp
+                        i = i + 1
+                    }
+                }
+                j = j + 1
+            }
+            if i >= 0 && i < a.len {
+                var tmp = a[i]
+                a[i] = a[hi]
+                a[hi] = tmp
+            }
+            pivot = i
+        }
+        quicksort_f32(a, lo, pivot - 1)
+        quicksort_f32(a, pivot + 1, hi)
+    }
+}
+
+sort(a: [i32]) { quicksort_i32(a, 0, a.len - 1) }
+sort_f32(a: [f32]) { quicksort_f32(a, 0, a.len - 1) }
+
+// --- String functions ---
+
 strcat(dst: [i8], src: [i8]) {
     var j = 0
     var copying = false
