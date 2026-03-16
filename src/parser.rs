@@ -444,15 +444,55 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
             Token::Lparen => {
                 let call_loc = arena.locs[e];
                 cx.next();
-                let args = if cx.lex.tok != Token::Rparen {
+                if cx.lex.tok == Token::Rparen {
+                    // Empty parens: function call with no args.
+                    cx.next();
+                    e = arena.add(Expr::Call(e, vec![]), call_loc);
+                } else if let Token::Id(first_name) = cx.lex.tok {
+                    // Peek ahead: if Id followed by Colon, parse as struct literal.
+                    let saved_i = cx.lex.i;
+                    let saved_line_start = cx.lex.line_start;
+                    let saved_tok = cx.lex.tok.clone();
+                    let saved_loc = cx.lex.loc;
+                    cx.next();
+                    if cx.lex.tok == Token::Colon {
+                        // Struct literal: Name(field: value, ...)
+                        cx.next();
+                        let struct_name = if let Expr::Id(name) = &arena.exprs[e] {
+                            *name
+                        } else {
+                            cx.err("struct literal requires a name".into());
+                            Name::new(String::new())
+                        };
+                        let first_val = parse_lambda(arena, typevars, cx);
+                        let mut fields = vec![(first_name, first_val)];
+                        while cx.lex.tok == Token::Comma {
+                            cx.next();
+                            if cx.lex.tok == Token::Rparen {
+                                break;
+                            }
+                            let fname = expect_id(cx);
+                            expect(Token::Colon, cx);
+                            let fval = parse_lambda(arena, typevars, cx);
+                            fields.push((fname, fval));
+                        }
+                        expect(Token::Rparen, cx);
+                        e = arena.add(Expr::StructLit(struct_name, fields), call_loc);
+                    } else {
+                        // Not a struct literal — restore and parse as function call.
+                        cx.lex.i = saved_i;
+                        cx.lex.line_start = saved_line_start;
+                        cx.lex.tok = saved_tok;
+                        cx.lex.loc = saved_loc;
+                        let args = parse_exprlist(arena, typevars, cx);
+                        expect(Token::Rparen, cx);
+                        e = arena.add(Expr::Call(e, args), call_loc);
+                    }
+                } else {
                     let args = parse_exprlist(arena, typevars, cx);
                     expect(Token::Rparen, cx);
-                    args
-                } else {
-                    cx.next();
-                    vec![]
-                };
-                e = arena.add(Expr::Call(e, args), call_loc);
+                    e = arena.add(Expr::Call(e, args), call_loc);
+                }
             }
             Token::Lbracket => {
                 let index_loc = arena.locs[e];

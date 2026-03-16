@@ -1923,6 +1923,38 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.builder().position_at_end(unreachable_bb);
                 self.zero_i32()
             }
+            Expr::StructLit(struct_name, fields) => {
+                let struct_name = *struct_name;
+                let fields: Vec<(Name, ExprID)> = fields.clone();
+                let ty = decl.types[expr];
+                let sz = ty.size(self.decls) as u64;
+                let storage = self.entry_array_alloca(self.i8_ty(), sz, "struct_lit");
+                // Zero-initialize.
+                let zero = self.i8_ty().const_int(0, false);
+                let size_val = self.i64_ty().const_int(sz, false);
+                self.builder()
+                    .build_memset(storage, 1, zero, size_val)
+                    .unwrap();
+
+                if let crate::Type::Name(_, type_args) = &*ty {
+                    let struct_decl = self.decls.find(struct_name);
+                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                        let inst: crate::Instance = s
+                            .typevars
+                            .iter()
+                            .map(|tv| crate::types::mk_type(crate::Type::Var(*tv)))
+                            .zip(type_args.iter().copied())
+                            .collect();
+                        for (fname, fval) in &fields {
+                            let val = self.translate_expr(*fval, decl);
+                            let off = s.field_offset(fname, self.decls, &inst);
+                            let field_ptr = self.ptr_at_offset(storage, off as u64);
+                            self.builder().build_store(field_ptr, val).unwrap();
+                        }
+                    }
+                }
+                storage.into()
+            }
             _ => {
                 panic!(
                     "LLVM JIT: unimplemented expression: {:?}",
@@ -3057,6 +3089,11 @@ fn collect_free_vars_rec_llvm(
                 inner.insert(p.name.to_string());
             }
             collect_free_vars_rec_llvm(*body, arena, &inner, local_vars, types, result, seen);
+        }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                collect_free_vars_rec_llvm(*fval, arena, exclude, local_vars, types, result, seen);
+            }
         }
         _ => {}
     }

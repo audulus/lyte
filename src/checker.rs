@@ -592,6 +592,64 @@ impl Checker {
                 }
                 mk_type(Type::Void)
             }
+            Expr::StructLit(struct_name, fields) => {
+                // Look up the struct declaration.
+                let d = decls.find(*struct_name);
+                if let Some(Decl::Struct(st)) = d.first() {
+                    // Create fresh type variables for generics.
+                    let type_args: Vec<TypeID> =
+                        st.typevars.iter().map(|_| self.fresh()).collect();
+                    let inst: crate::Instance = st
+                        .typevars
+                        .iter()
+                        .map(|tv| mk_type(Type::Var(*tv)))
+                        .zip(type_args.iter().copied())
+                        .collect();
+
+                    // Check each field.
+                    for (fname, fval) in fields {
+                        let val_ty = self.check_expr(*fval, arena, decls);
+                        if let Some(field) = st.find_field(fname) {
+                            let field_ty = field.ty.subst(&inst);
+                            self.eq(
+                                val_ty,
+                                field_ty,
+                                arena.locs[*fval],
+                                &format!("struct field '{}' type mismatch", fname),
+                            );
+                        } else {
+                            self.errors.push(TypeError {
+                                location: arena.locs[*fval],
+                                message: format!(
+                                    "struct '{}' has no field '{}'",
+                                    struct_name, fname
+                                ),
+                            });
+                        }
+                    }
+
+                    // Check all fields are provided.
+                    for field in &st.fields {
+                        if !fields.iter().any(|(fname, _)| *fname == field.name) {
+                            self.errors.push(TypeError {
+                                location: arena.locs[id],
+                                message: format!(
+                                    "missing field '{}' in struct literal '{}'",
+                                    field.name, struct_name
+                                ),
+                            });
+                        }
+                    }
+
+                    mk_type(Type::Name(*struct_name, type_args))
+                } else {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: format!("'{}' is not a struct", struct_name),
+                    });
+                    self.fresh()
+                }
+            }
             Expr::ArrayLiteral(exprs) => {
                 if exprs.is_empty() {
                     self.errors.push(TypeError {
@@ -1083,6 +1141,11 @@ fn escape_walk(
                 escape_walk(*e, arena, scope, tainted, errors);
             }
         }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                escape_walk(*fval, arena, scope, tainted, errors);
+            }
+        }
         Expr::Macro(_, args) => {
             for a in args {
                 escape_walk(*a, arena, scope, tainted, errors);
@@ -1185,6 +1248,9 @@ fn lambda_has_captures(
         Expr::ArrayLiteral(elems) | Expr::Tuple(elems) => elems
             .iter()
             .any(|e| lambda_has_captures(*e, arena, lambda_params, outer_scope)),
+        Expr::StructLit(_, fields) => fields
+            .iter()
+            .any(|(_, fval)| lambda_has_captures(*fval, arena, lambda_params, outer_scope)),
         Expr::Macro(_, args) => args
             .iter()
             .any(|a| lambda_has_captures(*a, arena, lambda_params, outer_scope)),

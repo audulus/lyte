@@ -930,6 +930,55 @@ impl<'a> FunctionTranslator<'a> {
                 result
             }
 
+            Expr::StructLit(struct_name, fields) => {
+                let ty = self.expr_type(expr);
+                let size = self.vm_type_size(&ty);
+                let slot = self.alloc_local(size);
+
+                let base_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr {
+                    dst: base_reg,
+                    slot,
+                });
+                func.emit(Opcode::MemZero {
+                    dst: base_reg,
+                    size,
+                });
+
+                if let Type::Name(_, type_args) = &*ty {
+                    let struct_decl = self.decls.find(*struct_name);
+                    if let Decl::Struct(s) = &struct_decl[0] {
+                        let inst: crate::Instance = s
+                            .typevars
+                            .iter()
+                            .map(|tv| crate::types::mk_type(crate::Type::Var(*tv)))
+                            .zip(type_args.iter().copied())
+                            .collect();
+                        for (fname, fval) in fields {
+                            let val_reg = self.translate_expr(*fval, func);
+                            let offset = s.field_offset(fname, self.decls, &inst);
+                            let field_ty = self.expr_type(*fval);
+                            // Re-load base address after translate_expr
+                            // (it may have allocated registers that alias base_reg).
+                            let addr = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr {
+                                dst: addr,
+                                slot,
+                            });
+                            self.emit_store_offset(&field_ty, addr, offset, val_reg, func);
+                        }
+                    }
+                }
+
+                // Re-emit the address as the result.
+                let result = self.alloc_reg();
+                func.emit(Opcode::LocalAddr {
+                    dst: result,
+                    slot,
+                });
+                result
+            }
+
             Expr::Block(exprs) => {
                 if exprs.is_empty() {
                     let dst = self.alloc_reg();
@@ -2896,6 +2945,11 @@ fn collect_free_vars_rec(
         Expr::Macro(_, args) => {
             for a in args {
                 collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
             }
         }
         Expr::Int(_)

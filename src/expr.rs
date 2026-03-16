@@ -101,6 +101,9 @@ pub enum Expr {
     /// Tuple expression.
     Tuple(Vec<ExprID>),
 
+    /// Struct literal expression: `Point(x: 1, y: 2)`.
+    StructLit(Name, Vec<(Name, ExprID)>),
+
     /// Arena allocation expression.
     Arena(ExprID),
 
@@ -300,6 +303,18 @@ impl Expr {
                 format!("({})", exprs_str)
             }
 
+            Expr::StructLit(name, fields) => {
+                let fields_str = fields
+                    .iter()
+                    .map(|(fname, fval)| {
+                        let val_str = arena.exprs[*fval].pretty_print(arena, indent);
+                        format!("{}: {}", fname, val_str)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}({})", name, fields_str)
+            }
+
             Expr::Arena(expr) => {
                 let expr_str = arena.exprs[*expr].pretty_print(arena, indent);
                 format!("arena {}", expr_str)
@@ -451,6 +466,13 @@ pub fn copy_expr(
                 .map(|e| copy_expr(*e, src_arena, dst_arena, subst))
                 .collect();
             dst_arena.add(Expr::Tuple(new_exprs), loc)
+        }
+        Expr::StructLit(name, fields) => {
+            let new_fields: Vec<(Name, ExprID)> = fields
+                .iter()
+                .map(|(fname, fval)| (*fname, copy_expr(*fval, src_arena, dst_arena, subst)))
+                .collect();
+            dst_arena.add(Expr::StructLit(*name, new_fields), loc)
         }
         Expr::Arena(expr) => {
             let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);

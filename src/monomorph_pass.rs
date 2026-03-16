@@ -303,6 +303,12 @@ impl MonomorphPass {
             Expr::Arena(inner) => {
                 self.process_expr(*inner, fdecl, decls)?;
             }
+            Expr::StructLit(_, fields) => {
+                let fields = fields.clone();
+                for (_, fval) in &fields {
+                    self.process_expr(*fval, fdecl, decls)?;
+                }
+            }
             Expr::Array(val, sz) => {
                 let (val, sz) = (*val, *sz);
                 self.process_expr(val, fdecl, decls)?;

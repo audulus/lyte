@@ -1,0 +1,17 @@
+// expected stdout:
+// compilation successful
+// 5
+
+struct Point {
+    x: i32,
+    y: i32
+}
+
+sum(p: Point) -> i32 {
+    p.x + p.y
+}
+
+main {
+    let p = Point(x: 2, y: 3)
+    print(sum(p))
+}

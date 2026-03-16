@@ -918,6 +918,50 @@ impl<'a> FunctionTranslator<'a> {
 
                 self.builder.ins().iconst(I32, 0)
             }
+            Expr::StructLit(struct_name, fields) => {
+                let ty = &decl.types[expr];
+                let sz = ty.size(decls) as u32;
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: sz,
+                    align_shift: 0,
+                    key: None,
+                });
+                let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                self.gen_zero(*ty, addr, decls);
+
+                if let crate::Type::Name(_, type_args) = &**ty {
+                    let struct_decl = decls.find(*struct_name);
+                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                        let inst: crate::Instance = s
+                            .typevars
+                            .iter()
+                            .zip(type_args.iter())
+                            .map(|(tv, ty)| {
+                                (crate::types::mk_type(crate::Type::Var(*tv)), *ty)
+                            })
+                            .collect();
+                        for (fname, fval) in fields {
+                            let val = self.translate_expr(*fval, decl, decls);
+                            let off = s.field_offset(fname, decls, &inst);
+                            let field_ty = &decl.types[*fval];
+                            let field_addr =
+                                self.builder.ins().iadd_imm(addr, off as i64);
+                            if field_ty.is_ptr() {
+                                self.gen_copy(*field_ty, field_addr, val, decls);
+                            } else {
+                                self.builder.ins().store(
+                                    MemFlags::new(),
+                                    val,
+                                    field_addr,
+                                    0,
+                                );
+                            }
+                        }
+                    }
+                }
+                addr
+            }
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.types[*lhs];
                 // Handle array.len / slice.len.
@@ -2227,6 +2271,11 @@ fn collect_free_vars_rec(
         Expr::Macro(_, args) => {
             for a in args {
                 collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
             }
         }
         // Terminal expressions — no sub-expressions.

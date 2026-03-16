@@ -221,6 +221,11 @@ fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashS
                 collect_written_fields(e, fdecl, written);
             }
         }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                collect_written_fields(*fval, fdecl, written);
+            }
+        }
         _ => {}
     }
 }
@@ -312,6 +317,11 @@ fn collect_invariant_field_reads(
                 collect_invariant_field_reads(e, fdecl, decls, written, reads);
             }
         }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                collect_invariant_field_reads(*fval, fdecl, decls, written, reads);
+            }
+        }
         _ => {}
     }
 }
@@ -391,6 +401,11 @@ fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(N
         Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
             for e in elems {
                 replace_field_reads(e, fdecl, subst);
+            }
+        }
+        Expr::StructLit(_, fields) => {
+            for (_, fval) in fields {
+                replace_field_reads(fval, fdecl, subst);
             }
         }
         _ => {}

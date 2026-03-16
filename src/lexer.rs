@@ -94,7 +94,7 @@ pub struct Lexer {
     pub i: usize,
 
     /// Index where the current line starts (for computing column).
-    line_start: usize,
+    pub line_start: usize,
 
     /// Current token.
     pub tok: Token,

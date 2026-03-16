@@ -1,0 +1,14 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/structs/struct_literal_missing_field.lyte:13:13: missing field 'y' in struct literal 'Point'
+//         let p = Point(x: 1)
+//                 ^
+
+struct Point {
+    x: i32,
+    y: i32
+}
+
+main {
+    let p = Point(x: 1)
+}
