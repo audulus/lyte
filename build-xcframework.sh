@@ -8,6 +8,10 @@
 
 set -euo pipefail
 
+# Set deployment targets to suppress linker version mismatch warnings.
+export MACOSX_DEPLOYMENT_TARGET="15.0"
+export IPHONEOS_DEPLOYMENT_TARGET="16.0"
+
 FRAMEWORK_NAME="CLyte"
 XCFRAMEWORK="$FRAMEWORK_NAME.xcframework"
 HEADER_DIR="Sources/CLyte/include"
