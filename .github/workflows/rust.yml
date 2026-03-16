@@ -37,8 +37,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
-    - name: Install LLVM 18
-      run: brew install llvm@18
+    - name: Install LLVM 18 and dependencies
+      run: brew install llvm@18 libffi
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests
