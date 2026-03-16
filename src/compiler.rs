@@ -326,7 +326,12 @@ fn rename_overloaded_functions(decls: &mut DeclTable) {
                                     _ => vec![*dom],
                                 };
                                 for (pts, mangled) in overloads {
-                                    if *pts == call_params {
+                                    if pts.len() == call_params.len()
+                                        && pts.iter().zip(call_params.iter()).all(|(a, b)| {
+                                            let mut inst = crate::Instance::new();
+                                            crate::types::unify(*a, *b, &mut inst)
+                                        })
+                                    {
                                         f.arena.exprs[i] = Expr::Id(*mangled);
                                         break;
                                     }

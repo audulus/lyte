@@ -2060,17 +2060,29 @@ impl<'a> FunctionTranslator<'a> {
                 None
             };
 
-            // Get the callee's parameter types to detect slice params.
-            let fn_ty = self.expr_type(fn_id);
-            let param_types: Vec<TypeID> = if let Type::Func(from, _) = &*fn_ty {
-                if let Type::Tuple(pts) = &**from {
-                    pts.clone()
+            // Get the callee's declared parameter types to detect slice params.
+            // We use the declaration (not the solved call-site type) because
+            // the solver may retain Array types where the callee expects Slice.
+            let param_types: Vec<TypeID> =
+                if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
+                    let callee_decls = self.decls.find(*callee_name);
+                    if let Some(Decl::Func(f)) = callee_decls.first() {
+                        f.param_types()
+                    } else {
+                        vec![]
+                    }
                 } else {
-                    vec![]
-                }
-            } else {
-                vec![]
-            };
+                    let fn_ty = self.expr_type(fn_id);
+                    if let Type::Func(from, _) = &*fn_ty {
+                        if let Type::Tuple(pts) = &**from {
+                            pts.clone()
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    }
+                };
 
             // First, translate all arguments to get their values.
             // We need to do this before allocating the consecutive arg registers

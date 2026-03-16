@@ -781,12 +781,24 @@ impl<'a> FunctionTranslator<'a> {
                         None
                     };
 
-                    // Get the callee parameter types to detect slice params.
-                    let param_types: Vec<crate::TypeID> = if let crate::Type::Tuple(pts) = &*from {
-                        pts.clone()
-                    } else {
-                        vec![]
-                    };
+                    // Get the callee's declared parameter types to detect slice params.
+                    // Use the declaration (not the solved call-site type) because
+                    // the solver may retain Array types where the callee expects Slice.
+                    let param_types: Vec<crate::TypeID> =
+                        if let Expr::Id(callee_name) = &decl.arena[*fn_id] {
+                            let callee_decls = decls.find(*callee_name);
+                            if let Some(crate::Decl::Func(f)) = callee_decls.first() {
+                                f.param_types()
+                            } else if let crate::Type::Tuple(pts) = &*from {
+                                pts.clone()
+                            } else {
+                                vec![]
+                            }
+                        } else if let crate::Type::Tuple(pts) = &*from {
+                            pts.clone()
+                        } else {
+                            vec![]
+                        };
 
                     // Check if this is a math builtin that can use a direct call.
                     let math_sym = if let Expr::Id(name) = &decl.arena[*fn_id] {

@@ -205,7 +205,7 @@ quicksort_f32(a: [f32], lo: i32, hi: i32) {
 }
 
 sort(a: [i32]) { quicksort_i32(a, 0, a.len - 1) }
-sort_f32(a: [f32]) { quicksort_f32(a, 0, a.len - 1) }
+sort(a: [f32]) { quicksort_f32(a, 0, a.len - 1) }
 
 // --- String functions ---
 

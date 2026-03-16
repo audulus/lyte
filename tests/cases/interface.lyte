@@ -6,7 +6,7 @@ interface Compare<A> {
     cmp(lhs: A, rhs: A) -> i32
 }
 
-sort<T, N>(array: [T; N]) -> [T; N] where Compare<T> {
+bubble_sort<T, N>(array: [T; N]) -> [T; N] where Compare<T> {
     var a = array
     var i = 0
     while i < a.len {
@@ -29,5 +29,5 @@ cmp(lhs: i32, rhs: i32) -> i32 {
 }
 
 main {
-    assert(sort([3, 1, 2]) == [1, 2, 3])
+    assert(bubble_sort([3, 1, 2]) == [1, 2, 3])
 }
