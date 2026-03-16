@@ -876,6 +876,20 @@ fn compute_use_counts_fast(code: &[Opcode]) -> Vec<u16> {
 fn move_forwarding(code: &mut [Opcode]) {
     let uses = compute_use_counts_fast(code);
 
+    // Count how many times each register is defined (written to).
+    // If move_dst is defined more than once (e.g. from both branches of
+    // an if-expression), forwarding is unsafe: it would cause one branch's
+    // def to be lost when DCE removes the now-unused intermediate register.
+    let n = num_vregs(code);
+    let mut defs = vec![0u32; n];
+    for op in code.iter() {
+        if let Some(dst) = get_dst(op) {
+            if (dst as usize) < n {
+                defs[dst as usize] += 1;
+            }
+        }
+    }
+
     for i in 0..code.len().saturating_sub(1) {
         if let Opcode::Move {
             dst: move_dst,
@@ -893,12 +907,12 @@ fn move_forwarding(code: &mut [Opcode]) {
                 if prev_dst == move_src {
                     // Check: move_src is only read by this one Move
                     if uses[move_src as usize] == 1 {
-                        // Don't forward if previous instruction is also a Move
-                        // (would create a chain we can't simplify)
-                        if matches!(code[i], Opcode::Move { .. }) {
-                            // Still safe to forward Move→Move:
-                            // Move { dst: R, src: X } + Move { dst: D, src: R }
-                            // → Move { dst: D, src: X } + Nop
+                        // Don't forward if move_src has multiple definitions
+                        // (e.g. if-expression result register written by both
+                        // branches). The Move is a phi-like merge and must be
+                        // preserved so all defs flow to move_dst.
+                        if defs[move_src as usize] > 1 {
+                            continue;
                         }
                         // Rewrite: make instruction i write to move_dst directly.
                         // Only eliminate the Move if set_dst succeeds (e.g. Call
