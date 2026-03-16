@@ -1018,11 +1018,15 @@ fn replace_reg_uses_until_clobber(
             | Opcode::JumpIfNotZero { .. }
             | Opcode::ILtJump { .. }
             | Opcode::FLtJump { .. }
-            | Opcode::Call { .. }
-            | Opcode::CallIndirect { .. }
-            | Opcode::CallClosure { .. }
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => break,
+            // For Call/CallIndirect/CallClosure: replace in the args range, then stop.
+            Opcode::Call { .. }
+            | Opcode::CallIndirect { .. }
+            | Opcode::CallClosure { .. } => {
+                replace_src_reg(&mut code[i], old_reg, new_reg);
+                break;
+            }
             _ => {}
         }
         // Stop if new_reg gets clobbered

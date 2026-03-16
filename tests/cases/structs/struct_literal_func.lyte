@@ -12,6 +12,5 @@ sum(p: Point) -> i32 {
 }
 
 main {
-    let p = Point(x: 2, y: 3)
-    print(sum(p))
+    print(sum(Point(x: 2, y: 3)))
 }
