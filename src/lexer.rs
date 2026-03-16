@@ -39,7 +39,6 @@ pub enum Token {
     If,
     Else,
     While,
-    TokAs,
     Var,
     Let,
     Defer,

@@ -454,11 +454,6 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                 };
                 e = arena.add(Expr::Call(e, args), call_loc);
             }
-            Token::Colon => {
-                cx.next();
-                let t = parse_type(typevars, cx);
-                e = arena.add(Expr::AsTy(e, t), cx.lex.loc);
-            }
             Token::Lbracket => {
                 let index_loc = arena.locs[e];
                 cx.next();

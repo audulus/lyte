@@ -84,7 +84,6 @@ factor       = "-" factor
 postfix      = atom { "(" [ exprlist ] ")"         (* function call *)
                      | "[" expr "]"                 (* array index *)
                      | "." ( id | integer )         (* field access / tuple index *)
-                     | ":" type                     (* type ascription *)
                      | "as" type                    (* type cast *)
                      } ;
 
