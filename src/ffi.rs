@@ -15,9 +15,9 @@ struct GlobalInfo {
     ty: CString,
 }
 
-/// An entry point: name + backend-specific data.
+/// An entry point: backend-specific data.
+/// Index matches the order of entry points passed to lyte_compiler_new.
 struct EntryPointInfo {
-    name: CString,
     #[cfg(feature = "llvm")]
     fn_addr: usize,
     #[cfg(not(feature = "llvm"))]
@@ -239,10 +239,7 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                     let mut entry_points = Vec::new();
                     for ep_name in &entry_point_names {
                         if let Some(&fn_addr) = inner.entry_points.get(ep_name) {
-                            entry_points.push(EntryPointInfo {
-                                name: CString::new(ep_name.to_string()).unwrap_or_default(),
-                                fn_addr,
-                            });
+                            entry_points.push(EntryPointInfo { fn_addr });
                         }
                     }
 
@@ -275,10 +272,7 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                     let mut entry_points = Vec::new();
                     for ep_name in &entry_point_names {
                         if let Some(&func_idx) = vm_program.entry_points.get(ep_name) {
-                            entry_points.push(EntryPointInfo {
-                                name: CString::new(ep_name.to_string()).unwrap_or_default(),
-                                func_idx,
-                            });
+                            entry_points.push(EntryPointInfo { func_idx });
                         }
                     }
 
@@ -385,25 +379,8 @@ pub unsafe extern "C" fn lyte_program_get_global_type(
     p.globals_info.get(index).map_or(ptr::null(), |g| g.ty.as_ptr())
 }
 
-/// Look up an entry point by name. Returns its index, or SIZE_MAX if not found.
-#[no_mangle]
-pub unsafe extern "C" fn lyte_program_get_entry_point(
-    ptr: *const LyteProgram,
-    name: *const c_char,
-) -> usize {
-    if ptr.is_null() || name.is_null() {
-        return usize::MAX;
-    }
-    let name_cstr = CStr::from_ptr(name);
-    for (i, ep) in (*ptr).entry_points.iter().enumerate() {
-        if ep.name.as_c_str() == name_cstr {
-            return i;
-        }
-    }
-    usize::MAX
-}
-
-/// Call an entry point with an external globals buffer.
+/// Call an entry point by index with an external globals buffer.
+/// The index corresponds to the order of entry points passed to lyte_compiler_new.
 /// Returns true on success, false if cancelled or invalid index.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_entry_point_call(

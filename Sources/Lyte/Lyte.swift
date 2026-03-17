@@ -4,10 +4,12 @@ import Foundation
 /// A Swift wrapper around the lyte compiler.
 public final class LyteCompiler {
     private let handle: OpaquePointer
+    private let entryPointNames: [String]
 
     /// Create a compiler with the given entry point names.
     /// Pass an empty array to default to ["main"].
     public init(entryPoints: [String] = []) {
+        self.entryPointNames = entryPoints.isEmpty ? ["main"] : entryPoints
         if entryPoints.isEmpty {
             handle = lyte_compiler_new(nil, 0)
         } else {
@@ -51,7 +53,7 @@ public final class LyteCompiler {
         guard let ptr = lyte_compiler_compile(handle) else {
             throw LyteError(message: lastError ?? "compilation error")
         }
-        return Program(handle: ptr)
+        return Program(handle: ptr, entryPointNames: entryPointNames)
     }
 
     /// Convenience: add source and compile in one call.
@@ -72,9 +74,11 @@ public struct GlobalVariable {
 /// A compiled lyte program, ready to execute.
 public final class Program {
     let handle: OpaquePointer
+    private let entryPointNames: [String]
 
-    init(handle: OpaquePointer) {
+    init(handle: OpaquePointer, entryPointNames: [String]) {
         self.handle = handle
+        self.entryPointNames = entryPointNames
     }
 
     deinit {
@@ -110,10 +114,13 @@ public final class Program {
 
     /// Look up an entry point by name. Returns nil if not found.
     public func entryPoint(named name: String) -> EntryPoint? {
-        let index = name.withCString { cName in
-            lyte_program_get_entry_point(handle, cName)
-        }
-        guard index != Int.max else { return nil }
+        guard let index = entryPointNames.firstIndex(of: name) else { return nil }
+        return EntryPoint(program: self, index: index)
+    }
+
+    /// Get an entry point by index (matching the order passed to LyteCompiler.init).
+    public func entryPoint(at index: Int) -> EntryPoint? {
+        guard index >= 0 && index < entryPointNames.count else { return nil }
         return EntryPoint(program: self, index: index)
     }
 
