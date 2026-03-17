@@ -210,7 +210,7 @@ impl VM {
         program: &VMProgram,
         func_idx: crate::vm::FuncIdx,
         external_globals: *mut u8,
-        globals_size: usize,
+        _globals_size: usize,
     ) -> i64 {
         // Initialize VM state
         self.current_func = func_idx;
