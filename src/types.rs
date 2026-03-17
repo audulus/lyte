@@ -486,6 +486,13 @@ impl Interface {
             inst.insert(typevar(v), *t);
         }
 
+        // If any type parameter is still unresolved (type variable or anonymous),
+        // defer the check — it will be verified when the generic function is
+        // instantiated with concrete types.
+        if types.iter().any(|t| matches!(&**t, Type::Var(_) | Type::Anon(_))) {
+            return true;
+        }
+
         let mut satisfied = true;
 
         // Find functions among decls that have the same type.

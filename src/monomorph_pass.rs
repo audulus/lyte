@@ -148,7 +148,8 @@ impl MonomorphPass {
                                     target_fdecl.domain(),
                                     target_fdecl.ret,
                                 ));
-                                if func_ty == solved_type {
+                                let mut inst = Instance::new();
+                                if unify(func_ty, solved_type, &mut inst) {
                                     let param_types = target_fdecl.param_types();
                                     let mangled =
                                         crate::mangle::mangle_overload(*name, &param_types);

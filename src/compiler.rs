@@ -491,11 +491,6 @@ impl Compiler {
             }
         }
 
-        // Rename non-generic overloaded functions to unique symbols.
-        rename_overloaded_functions(&mut self.decls);
-        // Re-sort the decl table since renaming changes the sort order.
-        self.decls = DeclTable::new(self.decls.decls.clone());
-
         // Static safety checks (array bounds, division by zero).
         let mut safety_checker = SafetyChecker::new();
         safety_checker.check(&self.decls);
@@ -513,6 +508,12 @@ impl Compiler {
         let all_decls = pass.monomorphize_multi(&self.decls, &entry_points)?;
         // monomorphize now returns all decls (original + specialized)
         self.decls = DeclTable::new(all_decls);
+
+        // Rename non-generic overloaded functions to unique symbols.
+        // Must happen after monomorphization so specialized generic bodies
+        // can resolve overloaded calls (e.g. cmp in a generic quicksort).
+        rename_overloaded_functions(&mut self.decls);
+        self.decls = DeclTable::new(self.decls.decls.clone());
 
         // Hoist loop-invariant struct field reads (after monomorphization
         // so we operate on concrete types, and after safety checking).
@@ -1185,6 +1186,46 @@ mod tests {
         let result = vm.call(&program, Name::new("process".into()), &[3]).unwrap();
         // init sets state=helper(5)=10, process adds helper(3)=6, total=16
         assert_eq!(result, 16);
+    }
+
+    #[test]
+    fn test_slice_overloads_are_rewritten_during_specialize() {
+        let code = r#"
+            sum(a: [i32]) -> i32 {
+                var s = 0
+                for i in 0 .. a.len { s = s + a[i] }
+                s
+            }
+
+            sum(a: [f32]) -> f32 {
+                var s = 0.0
+                for i in 0 .. a.len { s = s + a[i] }
+                s
+            }
+
+            main {
+                print(sum([1, 2, 3]))
+                print(sum([1.0, 2.0, 3.0, 6.0]) as i32)
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        assert!(compiler.decls.find(Name::str("sum")).is_empty());
+
+        let main = compiler
+            .decls
+            .find(Name::str("main"))
+            .into_iter()
+            .find(|decl| matches!(decl, Decl::Func(_)))
+            .expect("main should be present after specialization");
+
+        let printed = main.pretty_print();
+        assert!(printed.contains("sum$[i32]"));
+        assert!(printed.contains("sum$[f32]"));
     }
 
     #[test]

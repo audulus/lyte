@@ -144,9 +144,22 @@ ftoa(dst: [i8], n: f32) {
     }
 }
 
-// --- Sorting (in-place via slices) ---
+// --- Comparison interface and implementations ---
 
-quicksort_i32(a: [i32], lo: i32, hi: i32) {
+interface Compare<A> {
+    cmp(lhs: A, rhs: A) -> i32
+}
+
+cmp(lhs: i32, rhs: i32) -> i32 { lhs - rhs }
+cmp(lhs: f32, rhs: f32) -> i32 {
+    if lhs < rhs { return 0 - 1 }
+    if lhs > rhs { return 1 }
+    return 0
+}
+
+// --- Sorting (in-place via slices, generic) ---
+
+quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
     if lo < hi {
         var pivot = lo
         if hi >= 0 && hi < a.len {
@@ -154,7 +167,7 @@ quicksort_i32(a: [i32], lo: i32, hi: i32) {
             var j = lo
             while j < hi {
                 if j >= 0 && j < a.len && i >= 0 && i < a.len {
-                    if a[j] < a[hi] {
+                    if cmp(a[j], a[hi]) < 0 {
                         var tmp = a[i]
                         a[i] = a[j]
                         a[j] = tmp
@@ -170,42 +183,14 @@ quicksort_i32(a: [i32], lo: i32, hi: i32) {
             }
             pivot = i
         }
-        quicksort_i32(a, lo, pivot - 1)
-        quicksort_i32(a, pivot + 1, hi)
+        quicksort(a, lo, pivot - 1)
+        quicksort(a, pivot + 1, hi)
     }
 }
 
-quicksort_f32(a: [f32], lo: i32, hi: i32) {
-    if lo < hi {
-        var pivot = lo
-        if hi >= 0 && hi < a.len {
-            var i = lo
-            var j = lo
-            while j < hi {
-                if j >= 0 && j < a.len && i >= 0 && i < a.len {
-                    if a[j] < a[hi] {
-                        var tmp = a[i]
-                        a[i] = a[j]
-                        a[j] = tmp
-                        i = i + 1
-                    }
-                }
-                j = j + 1
-            }
-            if i >= 0 && i < a.len {
-                var tmp = a[i]
-                a[i] = a[hi]
-                a[hi] = tmp
-            }
-            pivot = i
-        }
-        quicksort_f32(a, lo, pivot - 1)
-        quicksort_f32(a, pivot + 1, hi)
-    }
+sort<T>(a: [T]) where Compare<T> {
+    quicksort(a, 0, a.len - 1)
 }
-
-sort(a: [i32]) { quicksort_i32(a, 0, a.len - 1) }
-sort(a: [f32]) { quicksort_f32(a, 0, a.len - 1) }
 
 // --- String functions ---
 

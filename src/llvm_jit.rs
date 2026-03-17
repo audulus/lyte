@@ -2425,7 +2425,17 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
         let fn_type = decl.types[fn_id];
         if let crate::Type::Func(from, to) = *fn_type {
-            let param_types: Vec<crate::TypeID> = if let crate::Type::Tuple(pts) = &*from {
+            let param_types: Vec<crate::TypeID> = if let Expr::Id(callee_name) = &decl.arena[fn_id]
+            {
+                let callee_decls = self.decls.find(*callee_name);
+                if let Some(crate::Decl::Func(f)) = callee_decls.first() {
+                    f.param_types()
+                } else if let crate::Type::Tuple(pts) = &*from {
+                    pts.clone()
+                } else {
+                    vec![]
+                }
+            } else if let crate::Type::Tuple(pts) = &*from {
                 pts.clone()
             } else {
                 vec![]
