@@ -13,10 +13,12 @@ extern "C" {
 
 typedef struct LyteCompiler LyteCompiler;
 typedef struct LyteProgram LyteProgram;
-typedef struct LyteEntryPoint LyteEntryPoint;
 
 /// Cancel callback type. Return true to cancel execution.
 typedef bool (*lyte_cancel_fn)(void* user_data);
+
+/// Sentinel value returned by lyte_program_get_entry_point when not found.
+#define LYTE_ENTRY_POINT_NOT_FOUND SIZE_MAX
 
 // ============ Compiler ============
 
@@ -44,7 +46,7 @@ LyteProgram* lyte_compiler_compile(LyteCompiler* compiler);
 
 // ============ Program ============
 
-/// Free a compiled program and all its entry points.
+/// Free a compiled program.
 void lyte_program_free(LyteProgram* program);
 
 /// Get the size in bytes of the globals buffer.
@@ -65,9 +67,9 @@ size_t lyte_program_get_global_size(const LyteProgram* program, size_t index);
 /// Get the type of a global variable as a string.
 const char* lyte_program_get_global_type(const LyteProgram* program, size_t index);
 
-/// Look up an entry point by name. Returns NULL if not found.
-/// The returned handle is owned by the program; do NOT free it separately.
-const LyteEntryPoint* lyte_program_get_entry_point(const LyteProgram* program, const char* name);
+/// Look up an entry point by name. Returns its index, or
+/// LYTE_ENTRY_POINT_NOT_FOUND if not found.
+size_t lyte_program_get_entry_point(const LyteProgram* program, const char* name);
 
 /// Set a cancel callback. Called approximately every 1024 backward jumps.
 /// If it returns true, execution is cancelled. Pass NULL to disable.
@@ -75,10 +77,10 @@ void lyte_program_set_cancel_callback(LyteProgram* program, lyte_cancel_fn callb
 
 // ============ Entry point invocation ============
 
-/// Call an entry point with an external globals buffer.
+/// Call an entry point by index with an external globals buffer.
 /// The buffer must be at least lyte_program_get_globals_size() bytes.
-/// Returns true on success, false if cancelled or error.
-bool lyte_entry_point_call(const LyteEntryPoint* entry, uint8_t* globals);
+/// Returns true on success, false if cancelled, error, or invalid index.
+bool lyte_entry_point_call(LyteProgram* program, size_t entry_point, uint8_t* globals);
 
 // ============ Globals helpers ============
 

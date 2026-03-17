@@ -108,13 +108,13 @@ public final class Program {
         globals.first { $0.name == name }
     }
 
-    /// Look up an entry point by name.
+    /// Look up an entry point by name. Returns nil if not found.
     public func entryPoint(named name: String) -> EntryPoint? {
-        let ptr = name.withCString { cName in
+        let index = name.withCString { cName in
             lyte_program_get_entry_point(handle, cName)
         }
-        guard let ptr else { return nil }
-        return EntryPoint(handle: ptr)
+        guard index != Int.max else { return nil }
+        return EntryPoint(program: self, index: index)
     }
 
     /// Set a cancel callback. Called periodically during execution.
@@ -134,19 +134,20 @@ public final class Program {
 
 /// An entry point handle for calling compiled functions.
 public struct EntryPoint {
-    let handle: OpaquePointer
+    let program: Program
+    let index: Int
 
     /// Call this entry point with the given globals buffer.
     /// Returns true on success, false if cancelled.
     @discardableResult
     public func call(globals: UnsafeMutablePointer<UInt8>) -> Bool {
-        lyte_entry_point_call(handle, globals)
+        lyte_entry_point_call(program.handle, index, globals)
     }
 
     /// Call this entry point with a Globals object.
     @discardableResult
     public func call(globals: Globals) -> Bool {
-        lyte_entry_point_call(handle, globals.ptr)
+        lyte_entry_point_call(program.handle, index, globals.ptr)
     }
 }
 

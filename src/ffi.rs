@@ -15,6 +15,15 @@ struct GlobalInfo {
     ty: CString,
 }
 
+/// An entry point: name + backend-specific data.
+struct EntryPointInfo {
+    name: CString,
+    #[cfg(feature = "llvm")]
+    fn_addr: usize,
+    #[cfg(not(feature = "llvm"))]
+    func_idx: crate::vm::FuncIdx,
+}
+
 /// Opaque handle to a lyte compiler instance.
 pub struct LyteCompiler {
     compiler: Compiler,
@@ -161,16 +170,9 @@ pub struct LyteProgram {
     inner: crate::llvm_jit::LLVMCompiledProgram,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
-    entry_points: Vec<LyteEntryPoint>,
+    entry_points: Vec<EntryPointInfo>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
-}
-
-#[cfg(feature = "llvm")]
-pub struct LyteEntryPoint {
-    program: *mut LyteProgram,
-    fn_addr: usize,
-    name: CString,
 }
 
 // On non-LLVM builds: VM backend with function indices.
@@ -181,16 +183,9 @@ pub struct LyteProgram {
     vm: VM,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
-    entry_points: Vec<LyteEntryPoint>,
+    entry_points: Vec<EntryPointInfo>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
-}
-
-#[cfg(not(feature = "llvm"))]
-pub struct LyteEntryPoint {
-    program: *mut LyteProgram,
-    func_idx: crate::vm::FuncIdx,
-    name: CString,
 }
 
 /// Parse, type-check, specialize, and compile all added source into
@@ -241,25 +236,24 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                         _ => unreachable!(),
                     };
 
-                    let mut program = Box::new(LyteProgram {
-                        inner,
-                        globals_size,
-                        globals_info,
-                        entry_points: Vec::new(),
-                        cancel_callback: None,
-                        cancel_userdata: ptr::null_mut(),
-                    });
-
-                    let prog_ptr: *mut LyteProgram = &mut *program;
+                    let mut entry_points = Vec::new();
                     for ep_name in &entry_point_names {
-                        if let Some(kind) = program.inner.entry_points.get(ep_name) {
-                            program.entry_points.push(LyteEntryPoint {
-                                program: prog_ptr,
-                                fn_addr: *kind,
+                        if let Some(&fn_addr) = inner.entry_points.get(ep_name) {
+                            entry_points.push(EntryPointInfo {
                                 name: CString::new(ep_name.to_string()).unwrap_or_default(),
+                                fn_addr,
                             });
                         }
                     }
+
+                    let program = Box::new(LyteProgram {
+                        inner,
+                        globals_size,
+                        globals_info,
+                        entry_points,
+                        cancel_callback: None,
+                        cancel_userdata: ptr::null_mut(),
+                    });
 
                     Box::into_raw(program)
                 }
@@ -278,27 +272,26 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                     let linked = LinkedProgram::from_program(&vm_program);
                     let vm = VM::new();
 
-                    let mut program = Box::new(LyteProgram {
+                    let mut entry_points = Vec::new();
+                    for ep_name in &entry_point_names {
+                        if let Some(&func_idx) = vm_program.entry_points.get(ep_name) {
+                            entry_points.push(EntryPointInfo {
+                                name: CString::new(ep_name.to_string()).unwrap_or_default(),
+                                func_idx,
+                            });
+                        }
+                    }
+
+                    let program = Box::new(LyteProgram {
                         vm_program,
                         linked,
                         vm,
                         globals_size,
                         globals_info,
-                        entry_points: Vec::new(),
+                        entry_points,
                         cancel_callback: None,
                         cancel_userdata: ptr::null_mut(),
                     });
-
-                    let prog_ptr: *mut LyteProgram = &mut *program;
-                    for ep_name in &entry_point_names {
-                        if let Some(&idx) = program.vm_program.entry_points.get(ep_name) {
-                            program.entry_points.push(LyteEntryPoint {
-                                program: prog_ptr,
-                                func_idx: idx,
-                                name: CString::new(ep_name.to_string()).unwrap_or_default(),
-                            });
-                        }
-                    }
 
                     Box::into_raw(program)
                 }
@@ -392,37 +385,40 @@ pub unsafe extern "C" fn lyte_program_get_global_type(
     p.globals_info.get(index).map_or(ptr::null(), |g| g.ty.as_ptr())
 }
 
-/// Look up an entry point by name. Returns NULL if not found.
-/// The returned handle is owned by the program; do NOT free it.
+/// Look up an entry point by name. Returns its index, or SIZE_MAX if not found.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_program_get_entry_point(
     ptr: *const LyteProgram,
     name: *const c_char,
-) -> *const LyteEntryPoint {
+) -> usize {
     if ptr.is_null() || name.is_null() {
-        return ptr::null();
+        return usize::MAX;
     }
     let name_cstr = CStr::from_ptr(name);
-    for ep in &(*ptr).entry_points {
+    for (i, ep) in (*ptr).entry_points.iter().enumerate() {
         if ep.name.as_c_str() == name_cstr {
-            return ep as *const LyteEntryPoint;
+            return i;
         }
     }
-    ptr::null()
+    usize::MAX
 }
 
 /// Call an entry point with an external globals buffer.
-/// Returns true on success, false if cancelled.
+/// Returns true on success, false if cancelled or invalid index.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_entry_point_call(
-    ep: *const LyteEntryPoint,
+    ptr: *mut LyteProgram,
+    entry_point: usize,
     globals: *mut u8,
 ) -> bool {
-    if ep.is_null() || globals.is_null() {
+    if ptr.is_null() || globals.is_null() {
         return false;
     }
-    let ep = &*ep;
-    let program = &mut *ep.program;
+    let program = &mut *ptr;
+    let ep = match program.entry_points.get(entry_point) {
+        Some(ep) => ep,
+        None => return false,
+    };
 
     #[cfg(feature = "llvm")]
     {
@@ -447,6 +443,7 @@ pub unsafe extern "C" fn lyte_entry_point_call(
 
     #[cfg(not(feature = "llvm"))]
     {
+        let func_idx = ep.func_idx;
         if let Some(cb) = program.cancel_callback {
             program.vm.set_cancel_callback(Some(cb), program.cancel_userdata);
         }
@@ -456,7 +453,7 @@ pub unsafe extern "C" fn lyte_entry_point_call(
             program.vm.call_with_external_globals_asm(
                 &program.linked,
                 &program.vm_program,
-                ep.func_idx,
+                func_idx,
                 globals,
                 gs,
             );
@@ -466,7 +463,7 @@ pub unsafe extern "C" fn lyte_entry_point_call(
             program.vm.call_with_external_globals(
                 &program.linked,
                 &program.vm_program,
-                ep.func_idx,
+                func_idx,
                 globals,
                 gs,
             );
