@@ -3,7 +3,9 @@ use std::os::raw::c_char;
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 
-use crate::compiler::{CompiledProgram, Compiler, EntryPoint};
+use crate::compiler::Compiler;
+#[cfg(not(feature = "llvm"))]
+use crate::vm::{LinkedProgram, VMProgram, VM};
 
 /// Info about a single global variable, with pre-computed C strings.
 struct GlobalInfo {
@@ -151,11 +153,12 @@ pub unsafe extern "C" fn lyte_compiler_add_source(
     })
 }
 
-// ============ Backend-Agnostic Program API ============
+// ============ Program API ============
 
-/// A compiled program, abstracting over JIT and VM backends.
+// On LLVM builds: JIT backend with function pointers.
+#[cfg(feature = "llvm")]
 pub struct LyteProgram {
-    inner: CompiledProgram,
+    inner: crate::llvm_jit::LLVMCompiledProgram,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
     entry_points: Vec<LyteEntryPoint>,
@@ -163,10 +166,30 @@ pub struct LyteProgram {
     cancel_userdata: *mut u8,
 }
 
-/// An entry point handle for calling compiled functions.
+#[cfg(feature = "llvm")]
 pub struct LyteEntryPoint {
     program: *mut LyteProgram,
-    kind: EntryPoint,
+    fn_addr: usize,
+    name: CString,
+}
+
+// On non-LLVM builds: VM backend with function indices.
+#[cfg(not(feature = "llvm"))]
+pub struct LyteProgram {
+    vm_program: VMProgram,
+    linked: LinkedProgram,
+    vm: VM,
+    globals_size: usize,
+    globals_info: Vec<GlobalInfo>,
+    entry_points: Vec<LyteEntryPoint>,
+    cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+    cancel_userdata: *mut u8,
+}
+
+#[cfg(not(feature = "llvm"))]
+pub struct LyteEntryPoint {
+    program: *mut LyteProgram,
+    func_idx: crate::vm::FuncIdx,
     name: CString,
 }
 
@@ -186,7 +209,6 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         c.last_error = None;
 
-        // Run all compilation phases.
         if !c.compiler.check() {
             c.set_error("type check error");
             return ptr::null_mut();
@@ -196,48 +218,94 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             return ptr::null_mut();
         }
 
-        match c.compiler.compile_program() {
-            Ok(compiled) => {
-                let globals_size = compiled.globals_size();
-                let globals_info: Vec<GlobalInfo> = c
-                    .compiler
-                    .globals_info()
-                    .into_iter()
-                    .map(|(name, offset, size, ty)| GlobalInfo {
-                        name: CString::new(name).unwrap_or_default(),
-                        offset,
-                        size,
-                        ty: CString::new(ty).unwrap_or_default(),
-                    })
-                    .collect();
+        let globals_info: Vec<GlobalInfo> = c
+            .compiler
+            .globals_info()
+            .into_iter()
+            .map(|(name, offset, size, ty)| GlobalInfo {
+                name: CString::new(name).unwrap_or_default(),
+                offset,
+                size,
+                ty: CString::new(ty).unwrap_or_default(),
+            })
+            .collect();
+        let entry_point_names = c.compiler.effective_entry_points();
 
-                let mut program = Box::new(LyteProgram {
-                    inner: compiled,
-                    globals_size,
-                    globals_info,
-                    entry_points: Vec::new(),
-                    cancel_callback: None,
-                    cancel_userdata: ptr::null_mut(),
-                });
+        #[cfg(feature = "llvm")]
+        {
+            match c.compiler.compile_program() {
+                Ok(compiled) => {
+                    let globals_size = compiled.globals_size();
+                    let inner = match compiled {
+                        crate::compiler::CompiledProgram::Llvm(p) => p,
+                        _ => unreachable!(),
+                    };
 
-                // Build entry point handles.
-                let prog_ptr: *mut LyteProgram = &mut *program;
-                let entry_point_names = c.compiler.effective_entry_points();
-                for ep_name in &entry_point_names {
-                    if let Some(kind) = program.inner.get_entry_point(*ep_name) {
-                        program.entry_points.push(LyteEntryPoint {
-                            program: prog_ptr,
-                            kind,
-                            name: CString::new(ep_name.to_string()).unwrap_or_default(),
-                        });
+                    let mut program = Box::new(LyteProgram {
+                        inner,
+                        globals_size,
+                        globals_info,
+                        entry_points: Vec::new(),
+                        cancel_callback: None,
+                        cancel_userdata: ptr::null_mut(),
+                    });
+
+                    let prog_ptr: *mut LyteProgram = &mut *program;
+                    for ep_name in &entry_point_names {
+                        if let Some(kind) = program.inner.entry_points.get(ep_name) {
+                            program.entry_points.push(LyteEntryPoint {
+                                program: prog_ptr,
+                                fn_addr: *kind,
+                                name: CString::new(ep_name.to_string()).unwrap_or_default(),
+                            });
+                        }
                     }
-                }
 
-                Box::into_raw(program)
+                    Box::into_raw(program)
+                }
+                Err(e) => {
+                    c.set_error(&e);
+                    ptr::null_mut()
+                }
             }
-            Err(e) => {
-                c.set_error(&e);
-                ptr::null_mut()
+        }
+
+        #[cfg(not(feature = "llvm"))]
+        {
+            match c.compiler.compile_vm() {
+                Ok(vm_program) => {
+                    let globals_size = vm_program.globals_size;
+                    let linked = LinkedProgram::from_program(&vm_program);
+                    let vm = VM::new();
+
+                    let mut program = Box::new(LyteProgram {
+                        vm_program,
+                        linked,
+                        vm,
+                        globals_size,
+                        globals_info,
+                        entry_points: Vec::new(),
+                        cancel_callback: None,
+                        cancel_userdata: ptr::null_mut(),
+                    });
+
+                    let prog_ptr: *mut LyteProgram = &mut *program;
+                    for ep_name in &entry_point_names {
+                        if let Some(&idx) = program.vm_program.entry_points.get(ep_name) {
+                            program.entry_points.push(LyteEntryPoint {
+                                program: prog_ptr,
+                                func_idx: idx,
+                                name: CString::new(ep_name.to_string()).unwrap_or_default(),
+                            });
+                        }
+                    }
+
+                    Box::into_raw(program)
+                }
+                Err(e) => {
+                    c.set_error(&e);
+                    ptr::null_mut()
+                }
             }
         }
     }));
@@ -344,8 +412,6 @@ pub unsafe extern "C" fn lyte_program_get_entry_point(
 }
 
 /// Call an entry point with an external globals buffer.
-/// For JIT: direct function pointer call.
-/// For VM: runs interpreter with cached linked bytecode.
 /// Returns true on success, false if cancelled.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_entry_point_call(
@@ -358,67 +424,54 @@ pub unsafe extern "C" fn lyte_entry_point_call(
     let ep = &*ep;
     let program = &mut *ep.program;
 
-    match ep.kind {
-        EntryPoint::Jit(fn_addr) => {
-            extern "C" {
-                fn setjmp(env: *mut u8) -> i32;
-            }
-            type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
-            crate::jit::set_cancel_callback(
-                globals,
-                program.cancel_callback,
-                program.cancel_userdata,
-            );
-            let jmp_buf_ptr = globals.add(crate::jit::JMPBUF_OFFSET);
-            if setjmp(jmp_buf_ptr) == 0 {
-                let code_fn: Entry = std::mem::transmute(fn_addr);
-                code_fn(globals, ptr::null_mut());
-                true
-            } else {
-                false // cancelled
-            }
+    #[cfg(feature = "llvm")]
+    {
+        extern "C" {
+            fn setjmp(env: *mut u8) -> i32;
         }
-        EntryPoint::Vm(func_idx) => {
-            // Read cancel callback before borrowing inner mutably.
-            let cancel_cb = program.cancel_callback;
-            let cancel_ud = program.cancel_userdata;
-            let gs = program.globals_size;
+        type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
+        crate::jit::set_cancel_callback(
+            globals,
+            program.cancel_callback,
+            program.cancel_userdata,
+        );
+        let jmp_buf_ptr = globals.add(crate::jit::JMPBUF_OFFSET);
+        if setjmp(jmp_buf_ptr) == 0 {
+            let code_fn: Entry = std::mem::transmute(ep.fn_addr);
+            code_fn(globals, ptr::null_mut());
+            true
+        } else {
+            false // cancelled
+        }
+    }
 
-            match &mut program.inner {
-                CompiledProgram::Vm {
-                    program: ref vm_program,
-                    ref linked,
-                    ref mut vm,
-                } => {
-                    if let Some(cb) = cancel_cb {
-                        vm.set_cancel_callback(Some(cb), cancel_ud);
-                    }
-                    #[cfg(target_arch = "aarch64")]
-                    {
-                        vm.call_with_external_globals_asm(
-                            linked,
-                            vm_program,
-                            func_idx,
-                            globals,
-                            gs,
-                        );
-                    }
-                    #[cfg(not(target_arch = "aarch64"))]
-                    {
-                        vm.call_with_external_globals(
-                            linked,
-                            vm_program,
-                            func_idx,
-                            globals,
-                            gs,
-                        );
-                    }
-                    !vm.cancelled
-                }
-                #[cfg(feature = "llvm")]
-                _ => false, // shouldn't happen
-            }
+    #[cfg(not(feature = "llvm"))]
+    {
+        if let Some(cb) = program.cancel_callback {
+            program.vm.set_cancel_callback(Some(cb), program.cancel_userdata);
         }
+        let gs = program.globals_size;
+        #[cfg(target_arch = "aarch64")]
+        {
+            program.vm.call_with_external_globals_asm(
+                &program.linked,
+                &program.vm_program,
+                ep.func_idx,
+                globals,
+                gs,
+            );
+        }
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            program.vm.call_with_external_globals(
+                &program.linked,
+                &program.vm_program,
+                ep.func_idx,
+                globals,
+                gs,
+            );
+        }
+        !program.vm.cancelled
     }
 }
 
