@@ -879,13 +879,26 @@ pub unsafe extern "C" fn lyte_entry_point_call(
                     if let Some(cb) = cancel_cb {
                         vm.set_cancel_callback(Some(cb), cancel_ud);
                     }
-                    vm.call_with_external_globals(
-                        linked,
-                        vm_program,
-                        func_idx,
-                        globals,
-                        gs,
-                    );
+                    #[cfg(target_arch = "aarch64")]
+                    {
+                        vm.call_with_external_globals_asm(
+                            linked,
+                            vm_program,
+                            func_idx,
+                            globals,
+                            gs,
+                        );
+                    }
+                    #[cfg(not(target_arch = "aarch64"))]
+                    {
+                        vm.call_with_external_globals(
+                            linked,
+                            vm_program,
+                            func_idx,
+                            globals,
+                            gs,
+                        );
+                    }
                     !vm.cancelled
                 }
                 #[cfg(feature = "llvm")]

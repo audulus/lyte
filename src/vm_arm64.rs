@@ -7,8 +7,8 @@ use crate::vm::{LinkedProgram, VMProgram, VM};
 use std::arch::global_asm;
 
 // Include the ARM64 assembly dispatch loop.
-// On macOS, C symbols get underscore prefix; on Linux they don't.
-#[cfg(target_os = "macos")]
+// On macOS/iOS, C symbols get underscore prefix; on Linux they don't.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 global_asm!(include_str!("vm_arm64.S"));
 
 #[cfg(target_os = "linux")]
@@ -200,5 +200,57 @@ impl VM {
         };
 
         unsafe { vm_arm64_enter(&mut ctx) }
+    }
+
+    /// Run a specific function using the ARM64 assembly interpreter with an
+    /// external globals buffer. Used by the FFI entry point API on iOS.
+    pub unsafe fn call_with_external_globals_asm(
+        &mut self,
+        linked: &LinkedProgram,
+        program: &VMProgram,
+        func_idx: crate::vm::FuncIdx,
+        external_globals: *mut u8,
+        globals_size: usize,
+    ) -> i64 {
+        // Initialize VM state
+        self.current_func = func_idx;
+        self.registers = [0; 256];
+        self.cancelled = false;
+
+        // Pre-allocate call stack
+        let mut call_stack = Vec::with_capacity(MAX_CALL_DEPTH);
+        call_stack.resize(MAX_CALL_DEPTH, AsmCallFrame {
+            func_idx: 0,
+            ip: 0,
+            locals_base: 0,
+        });
+
+        let mut ctx = AsmContext {
+            ops: linked.ops.as_ptr() as *const u32,
+            regs: self.registers.as_mut_ptr(),
+            ip: linked.func_offsets[func_idx as usize] as u64,
+            locals_base: 0,
+            locals_ptr: self.locals.as_mut_ptr(),
+            globals_ptr: external_globals,
+            func_offsets: linked.func_offsets.as_ptr() as *const u64,
+            func_locals: linked.func_locals.as_ptr(),
+            wide_i64: linked.wide_i64.as_ptr(),
+            wide_f64: linked.wide_f64.as_ptr(),
+            f32_pool: linked.f32_pool.as_ptr(),
+            constants: program.constants.as_ptr(),
+            cancelled_ptr: &mut self.cancelled as *mut bool as *mut u8,
+            closure_ptr: 0,
+            call_stack: call_stack.as_mut_ptr(),
+            call_stack_len: 0,
+            current_func: func_idx as u64,
+            locals_cap: self.locals.len() as u64,
+            fn_print_i32: helper_print_i32,
+            fn_print_f32: helper_print_f32,
+            fn_assert: helper_assert,
+            fn_putc: helper_putc,
+            fn_grow_locals: helper_grow_locals,
+        };
+
+        vm_arm64_enter(&mut ctx)
     }
 }
