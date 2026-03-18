@@ -180,6 +180,16 @@ fn run_backend(program: &str, backend: &str) -> Option<String> {
             });
             Some(output)
         }
+        #[cfg(target_arch = "aarch64")]
+        "asm" => {
+            let output = capture_stdout(|| {
+                if let Ok(program) = compiler.compile_vm() {
+                    let mut vm = lyte::vm::VM::new();
+                    vm.run_asm(&program);
+                }
+            });
+            Some(output)
+        }
         #[cfg(feature = "llvm")]
         "llvm" => {
             let output = capture_stdout(|| {
@@ -260,6 +270,12 @@ fuzz_target!(|data: &[u8]| {
     let vm_output = run_backend(&program, "vm");
 
     assert_same("JIT", &jit_output, "VM", &vm_output, &program);
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        let asm_output = run_backend(&program, "asm");
+        assert_same("VM", &vm_output, "ASM", &asm_output, &program);
+    }
 
     #[cfg(feature = "llvm")]
     {
