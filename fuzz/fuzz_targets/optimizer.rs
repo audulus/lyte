@@ -11,6 +11,11 @@ struct Gen<'a> {
     pos: usize,
 }
 
+/// Number of 8-byte local slots available to the generated program.
+const NUM_SLOTS: u16 = 8;
+/// Size of locals area in bytes.
+const LOCALS_SIZE: u32 = NUM_SLOTS as u32 * 8;
+
 impl<'a> Gen<'a> {
     fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
@@ -37,10 +42,19 @@ impl<'a> Gen<'a> {
         self.next() as u16 % max_reg
     }
 
-    /// Generate a single-function program with random arithmetic and control flow.
+    /// Pick a local slot in 0..NUM_SLOTS.
+    fn slot(&mut self) -> u16 {
+        self.next() as u16 % NUM_SLOTS
+    }
+
+    /// Generate a single-function program with random arithmetic,
+    /// control flow, and memory operations.
     fn gen_program(&mut self) -> Vec<Opcode> {
         let mut code = Vec::new();
         let num_regs: u16 = (self.next() % 12 + 4) as u16; // 4-15 virtual regs
+
+        // Allocate locals so memory ops are safe.
+        code.push(Opcode::AllocLocals { size: LOCALS_SIZE });
 
         // Initialize all registers with values.
         for r in 0..num_regs {
@@ -55,27 +69,39 @@ impl<'a> Gen<'a> {
             code.push(op);
         }
 
-        // Print register 0 so we can compare outputs.
-        code.push(Opcode::PrintI32 { src: 0 });
+        // Print values from multiple local slots to observe memory effects.
+        // We load from slots (not registers) to avoid comparing raw pointers
+        // from LocalAddr, which differ between VM instances.
+        for s in 0..NUM_SLOTS.min(4) {
+            code.push(Opcode::LoadSlot32 { dst: 0, slot: s });
+            code.push(Opcode::PrintI32 { src: 0 });
+        }
         code.push(Opcode::Return);
         code
     }
 
     fn gen_instruction(&mut self, nr: u16) -> Opcode {
-        match self.next() % 20 {
+        match self.next() % 28 {
+            // Integer arithmetic
             0  => Opcode::IAdd { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             1  => Opcode::ISub { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             2  => Opcode::IMul { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
+            // Move
             3  => Opcode::Move { dst: self.reg(nr), src: self.reg(nr) },
+            // LoadImm
             4  => Opcode::LoadImm { dst: self.reg(nr), value: self.next_i32() as i64 },
+            // IAddImm (used by fuse_offset_access)
             5  => Opcode::IAddImm { dst: self.reg(nr), src: self.reg(nr), imm: self.next() as i32 - 128 },
             6  => Opcode::IAddImm { dst: self.reg(nr), src: self.reg(nr), imm: self.next() as i32 },
+            // Bitwise
             7  => Opcode::And { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             8  => Opcode::Or  { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             9  => Opcode::Xor { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             10 => Opcode::Not { dst: self.reg(nr), src: self.reg(nr) },
+            // Comparison
             11 => Opcode::IEq { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             12 => Opcode::ILt { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
+            // Control flow
             13 => {
                 let cond = self.reg(nr);
                 let skip = (self.next() % 3 + 1) as i32;
@@ -86,14 +112,38 @@ impl<'a> Gen<'a> {
                 Opcode::Jump { offset: skip }
             }
             15 => Opcode::Nop,
-            16 => Opcode::Shl { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
-            17 => Opcode::Shr { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
-            18 => Opcode::Move { dst: self.reg(nr), src: self.reg(nr) },
-            19 => {
+            16 => {
                 let cond = self.reg(nr);
                 let skip = (self.next() % 3 + 1) as i32;
                 Opcode::JumpIfNotZero { cond, offset: skip }
             }
+            // === Memory operations (exercise fuse_local_access, fuse_offset_access) ===
+            // LocalAddr (the key instruction for fuse_local_access)
+            17 => Opcode::LocalAddr { dst: self.reg(nr), slot: self.slot() },
+            // Load32/Store32 via address register (fuses with LocalAddr)
+            18 => {
+                let addr = self.reg(nr);
+                let dst = self.reg(nr);
+                Opcode::Load32 { dst, addr }
+            }
+            19 => {
+                let addr = self.reg(nr);
+                let src = self.reg(nr);
+                Opcode::Store32 { addr, src }
+            }
+            // LoadSlot32/StoreSlot32 directly (the fused form)
+            20 => Opcode::LoadSlot32 { dst: self.reg(nr), slot: self.slot() },
+            21 => Opcode::StoreSlot32 { slot: self.slot(), src: self.reg(nr) },
+            // IEq/ILt variants for more comparison coverage
+            22 => Opcode::IEq { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
+            23 => Opcode::ILt { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
+            // More LoadSlot32/StoreSlot32 with different slots
+            24 => Opcode::LoadSlot32 { dst: self.reg(nr), slot: self.slot() },
+            25 => Opcode::StoreSlot32 { slot: self.slot(), src: self.reg(nr) },
+            // More moves (optimizer should coalesce/forward these)
+            26 => Opcode::Move { dst: self.reg(nr), src: self.reg(nr) },
+            // Shifts
+            27 => Opcode::Shl { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             _ => unreachable!(),
         }
     }
@@ -116,6 +166,69 @@ fn fixup_jumps(code: &mut [Opcode]) {
             _ => {}
         }
     }
+}
+
+/// Ensure memory safety and determinism:
+/// 1. Load/Store via register only when that register holds a LocalAddr.
+/// 2. Track pointer taint: any value derived from a LocalAddr (including
+///    through arithmetic) is non-deterministic across VM instances.
+/// 3. Never store a tainted value into a local slot.
+fn make_memory_safe(code: &mut Vec<Opcode>) {
+    let mut tainted = vec![false; 256];
+
+    for i in 0..code.len() {
+        // Check if any source register is tainted.
+        let src_tainted = {
+            let mut any = false;
+            lyte::vm_optimize::for_each_src(&code[i], |r| {
+                if tainted[r as usize] { any = true; }
+            });
+            any
+        };
+
+        match &code[i] {
+            Opcode::LocalAddr { dst, .. } => {
+                tainted[*dst as usize] = true;
+            }
+            Opcode::Load32 { addr, dst } => {
+                let addr = *addr;
+                let dst = *dst;
+                if !tainted[addr as usize] {
+                    // addr doesn't hold a valid pointer.
+                    code[i] = Opcode::LoadSlot32 { dst, slot: 0 };
+                }
+                // Loading from memory produces a data value, not a pointer.
+                tainted[dst as usize] = false;
+            }
+            Opcode::Store32 { addr, src } => {
+                let addr = *addr;
+                let src = *src;
+                if !tainted[addr as usize] || tainted[src as usize] {
+                    code[i] = Opcode::Nop;
+                }
+            }
+            Opcode::StoreSlot32 { src, .. } => {
+                if tainted[*src as usize] {
+                    code[i] = Opcode::Nop;
+                }
+            }
+            Opcode::LoadSlot32 { dst, .. } => {
+                // Slot loads produce data values.
+                tainted[*dst as usize] = false;
+            }
+            _ => {
+                // For any other instruction, if it reads a tainted register,
+                // its output is also tainted (derived from a pointer).
+                if let Some(dst) = get_dst(&code[i]) {
+                    tainted[dst as usize] = src_tainted;
+                }
+            }
+        }
+    }
+}
+
+fn get_dst(op: &Opcode) -> Option<u16> {
+    lyte::vm_optimize::get_dst(op)
 }
 
 /// Capture everything written to stdout (fd 1) during `f()`.
@@ -155,9 +268,12 @@ fuzz_target!(|data: &[u8]| {
     let mut gen = Gen::new(data);
     let mut code = gen.gen_program();
     fixup_jumps(&mut code);
+    make_memory_safe(&mut code);
 
     // Build the unoptimized program.
     let mut func_unopt = VMFunction::new("fuzz");
+    func_unopt.locals_size = LOCALS_SIZE;
+    func_unopt.local_slots = NUM_SLOTS;
     func_unopt.code = code.clone();
     let mut prog_unopt = VMProgram::new();
     prog_unopt.entry = prog_unopt.add_function(func_unopt);
@@ -169,6 +285,8 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let mut func_opt = VMFunction::new("fuzz");
+    func_opt.locals_size = LOCALS_SIZE;
+    func_opt.local_slots = NUM_SLOTS;
     func_opt.code = opt_code;
     let mut prog_opt = VMProgram::new();
     prog_opt.entry = prog_opt.add_function(func_opt);
@@ -182,7 +300,7 @@ fuzz_target!(|data: &[u8]| {
     });
     let unopt_output = match unopt_output {
         Ok(s) => s,
-        Err(_) => return, // overflow or other runtime panic — skip
+        Err(_) => return,
     };
 
     let opt_output = std::panic::catch_unwind(|| {
@@ -193,7 +311,7 @@ fuzz_target!(|data: &[u8]| {
     });
     let opt_output = match opt_output {
         Ok(s) => s,
-        Err(_) => return, // overflow or other runtime panic — skip
+        Err(_) => return,
     };
 
     if unopt_output != opt_output {

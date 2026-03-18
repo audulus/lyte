@@ -1754,7 +1754,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
 }
 
 /// Call `f` for each source register read by the instruction.
-fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
+pub fn for_each_src(op: &Opcode, mut f: impl FnMut(Reg)) {
     match op {
         Opcode::Move { src, .. } => f(*src),
         Opcode::IAdd { a, b, .. }
