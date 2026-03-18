@@ -201,10 +201,10 @@ fn make_memory_safe(code: &mut Vec<Opcode>) {
                 tainted[*dst as usize] = true;
             }
             Opcode::Load32 { dst, .. } => {
-                // Replace all Load32 with slot-based load to avoid alignment issues.
+                // Replace all Load32 with slot-based load to avoid alignment.
                 let dst = *dst;
                 code[i] = Opcode::LoadSlot32 { dst, slot: 0 };
-                tainted[dst as usize] = false;
+                // Don't clear taint — this instruction might be jumped over.
             }
             Opcode::Store32 { src, .. } => {
                 let src = *src;
@@ -219,18 +219,14 @@ fn make_memory_safe(code: &mut Vec<Opcode>) {
                     code[i] = Opcode::Nop;
                 }
             }
-            // Neutralize conditional jumps with tainted conditions —
-            // pointer-dependent control flow is non-deterministic.
             Opcode::JumpIfZero { cond, .. }
             | Opcode::JumpIfNotZero { cond, .. } => {
                 if tainted[*cond as usize] {
                     code[i] = Opcode::Nop;
                 }
             }
-            Opcode::LoadSlot32 { dst, .. } => {
-                // Slot loads produce data values.
-                tainted[*dst as usize] = false;
-            }
+            // Don't clear taint on LoadSlot32 — it can be jumped over,
+            // leaving the register still holding a tainted pointer value.
             _ => {
                 // For any other instruction, if it reads a tainted register,
                 // its output is also tainted (derived from a pointer).
