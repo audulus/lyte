@@ -1728,6 +1728,26 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
         .checked_add(1)
         .expect("register allocation overflow: need >255 physical registers");
 
+    // Validate: no two vregs with overlapping live ranges share a physical register.
+    for a in 0..n {
+        if !is_used[a] || mapping[a] == UNASSIGNED { continue; }
+        let a_start = def_point[a];
+        let a_end = last_use[a].max(a_start);
+        for b in (a + 1)..n {
+            if !is_used[b] || mapping[b] == UNASSIGNED { continue; }
+            if mapping[a] != mapping[b] { continue; }
+            let b_start = def_point[b];
+            let b_end = last_use[b].max(b_start);
+            if a_start <= b_end && b_start <= a_end {
+                panic!(
+                    "register allocation conflict: vreg {} and vreg {} both mapped to preg {} \
+                     with overlapping live ranges [{},{}] and [{},{}]",
+                    a, b, mapping[a], a_start, a_end, b_start, b_end
+                );
+            }
+        }
+    }
+
     // Step 6: Patch SaveRegs/RestoreRegs BEFORE rewriting (start_reg still has virtual numbers).
     for op in code.iter_mut() {
         match op {
