@@ -69,7 +69,7 @@ pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>
 /// Dead code elimination: NOP any instruction that writes to a register
 /// that is never read.
 fn dead_code_elimination(code: &mut Vec<Opcode>) {
-    let mut uses = compute_use_counts_fast(code);
+    let mut uses = compute_use_counts(code);
     // Register 0 is the implicit return value register — always considered live
     uses[0] = uses[0].saturating_add(1);
     for i in 0..code.len() {
@@ -654,236 +654,9 @@ fn compute_use_counts(code: &[Opcode]) -> Vec<u16> {
     let n = num_vregs(code);
     let mut counts = vec![0u16; n];
     for op in code {
-        for r in 0..n as Reg {
-            if reads_reg(op, r) {
-                counts[r as usize] = counts[r as usize].saturating_add(1);
-            }
-        }
-    }
-    counts
-}
-
-/// Efficiently compute use counts by only checking registers that exist.
-fn compute_use_counts_fast(code: &[Opcode]) -> Vec<u16> {
-    let n = num_vregs(code);
-    let mut counts = vec![0u16; n];
-    for op in code {
-        // Extract source registers directly from each instruction
-        match op {
-            Opcode::Move { src, .. } => counts[*src as usize] += 1,
-            Opcode::IAdd { a, b, .. }
-            | Opcode::ISub { a, b, .. }
-            | Opcode::IMul { a, b, .. }
-            | Opcode::IDiv { a, b, .. }
-            | Opcode::UDiv { a, b, .. }
-            | Opcode::IRem { a, b, .. }
-            | Opcode::IPow { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::INeg { src, .. } | Opcode::IAddImm { src, .. } => counts[*src as usize] += 1,
-            Opcode::FAdd { a, b, .. }
-            | Opcode::FSub { a, b, .. }
-            | Opcode::FMul { a, b, .. }
-            | Opcode::FDiv { a, b, .. }
-            | Opcode::FPow { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::FNeg { src, .. } => counts[*src as usize] += 1,
-            Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-                counts[*c as usize] += 1;
-            }
-            Opcode::DAdd { a, b, .. }
-            | Opcode::DSub { a, b, .. }
-            | Opcode::DMul { a, b, .. }
-            | Opcode::DDiv { a, b, .. }
-            | Opcode::DPow { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::DNeg { src, .. } => counts[*src as usize] += 1,
-            Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-                counts[*c as usize] += 1;
-            }
-            Opcode::And { a, b, .. }
-            | Opcode::Or { a, b, .. }
-            | Opcode::Xor { a, b, .. }
-            | Opcode::Shl { a, b, .. }
-            | Opcode::Shr { a, b, .. }
-            | Opcode::UShr { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::Not { src, .. } => counts[*src as usize] += 1,
-            Opcode::IEq { a, b, .. }
-            | Opcode::INe { a, b, .. }
-            | Opcode::ILt { a, b, .. }
-            | Opcode::ILe { a, b, .. }
-            | Opcode::ULt { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::FEq { a, b, .. }
-            | Opcode::FNe { a, b, .. }
-            | Opcode::FLt { a, b, .. }
-            | Opcode::FLe { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::MemEq { a, b, .. }
-            | Opcode::MemNe { a, b, .. }
-            | Opcode::SliceEq { a, b, .. }
-            | Opcode::SliceNe { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::DEq { a, b, .. } | Opcode::DLt { a, b, .. } | Opcode::DLe { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::I32ToF32 { src, .. }
-            | Opcode::F32ToI32 { src, .. }
-            | Opcode::I32ToF64 { src, .. }
-            | Opcode::F64ToI32 { src, .. }
-            | Opcode::F32ToF64 { src, .. }
-            | Opcode::F64ToF32 { src, .. }
-            | Opcode::I32ToI8 { src, .. }
-            | Opcode::I8ToI32 { src, .. }
-            | Opcode::I64ToU32 { src, .. } => counts[*src as usize] += 1,
-            Opcode::Load8 { addr, .. }
-            | Opcode::Load32 { addr, .. }
-            | Opcode::Load64 { addr, .. } => counts[*addr as usize] += 1,
-            Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => {
-                counts[*base as usize] += 1
-            }
-            Opcode::Store8 { addr, src }
-            | Opcode::Store32 { addr, src }
-            | Opcode::Store64 { addr, src } => {
-                counts[*addr as usize] += 1;
-                counts[*src as usize] += 1;
-            }
-            Opcode::Store8Off { base, src, .. }
-            | Opcode::Store32Off { base, src, .. }
-            | Opcode::Store64Off { base, src, .. } => {
-                counts[*base as usize] += 1;
-                counts[*src as usize] += 1;
-            }
-            Opcode::JumpIfZero { cond, .. } | Opcode::JumpIfNotZero { cond, .. } => {
-                counts[*cond as usize] += 1
-            }
-            Opcode::ILtJump { a, b, .. } | Opcode::FLtJump { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::Call {
-                args_start,
-                arg_count,
-                ..
-            } => {
-                for r in *args_start..(*args_start + *arg_count as Reg) {
-                    counts[r as usize] += 1;
-                }
-            }
-            Opcode::CallIndirect {
-                func_reg,
-                args_start,
-                arg_count,
-            } => {
-                counts[*func_reg as usize] += 1;
-                for r in *args_start..(*args_start + *arg_count as Reg) {
-                    counts[r as usize] += 1;
-                }
-            }
-            Opcode::CallClosure {
-                fat_ptr,
-                args_start,
-                arg_count,
-            } => {
-                counts[*fat_ptr as usize] += 1;
-                for r in *args_start..(*args_start + *arg_count as Reg) {
-                    counts[r as usize] += 1;
-                }
-            }
-            Opcode::GetClosurePtr { .. } => {}
-            Opcode::ReturnReg { src } => counts[*src as usize] += 1,
-            Opcode::MemCopy { dst, src, .. } => {
-                counts[*dst as usize] += 1;
-                counts[*src as usize] += 1;
-            }
-            Opcode::MemZero { dst, .. } => counts[*dst as usize] += 1,
-            // SaveRegs/RestoreRegs are function-level bookkeeping, not data flow.
-            // Exclude them from use counts so move forwarding works correctly.
-            Opcode::SaveRegs { .. } => {}
-            Opcode::RestoreRegs { .. } => {}
-            Opcode::PrintI32 { src }
-            | Opcode::PrintF32 { src }
-            | Opcode::Assert { src }
-            | Opcode::Putc { src } => counts[*src as usize] += 1,
-            Opcode::SinF32 { src, .. }
-            | Opcode::CosF32 { src, .. }
-            | Opcode::TanF32 { src, .. }
-            | Opcode::LnF32 { src, .. }
-            | Opcode::ExpF32 { src, .. }
-            | Opcode::SqrtF32 { src, .. }
-            | Opcode::AbsF32 { src, .. }
-            | Opcode::FloorF32 { src, .. }
-            | Opcode::CeilF32 { src, .. }
-            | Opcode::AsinF32 { src, .. }
-            | Opcode::AcosF32 { src, .. }
-            | Opcode::AtanF32 { src, .. }
-            | Opcode::SinhF32 { src, .. }
-            | Opcode::CoshF32 { src, .. }
-            | Opcode::TanhF32 { src, .. }
-            | Opcode::AsinhF32 { src, .. }
-            | Opcode::AcoshF32 { src, .. }
-            | Opcode::AtanhF32 { src, .. }
-            | Opcode::Exp2F32 { src, .. }
-            | Opcode::Log10F32 { src, .. }
-            | Opcode::Log2F32 { src, .. }
-            | Opcode::IsinfF32 { src, .. }
-            | Opcode::IsnanF32 { src, .. } => counts[*src as usize] += 1,
-            Opcode::SinF64 { src, .. }
-            | Opcode::CosF64 { src, .. }
-            | Opcode::TanF64 { src, .. }
-            | Opcode::LnF64 { src, .. }
-            | Opcode::ExpF64 { src, .. }
-            | Opcode::SqrtF64 { src, .. }
-            | Opcode::AbsF64 { src, .. }
-            | Opcode::FloorF64 { src, .. }
-            | Opcode::CeilF64 { src, .. }
-            | Opcode::AsinF64 { src, .. }
-            | Opcode::AcosF64 { src, .. }
-            | Opcode::AtanF64 { src, .. }
-            | Opcode::SinhF64 { src, .. }
-            | Opcode::CoshF64 { src, .. }
-            | Opcode::TanhF64 { src, .. }
-            | Opcode::AsinhF64 { src, .. }
-            | Opcode::AcoshF64 { src, .. }
-            | Opcode::AtanhF64 { src, .. }
-            | Opcode::Exp2F64 { src, .. }
-            | Opcode::Log10F64 { src, .. }
-            | Opcode::Log2F64 { src, .. }
-            | Opcode::IsinfF64 { src, .. }
-            | Opcode::IsnanF64 { src, .. } => counts[*src as usize] += 1,
-            Opcode::PowF32 { a, b, .. }
-            | Opcode::Atan2F32 { a, b, .. }
-            | Opcode::MinF32 { a, b, .. }
-            | Opcode::MaxF32 { a, b, .. }
-            | Opcode::PowF64 { a, b, .. }
-            | Opcode::Atan2F64 { a, b, .. }
-            | Opcode::MinF64 { a, b, .. }
-            | Opcode::MaxF64 { a, b, .. } => {
-                counts[*a as usize] += 1;
-                counts[*b as usize] += 1;
-            }
-            Opcode::StoreSlot32 { src, .. } => counts[*src as usize] += 1,
-            _ => {}
-        }
+        for_each_src(op, |r| {
+            counts[r as usize] += 1;
+        });
     }
     counts
 }
@@ -894,7 +667,7 @@ fn compute_use_counts_fast(code: &[Opcode]) -> Vec<u16> {
 /// and R is only used by that Move. Rewrite the instruction to write to D directly
 /// and NOP the Move.
 fn move_forwarding(code: &mut [Opcode]) {
-    let uses = compute_use_counts_fast(code);
+    let uses = compute_use_counts(code);
 
     // Count how many times each register is defined (written to).
     // If move_dst is defined more than once (e.g. from both branches of
@@ -1396,7 +1169,7 @@ fn replace_src_reg(op: &mut Opcode, old: Reg, new: Reg) {
 /// where A is only used by the Load32. Fuse into `LoadSlot32 { dst: B, slot: S }`.
 /// Similarly for Store32.
 fn fuse_local_access(code: &mut Vec<Opcode>) {
-    let uses = compute_use_counts_fast(code);
+    let uses = compute_use_counts(code);
 
     for i in 0..code.len().saturating_sub(1) {
         if let Opcode::LocalAddr {
@@ -1429,7 +1202,7 @@ fn fuse_local_access(code: &mut Vec<Opcode>) {
 /// where A is only used by the Store32. Fuse into `Store32Off { base: B, offset: N, src: V }`.
 /// Similarly for Load32, Load64, Store64, etc.
 fn fuse_offset_access(code: &mut Vec<Opcode>) {
-    let uses = compute_use_counts_fast(code);
+    let uses = compute_use_counts(code);
 
     for i in 0..code.len().saturating_sub(1) {
         if let Opcode::IAddImm {
@@ -1476,7 +1249,7 @@ fn fuse_offset_access(code: &mut Vec<Opcode>) {
 ///   ILt { dst, a, b } + JumpIfZero { cond: dst, offset } → ILtJump { a, b, offset }
 ///   FLt { dst, a, b } + JumpIfZero { cond: dst, offset } → FLtJump { a, b, offset }
 fn fuse_compare_branch(code: &mut Vec<Opcode>) {
-    let uses = compute_use_counts_fast(code);
+    let uses = compute_use_counts(code);
 
     // Don't fuse if the JumpIfZero is a jump target, because another path
     // can reach it without executing the preceding compare.
