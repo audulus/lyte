@@ -57,6 +57,8 @@ pub use monomorph::*;
 mod monomorph_pass;
 pub use monomorph_pass::*;
 
+pub mod opcode;
+
 pub mod vm;
 
 #[cfg(target_arch = "aarch64")]

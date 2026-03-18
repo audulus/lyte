@@ -190,7 +190,7 @@ fn make_memory_safe(code: &mut Vec<Opcode>) {
         // Check if any source register is tainted.
         let src_tainted = {
             let mut any = false;
-            lyte::vm_optimize::for_each_src(&code[i], |r| {
+            code[i].for_each_src(|r| {
                 if tainted[r as usize] { any = true; }
             });
             any
@@ -248,7 +248,7 @@ fn make_memory_safe(code: &mut Vec<Opcode>) {
 }
 
 fn get_dst(op: &Opcode) -> Option<u16> {
-    lyte::vm_optimize::get_dst(op)
+    op.get_dst()
 }
 
 /// Capture everything written to stdout (fd 1) during `f()`.
