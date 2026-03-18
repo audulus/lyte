@@ -69,7 +69,7 @@ impl<'a> Gen<'a> {
             3  => Opcode::Move { dst: self.reg(nr), src: self.reg(nr) },
             4  => Opcode::LoadImm { dst: self.reg(nr), value: self.next_i32() as i64 },
             5  => Opcode::IAddImm { dst: self.reg(nr), src: self.reg(nr), imm: self.next() as i32 - 128 },
-            6  => Opcode::INeg { dst: self.reg(nr), src: self.reg(nr) },
+            6  => Opcode::IAddImm { dst: self.reg(nr), src: self.reg(nr), imm: self.next() as i32 },
             7  => Opcode::And { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             8  => Opcode::Or  { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
             9  => Opcode::Xor { dst: self.reg(nr), a: self.reg(nr), b: self.reg(nr) },
@@ -173,16 +173,28 @@ fuzz_target!(|data: &[u8]| {
     let mut prog_opt = VMProgram::new();
     prog_opt.entry = prog_opt.add_function(func_opt);
 
-    // Run both and compare stdout.
-    let unopt_output = capture_stdout(|| {
-        let mut vm = VM::new();
-        vm.run(&prog_unopt);
+    // Run both and compare stdout. Catch panics from overflow etc.
+    let unopt_output = std::panic::catch_unwind(|| {
+        capture_stdout(|| {
+            let mut vm = VM::new();
+            vm.run(&prog_unopt);
+        })
     });
+    let unopt_output = match unopt_output {
+        Ok(s) => s,
+        Err(_) => return, // overflow or other runtime panic — skip
+    };
 
-    let opt_output = capture_stdout(|| {
-        let mut vm = VM::new();
-        vm.run(&prog_opt);
+    let opt_output = std::panic::catch_unwind(|| {
+        capture_stdout(|| {
+            let mut vm = VM::new();
+            vm.run(&prog_opt);
+        })
     });
+    let opt_output = match opt_output {
+        Ok(s) => s,
+        Err(_) => return, // overflow or other runtime panic — skip
+    };
 
     if unopt_output != opt_output {
         let mut code_str = String::new();

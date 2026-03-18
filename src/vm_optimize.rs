@@ -1524,11 +1524,15 @@ fn compute_live_ranges(code: &[Opcode]) -> (Vec<u32>, Vec<u32>, Vec<bool>) {
             if def_point[d] == u32::MAX {
                 def_point[d] = i;
             }
+            // Extend range to cover all definitions. A later write to this
+            // register still occupies the physical register, so it must not
+            // be reused by another virtual register before the last write.
+            last_use[d] = last_use[d].max(i);
             is_used[d] = true;
         }
         for_each_src(op, |r| {
             let u = r as usize;
-            last_use[u] = i;
+            last_use[u] = last_use[u].max(i);
             is_used[u] = true;
             if def_point[u] == u32::MAX {
                 def_point[u] = 0;
