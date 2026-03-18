@@ -57,7 +57,7 @@ pub mod vm;
 #[cfg(target_arch = "aarch64")]
 pub mod vm_arm64;
 
-mod vm_optimize;
+pub mod vm_optimize;
 
 pub mod vm_codegen;
 

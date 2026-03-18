@@ -53,3 +53,9 @@ name = "differential"
 path = "fuzz_targets/differential.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "optimizer"
+path = "fuzz_targets/optimizer.rs"
+test = false
+doc = false
