@@ -52,12 +52,8 @@ Panics are ok because they are caught and turned into ICE
 - [ ] Safe transmutation — restrict type system to make transmute safe (noted as not planned in `src/README.md`)
 - [ ] Optimization passes between AST and codegen
 
-  1. Extend the optimizer fuzzer with memory ops — currently it only generates register arithmetic. Adding LocalAddr, Load32, Store32, and AllocLocals would exercise the fuse_local_access and fuse_offset_access passes, which are untested by
-  the fuzzer.
   2. Differential fuzz the full pipeline at the Lyte source level — the existing differential fuzzer generates simple programs (int arithmetic, for loops). Extending the program generator to emit structs, arrays, enums, and function calls
   would catch codegen bugs the current generator can't reach.
-  3. Translation validation in debug builds — after optimize(), assert that no two simultaneously-live registers share a physical register. This catches register allocation bugs at the point of failure rather than as wrong output downstream.
-  Cheap to check, catches exactly the class of bug we fixed.
   4. Round-trip the type checker — fuzz with random valid ASTs, type-check, serialize the checked AST, re-parse and re-check, verify same result. Would catch inconsistencies between the parser and checker.
   5. Fuzz the packed bytecode encoding — generate random Vec<Opcode>, pack into LinkedProgram, unpack back, verify round-trip. The packing has edge cases (wide variants, 2-word instructions, jump offset fixups) that could silently corrupt
   programs.
