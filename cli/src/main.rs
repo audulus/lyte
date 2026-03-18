@@ -111,8 +111,15 @@ fn run(args: Args) -> i32 {
         args.backend.clone()
     };
     let should_run = !args.check && !args.ast && !args.bytecode && !args.ir;
+    #[cfg(feature = "cranelift")]
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
+    #[cfg(not(feature = "cranelift"))]
+    let run_jit = false;
+    // Fall back to VM when no JIT backend is available and no backend specified.
+    #[cfg(feature = "cranelift")]
     let run_vm = should_run && backend == "vm";
+    #[cfg(not(feature = "cranelift"))]
+    let run_vm = should_run && (backend.is_empty() || backend == "vm");
     #[cfg(target_arch = "aarch64")]
     let run_asm = should_run && backend == "asm";
     #[cfg(not(target_arch = "aarch64"))]
@@ -150,6 +157,7 @@ fn run(args: Args) -> i32 {
 
         let compile_elapsed = compile_start.elapsed();
 
+        #[cfg(feature = "cranelift")]
         if run_jit {
             if args.timing {
                 eprintln!("compile: {:.0}µs", compile_elapsed.as_micros());
@@ -181,8 +189,10 @@ fn run(args: Args) -> i32 {
                 #[cfg(feature = "llvm")]
                 compiler.print_llvm_ir();
             } else {
-                // Cranelift JIT: compile (prints IR via print_ir flag) but don't execute.
-                let _ = compiler.jit();
+                #[cfg(feature = "cranelift")]
+                {
+                    let _ = compiler.jit();
+                }
             }
         }
 

@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 // Re-export CANCEL_FLAG_RESERVED so it matches the Cranelift JIT layout.
-pub use crate::jit::CANCEL_FLAG_RESERVED;
+pub use crate::cancel::CANCEL_FLAG_RESERVED;
 
 // External builtins (same implementations as in jit.rs).
 extern "C" fn llvm_lyte_assert(val: i8) {
@@ -217,7 +217,7 @@ unsafe extern "C" fn llvm_lyte_cancel_check(globals: *mut u8) {
     extern "C" {
         fn longjmp(env: *mut u8, val: i32) -> !;
     }
-    use crate::jit::*;
+    use crate::cancel::*;
 
     // Reset counter
     *(globals.add(CANCEL_COUNTER_OFFSET as usize) as *mut i32) = CANCEL_CHECK_INTERVAL;
@@ -537,8 +537,8 @@ fn compile_and_run_with_context(
             fn setjmp(env: *mut u8) -> i32;
         }
         // Initialize cancel counter (no callback = no cancellation).
-        crate::jit::set_cancel_callback(globals.as_mut_ptr(), None, std::ptr::null_mut());
-        let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
+        crate::cancel::set_cancel_callback(globals.as_mut_ptr(), None, std::ptr::null_mut());
+        let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
         if setjmp(jmp_buf_ptr) == 0 {
             let code_fn: Entry = std::mem::transmute(fn_addr);
             let null_closure: *mut u8 = std::ptr::null_mut();

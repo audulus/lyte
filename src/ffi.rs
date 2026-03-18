@@ -403,12 +403,12 @@ pub unsafe extern "C" fn lyte_entry_point_call(
             fn setjmp(env: *mut u8) -> i32;
         }
         type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
-        crate::jit::set_cancel_callback(
+        crate::cancel::set_cancel_callback(
             globals,
             program.cancel_callback,
             program.cancel_userdata,
         );
-        let jmp_buf_ptr = globals.add(crate::jit::JMPBUF_OFFSET);
+        let jmp_buf_ptr = globals.add(crate::cancel::JMPBUF_OFFSET);
         if setjmp(jmp_buf_ptr) == 0 {
             let code_fn: Entry = std::mem::transmute(ep.fn_addr);
             code_fn(globals, ptr::null_mut());
@@ -460,7 +460,7 @@ pub unsafe extern "C" fn lyte_globals_alloc(ptr: *const LyteProgram) -> *mut u8 
     let mem = std::alloc::alloc_zeroed(layout);
     // Initialize cancel counter.
     if !mem.is_null() {
-        *(mem as *mut i32) = crate::jit::CANCEL_CHECK_INTERVAL;
+        *(mem as *mut i32) = crate::cancel::CANCEL_CHECK_INTERVAL;
     }
     mem
 }

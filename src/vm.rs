@@ -1971,7 +1971,7 @@ impl VM {
         let regs = self.registers.as_mut_ptr();
         let mut ip: usize = linked.func_offsets[func_idx as usize];
         let mut locals_base: usize = 0;
-        let mut cancel_counter: i32 = crate::jit::CANCEL_CHECK_INTERVAL;
+        let mut cancel_counter: i32 = crate::cancel::CANCEL_CHECK_INTERVAL;
 
         loop {
             let op = unsafe { *ops.add(ip) };
@@ -2399,7 +2399,7 @@ impl VM {
                         if off < 0 {
                             cancel_counter -= 1;
                             if cancel_counter <= 0 {
-                                cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
                                 if let Some(cb) = self.cancel_callback {
                                     if cb(self.cancel_userdata) {
                                         self.cancelled = true;
@@ -2417,7 +2417,7 @@ impl VM {
                             if off < 0 {
                                 cancel_counter -= 1;
                                 if cancel_counter <= 0 {
-                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
                                     if let Some(cb) = self.cancel_callback {
                                         if cb(self.cancel_userdata) {
                                             self.cancelled = true;
@@ -2436,7 +2436,7 @@ impl VM {
                             if off < 0 {
                                 cancel_counter -= 1;
                                 if cancel_counter <= 0 {
-                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
                                     if let Some(cb) = self.cancel_callback {
                                         if cb(self.cancel_userdata) {
                                             self.cancelled = true;
@@ -2456,7 +2456,7 @@ impl VM {
                             if off < 0 {
                                 cancel_counter -= 1;
                                 if cancel_counter <= 0 {
-                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
                                     if let Some(cb) = self.cancel_callback {
                                         if cb(self.cancel_userdata) {
                                             self.cancelled = true;
@@ -2475,7 +2475,7 @@ impl VM {
                             if off < 0 {
                                 cancel_counter -= 1;
                                 if cancel_counter <= 0 {
-                                    cancel_counter = crate::jit::CANCEL_CHECK_INTERVAL;
+                                    cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
                                     if let Some(cb) = self.cancel_callback {
                                         if cb(self.cancel_userdata) {
                                             self.cancelled = true;

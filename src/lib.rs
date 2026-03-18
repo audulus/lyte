@@ -33,7 +33,12 @@ pub use solver::*;
 mod decl_table;
 pub use decl_table::*;
 
+pub mod cancel;
+pub use cancel::*;
+
+#[cfg(feature = "cranelift")]
 mod jit;
+#[cfg(feature = "cranelift")]
 pub use jit::*;
 
 #[cfg(feature = "llvm")]

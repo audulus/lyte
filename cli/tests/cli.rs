@@ -14,6 +14,7 @@ fn run_golden_tests(backend: &str) -> goldentests::TestResult<()> {
 }
 
 #[test]
+#[cfg(feature = "cranelift")]
 fn golden_tests_jit() -> goldentests::TestResult<()> {
     run_golden_tests("jit")
 }

@@ -10,6 +10,8 @@ name = "lyte"
 path = "src/main.rs"
 
 [features]
+default = ["cranelift"]
+cranelift = ["lyte/cranelift"]
 llvm = ["lyte/llvm"]
 
 [dependencies]

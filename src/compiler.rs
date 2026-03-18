@@ -594,9 +594,7 @@ impl Compiler {
     }
 
     /// Compile to native code via Cranelift JIT.
-    /// Returns (code_ptr, globals_size, jit_module).
-    /// The JIT module must be kept alive while the code pointer is in use —
-    /// dropping it frees the executable memory.
+    #[cfg(feature = "cranelift")]
     pub fn jit(&self) -> Result<(*const u8, usize, JIT), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
@@ -608,7 +606,7 @@ impl Compiler {
     }
 
     /// Compile to native code via Cranelift JIT with multiple entry points.
-    /// Returns (entry_point_map, globals_size, jit_module).
+    #[cfg(feature = "cranelift")]
     pub fn jit_multi(&self) -> Result<(HashMap<Name, *const u8>, usize, JIT), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
@@ -620,25 +618,24 @@ impl Compiler {
         Ok((map, globals_size, jit))
     }
 
+    #[cfg(feature = "cranelift")]
     pub fn run(&mut self) {
         let r = self.jit();
         if let Ok((code_ptr, globals_size, jit)) = r {
             println!("compilation successful");
 
-            // Allocate zeroed global memory and pass to main.
             type Entry = fn(*mut u8) -> ();
             let mut globals: Vec<u8> = vec![0u8; globals_size];
             let cancelled = unsafe {
                 extern "C" {
                     fn setjmp(env: *mut u8) -> i32;
                 }
-                // Initialize cancel counter (no callback = no cancellation).
-                crate::jit::set_cancel_callback(
+                crate::cancel::set_cancel_callback(
                     globals.as_mut_ptr(),
                     None,
                     std::ptr::null_mut(),
                 );
-                let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
+                let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
                 if setjmp(jmp_buf_ptr) == 0 {
                     let code_fn = mem::transmute::<_, Entry>(code_ptr);
                     code_fn(globals.as_mut_ptr());
@@ -650,7 +647,6 @@ impl Compiler {
             if cancelled {
                 println!("execution cancelled");
             }
-            // Free JIT executable memory now that code is no longer running.
             jit.free_memory();
         } else if let Err(e) = r {
             eprintln!("compilation error: {}", e);
@@ -705,6 +701,7 @@ impl Compiler {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "cranelift")]
     fn jit(code: &str) {
         let mut compiler = Compiler::new();
         let paths = vec![String::from(".")];
@@ -716,6 +713,7 @@ mod tests {
         compiler.run();
     }
 
+    #[cfg(feature = "cranelift")]
     #[test]
     fn test_infinite_loop_cancels() {
         let code = r#"
@@ -744,12 +742,12 @@ mod tests {
             extern "C" {
                 fn setjmp(env: *mut u8) -> i32;
             }
-            crate::jit::set_cancel_callback(
+            crate::cancel::set_cancel_callback(
                 globals.as_mut_ptr(),
                 Some(always_cancel),
                 std::ptr::null_mut(),
             );
-            let jmp_buf_ptr = globals.as_mut_ptr().add(crate::jit::JMPBUF_OFFSET);
+            let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
             if setjmp(jmp_buf_ptr) == 0 {
                 type Entry = fn(*mut u8) -> ();
                 let code_fn = mem::transmute::<_, Entry>(code_ptr);
