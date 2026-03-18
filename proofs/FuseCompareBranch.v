@@ -356,21 +356,32 @@ Qed.
 (** ** 8. The Jump Target Guard *)
 
 (** The above theorems assume the ILt always executes before the branch.
-    This is guaranteed by the precondition that the JumpIfZero is NOT
-    a jump target — no other path can reach it without first executing
-    the ILt.
+    This is encoded by using a single [rf] parameter for both the ILt
+    and JumpIfZero — the theorems simply assume the register file is
+    the same at both instructions.
 
-    If the JumpIfZero WERE a jump target, another path could jump to it
-    with dst holding an arbitrary value (not the ILt result). The fused
-    ILtJump would then evaluate a < b on the current register state,
-    which could differ from the stale dst value. This is exactly the
-    bug that was found by the optimizer fuzzer and fixed by checking
-    jump targets before fusing.
+    This assumption holds iff execution flows sequentially from ILt to
+    JumpIfZero, i.e., no other path jumps to the JumpIfZero. The Rust
+    implementation enforces this by checking that the JumpIfZero is not
+    a jump target before fusing.
 
-    We model this as: the correctness theorems above require that the
-    register file [rf] at the ILt instruction is the SAME register file
-    that the JumpIfZero sees. This holds iff execution flows sequentially
-    from ILt to JumpIfZero (no other path jumps to the JumpIfZero). *)
+    LIMITATION: This proof does NOT formally verify the control-flow
+    precondition. It proves the data-flow equivalence of the rewrite
+    (same branch, same observations, same return value) but takes
+    sequential flow as an assumption rather than deriving it from the
+    program's control-flow graph. A stronger proof would model the
+    instruction pointer, resolve jumps, and show that "not a jump
+    target" implies sequential flow, which implies the single-rf
+    assumption. In practice, the Lyte codegen never produces a jump
+    whose target is a JumpIfZero following an ILt, so the guard is
+    purely defensive.
+
+    If the JumpIfZero WERE a jump target, another path could reach it
+    with a different register file. The fused ILtJump would evaluate
+    a < b on that different state, potentially taking a different
+    branch than the original JumpIfZero (which would test the stale
+    dst value). This is exactly the bug found by the optimizer fuzzer
+    and fixed by checking jump targets before fusing. *)
 
 Theorem jump_target_counterexample :
   forall (dst a b : Reg) (rf_at_ilt rf_at_jump : RegFile),
@@ -408,6 +419,8 @@ Qed.
       => s_not_read_in dst cont (dst is dead after the pair)
     - JumpIfZero is not a jump target (no alternate paths)
       => rf at ILt = rf at JumpIfZero (sequential flow)
+      NOTE: this precondition is assumed (single rf parameter),
+      not derived from control-flow analysis. See Section 8.
     - dst <> 0 (return register is not clobbered)
 
     One axiom: [srcs_correct_agrees] (same as MoveForwarding.v).
