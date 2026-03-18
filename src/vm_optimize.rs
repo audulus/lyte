@@ -807,14 +807,16 @@ fn replace_reg_uses_until_clobber(
             }
             _ => {}
         }
-        // Stop if new_reg gets clobbered
+        // Replace reads of old_reg with new_reg
+        replace_src_reg(&mut code[i], old_reg, new_reg);
+        // Stop if either register gets clobbered (the replacement is only
+        // valid while old_reg still holds the LocalAddr value and new_reg
+        // still holds the same address).
         if let Some(dst) = get_dst(&code[i]) {
-            if dst == new_reg {
+            if dst == new_reg || dst == old_reg {
                 break;
             }
         }
-        // Replace reads of old_reg with new_reg
-        replace_src_reg(&mut code[i], old_reg, new_reg);
     }
 }
 

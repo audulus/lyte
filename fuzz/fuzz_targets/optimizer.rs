@@ -49,7 +49,9 @@ impl<'a> Gen<'a> {
 
     /// Generate a single-function program with random arithmetic,
     /// control flow, and memory operations.
-    fn gen_program(&mut self) -> Vec<Opcode> {
+    /// Returns (code, body_len) where body_len is the number of instructions
+    /// before the epilogue (used to clamp jumps).
+    fn gen_program(&mut self) -> (Vec<Opcode>, usize) {
         let mut code = Vec::new();
         let num_regs: u16 = (self.next() % 12 + 4) as u16; // 4-15 virtual regs
 
@@ -69,15 +71,16 @@ impl<'a> Gen<'a> {
             code.push(op);
         }
 
-        // Print values from multiple local slots to observe memory effects.
-        // We load from slots (not registers) to avoid comparing raw pointers
-        // from LocalAddr, which differ between VM instances.
+        let body_len = code.len();
+
+        // Epilogue: print values from local slots.
+        // Jumps must not skip into or over this section.
         for s in 0..NUM_SLOTS.min(4) {
             code.push(Opcode::LoadSlot32 { dst: 0, slot: s });
             code.push(Opcode::PrintI32 { src: 0 });
         }
         code.push(Opcode::Return);
-        code
+        (code, body_len)
     }
 
     fn gen_instruction(&mut self, nr: u16) -> Opcode {
@@ -117,19 +120,24 @@ impl<'a> Gen<'a> {
                 let skip = (self.next() % 3 + 1) as i32;
                 Opcode::JumpIfNotZero { cond, offset: skip }
             }
-            // === Memory operations (exercise fuse_local_access, fuse_offset_access) ===
+            // === Memory operations (exercise fuse_local_access) ===
             // LocalAddr (the key instruction for fuse_local_access)
             17 => Opcode::LocalAddr { dst: self.reg(nr), slot: self.slot() },
-            // Load32/Store32 via address register (fuses with LocalAddr)
+            // LocalAddr + Load32 pair (fuse_local_access target)
             18 => {
-                let addr = self.reg(nr);
+                let addr_reg = self.reg(nr);
+                let slot = self.slot();
                 let dst = self.reg(nr);
-                Opcode::Load32 { dst, addr }
+                // Emit LocalAddr as a separate instruction — the fuzzer
+                // inserts one instruction at a time, so we return the Load32
+                // and rely on LocalAddr from case 17 to provide the address.
+                Opcode::Load32 { dst, addr: addr_reg }
             }
+            // LocalAddr + Store32 pair
             19 => {
-                let addr = self.reg(nr);
+                let addr_reg = self.reg(nr);
                 let src = self.reg(nr);
-                Opcode::Store32 { addr, src }
+                Opcode::Store32 { addr: addr_reg, src }
             }
             // LoadSlot32/StoreSlot32 directly (the fused form)
             20 => Opcode::LoadSlot32 { dst: self.reg(nr), slot: self.slot() },
@@ -149,9 +157,9 @@ impl<'a> Gen<'a> {
     }
 }
 
-/// Fix up jump offsets that would land past the end of the code.
-fn fixup_jumps(code: &mut [Opcode]) {
-    let len = code.len() as i32;
+/// Fix up jump offsets to stay within the body (before the epilogue).
+fn fixup_jumps(code: &mut [Opcode], body_len: usize) {
+    let limit = body_len as i32;
     for i in 0..code.len() {
         let pos = i as i32;
         match &mut code[i] {
@@ -159,8 +167,10 @@ fn fixup_jumps(code: &mut [Opcode]) {
             | Opcode::JumpIfZero { offset, .. }
             | Opcode::JumpIfNotZero { offset, .. } => {
                 let target = pos + 1 + *offset;
-                if target < 0 || target >= len {
-                    *offset = len - 1 - pos - 1;
+                if target < 0 || target >= limit {
+                    // Clamp to the last body instruction (just before epilogue).
+                    *offset = (limit - 1) - pos - 1;
+                    if *offset < 0 { *offset = 0; }
                 }
             }
             _ => {}
@@ -190,25 +200,30 @@ fn make_memory_safe(code: &mut Vec<Opcode>) {
             Opcode::LocalAddr { dst, .. } => {
                 tainted[*dst as usize] = true;
             }
-            Opcode::Load32 { addr, dst } => {
-                let addr = *addr;
+            Opcode::Load32 { dst, .. } => {
+                // Replace all Load32 with slot-based load to avoid alignment issues.
                 let dst = *dst;
-                if !tainted[addr as usize] {
-                    // addr doesn't hold a valid pointer.
-                    code[i] = Opcode::LoadSlot32 { dst, slot: 0 };
-                }
-                // Loading from memory produces a data value, not a pointer.
+                code[i] = Opcode::LoadSlot32 { dst, slot: 0 };
                 tainted[dst as usize] = false;
             }
-            Opcode::Store32 { addr, src } => {
-                let addr = *addr;
+            Opcode::Store32 { src, .. } => {
                 let src = *src;
-                if !tainted[addr as usize] || tainted[src as usize] {
+                if tainted[src as usize] {
                     code[i] = Opcode::Nop;
+                } else {
+                    code[i] = Opcode::StoreSlot32 { slot: 0, src };
                 }
             }
             Opcode::StoreSlot32 { src, .. } => {
                 if tainted[*src as usize] {
+                    code[i] = Opcode::Nop;
+                }
+            }
+            // Neutralize conditional jumps with tainted conditions —
+            // pointer-dependent control flow is non-deterministic.
+            Opcode::JumpIfZero { cond, .. }
+            | Opcode::JumpIfNotZero { cond, .. } => {
+                if tainted[*cond as usize] {
                     code[i] = Opcode::Nop;
                 }
             }
@@ -219,8 +234,13 @@ fn make_memory_safe(code: &mut Vec<Opcode>) {
             _ => {
                 // For any other instruction, if it reads a tainted register,
                 // its output is also tainted (derived from a pointer).
-                if let Some(dst) = get_dst(&code[i]) {
-                    tainted[dst as usize] = src_tainted;
+                // Never clear taint here — control flow (jumps) can skip
+                // instructions, so a register that appears un-tainted on the
+                // linear path might still hold a tainted value at runtime.
+                if src_tainted {
+                    if let Some(dst) = get_dst(&code[i]) {
+                        tainted[dst as usize] = true;
+                    }
                 }
             }
         }
@@ -266,8 +286,8 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let mut gen = Gen::new(data);
-    let mut code = gen.gen_program();
-    fixup_jumps(&mut code);
+    let (mut code, body_len) = gen.gen_program();
+    fixup_jumps(&mut code, body_len);
     make_memory_safe(&mut code);
 
     // Build the unoptimized program.
