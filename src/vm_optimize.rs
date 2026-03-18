@@ -9,6 +9,26 @@ use std::collections::HashSet;
 /// Sentinel value for unassigned registers in mapping vectors.
 const UNASSIGNED: Reg = Reg::MAX;
 
+/// Collect all jump target indices in the code.
+fn jump_targets(code: &[Opcode]) -> HashSet<usize> {
+    let mut targets = HashSet::new();
+    for (i, op) in code.iter().enumerate() {
+        let offset = match op {
+            Opcode::Jump { offset }
+            | Opcode::JumpIfZero { offset, .. }
+            | Opcode::JumpIfNotZero { offset, .. }
+            | Opcode::ILtJump { offset, .. }
+            | Opcode::FLtJump { offset, .. } => Some(*offset),
+            _ => None,
+        };
+        if let Some(off) = offset {
+            let target = (i as i32 + 1 + off) as usize;
+            targets.insert(target);
+        }
+    }
+    targets
+}
+
 /// Find the number of virtual registers used in the code (max reg + 1).
 fn num_vregs(code: &[Opcode]) -> usize {
     let mut max_r: Reg = 0;
@@ -933,22 +953,7 @@ fn move_forwarding(code: &mut [Opcode]) {
 /// rewrite downstream users to reference the original register and NOP the
 /// duplicate LocalAddr.
 fn redundant_local_addr(code: &mut [Opcode]) {
-    // Collect jump targets
-    let mut targets = HashSet::new();
-    for (i, op) in code.iter().enumerate() {
-        let offset = match op {
-            Opcode::Jump { offset }
-            | Opcode::JumpIfZero { offset, .. }
-            | Opcode::JumpIfNotZero { offset, .. }
-            | Opcode::ILtJump { offset, .. }
-            | Opcode::FLtJump { offset, .. } => Some(*offset),
-            _ => None,
-        };
-        if let Some(off) = offset {
-            let target = (i as i32 + 1 + off) as usize;
-            targets.insert(target);
-        }
-    }
+    let targets = jump_targets(code);
 
     // Track slot → register that holds its address
     // Key: slot, Value: register
@@ -1473,23 +1478,9 @@ fn fuse_offset_access(code: &mut Vec<Opcode>) {
 fn fuse_compare_branch(code: &mut Vec<Opcode>) {
     let uses = compute_use_counts_fast(code);
 
-    // Collect jump targets. Don't fuse if the JumpIfZero is a jump target,
-    // because another path can reach it without executing the preceding compare.
-    let mut targets = HashSet::new();
-    for (i, op) in code.iter().enumerate() {
-        let offset = match op {
-            Opcode::Jump { offset }
-            | Opcode::JumpIfZero { offset, .. }
-            | Opcode::JumpIfNotZero { offset, .. }
-            | Opcode::ILtJump { offset, .. }
-            | Opcode::FLtJump { offset, .. } => Some(*offset),
-            _ => None,
-        };
-        if let Some(off) = offset {
-            let target = (i as i32 + 1 + off) as usize;
-            targets.insert(target);
-        }
-    }
+    // Don't fuse if the JumpIfZero is a jump target, because another path
+    // can reach it without executing the preceding compare.
+    let targets = jump_targets(code);
 
     for i in 0..code.len().saturating_sub(1) {
         // Don't fuse if the JumpIfZero at i+1 is a jump target.
