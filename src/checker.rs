@@ -670,8 +670,10 @@ impl Checker {
                 let array_t = self.check_expr(*array_expr, arena, decls);
                 let idx_t = self.check_expr(*index_expr, arena, decls);
 
-                // Arrays always mutable?
-                self.lvalue[id] = true;
+                // Slice indexing is always an lvalue (slices are mutable references).
+                // Array indexing is an lvalue only if the array itself is.
+                self.lvalue[id] = self.lvalue[*array_expr]
+                    || matches!(*array_t, Type::Slice(_));
 
                 // Probably should allow both signed and unsigned indexing?
                 // self.eq(

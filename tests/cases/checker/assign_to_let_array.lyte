@@ -1,0 +1,9 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/assign_to_let_array.lyte:8:10: left-hand side of assignment isn't assignable
+//         a[0] = 99
+//              ^
+f {
+    let a = [1, 2, 3]
+    a[0] = 99
+}
