@@ -1,0 +1,9 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/assign_to_let.lyte:8:7: left-hand side of assignment isn't assignable
+//         x = 2
+//           ^
+f {
+    let x = 1
+    x = 2
+}

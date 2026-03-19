@@ -567,7 +567,7 @@ impl Checker {
                 self.vars.push(Var {
                     name: *name,
                     ty,
-                    mutable: true,
+                    mutable: false,
                 });
 
                 ty
