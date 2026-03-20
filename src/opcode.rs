@@ -2126,24 +2126,36 @@ impl Opcode {
                 *a = map[*a as usize];
                 *b = map[*b as usize];
             }
-            Opcode::Call { args_start, .. } => {
-                *args_start = map[*args_start as usize];
+            Opcode::Call {
+                args_start,
+                arg_count,
+                ..
+            } => {
+                if *arg_count > 0 {
+                    *args_start = map[*args_start as usize];
+                }
             }
             Opcode::CallIndirect {
                 func_reg,
                 args_start,
+                arg_count,
                 ..
             } => {
                 *func_reg = map[*func_reg as usize];
-                *args_start = map[*args_start as usize];
+                if *arg_count > 0 {
+                    *args_start = map[*args_start as usize];
+                }
             }
             Opcode::CallClosure {
                 fat_ptr,
                 args_start,
+                arg_count,
                 ..
             } => {
                 *fat_ptr = map[*fat_ptr as usize];
-                *args_start = map[*args_start as usize];
+                if *arg_count > 0 {
+                    *args_start = map[*args_start as usize];
+                }
             }
             Opcode::GetClosurePtr { dst } => {
                 *dst = map[*dst as usize];

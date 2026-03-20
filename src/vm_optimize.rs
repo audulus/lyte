@@ -52,6 +52,7 @@ pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>
     // Run optimization passes iteratively until no more changes.
     for _ in 0..3 {
         move_forwarding(code);
+        copy_propagation(code);
         redundant_local_addr(code);
         dead_code_elimination(code);
     }
@@ -225,6 +226,120 @@ fn move_forwarding(code: &mut [Opcode]) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Copy propagation: for `Move { dst: D, src: S }`, replace reads of D with S
+/// in subsequent instructions, then NOP the Move when all uses are propagated.
+///
+/// Mechanically derived from `proofs/CopyPropagation.v`, Theorem
+/// `copy_propagation_correct`. Each precondition check and rewrite step
+/// corresponds to a named component in the proof:
+///
+///   (P1) D ≠ S                — self-moves are no-ops
+///   (P2) D ≠ 0                — never clobber the return register
+///   (P3) not_written_in D     — defs[D] == 1 (only the Move defines D)
+///   (P4) not_written_in S     — stop propagation when S is clobbered
+///   (P5) opaque_safe D        — stop before Call/SaveRegs/RestoreRegs
+///                               (Opaque instructions whose args_start denotes
+///                               a contiguous register range — substituting one
+///                               register would shift the entire range)
+///   [subst_src_instr D S]     — replace_src_reg(D, S) on each instruction
+///   [Opaque unchanged]        — break before Call/SaveRegs/RestoreRegs
+///   [Nop]                     — code[i] = Opcode::Nop
+///
+/// This catches cases move_forwarding misses (e.g., after Call, whose dst
+/// can't be redirected).
+fn copy_propagation(code: &mut [Opcode]) {
+    let targets = jump_targets(code);
+    let uses = compute_use_counts(code);
+
+    // [P3] Count definitions per register. D must have exactly one def (the Move).
+    let n = num_vregs(code);
+    let mut defs = vec![0u32; n];
+    for op in code.iter() {
+        if let Some(dst) = op.get_dst() {
+            if (dst as usize) < n {
+                defs[dst as usize] += 1;
+            }
+        }
+    }
+
+    for i in 0..code.len() {
+        if let Opcode::Move { dst: d, src: s } = code[i] {
+            // [P1] D ≠ S
+            if d == s {
+                continue;
+            }
+            // [P2] D ≠ 0
+            if d == 0 {
+                continue;
+            }
+            // [P3] not_written_in D rest: D has exactly one definition (this Move)
+            if defs[d as usize] != 1 {
+                continue;
+            }
+
+            // [subst_src D S rest]: replace reads of D with S in subsequent
+            // instructions within the basic block.
+            let mut propagated = 0u16;
+            for j in (i + 1)..code.len() {
+                // Basic block boundary — the proof assumes sequential flow.
+                if targets.contains(&j) {
+                    break;
+                }
+
+                // [P5] opaque_safe D: stop before Opaque instructions.
+                // Call/CallIndirect/CallClosure have args_start denoting a
+                // contiguous register range — substituting one register would
+                // shift the entire range. SaveRegs/RestoreRegs have similar
+                // range semantics. The proof models these as Opaque.
+                match code[j] {
+                    Opcode::Call { .. }
+                    | Opcode::CallIndirect { .. }
+                    | Opcode::CallClosure { .. }
+                    | Opcode::SaveRegs { .. }
+                    | Opcode::RestoreRegs { .. } => break,
+                    _ => {}
+                }
+
+                // Count source operand slots that reference D (before replacing).
+                code[j].for_each_src(|r| {
+                    if r == d {
+                        propagated += 1;
+                    }
+                });
+
+                // [subst_src_instr D S]: replace reads of D with S.
+                code[j].replace_src_reg(d, s);
+
+                // [P4] not_written_in S rest: stop if S is clobbered.
+                // Also stop if D is somehow written (defensive; shouldn't
+                // happen with defs[D]==1).
+                if let Some(dst) = code[j].get_dst() {
+                    if dst == s || dst == d {
+                        break;
+                    }
+                }
+
+                // Stop at control flow (branches leave the basic block).
+                match code[j] {
+                    Opcode::Jump { .. }
+                    | Opcode::JumpIfZero { .. }
+                    | Opcode::JumpIfNotZero { .. }
+                    | Opcode::ILtJump { .. }
+                    | Opcode::FLtJump { .. } => break,
+                    _ => {}
+                }
+            }
+
+            // [Nop]: only NOP the Move if ALL uses of D were propagated.
+            // If some uses are beyond the basic block or after S is clobbered,
+            // the Move must be preserved.
+            if propagated >= uses[d as usize] {
+                code[i] = Opcode::Nop;
             }
         }
     }
@@ -789,11 +904,22 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
         active.push((end, 0, 0));
     }
 
+    // Pin remaining parameter registers to themselves. The calling convention
+    // requires r0..param_count-1 to hold the function's parameters at entry.
+    for p in 1..(param_count as usize).min(n) {
+        if is_used[p] {
+            mapping[p] = p as Reg;
+            preg_free[p] = false;
+            let end = last_use[p].max(def_point[p]);
+            active.push((end, p as Reg, p as u8));
+        }
+    }
+
     // Cross-call registers will be assigned after the main allocation (see below).
 
     for &(vreg, start, end) in &intervals {
-        // Skip vreg 0 — already pinned
-        if vreg == 0 {
+        // Skip parameter registers — already pinned
+        if (vreg as usize) < param_count as usize {
             continue;
         }
         // Skip cross-call registers — assigned later above the compacted range
