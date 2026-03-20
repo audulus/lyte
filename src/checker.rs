@@ -257,12 +257,8 @@ impl Checker {
 
             mk_type(Type::Bool)
         } else if let Binop::Assign = op {
-            if !self.lvalue[lhs] {
-                self.errors.push(TypeError {
-                    location: arena.locs[id],
-                    message: "left-hand side of assignment isn't assignable".to_string(),
-                });
-            }
+            // Lvalue check is deferred to check_lvalues() after type solving,
+            // so that slice types are fully resolved.
 
             self.eq(
                 at,
@@ -670,10 +666,10 @@ impl Checker {
                 let array_t = self.check_expr(*array_expr, arena, decls);
                 let idx_t = self.check_expr(*index_expr, arena, decls);
 
-                // Slice indexing is always an lvalue (slices are mutable references).
-                // Array indexing is an lvalue only if the array itself is.
-                self.lvalue[id] = self.lvalue[*array_expr]
-                    || matches!(*array_t, Type::Slice(_));
+                // Preliminary lvalue: propagate from array expression.
+                // The final check (including slice mutability) is done in
+                // check_lvalues() after type solving.
+                self.lvalue[id] = self.lvalue[*array_expr];
 
                 // Probably should allow both signed and unsigned indexing?
                 // self.eq(
@@ -937,8 +933,43 @@ impl Checker {
                 );
             }
 
-            //println!("instance:");
-            //print_instance(&self.inst);
+            // Check lvalue validity now that types are solved.
+            if self.errors.is_empty() {
+                self.check_lvalues(func_decl);
+            }
+        }
+    }
+
+    /// Check that all assignments have valid lvalue targets, using solved types
+    /// to determine slice mutability.
+    fn check_lvalues(&mut self, func_decl: &FuncDecl) {
+        for id in 0..func_decl.arena.exprs.len() {
+            if let Expr::Binop(Binop::Assign, lhs, _) = &func_decl.arena[id] {
+                if !self.is_lvalue(*lhs, func_decl) {
+                    self.errors.push(TypeError {
+                        location: func_decl.arena.locs[id],
+                        message: "left-hand side of assignment isn't assignable".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Determine if an expression is an lvalue, using solved types.
+    fn is_lvalue(&self, id: ExprID, func_decl: &FuncDecl) -> bool {
+        match &func_decl.arena[id] {
+            Expr::Id(_) => self.lvalue[id],
+            Expr::Field(lhs, _) => self.is_lvalue(*lhs, func_decl),
+            Expr::ArrayIndex(array_expr, _) => {
+                // Slice indexing is always an lvalue (slices are mutable references).
+                let solved_ty = self.types[*array_expr].subst(&self.inst);
+                if matches!(*solved_ty, Type::Slice(_)) {
+                    return true;
+                }
+                // Array indexing is an lvalue only if the array itself is.
+                self.is_lvalue(*array_expr, func_decl)
+            }
+            _ => false,
         }
     }
 

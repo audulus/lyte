@@ -1,0 +1,14 @@
+// args: --check
+f(a: [i32]) {
+    if a.len > 0 {
+        a[0] = 42
+    }
+}
+
+g(a: [i32]) {
+    // b's type should be inferred as slice so assignable
+    let b = a
+    if b.len > 0 {
+        b[0] = 42
+    }
+}
