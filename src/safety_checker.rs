@@ -21,6 +21,13 @@ struct LenBound {
     pub array: Name,
 }
 
+/// Records that `array.len >= min_len` (the array has at least `min_len` elements).
+#[derive(Clone, Debug)]
+struct MinLenBound {
+    pub array: Name,
+    pub min_len: i64,
+}
+
 /// Local variable declaration.
 #[derive(Copy, Clone, Debug)]
 struct Var {
@@ -62,6 +69,9 @@ pub struct SafetyChecker {
     /// Symbolic length bounds: records that `index < array.len`.
     len_bounds: Vec<LenBound>,
 
+    /// Minimum length bounds: records that `array.len >= N`.
+    min_len_bounds: Vec<MinLenBound>,
+
     pub errors: Vec<SafetyError>,
 }
 
@@ -71,6 +81,7 @@ impl SafetyChecker {
             vars: vec![],
             constraints: vec![],
             len_bounds: vec![],
+            min_len_bounds: vec![],
             errors: vec![],
         }
     }
@@ -190,6 +201,37 @@ impl SafetyChecker {
                 let ival = self.check_expr(*lhs, decl, decls);
                 if ival.max != i64::MAX {
                     self.add(*name, None, Some(ival.max - 1));
+                }
+            }
+            // match `array.len > N` — record min length bound
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        let ival = self.check_expr(*rhs, decl, decls);
+                        if ival.min != i64::MAX {
+                            self.min_len_bounds.push(MinLenBound {
+                                array: *array_name,
+                                min_len: ival.min + 1,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // match `N < array.len` — record min length bound
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        let ival = self.check_expr(*lhs, decl, decls);
+                        if ival.min != i64::MAX {
+                            self.min_len_bounds.push(MinLenBound {
+                                array: *array_name,
+                                min_len: ival.min + 1,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -327,6 +369,7 @@ impl SafetyChecker {
             Expr::If(cond, then_expr, else_expr) => {
                 let initial_constraint_count = self.constraints.len();
                 let initial_len_bound_count = self.len_bounds.len();
+                let initial_min_len_bound_count = self.min_len_bounds.len();
 
                 self.match_expr(*cond, decl, decls);
 
@@ -339,6 +382,7 @@ impl SafetyChecker {
                     self.constraints.pop();
                 }
                 self.len_bounds.truncate(initial_len_bound_count);
+                self.min_len_bounds.truncate(initial_min_len_bound_count);
 
                 if let Some(else_expr) = else_expr {
                     let else_r = self.check_expr(*else_expr, decl, decls);
@@ -396,7 +440,17 @@ impl SafetyChecker {
                             .any(|b| b.index == idx && b.array == arr),
                         _ => false,
                     };
-                    if !has_len_bound {
+                    // Also check if the index is a constant within a proven min length.
+                    let has_min_len_bound = if let Some(arr) = array_name {
+                        rhs_r.max != i64::MAX
+                            && self
+                                .min_len_bounds
+                                .iter()
+                                .any(|b| b.array == arr && rhs_r.max < b.min_len)
+                    } else {
+                        false
+                    };
+                    if !has_len_bound && !has_min_len_bound {
                         self.errors.push(SafetyError {
                             location: decl.arena.locs[expr],
                             message: format!("couldn't prove index is less than slice length"),
@@ -409,11 +463,13 @@ impl SafetyChecker {
             Expr::While(cond, body) => {
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
+                let saved_min_len_bounds = self.min_len_bounds.clone();
                 self.match_expr(*cond, decl, decls);
 
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints;
                 self.len_bounds = saved_len_bounds;
+                self.min_len_bounds = saved_min_len_bounds;
 
                 IndexInterval::default()
             }
@@ -594,6 +650,7 @@ impl SafetyChecker {
             self.vars.clear();
             self.constraints.clear();
             self.len_bounds.clear();
+            self.min_len_bounds.clear();
         }
     }
 
