@@ -894,7 +894,9 @@ impl Checker {
                         .for_each(|pair| {
                             let t0 = mk_type(Type::Var(*pair.0));
                             let t1 = mk_type(Type::Var(*pair.1));
-                            inst.insert(t0, t1);
+                            if t0 != t1 {
+                                inst.insert(t0, t1);
+                            }
                         });
 
                     for func in &interface.funcs {

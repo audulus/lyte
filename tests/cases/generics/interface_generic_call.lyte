@@ -1,0 +1,17 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+interface Printable<T> {
+    to_int(x: T) -> i32
+}
+to_int(x: i32) -> i32 { x }
+to_int(x: bool) -> i32 { if x { 1 } else { 0 } }
+show<T>(x: T) -> i32 where Printable<T> { to_int(x) }
+main {
+    assert(show(42) == 42)
+    assert(show(true) == 1)
+    assert(show(false) == 0)
+}

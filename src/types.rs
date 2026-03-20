@@ -385,6 +385,9 @@ fn params_ty(params: &[Param]) -> TypeID {
 pub fn find(id: TypeID, inst: &Instance) -> TypeID {
     let mut id = id;
     while let Some(t) = inst.get(&id) {
+        if *t == id {
+            break; // Avoid infinite loop on identity mapping.
+        }
         id = *t;
     }
     id
