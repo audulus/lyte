@@ -1955,6 +1955,26 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
                 storage.into()
             }
+            Expr::Array(value_expr, _size_expr) => {
+                // Fill-array expression: [value; size], e.g. [0; 5]
+                let value_expr = *value_expr;
+                let fill_value = self.translate_expr(value_expr, decl);
+                let ty = decl.types[expr];
+                if let crate::Type::Array(elem_ty, sz) = &*ty {
+                    let count = sz.known();
+                    let elem_size = elem_ty.size(self.decls) as u64;
+                    let total_size = elem_size * count as u64;
+                    let storage = self.entry_array_alloca(self.i8_ty(), total_size, "arr_fill");
+                    for i in 0..count {
+                        let off = self.i64_ty().const_int(i as u64 * elem_size, false);
+                        let ptr = self.ptr_add_i64(storage, off);
+                        self.builder().build_store(ptr, fill_value).unwrap();
+                    }
+                    storage.into()
+                } else {
+                    panic!("LLVM JIT array fill: expected array type, got {:?}", ty);
+                }
+            }
             _ => {
                 panic!(
                     "LLVM JIT: unimplemented expression: {:?}",
