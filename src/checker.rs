@@ -710,7 +710,14 @@ impl Checker {
                     "array size must be an i32",
                 );
 
-                mk_type(Type::Array(value_t, ArraySize::Known(0)))
+                // Extract constant size when available (e.g. [0; 5]).
+                let array_size = match &arena[*size] {
+                    Expr::Int(n) => ArraySize::Known(*n as i32),
+                    Expr::UInt(n) => ArraySize::Known(*n as i32),
+                    _ => ArraySize::Known(0),
+                };
+
+                mk_type(Type::Array(value_t, array_size))
             }
             Expr::While(cond, body) => {
                 let cond_t = self.check_expr(*cond, arena, decls);
@@ -813,7 +820,7 @@ impl Checker {
     }
 
     fn find(&self, name: Name) -> Option<Var> {
-        for v in &self.vars {
+        for v in self.vars.iter().rev() {
             if v.name == name {
                 return Some(*v);
             }

@@ -1,0 +1,17 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    var a = [0; 5]
+    for i in 0 .. 5 {
+        a[i] = i * 2
+    }
+    assert(a[0] == 0)
+    assert(a[1] == 2)
+    assert(a[3] == 6)
+    assert(a[4] == 8)
+}

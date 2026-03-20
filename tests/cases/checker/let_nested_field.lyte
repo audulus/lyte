@@ -1,0 +1,12 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/let_nested_field.lyte:11:13: left-hand side of assignment isn't assignable
+//         c.b.a.x = 99
+//                 ^
+struct A { x: i32 }
+struct B { a: A }
+struct C { b: B }
+main {
+    let c = C(b: B(a: A(x: 1)))
+    c.b.a.x = 99
+}

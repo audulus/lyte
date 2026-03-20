@@ -1,0 +1,12 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/let_array_element.lyte:11:17: left-hand side of assignment isn't assignable
+//         frozen[0].a = 99
+//                     ^
+struct Pair { a: i32, b: i32 }
+main {
+    var arr: [Pair; 3]
+    arr[0].a = 1
+    let frozen = arr
+    frozen[0].a = 99
+}

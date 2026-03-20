@@ -1,0 +1,11 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/for_var_assign.lyte:9:11: left-hand side of assignment isn't assignable
+//             i = 99
+//               ^
+main {
+    var a = [10, 20, 30]
+    for i in 0 .. 3 {
+        i = 99
+    }
+}

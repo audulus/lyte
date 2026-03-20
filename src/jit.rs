@@ -1055,6 +1055,38 @@ impl<'a> FunctionTranslator<'a> {
                     );
                 }
             }
+            Expr::Array(value_expr, _size_expr) => {
+                // Fill-array expression: [value; size], e.g. [0; 5]
+                let fill_value = self.translate_expr(*value_expr, decl, decls);
+                let ty = decl.types[expr];
+
+                if let crate::Type::Array(elem_ty, sz) = &*ty {
+                    let count = sz.known();
+                    let element_size = elem_ty.size(decls) as u32;
+                    let total_size = element_size * count as u32;
+
+                    let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size: total_size,
+                        align_shift: 0,
+                        key: None,
+                    });
+
+                    let addr = self.builder.ins().stack_addr(I64, slot, 0);
+
+                    for i in 0..count {
+                        let offset = i * element_size as i32;
+                        self.builder.ins().stack_store(fill_value, slot, offset);
+                    }
+
+                    addr
+                } else {
+                    panic!(
+                        "JIT array fill: expected array type, got {:?}",
+                        decl.types[expr]
+                    );
+                }
+            }
             Expr::Block(exprs) => {
                 if exprs.is_empty() {
                     self.builder.ins().iconst(I32, 0)

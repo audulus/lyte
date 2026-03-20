@@ -1087,6 +1087,31 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::ArrayLiteral(elements) => self.translate_array_literal(elements, expr, func),
 
+            Expr::Array(value_expr, _size_expr) => {
+                // Fill-array expression: [value; size], e.g. [0; 5]
+                let fill_val = self.translate_expr(*value_expr, func);
+                let ty = self.expr_type(expr);
+                let size = ty.size(self.decls);
+
+                let slot = self.alloc_local(size as u32);
+                let addr_reg = self.alloc_reg();
+                func.emit(Opcode::LocalAddr {
+                    dst: addr_reg,
+                    slot,
+                });
+
+                if let Type::Array(elem_ty, sz) = &*ty {
+                    let count = sz.known();
+                    let elem_size = elem_ty.size(self.decls);
+                    for i in 0..count {
+                        let offset = i * elem_size;
+                        self.emit_store_offset(elem_ty, addr_reg, offset, fill_val, func);
+                    }
+                }
+
+                addr_reg
+            }
+
             Expr::String(s) => {
                 let bytes = s.as_bytes();
                 let total_size = bytes.len() as u32 + 1;
