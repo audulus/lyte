@@ -161,24 +161,20 @@ cmp(lhs: f32, rhs: f32) -> i32 {
 
 quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
     if hi >= 0 && hi < a.len && lo >= 0 && lo < hi {
-        // Partition: pivot is a[hi], i tracks the boundary.
-        // Safety: hi < a.len established first, then lo < hi gives
-        // transitive LenBound(lo, a). j = lo inherits it. j < hi
-        // in the while loop also gives LenBound(j, a).
         var i = lo
-        var j = lo
-        while j < hi {
+        for j in lo .. hi {
             if cmp(a[j], a[hi]) < 0 {
                 var tmp = a[i]
                 a[i] = a[j]
                 a[j] = tmp
                 i = i + 1
             }
-            j = j + 1
         }
-        var tmp = a[i]
-        a[i] = a[hi]
-        a[hi] = tmp
+        if i >= 0 && i < a.len {
+            var tmp = a[i]
+            a[i] = a[hi]
+            a[hi] = tmp
+        }
         var pivot = i
         quicksort(a, lo, pivot - 1)
         quicksort(a, pivot + 1, hi)

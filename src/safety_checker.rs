@@ -666,6 +666,21 @@ impl SafetyChecker {
                         }
                     }
                 }
+                // for i in lo .. hi where hi has a LenBound — transitive bound
+                if let Expr::Id(end_name) = &decl.arena[*end] {
+                    let transitive: Vec<_> = self
+                        .len_bounds
+                        .iter()
+                        .filter(|b| b.index == *end_name)
+                        .map(|b| b.array)
+                        .collect();
+                    for array in transitive {
+                        self.len_bounds.push(LenBound {
+                            index: *var,
+                            array,
+                        });
+                    }
+                }
                 self.check_expr(*body, decl, decls);
                 IndexInterval::default()
             }
