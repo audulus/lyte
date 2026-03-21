@@ -159,6 +159,21 @@ impl SafetyChecker {
                             self.add(*name, None, Some(max));
                         }
                     }
+                    // Transitive LenBound: if max_name < array.len (has a LenBound),
+                    // then name < max_name < array.len, so name also has a LenBound.
+                    // This lets `j < hi && hi < a.len` prove `a[j]` is in bounds.
+                    let transitive: Vec<_> = self
+                        .len_bounds
+                        .iter()
+                        .filter(|b| b.index == *max_name)
+                        .map(|b| b.array)
+                        .collect();
+                    for array in transitive {
+                        self.len_bounds.push(LenBound {
+                            index: *name,
+                            array,
+                        });
+                    }
                 }
                 // match i < array.len — record symbolic length bound
                 if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
@@ -318,6 +333,22 @@ impl SafetyChecker {
                     self.add_non_zero(*name);
                 }
 
+                // Propagate LenBounds: let x = y inherits y's LenBounds.
+                if let Expr::Id(src_name) = &decl.arena[*init] {
+                    let inherited: Vec<_> = self
+                        .len_bounds
+                        .iter()
+                        .filter(|b| b.index == *src_name)
+                        .map(|b| b.array)
+                        .collect();
+                    for array in inherited {
+                        self.len_bounds.push(LenBound {
+                            index: *name,
+                            array,
+                        });
+                    }
+                }
+
                 IndexInterval::default()
             }
             Expr::Var(name, init, _) => {
@@ -345,6 +376,25 @@ impl SafetyChecker {
                 if init_r.non_zero {
                     self.add_non_zero(*name);
                 }
+
+                // Propagate LenBounds: var x = y inherits y's LenBounds.
+                if let Some(init) = init {
+                    if let Expr::Id(src_name) = &decl.arena[*init] {
+                        let inherited: Vec<_> = self
+                            .len_bounds
+                            .iter()
+                            .filter(|b| b.index == *src_name)
+                            .map(|b| b.array)
+                            .collect();
+                        for array in inherited {
+                            self.len_bounds.push(LenBound {
+                                index: *name,
+                                array,
+                            });
+                        }
+                    }
+                }
+
                 IndexInterval::default()
             }
             Expr::Id(name) => {
