@@ -1,0 +1,21 @@
+// A variable assigned inside a loop should not retain its pre-loop
+// bounds after the loop exits. This would be a soundness hole:
+// the safety checker must reject a[i] since i could be 100.
+
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/loop_mutate_index_bad.lyte:20:5: couldn't prove index is >= 0
+//         a[i] = 42
+//         ^
+// ❌ ../tests/cases/arrays/loop_mutate_index_bad.lyte:20:5: couldn't prove index is less than array length
+//         a[i] = 42
+//         ^
+
+main {
+    var a: [i32; 5]
+    var i = 0
+    for j in 0 .. 5 {
+        i = 100
+    }
+    a[i] = 42
+}

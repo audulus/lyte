@@ -521,6 +521,11 @@ impl SafetyChecker {
                 self.len_bounds = saved_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
 
+                // Invalidate constraints for variables assigned inside the loop.
+                // The restore gives us pre-loop state, but mutations in the body
+                // mean those constraints may not hold at loop exit.
+                self.invalidate_assigned(*body, &decl.arena);
+
                 IndexInterval::default()
             }
             Expr::Binop(op, lhs, rhs) => {
@@ -691,6 +696,10 @@ impl SafetyChecker {
                 self.constraints = saved_constraints;
                 self.len_bounds = saved_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
+
+                // Invalidate constraints for variables assigned inside the loop.
+                self.invalidate_assigned(*body, &decl.arena);
+
                 IndexInterval::default()
             }
             Expr::ArrayLiteral(exprs) => {
@@ -700,6 +709,58 @@ impl SafetyChecker {
                 IndexInterval::default()
             }
             _ => IndexInterval::default(),
+        }
+    }
+
+    /// Collect all variable names that are assigned (via `=`) inside an expression tree.
+    fn collect_assigned_vars(expr: ExprID, arena: &ExprArena, out: &mut Vec<Name>) {
+        match &arena[expr] {
+            Expr::Binop(Binop::Assign, lhs, rhs) => {
+                if let Expr::Id(name) = &arena[*lhs] {
+                    out.push(*name);
+                }
+                Self::collect_assigned_vars(*rhs, arena, out);
+            }
+            Expr::Binop(_, lhs, rhs) => {
+                Self::collect_assigned_vars(*lhs, arena, out);
+                Self::collect_assigned_vars(*rhs, arena, out);
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    Self::collect_assigned_vars(*e, arena, out);
+                }
+            }
+            Expr::If(cond, then_expr, else_expr) => {
+                Self::collect_assigned_vars(*cond, arena, out);
+                Self::collect_assigned_vars(*then_expr, arena, out);
+                if let Some(e) = else_expr {
+                    Self::collect_assigned_vars(*e, arena, out);
+                }
+            }
+            Expr::While(cond, body) => {
+                Self::collect_assigned_vars(*cond, arena, out);
+                Self::collect_assigned_vars(*body, arena, out);
+            }
+            Expr::For { body, .. } => {
+                Self::collect_assigned_vars(*body, arena, out);
+            }
+            _ => {}
+        }
+    }
+
+    /// Invalidate constraints for variables that were assigned inside a loop body.
+    /// After save/restore, the restored constraints reflect pre-loop state, but
+    /// any variable mutated inside the loop could hold a different value at exit.
+    fn invalidate_assigned(
+        &mut self,
+        body: ExprID,
+        arena: &ExprArena,
+    ) {
+        let mut assigned = Vec::new();
+        Self::collect_assigned_vars(body, arena, &mut assigned);
+        for name in assigned {
+            self.constraints.retain(|c| c.name != name);
+            self.len_bounds.retain(|b| b.index != name);
         }
     }
 
