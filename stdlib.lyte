@@ -161,9 +161,10 @@ cmp(lhs: f32, rhs: f32) -> i32 {
 
 quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
     if hi >= 0 && hi < a.len && lo >= 0 && lo < hi {
+        let pivot_val = a[hi]
         var i = lo
         for j in lo .. hi {
-            if cmp(a[j], a[hi]) < 0 {
+            if cmp(a[j], pivot_val) < 0 {
                 var tmp = a[i]
                 a[i] = a[j]
                 a[j] = tmp
