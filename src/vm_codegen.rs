@@ -294,6 +294,34 @@ impl VMCodegen {
     }
 }
 
+/// Check if an expression is simple enough to inline: no blocks, control flow,
+/// let/var bindings, or nested calls. Only arithmetic, comparisons, literals,
+/// identifiers, type casts, and field access are allowed.
+fn is_inline_expr(id: ExprID, arena: &ExprArena) -> bool {
+    match &arena[id] {
+        Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) | Expr::Id(_) | Expr::True | Expr::False => {
+            true
+        }
+        Expr::Binop(op, lhs, rhs) => {
+            !matches!(op, Binop::Assign)
+                && is_inline_expr(*lhs, arena)
+                && is_inline_expr(*rhs, arena)
+        }
+        Expr::Unop(_, operand) => is_inline_expr(*operand, arena),
+        Expr::AsTy(inner, _) => is_inline_expr(*inner, arena),
+        Expr::Field(base, _) => is_inline_expr(*base, arena),
+        // A block with a single expression (e.g. `{ lhs - rhs }`) is inlineable.
+        Expr::Block(exprs) if exprs.len() == 1 => is_inline_expr(exprs[0], arena),
+        // If-else with simple branches (e.g. `if x < y { -1 } else { 1 }`)
+        Expr::If(cond, then_expr, Some(else_expr)) => {
+            is_inline_expr(*cond, arena)
+                && is_inline_expr(*then_expr, arena)
+                && is_inline_expr(*else_expr, arena)
+        }
+        _ => false,
+    }
+}
+
 /// A call instruction that needs patching.
 struct CallToPatch {
     /// Index of the Call instruction.
@@ -2073,6 +2101,21 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
+            // Try to inline small leaf functions. This avoids Call overhead
+            // for trivial functions like `cmp(lhs, rhs) { lhs - rhs }`.
+            if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
+                let callee_decls = self.decls.find(*callee_name);
+                for d in callee_decls {
+                    if let Decl::Func(callee) = d {
+                        if let Some(result) =
+                            self.try_inline(callee, arg_ids, func)
+                        {
+                            return result;
+                        }
+                    }
+                }
+            }
+
             // Get the return type of the call expression.
             let ret_ty = self.expr_type(call_expr);
             let returns_ptr = returns_via_pointer(ret_ty);
@@ -2605,6 +2648,78 @@ impl<'a> FunctionTranslator<'a> {
             self.emit_load(&elem_ty, dst, addr_reg, func);
             dst
         }
+    }
+
+    /// Try to inline a callee function at the call site. Returns Some(result_reg)
+    /// if inlining succeeded, None if the function is too complex to inline.
+    ///
+    /// Inlineable functions must:
+    /// - Have a body that is a single expression (not a block)
+    /// - Take only scalar (non-pointer) parameters
+    /// - Return a scalar (non-pointer) type
+    /// - Not be recursive
+    ///
+    /// The inlined body is translated using the callee's arena and types,
+    /// with callee parameter names temporarily bound to argument registers.
+    fn try_inline(
+        &mut self,
+        callee: &'a FuncDecl,
+        arg_ids: &[ExprID],
+        func: &mut VMFunction,
+    ) -> Option<Reg> {
+        let body = callee.body?;
+
+        // Only inline functions with matching parameter count.
+        if callee.params.len() != arg_ids.len() {
+            return None;
+        }
+
+        // Only inline if the return type is scalar (not a pointer/struct/tuple).
+        if returns_via_pointer(callee.ret) {
+            return None;
+        }
+
+        // Only inline scalar parameters (no slices, structs, arrays).
+        for param in &callee.params {
+            if let Some(ty) = param.ty {
+                if ty.is_ptr() || matches!(&*ty, Type::Slice(_)) {
+                    return None;
+                }
+            }
+        }
+
+        // Only inline simple expression bodies (no blocks, no control flow).
+        if !is_inline_expr(body, &callee.arena) {
+            return None;
+        }
+
+        // Evaluate arguments in the caller's context.
+        let arg_regs: Vec<Reg> = arg_ids
+            .iter()
+            .map(|arg| self.translate_expr(*arg, func))
+            .collect();
+
+        // Temporarily bind callee parameters to argument registers.
+        for (param, &reg) in callee.params.iter().zip(arg_regs.iter()) {
+            self.variables.insert(param.name, reg);
+            self.reg_promoted.insert(param.name);
+        }
+
+        // Save the caller's decl and switch to the callee's.
+        let saved_decl = self.decl;
+        self.decl = callee;
+
+        // Translate the callee body in-place.
+        let result = self.translate_expr(body, func);
+
+        // Restore caller context.
+        self.decl = saved_decl;
+        for param in &callee.params {
+            self.variables.remove(&param.name);
+            self.reg_promoted.remove(&param.name);
+        }
+
+        Some(result)
     }
 
     /// Translate an array literal.
