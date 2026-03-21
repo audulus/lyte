@@ -1,0 +1,18 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/slices/slice_alias_bad.lyte:17:5: cannot pass 'a' to multiple slice parameters (slices must not alias)
+//         copy(a, a)
+//         ^
+
+copy(dst: [i32], src: [i32]) {
+    for i in 0 .. dst.len {
+        if i < src.len {
+            dst[i] = src[i]
+        }
+    }
+}
+
+main {
+    var a: [i32; 4]
+    copy(a, a)
+}

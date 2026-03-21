@@ -937,6 +937,11 @@ impl Checker {
             if self.errors.is_empty() {
                 self.check_lvalues(func_decl);
             }
+
+            // Check that no two slice parameters alias (Fortran-style no-alias rule).
+            if self.errors.is_empty() {
+                self.check_slice_aliasing(func_decl, decls);
+            }
         }
     }
 
@@ -950,6 +955,79 @@ impl Checker {
                         location: func_decl.arena.locs[id],
                         message: "left-hand side of assignment isn't assignable".to_string(),
                     });
+                }
+            }
+        }
+    }
+
+    /// Enforce the no-alias rule: two slice parameters in the same call must not
+    /// refer to the same underlying memory. Since Lyte has no sub-slicing, two
+    /// arguments alias iff they are the same variable (or same field path).
+    ///
+    /// This enables Fortran-style `restrict` semantics: the compiler (and LLVM
+    /// backend) can assume slice parameters never overlap, enabling load hoisting,
+    /// store reordering, and vectorization.
+    fn check_slice_aliasing(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
+        for id in 0..func_decl.arena.exprs.len() {
+            let Expr::Call(f, args) = &func_decl.arena[id] else {
+                continue;
+            };
+
+            // Only check direct named calls — indirect calls (lambdas) can't
+            // have slice parameters (slices can't appear in function types).
+            let Expr::Id(callee_name) = &func_decl.arena[*f] else {
+                continue;
+            };
+
+            // Find which parameter positions are slices in the callee's declaration.
+            // For overloaded functions, union all slice positions (conservative).
+            let callee_decls = decls.find(*callee_name);
+            let mut slice_positions: Vec<usize> = Vec::new();
+            for d in callee_decls {
+                if let Decl::Func(fd) = d {
+                    for (i, param) in fd.params.iter().enumerate() {
+                        if let Some(ty) = param.ty {
+                            if matches!(*ty, Type::Slice(_)) && !slice_positions.contains(&i) {
+                                slice_positions.push(i);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if slice_positions.len() < 2 {
+                continue;
+            }
+
+            // Collect (position, base_path) for arguments at slice positions.
+            let mut slice_args: Vec<(usize, Vec<Name>)> = Vec::new();
+            for &pos in &slice_positions {
+                if pos < args.len() {
+                    if let Some(path) = expr_base_path(args[pos], &func_decl.arena) {
+                        slice_args.push((pos, path));
+                    }
+                }
+            }
+
+            // Check all pairs for aliasing.
+            for i in 0..slice_args.len() {
+                for j in (i + 1)..slice_args.len() {
+                    if slice_args[i].1 == slice_args[j].1 {
+                        let name = slice_args[i]
+                            .1
+                            .iter()
+                            .map(|n| n.as_str())
+                            .collect::<Vec<_>>()
+                            .join(".");
+                        self.errors.push(TypeError {
+                            location: func_decl.arena.locs[id],
+                            message: format!(
+                                "cannot pass '{}' to multiple slice parameters \
+                                 (slices must not alias)",
+                                name
+                            ),
+                        });
+                    }
                 }
             }
         }
@@ -1070,6 +1148,28 @@ impl Checker {
         for err in &self.errors {
             print_error_with_context(err.location, &err.message);
         }
+    }
+}
+
+/// Extract the "base path" of an expression — the chain of identifiers and field
+/// names that uniquely identifies the storage location. Returns None for complex
+/// expressions (calls, indexing, literals) where aliasing can't be determined
+/// syntactically.
+///
+/// Examples:
+///   `x`       → Some(["x"])
+///   `s.arr`   → Some(["s", "arr"])
+///   `f(x)`    → None
+///   `a[i]`    → None
+fn expr_base_path(id: ExprID, arena: &ExprArena) -> Option<Vec<Name>> {
+    match &arena[id] {
+        Expr::Id(name) => Some(vec![*name]),
+        Expr::Field(base, field) => {
+            let mut path = expr_base_path(*base, arena)?;
+            path.push(*field);
+            Some(path)
+        }
+        _ => None,
     }
 }
 

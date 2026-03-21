@@ -1,0 +1,24 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+copy(dst: [i32], src: [i32]) {
+    for i in 0 .. dst.len {
+        if i < src.len {
+            dst[i] = src[i]
+        }
+    }
+}
+
+main {
+    var a: [i32; 4]
+    a[0] = 1
+    a[1] = 2
+    a[2] = 3
+    a[3] = 4
+    var b: [i32; 4]
+    copy(b, a)
+    assert(b[0] == 1)
+    assert(b[3] == 4)
+}
