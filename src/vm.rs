@@ -246,6 +246,8 @@ pub(crate) mod tags {
     pub const GET_CLOSURE_PTR: u8 = 155;
     pub const SLICE_EQ: u8 = 156; // ABC+data: A=dst, B=a, C=b, next word=elem_size
     pub const SLICE_NE: u8 = 157; // ABC+data: A=dst, B=a, C=b, next word=elem_size
+    pub const SLICE_LOAD32: u8 = 158; // ABC: A=dst, B=slice, C=index
+    pub const SLICE_STORE32: u8 = 159; // ABC: A=src, B=slice, C=index
 }
 
 /// Linked program: all function code flattened into packed bytecode
@@ -456,6 +458,12 @@ impl LinkedProgram {
                 ops.push(PackedOp::abc(tags::SLICE_NE, r(dst), r(a), r(b)));
                 ops.push(PackedOp::data(elem_size));
                 return;
+            }
+            Opcode::SliceLoad32 { dst, slice, index } => {
+                PackedOp::abc(tags::SLICE_LOAD32, r(dst), r(slice), r(index))
+            }
+            Opcode::SliceStore32 { slice, index, src } => {
+                PackedOp::abc(tags::SLICE_STORE32, r(src), r(slice), r(index))
             }
             Opcode::DEq { dst, a, b } => PackedOp::abc(tags::DEQ, r(dst), r(a), r(b)),
             Opcode::DLt { dst, a, b } => PackedOp::abc(tags::DLT, r(dst), r(a), r(b)),
@@ -1332,6 +1340,23 @@ impl VM {
                             || std::slice::from_raw_parts(ptr_a, len_a * elem_size)
                                 != std::slice::from_raw_parts(ptr_b, len_b * elem_size);
                         r_set!(op.a(), ne as u64);
+                    }
+
+                    // Slice element access — ABC
+                    tags::SLICE_LOAD32 => {
+                        // B = slice fat pointer, C = index
+                        let fat_ptr = r!(op.b()) as *const u8;
+                        let data_ptr = *(fat_ptr as *const *const u8);
+                        let idx = r!(op.c()) as usize;
+                        let elem = *(data_ptr.add(idx * 4) as *const i32);
+                        r_set!(op.a(), elem as i64 as u64);
+                    }
+                    tags::SLICE_STORE32 => {
+                        // A = src value, B = slice fat pointer, C = index
+                        let fat_ptr = r!(op.b()) as *const u8;
+                        let data_ptr = *(fat_ptr as *const *mut u8);
+                        let idx = r!(op.c()) as usize;
+                        *(data_ptr.add(idx * 4) as *mut i32) = r!(op.a()) as i32;
                     }
 
                     // Type conversions — AB

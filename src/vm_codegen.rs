@@ -1773,6 +1773,25 @@ impl<'a> FunctionTranslator<'a> {
                 return rhs;
             }
         }
+        // Slice store superinstruction: a[i] = rhs where a is a slice of 32-bit elements.
+        if let Expr::ArrayIndex(arr_id, idx_id) = &self.decl.arena.exprs[lhs_id] {
+            let arr_ty = self.expr_type(*arr_id);
+            if let Type::Slice(elem_ty) = &*arr_ty {
+                let elem_size = elem_ty.size(self.decls);
+                if !self.is_ptr_type(elem_ty) && elem_size == 4 {
+                    let rhs = self.translate_expr(rhs_id, func);
+                    let slice = self.translate_expr(*arr_id, func);
+                    let idx = self.translate_expr(*idx_id, func);
+                    func.emit(Opcode::SliceStore32 {
+                        slice,
+                        index: idx,
+                        src: rhs,
+                    });
+                    return rhs;
+                }
+            }
+        }
+
         let rhs = self.translate_expr(rhs_id, func);
         let lhs_addr = self.translate_lvalue(lhs_id, func);
         let ty = self.expr_type(lhs_id);
@@ -2604,7 +2623,22 @@ impl<'a> FunctionTranslator<'a> {
             _ => return arr, // Fallback
         };
 
-        // For slices, load the data pointer from the fat pointer.
+        // Slice superinstruction: fuse data-pointer load, offset computation,
+        // and element load/store into a single instruction.
+        if is_slice {
+            let elem_size = elem_ty.size(self.decls);
+            if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
+                let dst = self.alloc_reg();
+                func.emit(Opcode::SliceLoad32 {
+                    dst,
+                    slice: arr,
+                    index: idx,
+                });
+                return dst;
+            }
+        }
+
+        // General path: manual address computation.
         let base = if is_slice {
             let data_ptr = self.alloc_reg();
             func.emit(Opcode::Load64 {
@@ -2618,7 +2652,6 @@ impl<'a> FunctionTranslator<'a> {
 
         let elem_size = elem_ty.size(self.decls);
 
-        // Calculate offset.
         let size_reg = self.alloc_reg();
         func.emit(Opcode::LoadImm {
             dst: size_reg,
@@ -2639,8 +2672,6 @@ impl<'a> FunctionTranslator<'a> {
             b: offset_reg,
         });
 
-        // Composite types (arrays, structs, tuples) are represented as
-        // pointers — return the address directly instead of loading.
         if self.is_ptr_type(&elem_ty) {
             addr_reg
         } else {

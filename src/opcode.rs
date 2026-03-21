@@ -592,6 +592,23 @@ pub enum Opcode {
         src: Reg,
     },
 
+    // ============ Superinstructions: Fused Slice Element Access ============
+    /// Fused Load64 + IMul + IAdd + Load32 for slice[index].
+    /// Loads a 32-bit element from a slice: dst = slice.data[index * 4]
+    SliceLoad32 {
+        dst: Reg,
+        slice: Reg,
+        index: Reg,
+    },
+
+    /// Fused Load64 + IMul + IAdd + Store32 for slice[index] = val.
+    /// Stores a 32-bit element into a slice: slice.data[index * 4] = src
+    SliceStore32 {
+        slice: Reg,
+        index: Reg,
+        src: Reg,
+    },
+
     /// Call function by index, args in registers starting at `args_start`
     /// Result (if any) goes in register 0
     Call {
@@ -1046,7 +1063,10 @@ impl Opcode {
             | Opcode::Atan2F64 { dst, .. }
             | Opcode::MinF64 { dst, .. }
             | Opcode::MaxF64 { dst, .. }
-            | Opcode::LoadSlot32 { dst, .. } => Some(*dst),
+            | Opcode::LoadSlot32 { dst, .. }
+            | Opcode::SliceLoad32 { dst, .. } => Some(*dst),
+
+            Opcode::SliceStore32 { .. } => None,
 
             // Call/CallIndirect/CallClosure implicitly define r0 (return value register).
             Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => Some(0),
@@ -1208,6 +1228,7 @@ impl Opcode {
             | Opcode::MinF64 { dst, .. }
             | Opcode::MaxF64 { dst, .. }
             | Opcode::LoadSlot32 { dst, .. }
+            | Opcode::SliceLoad32 { dst, .. }
             | Opcode::GetClosurePtr { dst } => {
                 *dst = new_dst;
                 true
@@ -1406,6 +1427,11 @@ impl Opcode {
             | Opcode::MaxF64 { a, b, .. } => *a == reg || *b == reg,
 
             Opcode::StoreSlot32 { src, .. } => *src == reg,
+
+            Opcode::SliceLoad32 { slice, index, .. } => *slice == reg || *index == reg,
+            Opcode::SliceStore32 { slice, index, src } => {
+                *slice == reg || *index == reg || *src == reg
+            }
         }
     }
 
@@ -1708,6 +1734,25 @@ impl Opcode {
                     *src = new;
                 }
             }
+            Opcode::SliceLoad32 { slice, index, .. } => {
+                if *slice == old {
+                    *slice = new;
+                }
+                if *index == old {
+                    *index = new;
+                }
+            }
+            Opcode::SliceStore32 { slice, index, src } => {
+                if *slice == old {
+                    *slice = new;
+                }
+                if *index == old {
+                    *index = new;
+                }
+                if *src == old {
+                    *src = new;
+                }
+            }
             Opcode::Call {
                 args_start,
                 arg_count,
@@ -1964,6 +2009,15 @@ impl Opcode {
                 f(*b);
             }
             Opcode::StoreSlot32 { src, .. } => f(*src),
+            Opcode::SliceLoad32 { slice, index, .. } => {
+                f(*slice);
+                f(*index);
+            }
+            Opcode::SliceStore32 { slice, index, src } => {
+                f(*slice);
+                f(*index);
+                f(*src);
+            }
             _ => {}
         }
     }
@@ -2247,6 +2301,16 @@ impl Opcode {
                 *dst = map[*dst as usize];
             }
             Opcode::StoreSlot32 { src, .. } => {
+                *src = map[*src as usize];
+            }
+            Opcode::SliceLoad32 { dst, slice, index } => {
+                *dst = map[*dst as usize];
+                *slice = map[*slice as usize];
+                *index = map[*index as usize];
+            }
+            Opcode::SliceStore32 { slice, index, src } => {
+                *slice = map[*slice as usize];
+                *index = map[*index as usize];
                 *src = map[*src as usize];
             }
             _ => {}

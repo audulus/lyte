@@ -676,6 +676,36 @@ Lslice_ne_diff:
     next
 
 // =============================================================================
+// 158: SLICE_LOAD32 — dst = slice.data[index * 4]
+// ABC: A=dst, B=slice (fat ptr addr), C=index
+// =============================================================================
+Lop_slice_load32:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]      // slice fat ptr addr
+    ldr     x3, [x3]                    // data_ptr = *(fat_ptr + 0)
+    ldr     x4, [x20, x2, lsl #3]      // index
+    ldrsw   x5, [x3, x4, lsl #2]       // load i32 at data_ptr[index*4], sign-extend
+    str     x5, [x20, x0, lsl #3]      // regs[dst] = value
+    next
+
+// =============================================================================
+// 159: SLICE_STORE32 — slice.data[index * 4] = src
+// ABC: A=src, B=slice (fat ptr addr), C=index
+// =============================================================================
+Lop_slice_store32:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]      // slice fat ptr addr
+    ldr     x3, [x3]                    // data_ptr = *(fat_ptr + 0)
+    ldr     x4, [x20, x2, lsl #3]      // index
+    ldr     x5, [x20, x0, lsl #3]      // src value
+    str     w5, [x3, x4, lsl #2]       // store as i32 at data_ptr[index*4]
+    next
+
+// =============================================================================
 // 45-47: Float64 comparisons
 // =============================================================================
 Lop_deq:
@@ -1931,8 +1961,10 @@ Ljump_table:
     .quad Lop_get_closure_ptr   // 155: GET_CLOSURE_PTR
     .quad Lop_slice_eq          // 156: SLICE_EQ
     .quad Lop_slice_ne          // 157: SLICE_NE
-    // 158-255: invalid
-    .fill 98, 8, 0             // will be Lop_invalid pointers
+    .quad Lop_slice_load32      // 158: SLICE_LOAD32
+    .quad Lop_slice_store32     // 159: SLICE_STORE32
+    // 160-255: invalid
+    .fill 96, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).
