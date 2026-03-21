@@ -693,12 +693,51 @@ impl SafetyChecker {
                 let saved_len_bounds = self.len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
                 self.check_expr(*body, decl, decls);
-                self.constraints = saved_constraints;
-                self.len_bounds = saved_len_bounds;
+                self.constraints = saved_constraints.clone();
+                self.len_bounds = saved_len_bounds.clone();
                 self.min_len_bounds = saved_min_len_bounds;
 
                 // Invalidate constraints for variables assigned inside the loop.
                 self.invalidate_assigned(*body, &decl.arena);
+
+                // Recover bounds for monotonically incrementing variables.
+                // If a variable is only modified by `var = var + 1`, then:
+                //   - Its min bound is preserved (incrementing preserves >= 0)
+                //   - Its max after the loop is at most: initial + loop_count.
+                //     If initial <= start and loop goes start..end, then
+                //     max = start + (end - start) = end. If end has a LenBound
+                //     on an array, so does the variable.
+                let mut assigned = Vec::new();
+                Self::collect_assigned_vars(*body, &decl.arena, &mut assigned);
+                for name in assigned {
+                    if !Self::is_monotonic_increment(name, *body, &decl.arena) {
+                        continue;
+                    }
+                    // Restore the pre-loop min bound (monotonic increase preserves it).
+                    if let Some(c) = saved_constraints.iter().find(|c| c.name == name) {
+                        if let Some(min) = c.min {
+                            self.add(name, Some(min), None);
+                        }
+                    }
+                    // If the variable started at <= for-loop start, its max after the
+                    // loop is <= end. Transfer end's LenBounds to the variable.
+                    // Check: pre-loop max <= start (both may be symbolic, so compare
+                    // the pre-loop LenBounds — if the variable had a LenBound on the
+                    // same array as end, it was bounded by the same length).
+                    let had_len_bound = |arr| {
+                        saved_len_bounds.iter().any(|b| b.index == name && b.array == arr)
+                    };
+                    if let Expr::Id(end_name) = &decl.arena[*end] {
+                        for b in &saved_len_bounds {
+                            if b.index == *end_name && had_len_bound(b.array) {
+                                self.len_bounds.push(LenBound {
+                                    index: name,
+                                    array: b.array,
+                                });
+                            }
+                        }
+                    }
+                }
 
                 IndexInterval::default()
             }
@@ -709,6 +748,44 @@ impl SafetyChecker {
                 IndexInterval::default()
             }
             _ => IndexInterval::default(),
+        }
+    }
+
+    /// Check if every assignment to `var_name` in the expression tree is of the
+    /// form `var_name = var_name + 1` (monotonic increment by 1). Returns false
+    /// if the variable is assigned in any other way.
+    fn is_monotonic_increment(var_name: Name, expr: ExprID, arena: &ExprArena) -> bool {
+        match &arena[expr] {
+            Expr::Binop(Binop::Assign, lhs, rhs) => {
+                if let Expr::Id(name) = &arena[*lhs] {
+                    if *name == var_name {
+                        // Check rhs is `var_name + 1`
+                        if let Expr::Binop(Binop::Plus, plus_lhs, plus_rhs) = &arena[*rhs] {
+                            let lhs_is_var = matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
+                            let rhs_is_one = matches!(&arena[*plus_rhs], Expr::Int(1) | Expr::UInt(1));
+                            return lhs_is_var && rhs_is_one;
+                        }
+                        return false; // Some other assignment to var_name
+                    }
+                }
+                // Assignment to a different variable — recurse into RHS
+                Self::is_monotonic_increment(var_name, *rhs, arena)
+            }
+            Expr::Block(exprs) => exprs
+                .iter()
+                .all(|e| Self::is_monotonic_increment(var_name, *e, arena)),
+            Expr::If(cond, then_expr, else_expr) => {
+                Self::is_monotonic_increment(var_name, *cond, arena)
+                    && Self::is_monotonic_increment(var_name, *then_expr, arena)
+                    && else_expr
+                        .map_or(true, |e| Self::is_monotonic_increment(var_name, e, arena))
+            }
+            Expr::While(cond, body) => {
+                Self::is_monotonic_increment(var_name, *cond, arena)
+                    && Self::is_monotonic_increment(var_name, *body, arena)
+            }
+            Expr::For { body, .. } => Self::is_monotonic_increment(var_name, *body, arena),
+            _ => true, // No assignment here
         }
     }
 

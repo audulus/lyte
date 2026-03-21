@@ -1,0 +1,41 @@
+// A variable that only increments by 1 inside a for loop should
+// retain its lower bound (>= 0) and LenBound (< a.len) after exit,
+// when the loop end has a LenBound on the same array.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+
+// The pattern: i starts at lo, increments inside for j in lo .. hi,
+// and hi < a.len. After the loop, i >= 0 and i <= hi < a.len.
+partition(a: [i32], lo: i32, hi: i32) -> i32 {
+    if hi >= 0 && hi < a.len && lo >= 0 && lo < hi {
+        var i = lo
+        for j in lo .. hi {
+            if a[j] < a[hi] {
+                var tmp = a[i]
+                a[i] = a[j]
+                a[j] = tmp
+                i = i + 1
+            }
+        }
+        // Safety checker proves i >= 0 (monotonic) and i < a.len
+        // (bounded by hi via LenBound) without an explicit guard.
+        var tmp = a[i]
+        a[i] = a[hi]
+        a[hi] = tmp
+        return i
+    }
+    return lo
+}
+
+main {
+    var a: [i32; 5]
+    a[0] = 3
+    a[1] = 1
+    a[2] = 4
+    a[3] = 1
+    a[4] = 5
+    let pivot = partition(a, 0, 4)
+    assert(pivot >= 0)
+}
