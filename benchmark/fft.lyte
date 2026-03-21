@@ -1,0 +1,99 @@
+// FFT benchmark
+// 1024-point radix-2 FFT, 10000 iterations
+
+// Bit-reversal using arithmetic (no bitwise ops needed)
+bit_reverse(x: i32, bits: i32) -> i32 {
+    var result = 0
+    var val = x
+    for i in 0 .. bits {
+        result = result * 2 + val % 2
+        val = val / 2
+    }
+    result
+}
+
+// In-place bit-reversal permutation
+bit_reverse_permute(re: [f32], im: [f32]) {
+    var n = re.len
+    for i in 0 .. n {
+        var j = bit_reverse(i, 10)  // log2(1024) = 10
+        if i < j && j < n && i < re.len && j < re.len && i < im.len && j < im.len {
+            var tr = re[i]
+            re[i] = re[j]
+            re[j] = tr
+            var ti = im[i]
+            im[i] = im[j]
+            im[j] = ti
+        }
+    }
+}
+
+// Iterative radix-2 Cooley-Tukey FFT (in-place)
+fft(re: [f32], im: [f32]) {
+    var n = re.len
+    var pi = 3.14159265
+
+    bit_reverse_permute(re, im)
+
+    // Butterfly stages: size = 2, 4, 8, ..., n
+    var size = 2
+    while size <= n {
+        var half = size / 2
+        var angle = 0.0 - 2.0 * pi / (size as f32)
+
+        // Process each group of 'size' elements
+        var group = 0
+        while group < n {
+            // Butterflies within this group
+            for k in 0 .. half {
+                var theta = angle * (k as f32)
+                var wr = cos(theta)
+                var wi = sin(theta)
+
+                var i = group + k
+                var j = i + half
+
+                if i >= 0 && i < re.len && j >= 0 && j < re.len && i < im.len && j < im.len {
+                    var tr = wr * re[j] - wi * im[j]
+                    var ti = wr * im[j] + wi * re[j]
+
+                    re[j] = re[i] - tr
+                    im[j] = im[i] - ti
+                    re[i] = re[i] + tr
+                    im[i] = im[i] + ti
+                }
+            }
+            group = group + size
+        }
+        size = size * 2
+    }
+}
+
+main {
+    var n = 1024
+    var iters = 2000
+    var re: [f32; 1024]
+    var im: [f32; 1024]
+
+    var checksum = 0.0
+
+    for iter in 0 .. iters {
+        // Fill with a test signal: sum of two sinusoids
+        var freq1 = 50.0
+        var freq2 = 120.0
+        for i in 0 .. n {
+            var t = (i as f32) / (n as f32)
+            re[i] = sin(2.0 * 3.14159265 * freq1 * t) + 0.5 * sin(2.0 * 3.14159265 * freq2 * t)
+            im[i] = 0.0
+        }
+
+        fft(re, im)
+
+        // Accumulate to prevent dead-code elimination
+        checksum = checksum + re[0]
+    }
+
+    print(checksum as i32)
+    print(iters)
+    println(" FFT iterations")
+}

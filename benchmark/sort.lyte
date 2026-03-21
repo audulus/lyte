@@ -1,0 +1,38 @@
+// Sorting benchmark
+// Quicksort 10000 elements, 50 iterations
+
+// Simple LCG PRNG (no bitwise ops needed)
+lcg(state: i32) -> i32 {
+    // Numerical Recipes LCG: next = (a * state + c) mod m
+    // Use smaller multiplier to avoid overflow in i32
+    (state * 1103 + 12345) % 1000000
+}
+
+main {
+    var n = 10000
+    var iters = 50
+    var a: [i32; 10000]
+
+    var checksum = 0
+
+    for iter in 0 .. iters {
+        // Fill with pseudo-random values
+        var seed = iter * 7 + 42
+        for i in 0 .. n {
+            seed = lcg(seed)
+            a[i] = seed
+        }
+
+        // Sort using stdlib quicksort
+        sort(a)
+
+        // Accumulate checksum to prevent dead-code elimination
+        if n > 1 {
+            checksum = checksum + a[0] + a[n - 1]
+        }
+    }
+
+    print(checksum)
+    print(iters)
+    println(" iterations of sorting 10000 elements")
+}
