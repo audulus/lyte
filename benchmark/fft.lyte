@@ -14,10 +14,9 @@ bit_reverse(x: i32, bits: i32) -> i32 {
 
 // In-place bit-reversal permutation
 bit_reverse_permute(re: [f32], im: [f32]) {
-    var n = re.len
-    for i in 0 .. n {
+    for i in 0 .. re.len {
         var j = bit_reverse(i, 10)  // log2(1024) = 10
-        if i < j && j < n && i < re.len && j < re.len && i < im.len && j < im.len {
+        if i < j && j < re.len && i < im.len && j < im.len {
             var tr = re[i]
             re[i] = re[j]
             re[j] = tr
@@ -53,7 +52,7 @@ fft(re: [f32], im: [f32]) {
                 var i = group + k
                 var j = i + half
 
-                if i >= 0 && i < re.len && j >= 0 && j < re.len && i < im.len && j < im.len {
+                if j < re.len && j < im.len {
                     var tr = wr * re[j] - wi * im[j]
                     var ti = wr * im[j] + wi * re[j]
 
