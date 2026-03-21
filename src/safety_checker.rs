@@ -703,10 +703,18 @@ impl SafetyChecker {
                 // Recover bounds for monotonically incrementing variables.
                 // If a variable is only modified by `var = var + 1`, then:
                 //   - Its min bound is preserved (incrementing preserves >= 0)
-                //   - Its max after the loop is at most: initial + loop_count.
-                //     If initial <= start and loop goes start..end, then
-                //     max = start + (end - start) = end. If end has a LenBound
-                //     on an array, so does the variable.
+                //   - Its max after the loop is: initial + (end - start).
+                //     If initial <= start, this simplifies to end.
+                //     If end has a LenBound on an array, so does the variable.
+                //
+                // To verify initial <= start, find the var's Var declaration
+                // in the AST and check if its initializer is the same identifier
+                // as the loop start (e.g., `var i = lo` with `for j in lo .. hi`).
+                let start_name = if let Expr::Id(n) = &decl.arena[*start] {
+                    Some(*n)
+                } else {
+                    None
+                };
                 let mut assigned = Vec::new();
                 Self::collect_assigned_vars(*body, &decl.arena, &mut assigned);
                 for name in assigned {
@@ -719,21 +727,28 @@ impl SafetyChecker {
                             self.add(name, Some(min), None);
                         }
                     }
-                    // If the variable started at <= for-loop start, its max after the
-                    // loop is <= end. Transfer end's LenBounds to the variable.
-                    // Check: pre-loop max <= start (both may be symbolic, so compare
-                    // the pre-loop LenBounds — if the variable had a LenBound on the
-                    // same array as end, it was bounded by the same length).
-                    let had_len_bound = |arr| {
-                        saved_len_bounds.iter().any(|b| b.index == name && b.array == arr)
-                    };
-                    if let Expr::Id(end_name) = &decl.arena[*end] {
-                        for b in &saved_len_bounds {
-                            if b.index == *end_name && had_len_bound(b.array) {
-                                self.len_bounds.push(LenBound {
-                                    index: name,
-                                    array: b.array,
-                                });
+                    // Check if the variable was initialized from the loop start.
+                    // Scan the AST for `Var(name, Some(init), _)` where init
+                    // is `Expr::Id(start_name)`.
+                    let initialized_from_start = start_name.is_some_and(|sn| {
+                        decl.arena.exprs.iter().any(|e| {
+                            if let Expr::Var(vn, Some(init), _) = e {
+                                *vn == name
+                                    && matches!(&decl.arena[*init], Expr::Id(n) if *n == sn)
+                            } else {
+                                false
+                            }
+                        })
+                    });
+                    if initialized_from_start {
+                        if let Expr::Id(end_name) = &decl.arena[*end] {
+                            for b in &saved_len_bounds {
+                                if b.index == *end_name {
+                                    self.len_bounds.push(LenBound {
+                                        index: name,
+                                        array: b.array,
+                                    });
+                                }
                             }
                         }
                     }
