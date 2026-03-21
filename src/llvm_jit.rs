@@ -804,6 +804,21 @@ impl<'ctx> LLVMJITState<'ctx> {
         for (i, param) in decl.params.iter().enumerate() {
             let param_val = params[param_idx + i];
             let ty = param.ty.expect("param ty");
+
+            // Slice parameters get noalias: the type checker enforces that no two
+            // slice arguments in a call can alias (Fortran-style restrict).
+            if matches!(&*ty, crate::Type::Slice(_)) {
+                let noalias = self.context.create_enum_attribute(
+                    inkwell::attributes::Attribute::get_named_enum_kind_id("noalias"),
+                    0,
+                );
+                // LLVM attribute index: 0 = return, params start at 1.
+                function.add_attribute(
+                    inkwell::attributes::AttributeLoc::Param((param_idx + i) as u32),
+                    noalias,
+                );
+            }
+
             let alloca = self
                 .builder
                 .build_alloca(ty.llvm_basic_type(self.context), &param.name.to_string())
