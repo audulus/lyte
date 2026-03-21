@@ -401,8 +401,16 @@ See [`src/README.md`](src/README.md) for detailed design notes.
 
 ## Benchmarks
 
-The `benchmark/` directory contains a biquad filter DSP benchmark comparing Lyte (JIT and VM) against C, Lua 5.5, and LuaJIT. Run with:
+Three benchmarks compare Lyte (VM, ARM64 VM, JIT, LLVM) against C, Lua 5.5, and LuaJIT:
+
+| Benchmark | Description |
+|-----------|-------------|
+| **Biquad** | 10M samples through a 1kHz lowpass filter (DSP) |
+| **Sort** | Quicksort 10K elements × 50 iterations |
+| **FFT** | 1024-point radix-2 FFT × 2000 iterations |
+
+Results from the latest CI run are in the [Actions workflow summary](../../actions/workflows/rust.yml) (click the latest run, scroll to "Benchmark Results").
 
 ```bash
-./benchmark/run.sh
+./benchmark/run.sh        # run locally (requires lua and luajit)
 ```

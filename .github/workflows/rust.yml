@@ -25,7 +25,15 @@ jobs:
         sudo apt-get install -y lua5.4 luajit
         sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
     - name: Run benchmarks
-      run: ./benchmark/run.sh
+      run: |
+        ./benchmark/run.sh 3 | tee benchmark_output.txt
+    - name: Post benchmark results to job summary
+      if: always()
+      run: |
+        echo '## Benchmark Results (Ubuntu x86_64)' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
 
   build-macos:
 
@@ -52,7 +60,15 @@ jobs:
     - name: Install Lua and LuaJIT
       run: brew install lua luajit
     - name: Run benchmarks
-      run: ./benchmark/run.sh
+      run: |
+        ./benchmark/run.sh 3 | tee benchmark_output.txt
+    - name: Post benchmark results to job summary
+      if: always()
+      run: |
+        echo '## Benchmark Results (macOS ARM64)' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
 
   fuzz:
 
