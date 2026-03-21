@@ -681,7 +681,16 @@ impl SafetyChecker {
                         });
                     }
                 }
+                // Save/restore constraints around the body so that mutations
+                // inside the loop (e.g. `i = i + 1`) don't clobber the
+                // constraints of outer variables after the loop exits.
+                let saved_constraints = self.constraints.clone();
+                let saved_len_bounds = self.len_bounds.clone();
+                let saved_min_len_bounds = self.min_len_bounds.clone();
                 self.check_expr(*body, decl, decls);
+                self.constraints = saved_constraints;
+                self.len_bounds = saved_len_bounds;
+                self.min_len_bounds = saved_min_len_bounds;
                 IndexInterval::default()
             }
             Expr::ArrayLiteral(exprs) => {

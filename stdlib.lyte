@@ -170,11 +170,9 @@ quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
                 i = i + 1
             }
         }
-        if i >= 0 && i < a.len {
-            var tmp = a[i]
-            a[i] = a[hi]
-            a[hi] = tmp
-        }
+        var tmp = a[i]
+        a[i] = a[hi]
+        a[hi] = tmp
         var pivot = i
         quicksort(a, lo, pivot - 1)
         quicksort(a, pivot + 1, hi)
