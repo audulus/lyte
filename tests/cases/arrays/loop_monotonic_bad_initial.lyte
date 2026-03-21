@@ -1,0 +1,22 @@
+// A monotonically incrementing variable should NOT retain its LenBound
+// if it was initialized from a value other than the loop start.
+// Here i starts at hi (not 0), so after hi increments i = 2*hi,
+// which can exceed a.len even though hi < a.len.
+
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/loop_monotonic_bad_initial.lyte:18:9: couldn't prove index is less than slice length
+//             a[i] = 42
+//             ^
+
+f(a: [i32], hi: i32) {
+    if hi >= 0 && hi < a.len {
+        var i = hi
+        for j in 0 .. hi {
+            i = i + 1
+        }
+        a[i] = 42
+    }
+}
+
+main { }
