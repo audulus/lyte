@@ -59,3 +59,9 @@ name = "optimizer"
 path = "fuzz_targets/optimizer.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "packing"
+path = "fuzz_targets/packing.rs"
+test = false
+doc = false

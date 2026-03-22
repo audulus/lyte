@@ -18,7 +18,7 @@ use std::fmt;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub(crate) struct PackedOp(pub(crate) u32);
+pub struct PackedOp(pub(crate) u32);
 
 impl PackedOp {
     /// ABC format: 3 register operands (u8)
@@ -252,7 +252,7 @@ pub(crate) mod tags {
 
 /// Linked program: all function code flattened into packed bytecode
 pub struct LinkedProgram {
-    pub(crate) ops: Vec<PackedOp>,
+    pub ops: Vec<PackedOp>,
     pub(crate) func_offsets: Vec<usize>,
     pub(crate) func_locals: Vec<u32>,
     /// Pool for i64 values that don't fit in 16-bit immediate
@@ -264,7 +264,7 @@ pub struct LinkedProgram {
 }
 
 impl LinkedProgram {
-    pub(crate) fn from_program(program: &VMProgram) -> Self {
+    pub fn from_program(program: &VMProgram) -> Self {
         let mut ops = Vec::new();
         let mut func_offsets = Vec::with_capacity(program.functions.len());
         let mut func_locals = Vec::with_capacity(program.functions.len());
