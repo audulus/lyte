@@ -51,5 +51,3 @@ Panics are ok because they are caught and turned into ICE
   2. Differential fuzz the full pipeline at the Lyte source level — the existing differential fuzzer generates simple programs (int arithmetic, for loops). Extending the program generator to emit structs, arrays, enums, and function calls
   would catch codegen bugs the current generator can't reach.
   4. Round-trip the type checker — fuzz with random valid ASTs, type-check, serialize the checked AST, re-parse and re-check, verify same result. Would catch inconsistencies between the parser and checker.
-  5. Fuzz the packed bytecode encoding — generate random Vec<Opcode>, pack into LinkedProgram, unpack back, verify round-trip. The packing has edge cases (wide variants, 2-word instructions, jump offset fixups) that could silently corrupt
-  programs.
