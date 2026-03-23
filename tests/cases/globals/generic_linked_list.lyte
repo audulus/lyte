@@ -37,8 +37,7 @@ is_nil<T>(h: ListNodeHandle<T>) -> bool {
 push<T>(head: ListNodeHandle<T>, val: T) -> ListNodeHandle<T> {
     let idx = __node_count⟨T⟩
     if idx >= 0 && idx < 256 {
-        __nodes⟨T⟩[idx].value = val
-        __nodes⟨T⟩[idx].next = head.__idx
+        __nodes[idx] = ListNode(value: val, next: head.__idx)
         __node_count⟨T⟩ = __node_count⟨T⟩ + 1
     }
     var h: ListNodeHandle<T>
