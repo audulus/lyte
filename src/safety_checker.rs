@@ -1,6 +1,22 @@
 use crate::interval::{enclose, IndexInterval};
 use crate::*;
 
+/// Extract a trackable name from an expression for constraint tracking.
+/// Returns the variable name for `Expr::Id(name)`, or a synthetic compound
+/// name for `Expr::Field(base, field)` (e.g., `h.index` becomes a single
+/// interned name). This lets the safety checker track bounds on struct fields.
+fn expr_constraint_name(id: ExprID, arena: &ExprArena) -> Option<Name> {
+    match &arena[id] {
+        Expr::Id(name) => Some(*name),
+        Expr::Field(base, field) => {
+            let base_name = expr_constraint_name(*base, arena)?;
+            // Intern a compound name "base.field" so it works as a constraint key.
+            Some(Name::new(format!("{}.{}", *base_name, **field).into()))
+        }
+        _ => None,
+    }
+}
+
 pub struct SafetyError {
     pub location: Loc,
     pub message: String,
@@ -121,30 +137,31 @@ impl SafetyChecker {
 
     /// Given expr evaluates to true, add constraints accordingly.
     fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
-        // Simplest form: match expressions of the form i < n, where n is an integer literal
+        // Track bounds from comparisons. Handles both simple variables (Expr::Id)
+        // and struct field access (Expr::Field) via expr_constraint_name.
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*lhs] {
+            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
                 let ival = self.check_expr(*rhs, decl, decls);
                 if ival.max != i64::max_value() {
-                    self.add(*name, None, Some(ival.max - 1));
+                    self.add(name, None, Some(ival.max - 1));
                 }
             }
         }
 
         if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*lhs] {
+            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
                 let ival = self.check_expr(*rhs, decl, decls);
                 if ival.max != i64::max_value() {
-                    self.add(*name, None, Some(ival.max));
+                    self.add(name, None, Some(ival.max));
                 }
             }
         }
 
         if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*lhs] {
+            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
                 let ival = self.check_expr(*rhs, decl, decls);
                 if ival.min != i64::MIN {
-                    self.add(*name, Some(ival.min), None);
+                    self.add(name, Some(ival.min), None);
                 }
             }
         }
@@ -191,31 +208,31 @@ impl SafetyChecker {
 
         // match `x != 0` — mark x as non-zero
         if let Expr::Binop(Binop::NotEqual, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*lhs] {
+            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
                 if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*rhs] {
-                    self.add_non_zero(*name);
+                    self.add_non_zero(name);
                 }
             }
-            if let Expr::Id(name) = &decl.arena[*rhs] {
+            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
                 if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*lhs] {
-                    self.add_non_zero(*name);
+                    self.add_non_zero(name);
                 }
             }
         }
 
         // match `x > n` — x.min = n + 1
         if let Expr::Binop(Binop::Greater, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*lhs] {
+            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
                 let ival = self.check_expr(*rhs, decl, decls);
                 if ival.min != i64::MAX {
-                    self.add(*name, Some(ival.min + 1), None);
+                    self.add(name, Some(ival.min + 1), None);
                 }
             }
             // reversed: `n > i` means i < n
-            if let Expr::Id(name) = &decl.arena[*rhs] {
+            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
                 let ival = self.check_expr(*lhs, decl, decls);
                 if ival.max != i64::MAX {
-                    self.add(*name, None, Some(ival.max - 1));
+                    self.add(name, None, Some(ival.max - 1));
                 }
             }
             // match `array.len > N` — record min length bound
@@ -253,30 +270,30 @@ impl SafetyChecker {
 
         // reversed: `n < i` means i > n
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*rhs] {
+            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
                 let ival = self.check_expr(*lhs, decl, decls);
                 if ival.min != i64::MIN {
-                    self.add(*name, Some(ival.min + 1), None);
+                    self.add(name, Some(ival.min + 1), None);
                 }
             }
         }
 
         // reversed: `n >= i` means i <= n
         if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*rhs] {
+            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
                 let ival = self.check_expr(*lhs, decl, decls);
                 if ival.max != i64::MAX {
-                    self.add(*name, None, Some(ival.max));
+                    self.add(name, None, Some(ival.max));
                 }
             }
         }
 
         // reversed: `n <= i` means i >= n
         if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*rhs] {
+            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
                 let ival = self.check_expr(*lhs, decl, decls);
                 if ival.min != i64::MIN {
-                    self.add(*name, Some(ival.min), None);
+                    self.add(name, Some(ival.min), None);
                 }
             }
         }
@@ -599,12 +616,11 @@ impl SafetyChecker {
                     self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);
 
-                    if let Expr::Id(name) = &decl.arena[*lhs] {
+                    if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
                         if rhs_range != IndexInterval::default() {
-                            self.replace(*name, Some(rhs_range.min), Some(rhs_range.max));
+                            self.replace(name, Some(rhs_range.min), Some(rhs_range.max));
                         } else {
-                            // RHS is unconstrained — clear old constraints on LHS.
-                            self.replace(*name, None, None);
+                            self.replace(name, None, None);
                         }
                     }
 
@@ -643,9 +659,29 @@ impl SafetyChecker {
                 self.check_expr(*expr, decl, decls);
                 IndexInterval::default()
             }
-            Expr::Field(expr, _) => {
-                self.check_expr(*expr, decl, decls);
-                IndexInterval::default()
+            Expr::Field(_, _) => {
+                // Look up constraints using the compound name (e.g., "h.index").
+                if let Some(name) = expr_constraint_name(expr, &decl.arena) {
+                    let mut min = i64::min_value();
+                    let mut max = i64::max_value();
+                    let mut non_zero = false;
+                    for c in &self.constraints {
+                        if c.name == name {
+                            if let Some(m) = c.min {
+                                min = min.max(m)
+                            }
+                            if let Some(m) = c.max {
+                                max = max.min(m)
+                            }
+                            if c.non_zero {
+                                non_zero = true;
+                            }
+                        }
+                    }
+                    IndexInterval { min, max, non_zero }
+                } else {
+                    IndexInterval::default()
+                }
             }
             Expr::For {
                 var,

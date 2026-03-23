@@ -1,0 +1,29 @@
+// Safety checker tracks bounds on struct fields, not just variables.
+// `if h.index >= 0 && h.index < arr.len` should prove arr[h.index] safe.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+struct Handle {
+    index: i32
+}
+
+main {
+    var pool: [i32; 64]
+    pool[0] = 42
+    pool[1] = 99
+
+    var h: Handle
+    h.index = 0
+    var h2: Handle
+    h2.index = 1
+
+    if h.index >= 0 && h.index < 64 {
+        assert(pool[h.index] == 42)
+    }
+    if h2.index >= 0 && h2.index < 64 {
+        assert(pool[h2.index] == 99)
+    }
+}
