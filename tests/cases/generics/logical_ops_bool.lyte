@@ -1,0 +1,12 @@
+// && and || operators return bool and require bool operands.
+// Previously they returned an unconstrained type variable.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+
+main {
+    let a = 3 > 2 && 5 > 4
+    let b = 1 > 2 || 5 > 4
+    assert(a && b)
+}
