@@ -333,8 +333,18 @@ impl Checker {
         } else {
             // And, Or — both operands should be bool, result is bool.
             let b = mk_type(Type::Bool);
-            self.eq(at, b, arena.locs[id], "logical operator requires bool operands");
-            self.eq(bt, b, arena.locs[id], "logical operator requires bool operands");
+            self.eq(
+                at,
+                b,
+                arena.locs[id],
+                "logical operator requires bool operands",
+            );
+            self.eq(
+                bt,
+                b,
+                arena.locs[id],
+                "logical operator requires bool operands",
+            );
             b
         }
     }
@@ -398,8 +408,7 @@ impl Checker {
                 if let Some(v) = self.find(*name) {
                     self.lvalue[id] = v.mutable;
                     v.ty
-                } else if let Some(Decl::Global { typevars, ty, .. }) = decls.find(*name).first()
-                {
+                } else if let Some(Decl::Global { typevars, ty, .. }) = decls.find(*name).first() {
                     self.lvalue[id] = true;
                     if typevars.is_empty() {
                         *ty
@@ -637,8 +646,7 @@ impl Checker {
                 let d = decls.find(*struct_name);
                 if let Some(Decl::Struct(st)) = d.first() {
                     // Create fresh type variables for generics.
-                    let type_args: Vec<TypeID> =
-                        st.typevars.iter().map(|_| self.fresh()).collect();
+                    let type_args: Vec<TypeID> = st.typevars.iter().map(|_| self.fresh()).collect();
                     let inst: crate::Instance = st
                         .typevars
                         .iter()
@@ -986,7 +994,6 @@ impl Checker {
             if self.errors.is_empty() {
                 self.check_slice_aliasing(func_decl, decls);
             }
-
         }
     }
 

@@ -122,10 +122,7 @@ impl VMCodegen {
             }
             let ep_decls = decls.find(ep_name);
             if ep_decls.is_empty() {
-                return Err(format!(
-                    "entry point function '{}' not found",
-                    ep_name
-                ));
+                return Err(format!("entry point function '{}' not found", ep_name));
             }
             let ep_decl = match &ep_decls[0] {
                 Decl::Func(d) => d,
@@ -635,7 +632,11 @@ impl<'a> FunctionTranslator<'a> {
                     ..
                 } => {
                     if *start_reg == 1 {
-                        *count = if reg_count > 1 { (reg_count - 1) as u8 } else { 0 };
+                        *count = if reg_count > 1 {
+                            (reg_count - 1) as u8
+                        } else {
+                            0
+                        };
                         *slot = self.save_regs_offset + 8;
                     } else {
                         *count = reg_count as u8;
@@ -1000,10 +1001,7 @@ impl<'a> FunctionTranslator<'a> {
                             // Re-load base address after translate_expr
                             // (it may have allocated registers that alias base_reg).
                             let addr = self.alloc_reg();
-                            func.emit(Opcode::LocalAddr {
-                                dst: addr,
-                                slot,
-                            });
+                            func.emit(Opcode::LocalAddr { dst: addr, slot });
                             self.emit_store_offset(&field_ty, addr, offset, val_reg, func);
                         }
                     }
@@ -1011,10 +1009,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 // Re-emit the address as the result.
                 let result = self.alloc_reg();
-                func.emit(Opcode::LocalAddr {
-                    dst: result,
-                    slot,
-                });
+                func.emit(Opcode::LocalAddr { dst: result, slot });
                 result
             }
 
@@ -1096,9 +1091,16 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Break => {
                 let break_jump = func.emit(Opcode::Jump { offset: 0 });
-                self.loop_stack.last_mut().expect("break outside loop").break_patches.push(break_jump);
+                self.loop_stack
+                    .last_mut()
+                    .expect("break outside loop")
+                    .break_patches
+                    .push(break_jump);
                 let result = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst: result, value: 0 });
+                func.emit(Opcode::LoadImm {
+                    dst: result,
+                    value: 0,
+                });
                 result
             }
 
@@ -1108,7 +1110,11 @@ impl<'a> FunctionTranslator<'a> {
                 if continue_target == 0 {
                     // For-loop: target not known yet, emit patch.
                     let jump_pos = func.emit(Opcode::Jump { offset: 0 });
-                    self.loop_stack.last_mut().unwrap().continue_patches.push(jump_pos);
+                    self.loop_stack
+                        .last_mut()
+                        .unwrap()
+                        .continue_patches
+                        .push(jump_pos);
                 } else {
                     let pos = func.code.len();
                     func.emit(Opcode::Jump {
@@ -1116,7 +1122,10 @@ impl<'a> FunctionTranslator<'a> {
                     });
                 }
                 let result = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst: result, value: 0 });
+                func.emit(Opcode::LoadImm {
+                    dst: result,
+                    value: 0,
+                });
                 result
             }
 
@@ -2137,9 +2146,7 @@ impl<'a> FunctionTranslator<'a> {
                 let callee_decls = self.decls.find(*callee_name);
                 for d in callee_decls {
                     if let Decl::Func(callee) = d {
-                        if let Some(result) =
-                            self.try_inline(callee, arg_ids, func)
-                        {
+                        if let Some(result) = self.try_inline(callee, arg_ids, func) {
                             return result;
                         }
                     }
@@ -2543,7 +2550,13 @@ impl<'a> FunctionTranslator<'a> {
                     // Construct a 16-byte fat pointer locally for indirect calls.
                     if matches!(&*field_ty, Type::Func(_, _)) {
                         let func_idx_reg = self.alloc_reg();
-                        self.emit_load_offset(&mk_type(Type::Int32), func_idx_reg, lhs, offset, func);
+                        self.emit_load_offset(
+                            &mk_type(Type::Int32),
+                            func_idx_reg,
+                            lhs,
+                            offset,
+                            func,
+                        );
                         // Actually load as 64-bit since func_idx is i64:
                         let func_idx_reg2 = self.alloc_reg();
                         func.emit(Opcode::Load64Off {
@@ -2908,7 +2921,11 @@ impl<'a> FunctionTranslator<'a> {
     fn is_ptr_type(&self, ty: &TypeID) -> bool {
         matches!(
             &**ty,
-            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_) | Type::Func(_, _)
+            Type::Name(_, _)
+                | Type::Tuple(_)
+                | Type::Array(_, _)
+                | Type::Slice(_)
+                | Type::Func(_, _)
         )
     }
 
@@ -3034,7 +3051,15 @@ fn collect_free_var_names(
 ) -> Vec<(String, crate::TypeID)> {
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    collect_free_vars_rec(body, arena, exclude, local_vars, types, &mut result, &mut seen);
+    collect_free_vars_rec(
+        body,
+        arena,
+        exclude,
+        local_vars,
+        types,
+        &mut result,
+        &mut seen,
+    );
     result
 }
 
@@ -3135,7 +3160,15 @@ fn collect_free_vars_rec(
             for p in params {
                 inner_exclude.insert(p.name.to_string());
             }
-            collect_free_vars_rec(*body, arena, &inner_exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(
+                *body,
+                arena,
+                &inner_exclude,
+                local_vars,
+                types,
+                result,
+                seen,
+            );
         }
         Expr::Macro(_, args) => {
             for a in args {

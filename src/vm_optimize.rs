@@ -424,9 +424,7 @@ fn replace_reg_uses_until_clobber(
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => break,
             // For Call/CallIndirect/CallClosure: replace in the args range, then stop.
-            Opcode::Call { .. }
-            | Opcode::CallIndirect { .. }
-            | Opcode::CallClosure { .. } => {
+            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => {
                 code[i].replace_src_reg(old_reg, new_reg);
                 break;
             }
@@ -836,7 +834,10 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
     // to avoid conflicts with callee registers.
     let mut pinned = vec![false; n];
     for (i, op) in code.iter().enumerate() {
-        let is_call = matches!(op, Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. });
+        let is_call = matches!(
+            op,
+            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. }
+        );
         if !is_call {
             continue;
         }
@@ -891,7 +892,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
 
     // Step 4: Linear scan — assign physical registers.
     let mut mapping = vec![UNASSIGNED; n]; // vreg -> preg (UNASSIGNED = not yet assigned)
-    // Track which physical registers are free. Use a simple bitset.
+                                           // Track which physical registers are free. Use a simple bitset.
     let mut preg_free = [true; 256];
     // Active intervals sorted by end point: (end, vreg, preg)
     let mut active: Vec<(u32, Reg, u8)> = Vec::new();
@@ -947,8 +948,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
             let mut group_size: u8 = 0;
             while {
                 let idx = (group_start + group_size as Reg) as usize;
-                idx < call_group.len()
-                    && call_group[idx].map_or(false, |(gs, _)| gs == group_start)
+                idx < call_group.len() && call_group[idx].map_or(false, |(gs, _)| gs == group_start)
             } {
                 group_size += 1;
             }
@@ -1021,12 +1021,18 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
 
     // Validate: no two vregs with overlapping live ranges share a physical register.
     for a in 0..n {
-        if !is_used[a] || mapping[a] == UNASSIGNED { continue; }
+        if !is_used[a] || mapping[a] == UNASSIGNED {
+            continue;
+        }
         let a_start = def_point[a];
         let a_end = last_use[a].max(a_start);
         for b in (a + 1)..n {
-            if !is_used[b] || mapping[b] == UNASSIGNED { continue; }
-            if mapping[a] != mapping[b] { continue; }
+            if !is_used[b] || mapping[b] == UNASSIGNED {
+                continue;
+            }
+            if mapping[a] != mapping[b] {
+                continue;
+            }
             let b_start = def_point[b];
             let b_end = last_use[b].max(b_start);
             if a_start <= b_end && b_start <= a_end {

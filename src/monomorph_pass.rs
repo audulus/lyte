@@ -53,10 +53,7 @@ impl MonomorphPass {
         for &entry_point in entry_points {
             let func_decls = decls.find(entry_point);
             if func_decls.is_empty() {
-                return Err(format!(
-                    "entry point function '{}' not found",
-                    entry_point
-                ));
+                return Err(format!("entry point function '{}' not found", entry_point));
             }
 
             if func_decls.len() > 1 {
@@ -179,64 +176,64 @@ impl MonomorphPass {
                 // global function names), so skip the function loop.
                 let is_func_type = matches!(*solved_type, Type::Func(_, _));
                 if is_func_type {
-                for decl in fn_decls {
-                    if let Decl::Func(target_fdecl) = decl {
-                        if !target_fdecl.typevars.is_empty() {
-                            // This is a generic function - compute type arguments from solved type
-                            let type_args =
-                                self.infer_type_arguments(target_fdecl, solved_type, fdecl)?;
+                    for decl in fn_decls {
+                        if let Decl::Func(target_fdecl) = decl {
+                            if !target_fdecl.typevars.is_empty() {
+                                // This is a generic function - compute type arguments from solved type
+                                let type_args =
+                                    self.infer_type_arguments(target_fdecl, solved_type, fdecl)?;
 
-                            if !type_args.is_empty() {
-                                // Create a specialized version
-                                let mangled_name = self.instantiate_function(
-                                    *name,
-                                    type_args,
-                                    target_fdecl,
-                                    decls,
-                                )?;
+                                if !type_args.is_empty() {
+                                    // Create a specialized version
+                                    let mangled_name = self.instantiate_function(
+                                        *name,
+                                        type_args,
+                                        target_fdecl,
+                                        decls,
+                                    )?;
 
-                                // Rewrite the identifier to use the mangled name
-                                fdecl.arena.exprs[expr_id] = Expr::Id(mangled_name);
-                            }
-                        } else {
-                            // Non-generic function - include it and recursively process its body.
-                            let non_generic_overload_count = fn_decls
-                                .iter()
-                                .filter(|d| matches!(d, Decl::Func(f) if f.typevars.is_empty()))
-                                .count();
+                                    // Rewrite the identifier to use the mangled name
+                                    fdecl.arena.exprs[expr_id] = Expr::Id(mangled_name);
+                                }
+                            } else {
+                                // Non-generic function - include it and recursively process its body.
+                                let non_generic_overload_count = fn_decls
+                                    .iter()
+                                    .filter(|d| matches!(d, Decl::Func(f) if f.typevars.is_empty()))
+                                    .count();
 
-                            if non_generic_overload_count > 1 {
-                                let func_ty = TypeID::new(Type::Func(
-                                    target_fdecl.domain(),
-                                    target_fdecl.ret,
-                                ));
-                                let mut inst = Instance::new();
-                                if unify(func_ty, solved_type, &mut inst) {
-                                    let param_types = target_fdecl.param_types();
-                                    let mangled =
-                                        crate::mangle::mangle_overload(*name, &param_types);
+                                if non_generic_overload_count > 1 {
+                                    let func_ty = TypeID::new(Type::Func(
+                                        target_fdecl.domain(),
+                                        target_fdecl.ret,
+                                    ));
+                                    let mut inst = Instance::new();
+                                    if unify(func_ty, solved_type, &mut inst) {
+                                        let param_types = target_fdecl.param_types();
+                                        let mangled =
+                                            crate::mangle::mangle_overload(*name, &param_types);
 
-                                    if !self.processed_non_generic.contains(&mangled) {
-                                        self.processed_non_generic.insert(mangled);
+                                        if !self.processed_non_generic.contains(&mangled) {
+                                            self.processed_non_generic.insert(mangled);
+                                            let mut func = target_fdecl.clone();
+                                            func.name = mangled;
+                                            self.process_function(&mut func, decls)?;
+                                            self.out_decls.push(Decl::Func(func));
+                                        }
+
+                                        fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
+                                    }
+                                } else {
+                                    if !self.processed_non_generic.contains(&target_fdecl.name) {
+                                        self.processed_non_generic.insert(target_fdecl.name);
                                         let mut func = target_fdecl.clone();
-                                        func.name = mangled;
                                         self.process_function(&mut func, decls)?;
                                         self.out_decls.push(Decl::Func(func));
                                     }
-
-                                    fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
-                                }
-                            } else {
-                                if !self.processed_non_generic.contains(&target_fdecl.name) {
-                                    self.processed_non_generic.insert(target_fdecl.name);
-                                    let mut func = target_fdecl.clone();
-                                    self.process_function(&mut func, decls)?;
-                                    self.out_decls.push(Decl::Func(func));
                                 }
                             }
                         }
                     }
-                }
                 } // is_func_type
 
                 // Check for generic globals.

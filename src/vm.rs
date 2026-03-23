@@ -301,7 +301,8 @@ impl LinkedProgram {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - packed_idx as i32 - 1;
-                        ops[packed_idx] = PackedOp::ad(tags::JUMP_IF_ZERO, cond as u8, new_offset as i16);
+                        ops[packed_idx] =
+                            PackedOp::ad(tags::JUMP_IF_ZERO, cond as u8, new_offset as i16);
                     }
                     Opcode::JumpIfNotZero { cond, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
@@ -550,8 +551,12 @@ impl LinkedProgram {
                 PackedOp::abc(tags::FLT_JUMP, r(a), r(b), offset as i8 as u8)
             }
             // Superinstructions — AD
-            Opcode::LoadSlot32 { dst, slot } => PackedOp::ad(tags::LOAD_SLOT32, r(dst), slot as i16),
-            Opcode::StoreSlot32 { slot, src } => PackedOp::ad(tags::STORE_SLOT32, r(src), slot as i16),
+            Opcode::LoadSlot32 { dst, slot } => {
+                PackedOp::ad(tags::LOAD_SLOT32, r(dst), slot as i16)
+            }
+            Opcode::StoreSlot32 { slot, src } => {
+                PackedOp::ad(tags::STORE_SLOT32, r(src), slot as i16)
+            }
             // Calls — ABC
             Opcode::Call {
                 func,
@@ -621,7 +626,12 @@ impl LinkedProgram {
                 if slot % 8 == 0 && slot / 8 <= 255 {
                     PackedOp::abc(tags::RESTORE_REGS, r(start_reg), count, (slot / 8) as u8)
                 } else {
-                    ops.push(PackedOp::abc(tags::RESTORE_REGS_WIDE, r(start_reg), count, 0));
+                    ops.push(PackedOp::abc(
+                        tags::RESTORE_REGS_WIDE,
+                        r(start_reg),
+                        count,
+                        0,
+                    ));
                     ops.push(PackedOp::data(slot));
                     return;
                 }
@@ -694,7 +704,6 @@ impl LinkedProgram {
         ops.push(packed);
     }
 }
-
 
 /// A compiled function for the VM
 #[derive(Clone, Debug)]
@@ -1013,12 +1022,7 @@ impl VM {
 
     /// Run a specific function entry point with arguments.
     /// Globals are allocated on first call and preserved on subsequent calls.
-    fn run_inner(
-        &mut self,
-        program: &VMProgram,
-        func_idx: FuncIdx,
-        args: &[i64],
-    ) -> i64 {
+    fn run_inner(&mut self, program: &VMProgram, func_idx: FuncIdx, args: &[i64]) -> i64 {
         let linked = LinkedProgram::from_program(program);
         // Allocate globals if not yet allocated.
         if self.globals.is_empty() && program.globals_size > 0 {
@@ -2055,7 +2059,6 @@ impl VM {
         Ok(self.run_inner(program, func_idx, args))
     }
 
-
     /// Call a function using a pre-linked program with an external globals buffer.
     /// Copies globals in before execution, copies back out after.
     /// This is the fast path used by the FFI.
@@ -2073,7 +2076,11 @@ impl VM {
         }
         // Copy in.
         if globals_size > 0 {
-            std::ptr::copy_nonoverlapping(external_globals, self.globals.as_mut_ptr(), globals_size);
+            std::ptr::copy_nonoverlapping(
+                external_globals,
+                self.globals.as_mut_ptr(),
+                globals_size,
+            );
         }
         let result = self.run_linked(linked, program, func_idx, &[]);
         // Copy out.

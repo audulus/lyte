@@ -158,10 +158,7 @@ impl JIT {
         for &ep_name in entry_points {
             let ep_decls = decls.find(ep_name);
             if ep_decls.is_empty() {
-                return Err(format!(
-                    "entry point function '{}' not found",
-                    ep_name
-                ));
+                return Err(format!("entry point function '{}' not found", ep_name));
             }
             let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
                 d
@@ -550,15 +547,18 @@ impl<'a> FunctionTranslator<'a> {
         let base = self.globals_base.expect("globals_base not set");
 
         // Decrement counter
-        let counter = self
-            .builder
-            .ins()
-            .load(I32, MemFlags::trusted(), base, CANCEL_COUNTER_OFFSET);
+        let counter =
+            self.builder
+                .ins()
+                .load(I32, MemFlags::trusted(), base, CANCEL_COUNTER_OFFSET);
         let one = self.builder.ins().iconst(I32, 1);
         let new_counter = self.builder.ins().isub(counter, one);
-        self.builder
-            .ins()
-            .store(MemFlags::trusted(), new_counter, base, CANCEL_COUNTER_OFFSET);
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_counter,
+            base,
+            CANCEL_COUNTER_OFFSET,
+        );
 
         // If counter <= 0, call the cancel check function
         let is_zero = self
@@ -899,25 +899,19 @@ impl<'a> FunctionTranslator<'a> {
                             .typevars
                             .iter()
                             .zip(type_args.iter())
-                            .map(|(tv, ty)| {
-                                (crate::types::mk_type(crate::Type::Var(*tv)), *ty)
-                            })
+                            .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
                         for (fname, fval) in fields {
                             let val = self.translate_expr(*fval, decl, decls);
                             let off = s.field_offset(fname, decls, &inst);
                             let field_ty = &decl.types[*fval];
-                            let field_addr =
-                                self.builder.ins().iadd_imm(addr, off as i64);
+                            let field_addr = self.builder.ins().iadd_imm(addr, off as i64);
                             if field_ty.is_ptr() {
                                 self.gen_copy(*field_ty, field_addr, val, decls);
                             } else {
-                                self.builder.ins().store(
-                                    MemFlags::new(),
-                                    val,
-                                    field_addr,
-                                    0,
-                                );
+                                self.builder
+                                    .ins()
+                                    .store(MemFlags::new(), val, field_addr, 0);
                             }
                         }
                     }
@@ -1150,7 +1144,9 @@ impl<'a> FunctionTranslator<'a> {
                 let then_val = self.translate_expr(*then_id, decl, decls);
                 if !self.builder.is_unreachable() {
                     if is_value {
-                        self.builder.ins().jump(merge_block, &[codegen::ir::BlockArg::Value(then_val)]);
+                        self.builder
+                            .ins()
+                            .jump(merge_block, &[codegen::ir::BlockArg::Value(then_val)]);
                     } else {
                         self.builder.ins().jump(merge_block, &[]);
                     }
@@ -1166,7 +1162,9 @@ impl<'a> FunctionTranslator<'a> {
                 };
                 if !self.builder.is_unreachable() {
                     if is_value {
-                        self.builder.ins().jump(merge_block, &[codegen::ir::BlockArg::Value(else_val)]);
+                        self.builder
+                            .ins()
+                            .jump(merge_block, &[codegen::ir::BlockArg::Value(else_val)]);
                     } else {
                         self.builder.ins().jump(merge_block, &[]);
                     }

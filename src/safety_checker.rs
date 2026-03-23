@@ -716,10 +716,7 @@ impl SafetyChecker {
                         .map(|b| b.array)
                         .collect();
                     for array in transitive {
-                        self.len_bounds.push(LenBound {
-                            index: *var,
-                            array,
-                        });
+                        self.len_bounds.push(LenBound { index: *var, array });
                     }
                 }
                 // Save/restore constraints around the body so that mutations
@@ -769,8 +766,7 @@ impl SafetyChecker {
                     let initialized_from_start = start_name.is_some_and(|sn| {
                         decl.arena.exprs.iter().any(|e| {
                             if let Expr::Var(vn, Some(init), _) = e {
-                                *vn == name
-                                    && matches!(&decl.arena[*init], Expr::Id(n) if *n == sn)
+                                *vn == name && matches!(&decl.arena[*init], Expr::Id(n) if *n == sn)
                             } else {
                                 false
                             }
@@ -812,8 +808,10 @@ impl SafetyChecker {
                     if *name == var_name {
                         // Check rhs is `var_name + 1`
                         if let Expr::Binop(Binop::Plus, plus_lhs, plus_rhs) = &arena[*rhs] {
-                            let lhs_is_var = matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
-                            let rhs_is_one = matches!(&arena[*plus_rhs], Expr::Int(1) | Expr::UInt(1));
+                            let lhs_is_var =
+                                matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
+                            let rhs_is_one =
+                                matches!(&arena[*plus_rhs], Expr::Int(1) | Expr::UInt(1));
                             return lhs_is_var && rhs_is_one;
                         }
                         return false; // Some other assignment to var_name
@@ -828,8 +826,7 @@ impl SafetyChecker {
             Expr::If(cond, then_expr, else_expr) => {
                 Self::is_monotonic_increment(var_name, *cond, arena)
                     && Self::is_monotonic_increment(var_name, *then_expr, arena)
-                    && else_expr
-                        .map_or(true, |e| Self::is_monotonic_increment(var_name, e, arena))
+                    && else_expr.map_or(true, |e| Self::is_monotonic_increment(var_name, e, arena))
             }
             Expr::While(cond, body) => {
                 Self::is_monotonic_increment(var_name, *cond, arena)
@@ -879,11 +876,7 @@ impl SafetyChecker {
     /// Invalidate constraints for variables that were assigned inside a loop body.
     /// After save/restore, the restored constraints reflect pre-loop state, but
     /// any variable mutated inside the loop could hold a different value at exit.
-    fn invalidate_assigned(
-        &mut self,
-        body: ExprID,
-        arena: &ExprArena,
-    ) {
+    fn invalidate_assigned(&mut self, body: ExprID, arena: &ExprArena) {
         let mut assigned = Vec::new();
         Self::collect_assigned_vars(body, arena, &mut assigned);
         for name in assigned {

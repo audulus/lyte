@@ -80,7 +80,11 @@ impl Type {
     pub fn is_ptr(&self) -> bool {
         matches!(
             self,
-            Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_) | Type::Func(_, _)
+            Type::Name(_, _)
+                | Type::Tuple(_)
+                | Type::Array(_, _)
+                | Type::Slice(_)
+                | Type::Func(_, _)
         )
     }
 }
@@ -269,7 +273,10 @@ impl TypeID {
             Type::Slice(_) => 12, // fat pointer: data_ptr (8) + len (4)
             Type::Func(_, _) => 16,
             Type::Anon(i) => {
-                eprintln!("internal error: asked for size of anonymous type variable {}", i);
+                eprintln!(
+                    "internal error: asked for size of anonymous type variable {}",
+                    i
+                );
                 0
             }
             Type::Var(name) => {
@@ -498,11 +505,10 @@ pub fn unify_with_vars(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                 inst.insert(rhs, lhs);
                 true
             }
-            (Type::Tuple(v0), Type::Tuple(v1)) if v0.len() == v1.len() => {
-                v0.iter()
-                    .zip(v1.iter())
-                    .all(|(a, b)| unify_with_vars(*a, *b, inst))
-            }
+            (Type::Tuple(v0), Type::Tuple(v1)) if v0.len() == v1.len() => v0
+                .iter()
+                .zip(v1.iter())
+                .all(|(a, b)| unify_with_vars(*a, *b, inst)),
             (Type::Array(a, sa), Type::Array(b, sb)) => {
                 let sizes_ok = match (sa, sb) {
                     (ArraySize::Var(_), _) | (_, ArraySize::Var(_)) => true,
@@ -560,7 +566,10 @@ impl Interface {
         // If any type parameter is still unresolved (type variable or anonymous),
         // defer the check — it will be verified when the generic function is
         // instantiated with concrete types.
-        if types.iter().any(|t| matches!(&**t, Type::Var(_) | Type::Anon(_))) {
+        if types
+            .iter()
+            .any(|t| matches!(&**t, Type::Var(_) | Type::Anon(_)))
+        {
             return true;
         }
 

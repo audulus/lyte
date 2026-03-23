@@ -1069,7 +1069,9 @@ impl Opcode {
             Opcode::SliceStore32 { .. } => None,
 
             // Call/CallIndirect/CallClosure implicitly define r0 (return value register).
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => Some(0),
+            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => {
+                Some(0)
+            }
 
             Opcode::GetClosurePtr { dst } => Some(*dst),
 
@@ -1100,7 +1102,6 @@ impl Opcode {
             | Opcode::Putc { .. } => None,
         }
     }
-
 
     pub fn set_dst(&mut self, new_dst: Reg) -> bool {
         match self {
@@ -1237,7 +1238,6 @@ impl Opcode {
         }
     }
 
-
     pub fn reads_reg(&self, reg: Reg) -> bool {
         match self {
             Opcode::Nop
@@ -1320,9 +1320,9 @@ impl Opcode {
             | Opcode::I8ToI32 { src, .. }
             | Opcode::I64ToU32 { src, .. } => *src == reg,
 
-            Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
-                *addr == reg
-            }
+            Opcode::Load8 { addr, .. }
+            | Opcode::Load32 { addr, .. }
+            | Opcode::Load64 { addr, .. } => *addr == reg,
             Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => *base == reg,
 
             Opcode::Store8 { addr, src }
@@ -1434,7 +1434,6 @@ impl Opcode {
             }
         }
     }
-
 
     pub fn replace_src_reg(&mut self, old: Reg, new: Reg) {
         match self {
@@ -1591,7 +1590,9 @@ impl Opcode {
                     *src = new;
                 }
             }
-            Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
+            Opcode::Load8 { addr, .. }
+            | Opcode::Load32 { addr, .. }
+            | Opcode::Load64 { addr, .. } => {
                 if *addr == old {
                     *addr = new;
                 }
@@ -1799,7 +1800,6 @@ impl Opcode {
         }
     }
 
-
     pub fn for_each_src(&self, mut f: impl FnMut(Reg)) {
         match self {
             Opcode::Move { src, .. } => f(*src),
@@ -1887,9 +1887,9 @@ impl Opcode {
             | Opcode::I32ToI8 { src, .. }
             | Opcode::I8ToI32 { src, .. }
             | Opcode::I64ToU32 { src, .. } => f(*src),
-            Opcode::Load8 { addr, .. } | Opcode::Load32 { addr, .. } | Opcode::Load64 { addr, .. } => {
-                f(*addr)
-            }
+            Opcode::Load8 { addr, .. }
+            | Opcode::Load32 { addr, .. }
+            | Opcode::Load64 { addr, .. } => f(*addr),
             Opcode::Load32Off { base, .. } | Opcode::Load64Off { base, .. } => f(*base),
             Opcode::Store8 { addr, src }
             | Opcode::Store32 { addr, src }
@@ -2021,7 +2021,6 @@ impl Opcode {
             _ => {}
         }
     }
-
 
     pub fn rewrite_regs(&mut self, map: &[Reg]) {
         match self {
@@ -2316,6 +2315,4 @@ impl Opcode {
             _ => {}
         }
     }
-
-
 }

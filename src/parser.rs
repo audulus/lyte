@@ -938,7 +938,10 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
     if cx.lex.tok == Token::Where {
         cx.next();
 
-        while !token_in(&cx.lex.tok, &[Token::Lbrace, Token::Rbrace, Token::Endl, Token::End]) {
+        while !token_in(
+            &cx.lex.tok,
+            &[Token::Lbrace, Token::Rbrace, Token::Endl, Token::End],
+        ) {
             let interface_name = expect_id(cx);
             let typevars = parse_typevar_list(cx);
             constraints.push(InterfaceConstraint {
@@ -1462,8 +1465,12 @@ mod tests {
     #[test]
     fn round_trip_expressions() {
         assert_round_trip("f() {\n    let x = 42\n    var y: i32\n    y = x + 1\n}");
-        assert_round_trip("f(x: i32) {\n    if x > 0 {\n        x\n    } else {\n        0\n    }\n}");
-        assert_round_trip("f() {\n    var a: [i32; 10]\n    for i in 0 .. 10 {\n        a[i] = i\n    }\n}");
+        assert_round_trip(
+            "f(x: i32) {\n    if x > 0 {\n        x\n    } else {\n        0\n    }\n}",
+        );
+        assert_round_trip(
+            "f() {\n    var a: [i32; 10]\n    for i in 0 .. 10 {\n        a[i] = i\n    }\n}",
+        );
         assert_round_trip("f() {\n    var i = 0\n    while i < 10 {\n        i = i + 1\n    }\n}");
     }
 

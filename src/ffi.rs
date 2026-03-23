@@ -324,14 +324,18 @@ pub unsafe extern "C" fn lyte_program_free(ptr: *mut LyteProgram) {
 /// Get the size in bytes of the globals buffer needed.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_program_get_globals_size(ptr: *const LyteProgram) -> usize {
-    if ptr.is_null() { return 0; }
+    if ptr.is_null() {
+        return 0;
+    }
     (*ptr).globals_size
 }
 
 /// Get the number of global variables.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_program_get_globals_count(ptr: *const LyteProgram) -> usize {
-    if ptr.is_null() { return 0; }
+    if ptr.is_null() {
+        return 0;
+    }
     (*ptr).globals_info.len()
 }
 
@@ -341,9 +345,13 @@ pub unsafe extern "C" fn lyte_program_get_global_name(
     ptr: *const LyteProgram,
     index: usize,
 ) -> *const c_char {
-    if ptr.is_null() { return ptr::null(); }
+    if ptr.is_null() {
+        return ptr::null();
+    }
     let p = &*ptr;
-    p.globals_info.get(index).map_or(ptr::null(), |g| g.name.as_ptr())
+    p.globals_info
+        .get(index)
+        .map_or(ptr::null(), |g| g.name.as_ptr())
 }
 
 /// Get the byte offset of a global variable.
@@ -352,7 +360,9 @@ pub unsafe extern "C" fn lyte_program_get_global_offset(
     ptr: *const LyteProgram,
     index: usize,
 ) -> usize {
-    if ptr.is_null() { return 0; }
+    if ptr.is_null() {
+        return 0;
+    }
     let p = &*ptr;
     p.globals_info.get(index).map_or(0, |g| g.offset)
 }
@@ -363,7 +373,9 @@ pub unsafe extern "C" fn lyte_program_get_global_size(
     ptr: *const LyteProgram,
     index: usize,
 ) -> usize {
-    if ptr.is_null() { return 0; }
+    if ptr.is_null() {
+        return 0;
+    }
     let p = &*ptr;
     p.globals_info.get(index).map_or(0, |g| g.size)
 }
@@ -374,9 +386,13 @@ pub unsafe extern "C" fn lyte_program_get_global_type(
     ptr: *const LyteProgram,
     index: usize,
 ) -> *const c_char {
-    if ptr.is_null() { return ptr::null(); }
+    if ptr.is_null() {
+        return ptr::null();
+    }
     let p = &*ptr;
-    p.globals_info.get(index).map_or(ptr::null(), |g| g.ty.as_ptr())
+    p.globals_info
+        .get(index)
+        .map_or(ptr::null(), |g| g.ty.as_ptr())
 }
 
 /// Call an entry point by index with an external globals buffer.
@@ -422,7 +438,9 @@ pub unsafe extern "C" fn lyte_entry_point_call(
     {
         let func_idx = ep.func_idx;
         if let Some(cb) = program.cancel_callback {
-            program.vm.set_cancel_callback(Some(cb), program.cancel_userdata);
+            program
+                .vm
+                .set_cancel_callback(Some(cb), program.cancel_userdata);
         }
         let gs = program.globals_size;
         #[cfg(target_arch = "aarch64")]
@@ -453,9 +471,13 @@ pub unsafe extern "C" fn lyte_entry_point_call(
 /// Caller must free with lyte_globals_free().
 #[no_mangle]
 pub unsafe extern "C" fn lyte_globals_alloc(ptr: *const LyteProgram) -> *mut u8 {
-    if ptr.is_null() { return ptr::null_mut(); }
+    if ptr.is_null() {
+        return ptr::null_mut();
+    }
     let size = (*ptr).globals_size;
-    if size == 0 { return ptr::null_mut(); }
+    if size == 0 {
+        return ptr::null_mut();
+    }
     let layout = std::alloc::Layout::from_size_align(size, 16).unwrap();
     let mem = std::alloc::alloc_zeroed(layout);
     // Initialize cancel counter.
@@ -483,7 +505,9 @@ pub unsafe extern "C" fn lyte_program_set_cancel_callback(
     callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     user_data: *mut u8,
 ) {
-    if ptr.is_null() { return; }
+    if ptr.is_null() {
+        return;
+    }
     (*ptr).cancel_callback = callback;
     (*ptr).cancel_userdata = user_data;
 }

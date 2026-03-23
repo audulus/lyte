@@ -427,10 +427,7 @@ fn compile_with_context<'ctx>(
     for &ep_name in entry_points {
         let ep_decls = decls.find(ep_name);
         if ep_decls.is_empty() {
-            return Err(format!(
-                "entry point function '{}' not found",
-                ep_name
-            ));
+            return Err(format!("entry point function '{}' not found", ep_name));
         }
         let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
             d
@@ -459,8 +456,8 @@ fn compile_with_context<'ctx>(
     let triple = TargetMachine::get_default_triple();
     let cpu = TargetMachine::get_host_cpu_name();
     let features = TargetMachine::get_host_cpu_features();
-    let target = Target::from_triple(&triple)
-        .map_err(|e| format!("LLVM target from triple: {}", e))?;
+    let target =
+        Target::from_triple(&triple).map_err(|e| format!("LLVM target from triple: {}", e))?;
     let machine = target
         .create_target_machine(
             &triple,
@@ -1093,9 +1090,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         self.builder()
             .build_call(check_fn, &[self.globals_base.into()], "")
             .unwrap();
-        self.builder()
-            .build_unconditional_branch(cont_bb)
-            .unwrap();
+        self.builder().build_unconditional_branch(cont_bb).unwrap();
 
         self.builder().position_at_end(cont_bb);
     }
@@ -1635,9 +1630,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         let var_ty = decl.types[new_val_id];
                         let is_scalar_float =
                             matches!(*var_ty, crate::Type::Float32 | crate::Type::Float64);
-                        if is_scalar_float
-                            && self.variables.contains_key(&var_name.to_string())
-                        {
+                        if is_scalar_float && self.variables.contains_key(&var_name.to_string()) {
                             let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
                             let cond_val = self.to_i1(cond_raw);
                             let alloca = self.variables[&var_name.to_string()];
@@ -1714,10 +1707,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if is_value {
                     let llvm_ty = result_ty.llvm_basic_type(self.ctx());
                     let phi = self.builder().build_phi(llvm_ty, "if_val").unwrap();
-                    phi.add_incoming(&[
-                        (&then_val, then_exit_bb),
-                        (&else_val, else_exit_bb),
-                    ]);
+                    phi.add_incoming(&[(&then_val, then_exit_bb), (&else_val, else_exit_bb)]);
                     phi.as_basic_value().into()
                 } else {
                     self.zero_i32()
@@ -1803,9 +1793,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.translate_expr(body, decl);
 
                 if !self.is_block_terminated() {
-                    self.builder()
-                        .build_unconditional_branch(latch_bb)
-                        .unwrap();
+                    self.builder().build_unconditional_branch(latch_bb).unwrap();
                 }
 
                 // Latch block: increment and jump back to header.
@@ -1928,9 +1916,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::Break => {
                 let (_, break_bb) = *self.loop_stack.last().expect("break outside loop");
-                self.builder()
-                    .build_unconditional_branch(break_bb)
-                    .unwrap();
+                self.builder().build_unconditional_branch(break_bb).unwrap();
                 let unreachable_bb = self.append_bb("after_break");
                 self.builder().position_at_end(unreachable_bb);
                 self.zero_i32()
@@ -2643,10 +2629,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     /// Returns (intrinsic_name, float_type) for math builtins that have LLVM intrinsics.
-    fn llvm_intrinsic_name(
-        &self,
-        name: &Name,
-    ) -> Option<(String, BasicTypeEnum<'ctx>)> {
+    fn llvm_intrinsic_name(&self, name: &Name) -> Option<(String, BasicTypeEnum<'ctx>)> {
         let (base, ty): (&str, BasicTypeEnum<'ctx>) = if name.contains("$f32") {
             let stripped = name.strip_suffix("$f32").unwrap_or(&**name);
             (stripped, self.state.f32_ty().into())
@@ -2700,9 +2683,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         let func = if let Some(f) = self.state.module.get_function(intrinsic_name) {
             f
         } else {
-            self.state
-                .module
-                .add_function(intrinsic_name, fn_ty, None)
+            self.state.module.add_function(intrinsic_name, fn_ty, None)
         };
         let call_args: Vec<BasicMetadataValueEnum<'ctx>> =
             args.iter().map(|a| (*a).into()).collect();
@@ -2892,11 +2873,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         closure: Option<PointerValue<'ctx>>,
     ) -> BasicValueEnum<'ctx> {
         let storage = self.entry_array_alloca(self.i8_ty(), 16, "fat_ptr");
-        storage
-            .as_instruction()
-            .unwrap()
-            .set_alignment(8)
-            .unwrap();
+        storage.as_instruction().unwrap().set_alignment(8).unwrap();
         self.builder().build_store(storage, fn_ptr).unwrap();
         let clos_slot = self.ptr_at_offset(storage, 8);
         let clos_val: PointerValue<'ctx> = closure.unwrap_or_else(|| self.ptr_ty().const_null());
@@ -2914,11 +2891,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             crate::Type::Array(_, sz) => {
                 let len = self.i32_ty().const_int(sz.known() as u64, false);
                 let storage = self.entry_array_alloca(self.i8_ty(), 12, "slice_fat");
-                storage
-                    .as_instruction()
-                    .unwrap()
-                    .set_alignment(8)
-                    .unwrap();
+                storage.as_instruction().unwrap().set_alignment(8).unwrap();
                 self.builder().build_store(storage, val).unwrap();
                 let len_ptr = self.ptr_at_offset(storage, 8);
                 self.builder().build_store(len_ptr, len).unwrap();

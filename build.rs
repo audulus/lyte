@@ -17,9 +17,7 @@ fn main() {
         .expect("failed to write jmpbuf_size.c");
 
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let compile = Command::new(&cc)
-        .args([&c_path, "-o", &bin_path])
-        .status();
+    let compile = Command::new(&cc).args([&c_path, "-o", &bin_path]).status();
 
     if let Ok(status) = compile {
         if status.success() {

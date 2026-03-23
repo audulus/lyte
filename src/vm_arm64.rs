@@ -31,40 +31,40 @@ pub struct AsmCallFrame {
 #[repr(C)]
 pub struct AsmContext {
     // === Hot state: loaded into pinned registers ===
-    pub ops: *const u32,              // 0:   -> x19
-    pub regs: *mut u64,               // 8:   -> x20
-    pub ip: u64,                      // 16:  -> x21
-    pub locals_base: u64,             // 24:  -> x22
-    pub locals_ptr: *mut u8,          // 32:  -> x23
-    pub globals_ptr: *mut u8,         // 40:  -> x26
-    pub func_offsets: *const u64,     // 48:  (usize = u64 on 64-bit)
-    pub func_locals: *const u32,      // 56:
+    pub ops: *const u32,          // 0:   -> x19
+    pub regs: *mut u64,           // 8:   -> x20
+    pub ip: u64,                  // 16:  -> x21
+    pub locals_base: u64,         // 24:  -> x22
+    pub locals_ptr: *mut u8,      // 32:  -> x23
+    pub globals_ptr: *mut u8,     // 40:  -> x26
+    pub func_offsets: *const u64, // 48:  (usize = u64 on 64-bit)
+    pub func_locals: *const u32,  // 56:
 
     // === Constant pools ===
-    pub wide_i64: *const i64,         // 64:
-    pub wide_f64: *const f64,         // 72:
-    pub f32_pool: *const f32,         // 80:
-    pub constants: *const u64,        // 88:
+    pub wide_i64: *const i64,  // 64:
+    pub wide_f64: *const f64,  // 72:
+    pub f32_pool: *const f32,  // 80:
+    pub constants: *const u64, // 88:
 
     // === VM state ===
-    pub cancelled_ptr: *mut u8,       // 96:
-    pub closure_ptr: u64,             // 104:
+    pub cancelled_ptr: *mut u8, // 96:
+    pub closure_ptr: u64,       // 104:
 
     // === Call stack (pre-allocated fixed-size buffer) ===
     pub call_stack: *mut AsmCallFrame, // 112:
     pub call_stack_len: u64,           // 120:
 
     // === Current function index ===
-    pub current_func: u64,            // 128:
+    pub current_func: u64, // 128:
 
     // === Locals capacity (for resize check) ===
-    pub locals_cap: u64,              // 136:
+    pub locals_cap: u64, // 136:
 
     // === Helper function pointers (called from assembly) ===
-    pub fn_print_i32: unsafe extern "C" fn(i64),         // 144:
-    pub fn_print_f32: unsafe extern "C" fn(u32),         // 152:
+    pub fn_print_i32: unsafe extern "C" fn(i64), // 144:
+    pub fn_print_f32: unsafe extern "C" fn(u32), // 152:
     pub fn_assert: unsafe extern "C" fn(u64, u64) -> u64, // 160: (val, ip) -> 0=ok, 1=fail
-    pub fn_putc: unsafe extern "C" fn(u64),              // 168:
+    pub fn_putc: unsafe extern "C" fn(u64),      // 168:
     pub fn_grow_locals: unsafe extern "C" fn(*mut AsmContext, u64), // 176: (ctx, needed)
 }
 
@@ -167,11 +167,14 @@ impl VM {
 
         // Pre-allocate call stack
         let mut call_stack = Vec::with_capacity(MAX_CALL_DEPTH);
-        call_stack.resize(MAX_CALL_DEPTH, AsmCallFrame {
-            func_idx: 0,
-            ip: 0,
-            locals_base: 0,
-        });
+        call_stack.resize(
+            MAX_CALL_DEPTH,
+            AsmCallFrame {
+                func_idx: 0,
+                ip: 0,
+                locals_base: 0,
+            },
+        );
 
         let mut ctx = AsmContext {
             ops: linked.ops.as_ptr() as *const u32,
@@ -219,11 +222,14 @@ impl VM {
 
         // Pre-allocate call stack
         let mut call_stack = Vec::with_capacity(MAX_CALL_DEPTH);
-        call_stack.resize(MAX_CALL_DEPTH, AsmCallFrame {
-            func_idx: 0,
-            ip: 0,
-            locals_base: 0,
-        });
+        call_stack.resize(
+            MAX_CALL_DEPTH,
+            AsmCallFrame {
+                func_idx: 0,
+                ip: 0,
+                locals_base: 0,
+            },
+        );
 
         let mut ctx = AsmContext {
             ops: linked.ops.as_ptr() as *const u32,

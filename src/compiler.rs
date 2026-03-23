@@ -33,9 +33,10 @@ impl CompiledProgram {
             CompiledProgram::Llvm(p) => {
                 p.entry_points.get(&name).map(|&addr| EntryPoint::Jit(addr))
             }
-            CompiledProgram::Vm { program, .. } => {
-                program.entry_points.get(&name).map(|&idx| EntryPoint::Vm(idx))
-            }
+            CompiledProgram::Vm { program, .. } => program
+                .entry_points
+                .get(&name)
+                .map(|&idx| EntryPoint::Vm(idx)),
         }
     }
 }
@@ -692,7 +693,11 @@ impl Compiler {
             let program = codegen.compile_multi(&self.decls, &entry_points)?;
             let linked = LinkedProgram::from_program(&program);
             let vm = VM::new();
-            Ok(CompiledProgram::Vm { program, linked, vm })
+            Ok(CompiledProgram::Vm {
+                program,
+                linked,
+                vm,
+            })
         }
     }
 }
@@ -1113,11 +1118,15 @@ mod tests {
         vm.call(&program, Name::new("init".into()), &[]).unwrap();
 
         // Call process(5) — counter becomes 15
-        let result = vm.call(&program, Name::new("process".into()), &[5]).unwrap();
+        let result = vm
+            .call(&program, Name::new("process".into()), &[5])
+            .unwrap();
         assert_eq!(result, 15);
 
         // Call process(3) — counter becomes 18 (globals persist)
-        let result = vm.call(&program, Name::new("process".into()), &[3]).unwrap();
+        let result = vm
+            .call(&program, Name::new("process".into()), &[3])
+            .unwrap();
         assert_eq!(result, 18);
     }
 
@@ -1181,7 +1190,9 @@ mod tests {
         let mut vm = crate::vm::VM::new();
 
         vm.call(&program, Name::new("init".into()), &[]).unwrap();
-        let result = vm.call(&program, Name::new("process".into()), &[3]).unwrap();
+        let result = vm
+            .call(&program, Name::new("process".into()), &[3])
+            .unwrap();
         // init sets state=helper(5)=10, process adds helper(3)=6, total=16
         assert_eq!(result, 16);
     }
@@ -1277,25 +1288,45 @@ mod tests {
 
         // Call init via the compiled program
         match &mut prog {
-            CompiledProgram::Vm { linked, program, vm, .. } => {
-                unsafe {
-                    vm.call_with_external_globals(
-                        linked, program, match init_ep { EntryPoint::Vm(idx) => idx, _ => panic!() },
-                        globals.as_mut_ptr(), gs,
-                    );
-                }
-            }
+            CompiledProgram::Vm {
+                linked,
+                program,
+                vm,
+                ..
+            } => unsafe {
+                vm.call_with_external_globals(
+                    linked,
+                    program,
+                    match init_ep {
+                        EntryPoint::Vm(idx) => idx,
+                        _ => panic!(),
+                    },
+                    globals.as_mut_ptr(),
+                    gs,
+                );
+            },
             #[cfg(feature = "llvm")]
             _ => {} // LLVM path tested separately
         }
 
         // Call process — should return 11 (counter was 10, now 11)
         match &mut prog {
-            CompiledProgram::Vm { linked, program, vm, .. } => {
+            CompiledProgram::Vm {
+                linked,
+                program,
+                vm,
+                ..
+            } => {
                 let result = unsafe {
                     vm.call_with_external_globals(
-                        linked, program, match process_ep { EntryPoint::Vm(idx) => idx, _ => panic!() },
-                        globals.as_mut_ptr(), gs,
+                        linked,
+                        program,
+                        match process_ep {
+                            EntryPoint::Vm(idx) => idx,
+                            _ => panic!(),
+                        },
+                        globals.as_mut_ptr(),
+                        gs,
                     )
                 };
                 assert_eq!(result, 11);
@@ -1303,8 +1334,14 @@ mod tests {
                 // Call again — globals persist
                 let result = unsafe {
                     vm.call_with_external_globals(
-                        linked, program, match process_ep { EntryPoint::Vm(idx) => idx, _ => panic!() },
-                        globals.as_mut_ptr(), gs,
+                        linked,
+                        program,
+                        match process_ep {
+                            EntryPoint::Vm(idx) => idx,
+                            _ => panic!(),
+                        },
+                        globals.as_mut_ptr(),
+                        gs,
                     )
                 };
                 assert_eq!(result, 12);
