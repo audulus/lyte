@@ -172,6 +172,13 @@ impl MonomorphPass {
 
                 // Look up the declaration
                 let fn_decls = decls.find(*name);
+
+                // Only attempt function monomorphization if the solved type is a
+                // function type. If it's not, this identifier was resolved to a
+                // local variable/parameter by the type checker (which shadows
+                // global function names), so skip the function loop.
+                let is_func_type = matches!(*solved_type, Type::Func(_, _));
+                if is_func_type {
                 for decl in fn_decls {
                     if let Decl::Func(target_fdecl) = decl {
                         if !target_fdecl.typevars.is_empty() {
@@ -230,6 +237,7 @@ impl MonomorphPass {
                         }
                     }
                 }
+                } // is_func_type
 
                 // Check for generic globals.
                 for decl in fn_decls {

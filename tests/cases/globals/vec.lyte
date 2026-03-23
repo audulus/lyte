@@ -57,7 +57,7 @@ len<T>(v: Vec<T>) -> i32 {
 }
 
 // Return the current capacity.
-capacity<T>(v: Vec<T>) -> i32 {
+cap<T>(v: Vec<T>) -> i32 {
     v.__cap
 }
 
@@ -151,11 +151,11 @@ main {
     // Push past initial capacity (4) to trigger grow
     v = push(v, 40)
     assert(len(v) == 4)
-    assert(capacity(v) == 4)  // exactly at capacity, no grow yet
+    assert(cap(v) == 4)  // exactly at capacity, no grow yet
 
     v = push(v, 50)       // this triggers grow to cap 8
     assert(len(v) == 5)
-    assert(capacity(v) == 8)
+    assert(cap(v) == 8)
     assert(get(v, 4) == 50)
 
     // Old data survived the grow
