@@ -384,9 +384,11 @@ impl Checker {
                     }
                     ty.subst(&inst)
                 } else {
-                    // Function with explicit type args.
+                    // Function with explicit type args — collect all overloads
+                    // whose typevar count matches, substitute the explicit type
+                    // args, and let the solver pick the right arity.
                     let fn_decls = decls.find(*name);
-                    let mut result_ty = self.fresh();
+                    let mut alts: Vec<Alt> = Vec::new();
                     for d in fn_decls {
                         if let Decl::Func(fdecl) = d {
                             if fdecl.typevars.len() == type_args.len() {
@@ -394,12 +396,22 @@ impl Checker {
                                 for (tv, ta) in fdecl.typevars.iter().zip(type_args.iter()) {
                                     inst.insert(mk_type(Type::Var(*tv)), *ta);
                                 }
-                                result_ty = fdecl.ty().subst(&inst);
-                                break;
+                                alts.push(Alt {
+                                    ty: fdecl.ty().subst(&inst),
+                                    interfaces: vec![],
+                                });
                             }
                         }
                     }
-                    result_ty
+                    if alts.len() == 1 {
+                        alts[0].ty
+                    } else {
+                        let t = self.fresh();
+                        if !alts.is_empty() {
+                            self.add_constraint(Constraint::Or(t, alts, arena.locs[id]));
+                        }
+                        t
+                    }
                 }
             }
             Expr::Id(name) => {

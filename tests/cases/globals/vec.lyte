@@ -51,6 +51,11 @@ new<T>(cap: i32) -> Vec<T> {
     v
 }
 
+// Create an empty Vec with default capacity 4.
+new<T>() -> Vec<T> {
+    new⟨T⟩(4)
+}
+
 // Return the number of elements.
 len<T>(v: Vec<T>) -> i32 {
     v.__len
@@ -135,7 +140,7 @@ main {
     __pool_top⟨i32⟩ = 0
 
     // Basic push/get
-    var v = new⟨i32⟩(4)
+    var v = new⟨i32⟩()
     v = push(v, 10)
     v = push(v, 20)
     v = push(v, 30)
@@ -173,7 +178,7 @@ main {
 
     // Independent f32 vec (separate pool)
     __pool_top⟨f32⟩ = 0
-    var fv = new⟨f32⟩(4)
+    var fv = new⟨f32⟩()
     fv = push(fv, 3.14)
     fv = push(fv, 2.71)
     assert(len(fv) == 2)

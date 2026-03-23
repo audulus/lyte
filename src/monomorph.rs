@@ -7,6 +7,10 @@ pub struct MonomorphKey {
     pub type_args: Vec<TypeID>,
     /// Integer size arguments (from size_vars), in declaration order.
     pub size_args: Vec<i32>,
+    /// Concrete parameter types, used to disambiguate generic overloads
+    /// that share the same name and type args but differ in arity/params
+    /// (e.g. `new<T>()` vs `new<T>(cap: i32)`).
+    pub param_types: Vec<TypeID>,
 }
 
 impl MonomorphKey {
@@ -15,6 +19,7 @@ impl MonomorphKey {
             name,
             type_args,
             size_args: vec![],
+            param_types: vec![],
         }
     }
 
@@ -23,16 +28,28 @@ impl MonomorphKey {
             name,
             type_args,
             size_args,
+            param_types: vec![],
         }
+    }
+
+    pub fn with_param_types(mut self, param_types: Vec<TypeID>) -> Self {
+        self.param_types = param_types;
+        self
     }
 
     pub fn mangled_name(&self) -> Name {
         let base = crate::mangle::mangle_name(self.name, &self.type_args);
-        if self.size_args.is_empty() {
+        let with_sizes = if self.size_args.is_empty() {
             base
         } else {
             let suffix: String = self.size_args.iter().map(|n| format!("${}", n)).collect();
             Name::new(format!("{}{}", base, suffix))
+        };
+        if self.param_types.is_empty() {
+            with_sizes
+        } else {
+            let param_suffix = crate::mangle::mangle_name(Name::new(String::new()), &self.param_types);
+            Name::new(format!("{}#{}", with_sizes, param_suffix))
         }
     }
 }

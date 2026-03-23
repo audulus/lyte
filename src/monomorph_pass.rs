@@ -117,10 +117,26 @@ impl MonomorphPass {
                 // The type args are known directly — no inference needed.
                 let fn_decls = decls.find(*name);
 
-                // Check generic functions.
+                // Check generic functions. When multiple overloads have the
+                // same number of type params, use the solved type to pick the
+                // right one (e.g. different arities like new⟨T⟩() vs new⟨T⟩(cap)).
+                let solved_type = fdecl.types[expr_id];
                 for decl in fn_decls.iter() {
                     if let Decl::Func(target_fdecl) = decl {
                         if target_fdecl.typevars.len() == type_args.len() {
+                            // Substitute explicit type args into the generic signature
+                            // and check if it unifies with the solved call-site type.
+                            let mut inst = Instance::new();
+                            for (tv, ta) in
+                                target_fdecl.typevars.iter().zip(type_args.iter())
+                            {
+                                inst.insert(mk_type(Type::Var(*tv)), *ta);
+                            }
+                            let candidate_ty = target_fdecl.ty().subst(&inst);
+                            let mut unify_inst = Instance::new();
+                            if !unify(candidate_ty, solved_type, &mut unify_inst) {
+                                continue;
+                            }
                             let mangled = self.instantiate_function(
                                 *name,
                                 type_args.clone(),
@@ -496,7 +512,32 @@ impl MonomorphPass {
         generic_fdecl: &FuncDecl,
         decls: &DeclTable,
     ) -> Result<Name, String> {
-        let key = MonomorphKey::new_with_sizes(name, type_args.clone(), size_args.clone());
+        // Check if this generic name has multiple generic overloads with the
+        // same typevar count. If so, include concrete param types in the key
+        // to disambiguate (e.g. new<T>() vs new<T>(cap: i32)).
+        let same_typevar_count = decls
+            .find(name)
+            .iter()
+            .filter(|d| {
+                matches!(d, Decl::Func(f) if !f.typevars.is_empty()
+                    && f.typevars.len() == generic_fdecl.typevars.len())
+            })
+            .count();
+        let key = if same_typevar_count > 1 {
+            let mut inst = Instance::new();
+            for (tv, ta) in generic_fdecl.typevars.iter().zip(type_args.iter()) {
+                inst.insert(mk_type(Type::Var(*tv)), *ta);
+            }
+            let concrete_params: Vec<TypeID> = generic_fdecl
+                .param_types()
+                .iter()
+                .map(|t| t.subst(&inst))
+                .collect();
+            MonomorphKey::new_with_sizes(name, type_args.clone(), size_args.clone())
+                .with_param_types(concrete_params)
+        } else {
+            MonomorphKey::new_with_sizes(name, type_args.clone(), size_args.clone())
+        };
 
         // Check if already instantiated
         if let Some(mangled) = self.instantiations.get(&key) {
