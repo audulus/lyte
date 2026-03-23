@@ -1,4 +1,6 @@
 // Generic linked list using typed arenas and typed handles.
+// T is inferred from ListNodeHandle<T> arguments — only nil_handle
+// needs an explicit type arg since it has no value to infer from.
 
 // expected stdout:
 // compilation successful
@@ -10,8 +12,6 @@
 // assert(true)
 // assert(true)
 
-// Typed handle — prevents confusing a ListNodeHandle<i32> with a
-// ListNodeHandle<f32> or an unrelated i32.
 struct ListNodeHandle<T> {
     __idx: i32
 }
@@ -68,9 +68,9 @@ list_next<T>(h: ListNodeHandle<T>) -> ListNodeHandle<T> {
 list_len<T>(head: ListNodeHandle<T>) -> i32 {
     var n = 0
     var cur = head
-    while is_nil⟨T⟩(cur) == 0 {
+    while is_nil(cur) == 0 {
         n = n + 1
-        cur = list_next⟨T⟩(cur)
+        cur = list_next(cur)
     }
     n
 }
@@ -78,31 +78,31 @@ list_len<T>(head: ListNodeHandle<T>) -> i32 {
 main {
     __node_count⟨i32⟩ = 0
 
-    // Build list: 30 -> 20 -> 10 -> nil
+    // Only nil_handle needs ⟨i32⟩ — no value to infer T from
     var head = nil_handle⟨i32⟩()
-    head = push⟨i32⟩(head, 10)
-    head = push⟨i32⟩(head, 20)
-    head = push⟨i32⟩(head, 30)
 
-    assert(list_len⟨i32⟩(head) == 3)
-    assert(list_value⟨i32⟩(head) == 30)
+    // T=i32 inferred from the value argument (10, 20, 30)
+    head = push(head, 10)
+    head = push(head, 20)
+    head = push(head, 30)
 
-    let second = list_next⟨i32⟩(head)
-    assert(list_value⟨i32⟩(second) == 20)
+    // T inferred from head: ListNodeHandle<i32>
+    assert(list_len(head) == 3)
+    assert(list_value(head) == 30)
 
-    let third = list_next⟨i32⟩(second)
-    assert(list_value⟨i32⟩(third) == 10)
+    let second = list_next(head)
+    assert(list_value(second) == 20)
 
-    assert(is_nil⟨i32⟩(list_next⟨i32⟩(third)) == 1)
+    let third = list_next(second)
+    assert(list_value(third) == 10)
 
-    // Also works with f32 — separate storage, separate handle type
+    assert(is_nil(list_next(third)) == 1)
+
+    // f32 list — separate storage, separate handle type
     __node_count⟨f32⟩ = 0
     var fhead = nil_handle⟨f32⟩()
-    fhead = push⟨f32⟩(fhead, 3.14)
-    fhead = push⟨f32⟩(fhead, 2.71)
-    assert(list_value⟨f32⟩(fhead) > 2.0)
-    assert(list_len⟨f32⟩(fhead) == 2)
-
-    // Type safety: this would be a type error if uncommented:
-    // let bad = list_value⟨i32⟩(fhead)  // fhead is ListNodeHandle<f32>, not <i32>
+    fhead = push(fhead, 3.14)
+    fhead = push(fhead, 2.71)
+    assert(list_value(fhead) > 2.0)
+    assert(list_len(fhead) == 2)
 }
