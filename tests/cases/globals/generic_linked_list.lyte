@@ -77,8 +77,7 @@ len<T>(head: ListNodeHandle<T>) -> i32 {
 main {
     __node_count⟨i32⟩ = 0
 
-    // Only nil needs ⟨i32⟩ — no value to infer T from
-    var head = nil⟨i32⟩()
+    var head = nil()
 
     // T=i32 inferred from the value argument (10, 20, 30)
     head = push(head, 10)
@@ -99,7 +98,7 @@ main {
 
     // f32 list — separate storage, separate handle type
     __node_count⟨f32⟩ = 0
-    var fhead = nil⟨f32⟩()
+    var fhead = nil()
     fhead = push(fhead, 3.14)
     fhead = push(fhead, 2.71)
     assert(value(fhead) > 2.0)
