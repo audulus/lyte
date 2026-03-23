@@ -43,7 +43,7 @@ __alloc<T>(size: i32) -> i32 {
 }
 
 // Create an empty Vec with a given initial capacity.
-new_vec_cap<T>(cap: i32) -> Vec<T> {
+new<T>(cap: i32) -> Vec<T> {
     var v: Vec<T>
     v.__start = __alloc⟨T⟩(cap)
     v.__len = 0
@@ -51,23 +51,18 @@ new_vec_cap<T>(cap: i32) -> Vec<T> {
     v
 }
 
-// Create an empty Vec with default capacity 4.
-new_vec<T>() -> Vec<T> {
-    new_vec_cap⟨T⟩(4)
-}
-
 // Return the number of elements.
-vec_len<T>(v: Vec<T>) -> i32 {
+len<T>(v: Vec<T>) -> i32 {
     v.__len
 }
 
 // Return the current capacity.
-vec_cap<T>(v: Vec<T>) -> i32 {
+capacity<T>(v: Vec<T>) -> i32 {
     v.__cap
 }
 
 // Get element at index.
-vec_get<T>(v: Vec<T>, idx: i32) -> T {
+get<T>(v: Vec<T>, idx: i32) -> T {
     let i = v.__start + idx
     if i >= 0 && i < 4096 {
         return __pool⟨T⟩[i]
@@ -76,7 +71,7 @@ vec_get<T>(v: Vec<T>, idx: i32) -> T {
 }
 
 // Set element at index (mutates pool directly).
-vec_set<T>(v: Vec<T>, idx: i32, val: T) {
+set<T>(v: Vec<T>, idx: i32, val: T) {
     let i = v.__start + idx
     if i >= 0 && i < 4096 {
         __pool⟨T⟩[i] = val
@@ -104,7 +99,7 @@ __grow<T>(v: Vec<T>) -> Vec<T> {
 }
 
 // Push an element. Returns updated Vec (may reallocate).
-vec_push<T>(v: Vec<T>, val: T) -> Vec<T> {
+push<T>(v: Vec<T>, val: T) -> Vec<T> {
     var w = v
     if w.__len >= w.__cap {
         w = __grow(w)
@@ -118,7 +113,7 @@ vec_push<T>(v: Vec<T>, val: T) -> Vec<T> {
 }
 
 // Pop the last element. Returns updated Vec.
-vec_pop<T>(v: Vec<T>) -> Vec<T> {
+pop<T>(v: Vec<T>) -> Vec<T> {
     var w = v
     if w.__len > 0 {
         w.__len = w.__len - 1
@@ -127,12 +122,12 @@ vec_pop<T>(v: Vec<T>) -> Vec<T> {
 }
 
 // Return the last element.
-vec_last<T>(v: Vec<T>) -> T {
-    vec_get(v, v.__len - 1)
+last<T>(v: Vec<T>) -> T {
+    get(v, v.__len - 1)
 }
 
 // Check if empty.
-vec_empty<T>(v: Vec<T>) -> bool {
+empty<T>(v: Vec<T>) -> bool {
     v.__len == 0
 }
 
@@ -140,47 +135,47 @@ main {
     __pool_top⟨i32⟩ = 0
 
     // Basic push/get
-    var v = new_vec⟨i32⟩()
-    v = vec_push(v, 10)
-    v = vec_push(v, 20)
-    v = vec_push(v, 30)
-    assert(vec_len(v) == 3)
-    assert(vec_get(v, 0) == 10)
-    assert(vec_get(v, 1) == 20)
-    assert(vec_get(v, 2) == 30)
+    var v = new⟨i32⟩(4)
+    v = push(v, 10)
+    v = push(v, 20)
+    v = push(v, 30)
+    assert(len(v) == 3)
+    assert(get(v, 0) == 10)
+    assert(get(v, 1) == 20)
+    assert(get(v, 2) == 30)
 
     // Set
-    vec_set(v, 1, 99)
-    assert(vec_get(v, 1) == 99)
+    set(v, 1, 99)
+    assert(get(v, 1) == 99)
 
     // Push past initial capacity (4) to trigger grow
-    v = vec_push(v, 40)
-    assert(vec_len(v) == 4)
-    assert(vec_cap(v) == 4)  // exactly at capacity, no grow yet
+    v = push(v, 40)
+    assert(len(v) == 4)
+    assert(capacity(v) == 4)  // exactly at capacity, no grow yet
 
-    v = vec_push(v, 50)       // this triggers grow to cap 8
-    assert(vec_len(v) == 5)
-    assert(vec_cap(v) == 8)
-    assert(vec_get(v, 4) == 50)
+    v = push(v, 50)       // this triggers grow to cap 8
+    assert(len(v) == 5)
+    assert(capacity(v) == 8)
+    assert(get(v, 4) == 50)
 
     // Old data survived the grow
-    assert(vec_get(v, 0) == 10)
-    assert(vec_get(v, 2) == 30)
-    assert(vec_get(v, 3) == 40)
+    assert(get(v, 0) == 10)
+    assert(get(v, 2) == 30)
+    assert(get(v, 3) == 40)
 
     // Pop
-    v = vec_pop(v)
-    assert(vec_len(v) == 4)
-    assert(vec_last(v) == 40)
+    v = pop(v)
+    assert(len(v) == 4)
+    assert(last(v) == 40)
 
     // Empty check
-    assert(!vec_empty(v))
+    assert(!empty(v))
 
     // Independent f32 vec (separate pool)
     __pool_top⟨f32⟩ = 0
-    var fv = new_vec⟨f32⟩()
-    fv = vec_push(fv, 3.14)
-    fv = vec_push(fv, 2.71)
-    assert(vec_len(fv) == 2)
-    assert(vec_get(fv, 0) > 3.0)
+    var fv = new⟨f32⟩(4)
+    fv = push(fv, 3.14)
+    fv = push(fv, 2.71)
+    assert(len(fv) == 2)
+    assert(get(fv, 0) > 3.0)
 }
