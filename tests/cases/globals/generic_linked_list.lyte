@@ -30,9 +30,8 @@ nil<T>() -> ListNodeHandle<T> {
     h
 }
 
-is_nil<T>(h: ListNodeHandle<T>) -> i32 {
-    if h.__idx < 0 { return 1 }
-    return 0
+is_nil<T>(h: ListNodeHandle<T>) -> bool {
+    h.__idx < 0
 }
 
 push<T>(head: ListNodeHandle<T>, val: T) -> ListNodeHandle<T> {
@@ -68,7 +67,7 @@ next<T>(h: ListNodeHandle<T>) -> ListNodeHandle<T> {
 len<T>(head: ListNodeHandle<T>) -> i32 {
     var n = 0
     var cur = head
-    while is_nil(cur) == 0 {
+    while !is_nil(cur) {
         n = n + 1
         cur = next(cur)
     }
@@ -96,7 +95,7 @@ main {
     let third = next(second)
     assert(value(third) == 10)
 
-    assert(is_nil(next(third)) == 1)
+    assert(is_nil(next(third)))
 
     // f32 list — separate storage, separate handle type
     __node_count⟨f32⟩ = 0
