@@ -1,0 +1,94 @@
+// Generic linked list using typed arenas and handles.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct Node<T> {
+    value: T,
+    next: i32
+}
+
+var __nodes<T>: [Node<T>; 256]
+var __node_count<T>: i32
+
+// Allocate a new node, return its handle.
+new_node<T>(val: T, nxt: i32) -> i32 {
+    let idx = __node_count⟨T⟩
+    if idx >= 0 && idx < 256 {
+        __nodes⟨T⟩[idx].value = val
+        __nodes⟨T⟩[idx].next = nxt
+        __node_count⟨T⟩ = __node_count⟨T⟩ + 1
+    }
+    idx
+}
+
+// Get the value at a node handle.
+list_value<T>(handle: i32) -> T {
+    if handle >= 0 && handle < 256 {
+        return __nodes⟨T⟩[handle].value
+    }
+    return __nodes⟨T⟩[0].value
+}
+
+// Get the next handle (-1 = end of list).
+list_next<T>(handle: i32) -> i32 {
+    if handle >= 0 && handle < 256 {
+        return __nodes⟨T⟩[handle].next
+    }
+    return 0 - 1
+}
+
+// Build a list by prepending: push(head, val) -> new_head
+push<T>(head: i32, val: T) -> i32 {
+    new_node⟨T⟩(val, head)
+}
+
+// Length of a list.
+list_len<T>(head: i32) -> i32 {
+    var n = 0
+    var cur = head
+    while cur >= 0 {
+        n = n + 1
+        cur = list_next⟨T⟩(cur)
+    }
+    n
+}
+
+main {
+    __node_count⟨i32⟩ = 0
+
+    // Build list: 30 -> 20 -> 10 -> nil
+    var head = 0 - 1
+    head = push⟨i32⟩(head, 10)
+    head = push⟨i32⟩(head, 20)
+    head = push⟨i32⟩(head, 30)
+
+    // Length
+    assert(list_len⟨i32⟩(head) == 3)
+
+    // Walk and check values
+    assert(list_value⟨i32⟩(head) == 30)
+
+    let second = list_next⟨i32⟩(head)
+    assert(list_value⟨i32⟩(second) == 20)
+
+    let third = list_next⟨i32⟩(second)
+    assert(list_value⟨i32⟩(third) == 10)
+
+    assert(list_next⟨i32⟩(third) == 0 - 1)
+
+    // Also works with f32
+    __node_count⟨f32⟩ = 0
+    var fhead = 0 - 1
+    fhead = push⟨f32⟩(fhead, 3.14)
+    fhead = push⟨f32⟩(fhead, 2.71)
+    assert(list_value⟨f32⟩(fhead) > 2.0)
+    assert(list_len⟨f32⟩(fhead) == 2)
+}
