@@ -455,6 +455,49 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     }
 }
 
+/// Like `unify`, but also treats `Type::Var` as bindable (like `Type::Anon`).
+/// Used by the monomorphizer to infer type arguments for generic globals.
+pub fn unify_with_vars(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
+    let lhs = find(lhs, inst);
+    let rhs = find(rhs, inst);
+
+    if lhs == rhs {
+        true
+    } else {
+        match (&*lhs, &*rhs) {
+            (Type::Anon(_), _) | (Type::Var(_), _) => {
+                inst.insert(lhs, rhs);
+                true
+            }
+            (_, Type::Anon(_)) | (_, Type::Var(_)) => {
+                inst.insert(rhs, lhs);
+                true
+            }
+            (Type::Tuple(v0), Type::Tuple(v1)) if v0.len() == v1.len() => {
+                v0.iter()
+                    .zip(v1.iter())
+                    .all(|(a, b)| unify_with_vars(*a, *b, inst))
+            }
+            (Type::Array(a, sa), Type::Array(b, sb)) => {
+                let sizes_ok = match (sa, sb) {
+                    (ArraySize::Var(_), _) | (_, ArraySize::Var(_)) => true,
+                    (ArraySize::Known(a), ArraySize::Known(b)) => *a == *b,
+                };
+                sizes_ok && unify_with_vars(*a, *b, inst)
+            }
+            (Type::Slice(a), Type::Slice(b)) => unify_with_vars(*a, *b, inst),
+            (Type::Func(a, b), Type::Func(c, d)) => {
+                unify_with_vars(*a, *c, inst) && unify_with_vars(*b, *d, inst)
+            }
+            (Type::Name(a, ap), Type::Name(b, bp)) if a == b && ap.len() == bp.len() => ap
+                .iter()
+                .zip(bp.iter())
+                .all(|(a, b)| unify_with_vars(*a, *b, inst)),
+            _ => false,
+        }
+    }
+}
+
 impl Decl {
     pub fn ty(&self) -> TypeID {
         match self {

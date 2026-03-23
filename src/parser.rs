@@ -1071,11 +1071,16 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
 
             let name = expect_id(cx);
 
+            let mut typevars = vec![];
+            if cx.lex.tok == Token::Less {
+                typevars = parse_typevar_list(cx);
+            }
+
             expect(Token::Colon, cx);
 
-            let ty = parse_type(&[], cx);
+            let ty = parse_type(&typevars, cx);
 
-            Decl::Global { name, ty }
+            Decl::Global { name, typevars, ty }
         }
         Token::Interface => parse_interface(cx),
         Token::Defer | Token::Arena => {

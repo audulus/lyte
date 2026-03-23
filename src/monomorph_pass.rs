@@ -79,11 +79,16 @@ impl MonomorphPass {
         }
 
         for decl in decls.decls.iter() {
-            if let Decl::Func(_) = decl {
-                // Do nothing - functions are processed on demand
-            } else {
-                // Non-function declarations - include as is
-                self.out_decls.push(decl.clone());
+            match decl {
+                Decl::Func(_) => {
+                    // Functions are processed on demand
+                }
+                Decl::Global { typevars, .. } if !typevars.is_empty() => {
+                    // Generic globals — concrete instances emitted during process_expr
+                }
+                _ => {
+                    self.out_decls.push(decl.clone());
+                }
             }
         }
 
@@ -171,6 +176,46 @@ impl MonomorphPass {
                                     self.process_function(&mut func, decls)?;
                                     self.out_decls.push(Decl::Func(func));
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Check for generic globals.
+                for decl in fn_decls {
+                    if let Decl::Global {
+                        name: gname,
+                        typevars,
+                        ty,
+                    } = decl
+                    {
+                        if !typevars.is_empty() {
+                            // Infer type arguments by unifying the generic type with
+                            // the solved type at this expression.
+                            let mut inst = Instance::new();
+                            if unify_with_vars(*ty, solved_type, &mut inst) {
+                                let type_args: Vec<TypeID> = typevars
+                                    .iter()
+                                    .map(|tv| {
+                                        let var_ty = mk_type(Type::Var(*tv));
+                                        inst.get(&var_ty).copied().unwrap_or(var_ty)
+                                    })
+                                    .collect();
+
+                                let mangled = crate::mangle::mangle_name(*gname, &type_args);
+
+                                // Emit the concrete global if not already done.
+                                if !self.processed_non_generic.contains(&mangled) {
+                                    self.processed_non_generic.insert(mangled);
+                                    let concrete_ty = ty.subst(&inst);
+                                    self.out_decls.push(Decl::Global {
+                                        name: mangled,
+                                        typevars: vec![],
+                                        ty: concrete_ty,
+                                    });
+                                }
+
+                                fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
                             }
                         }
                     }

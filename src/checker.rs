@@ -366,9 +366,21 @@ impl Checker {
                 if let Some(v) = self.find(*name) {
                     self.lvalue[id] = v.mutable;
                     v.ty
-                } else if let Some(Decl::Global { ty, .. }) = decls.find(*name).first() {
+                } else if let Some(Decl::Global { typevars, ty, .. }) = decls.find(*name).first()
+                {
                     self.lvalue[id] = true;
-                    *ty
+                    if typevars.is_empty() {
+                        *ty
+                    } else {
+                        // Generic global: freshen type variables so the solver
+                        // can infer concrete types from usage context.
+                        let mut inst = Instance::new();
+                        for tv in typevars {
+                            let fresh = self.fresh();
+                            inst.insert(mk_type(Type::Var(*tv)), fresh);
+                        }
+                        ty.subst(&inst)
+                    }
                 } else {
                     let t = self.fresh();
                     let alts: Vec<Alt> = decls

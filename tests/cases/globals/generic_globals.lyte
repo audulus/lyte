@@ -1,0 +1,27 @@
+// Generic globals: `var pool<T>: [T; N]` creates separate storage
+// for each type instantiation via monomorphization.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+var pool<T>: [T; 64]
+
+main {
+    // i32 pool
+    pool[0] = 42
+    pool[1] = 99
+    assert(pool[0] == 42)
+    assert(pool[1] == 99)
+
+    // f32 pool (separate storage)
+    pool[0] = 3.14
+    pool[1] = 2.71
+    assert(pool[0] > 3.0)
+
+    // i32 pool unchanged (different monomorphized global)
+    assert(pool[0] == 42)
+}

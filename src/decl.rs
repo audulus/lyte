@@ -157,7 +157,7 @@ pub enum Decl {
     Macro(FuncDecl),
     Struct(StructDecl),
     Enum { name: Name, cases: Vec<Name> },
-    Global { name: Name, ty: TypeID },
+    Global { name: Name, typevars: Vec<Name>, ty: TypeID },
     Interface(Interface),
 }
 
@@ -211,7 +211,10 @@ impl Decl {
             Decl::Macro(func) => format_func_decl(func, true),
             Decl::Struct(st) => format_struct_decl(st),
             Decl::Enum { name, cases } => format_enum_decl(*name, cases),
-            Decl::Global { name, ty } => format!("var {}: {}", name, ty.pretty_print()),
+            Decl::Global { name, typevars, ty } => {
+                let tvs = format_typevars(typevars);
+                format!("var {}{}: {}", name, tvs, ty.pretty_print())
+            }
             Decl::Interface(iface) => format_interface(iface),
         }
     }
@@ -475,6 +478,7 @@ mod tests {
     fn test_pretty_print_global() {
         let decl = Decl::Global {
             name: Name::str("counter"),
+            typevars: vec![],
             ty: mk_type(Type::Int32),
         };
 

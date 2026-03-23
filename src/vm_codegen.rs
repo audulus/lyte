@@ -84,9 +84,14 @@ impl VMCodegen {
     fn declare_globals(&mut self, decls: &DeclTable) {
         let mut offset: i32 = 0;
         for decl in &decls.decls {
-            if let Decl::Global { name, ty } = decl {
-                self.globals.insert(*name, offset);
-                offset += ty.size(decls) as i32;
+            if let Decl::Global {
+                name, typevars, ty, ..
+            } = decl
+            {
+                if typevars.is_empty() {
+                    self.globals.insert(*name, offset);
+                    offset += ty.size(decls) as i32;
+                }
             }
         }
         self.program.globals_size = offset as usize;
@@ -819,9 +824,15 @@ impl<'a> FunctionTranslator<'a> {
                     // Global variable - load from globals memory.
                     let addr = self.alloc_reg();
                     func.emit(Opcode::GlobalAddr { dst: addr, offset });
-                    let dst = self.alloc_reg();
-                    self.emit_load(&ty, dst, addr, func);
-                    dst
+                    // Composite types (arrays, structs) are pointer-represented:
+                    // return the address, don't load the value.
+                    if self.is_ptr_type(&ty) {
+                        addr
+                    } else {
+                        let dst = self.alloc_reg();
+                        self.emit_load(&ty, dst, addr, func);
+                        dst
+                    }
                 } else {
                     // Check if it's a function.
                     if let Type::Func(_, _) = &*ty {

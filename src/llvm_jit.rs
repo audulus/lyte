@@ -696,7 +696,7 @@ impl<'ctx> LLVMJITState<'ctx> {
     fn declare_globals(&mut self, decls: &DeclTable) {
         let mut offset: i32 = CANCEL_FLAG_RESERVED;
         for decl in &decls.decls {
-            if let Decl::Global { name, ty } = decl {
+            if let Decl::Global { name, ty, .. } = decl {
                 self.globals.insert(*name, offset);
                 offset += ty.size(decls) as i32;
             }

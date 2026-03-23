@@ -548,7 +548,7 @@ impl Compiler {
         // after the cancel flag reservation.
         let mut offset: usize = CANCEL_FLAG_RESERVED as usize;
         for decl in &self.decls.decls {
-            if let Decl::Global { name, ty } = decl {
+            if let Decl::Global { name, ty, .. } = decl {
                 let size = ty.size(&self.decls) as usize;
                 let type_str = ty.pretty_print();
                 result.push((name.to_string(), offset, size, type_str));
