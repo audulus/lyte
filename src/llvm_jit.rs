@@ -1461,9 +1461,15 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     }
                 } else if let Some(&offset) = self.state.globals.get(name) {
                     let addr = self.ptr_at_offset(self.globals_base, offset as u64);
-                    self.builder()
-                        .build_load(ty.llvm_basic_type(self.ctx()), addr, &**name)
-                        .unwrap()
+                    // Composite types (arrays, structs) are pointer-represented:
+                    // return the address, don't load.
+                    if ty.is_ptr() {
+                        addr.into()
+                    } else {
+                        self.builder()
+                            .build_load(ty.llvm_basic_type(self.ctx()), addr, &**name)
+                            .unwrap()
+                    }
                 } else {
                     // Must be a function reference.
                     self.translate_func_ref(name, &*ty)

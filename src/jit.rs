@@ -686,12 +686,18 @@ impl<'a> FunctionTranslator<'a> {
                             .load(ty.cranelift_type(), MemFlags::new(), val, 0)
                     }
                 } else if let Some(&offset) = self.globals.get(name) {
-                    // Global variable - load from base + offset.
+                    // Global variable - compute address from base + offset.
                     let base = self.globals_base.expect("globals_base not set");
                     let addr = self.builder.ins().iadd_imm(base, offset as i64);
-                    self.builder
-                        .ins()
-                        .load(ty.cranelift_type(), MemFlags::new(), addr, 0)
+                    // Composite types (arrays, structs) are pointer-represented:
+                    // return the address, don't load.
+                    if ty.is_ptr() {
+                        addr
+                    } else {
+                        self.builder
+                            .ins()
+                            .load(ty.cranelift_type(), MemFlags::new(), addr, 0)
+                    }
                 } else {
                     self.translate_func(name, &*ty)
                 }
