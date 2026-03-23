@@ -123,18 +123,22 @@ mod tests {
         let decls = vec![
             Decl::Global {
                 name: Name::new("a".into()),
+                typevars: vec![],
                 ty: mk_type(Type::Void),
             },
             Decl::Global {
                 name: Name::new("b".into()),
+                typevars: vec![],
                 ty: mk_type(Type::Void),
             },
             Decl::Global {
                 name: Name::new("b".into()),
+                typevars: vec![],
                 ty: mk_type(Type::Void),
             },
             Decl::Global {
                 name: Name::new("c".into()),
+                typevars: vec![],
                 ty: mk_type(Type::Void),
             },
         ];
