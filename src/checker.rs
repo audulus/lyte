@@ -331,7 +331,11 @@ impl Checker {
 
             b
         } else {
-            self.fresh()
+            // And, Or — both operands should be bool, result is bool.
+            let b = mk_type(Type::Bool);
+            self.eq(at, b, arena.locs[id], "logical operator requires bool operands");
+            self.eq(bt, b, arena.locs[id], "logical operator requires bool operands");
+            b
         }
     }
 
@@ -982,6 +986,7 @@ impl Checker {
             if self.errors.is_empty() {
                 self.check_slice_aliasing(func_decl, decls);
             }
+
         }
     }
 
@@ -1165,9 +1170,9 @@ impl Checker {
     pub fn check(&mut self, decls: &DeclTable) {
         for decl in &decls.decls {
             self._check_decl(decl, decls);
-            // After type-checking each function, verify closures don't escape.
             if let Decl::Func(fd) | Decl::Macro(fd) = decl {
                 check_escape_in_func(fd, &mut self.errors);
+                self.check_unsolved_types(fd);
             }
         }
     }
@@ -1176,6 +1181,40 @@ impl Checker {
         self._check_decl(decl, decls);
         if let Decl::Func(fd) | Decl::Macro(fd) = decl {
             check_escape_in_func(fd, &mut self.errors);
+            self.check_unsolved_types(fd);
+        }
+    }
+
+    /// Detect unsolved type variables in non-generic functions.
+    /// Only runs if no other errors have been reported (unsolved vars
+    /// are usually a symptom of an earlier type error).
+    fn check_unsolved_types(&mut self, func_decl: &FuncDecl) {
+        if !self.errors.is_empty() {
+            return;
+        }
+        let solved_types = self.solved_types();
+        let is_generic = !func_decl.typevars.is_empty();
+        for (i, solved) in solved_types.iter().enumerate() {
+            // For generic functions, Type::Var is expected (they have named
+            // type parameters). Only flag anonymous type variables (Anon),
+            // which indicate the solver couldn't resolve an inference.
+            let has_problem = if is_generic {
+                solved.contains_anon()
+            } else {
+                solved.contains_var()
+            };
+            if has_problem {
+                if i < func_decl.arena.locs.len() {
+                    self.errors.push(TypeError {
+                        location: func_decl.arena.locs[i],
+                        message: format!(
+                            "could not fully infer type (resolved to {})",
+                            solved.pretty_print()
+                        ),
+                    });
+                    break;
+                }
+            }
         }
     }
 

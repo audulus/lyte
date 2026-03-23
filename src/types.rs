@@ -96,6 +96,31 @@ impl TypeID {
         Self(Intern::new(ty))
     }
 
+    /// Returns true if this type contains any unresolved type variable (Anon or Var).
+    pub fn contains_var(self) -> bool {
+        match &*self {
+            Type::Anon(_) | Type::Var(_) => true,
+            Type::Tuple(v) => v.iter().any(|t| t.contains_var()),
+            Type::Array(t, _) | Type::Slice(t) => t.contains_var(),
+            Type::Func(a, b) => a.contains_var() || b.contains_var(),
+            Type::Name(_, args) => args.iter().any(|t| t.contains_var()),
+            _ => false,
+        }
+    }
+
+    /// Returns true if this type contains any anonymous type variable (Anon).
+    pub fn contains_anon(self) -> bool {
+        match &*self {
+            Type::Anon(_) => true,
+            Type::Var(_) => false,
+            Type::Tuple(v) => v.iter().any(|t| t.contains_anon()),
+            Type::Array(t, _) | Type::Slice(t) => t.contains_anon(),
+            Type::Func(a, b) => a.contains_anon() || b.contains_anon(),
+            Type::Name(_, args) => args.iter().any(|t| t.contains_anon()),
+            _ => false,
+        }
+    }
+
     /// Replaces named type variables with anonymous type variables, using instance for substitutions.
     pub fn fresh_aux(self, index: &mut usize, inst: &mut Instance) -> TypeID {
         match &*self {
