@@ -1,0 +1,42 @@
+// Explicit type application with ⟨⟩ for generic globals and functions.
+// alloc⟨i32⟩ and alloc⟨f32⟩ use separate pools.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+var pool<T>: [T; 64]
+var count<T>: i32
+
+alloc<T>(val: T) -> i32 {
+    let idx = count⟨T⟩
+    if idx >= 0 && idx < 64 {
+        pool⟨T⟩[idx] = val
+        count⟨T⟩ = count⟨T⟩ + 1
+    }
+    idx
+}
+
+get<T>(idx: i32) -> T {
+    if idx >= 0 && idx < 64 {
+        return pool⟨T⟩[idx]
+    }
+    return pool⟨T⟩[0]
+}
+
+main {
+    count⟨i32⟩ = 0
+    let h0 = alloc⟨i32⟩(42)
+    let h1 = alloc⟨i32⟩(99)
+    assert(get⟨i32⟩(h0) == 42)
+    assert(get⟨i32⟩(h1) == 99)
+
+    count⟨f32⟩ = 0
+    let h2 = alloc⟨f32⟩(3.14)
+    assert(get⟨f32⟩(h2) > 3.0)
+
+    assert(get⟨i32⟩(h0) == 42)
+}

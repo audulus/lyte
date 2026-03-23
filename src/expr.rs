@@ -63,6 +63,9 @@ pub enum Expr {
     /// Type ascription.
     AsTy(ExprID, TypeID),
 
+    /// Explicit type application: `name⟨i32⟩` or `name⟨i32, f32⟩`.
+    TypeApp(Name, Vec<TypeID>),
+
     /// Immutable variable declaration with initializer and optional type.
     Let(Name, ExprID, Option<TypeID>),
 
@@ -129,6 +132,10 @@ impl Expr {
     pub fn pretty_print(&self, arena: &ExprArena, indent: usize) -> String {
         match self {
             Expr::Id(name) => name.to_string(),
+            Expr::TypeApp(name, args) => {
+                let args_str: Vec<_> = args.iter().map(|t| t.pretty_print()).collect();
+                format!("{}⟨{}⟩", name, args_str.join(", "))
+            }
             Expr::Int(n) => n.to_string(),
             Expr::UInt(n) => n.to_string(),
             Expr::Real(s) => s.clone(),
@@ -341,6 +348,7 @@ pub fn copy_expr(
             }
             dst_arena.add(Expr::Id(*name), loc)
         }
+        Expr::TypeApp(name, args) => dst_arena.add(Expr::TypeApp(*name, args.clone()), loc),
         Expr::Int(n) => dst_arena.add(Expr::Int(*n), loc),
         Expr::UInt(n) => dst_arena.add(Expr::UInt(*n), loc),
         Expr::Real(s) => dst_arena.add(Expr::Real(s.clone()), loc),

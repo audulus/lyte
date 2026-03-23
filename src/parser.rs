@@ -528,10 +528,21 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
 fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     match cx.lex.tok {
         Token::Id(id) => {
-            let e = Expr::Id(id);
             let loc = cx.lex.loc;
             cx.next();
-            arena.add(e, loc)
+            // Check for explicit type arguments: name⟨i32⟩
+            if cx.lex.tok == Token::Lmath {
+                cx.next();
+                let mut type_args = vec![parse_type(typevars, cx)];
+                while cx.lex.tok == Token::Comma {
+                    cx.next();
+                    type_args.push(parse_type(typevars, cx));
+                }
+                expect(Token::Rmath, cx);
+                arena.add(Expr::TypeApp(id, type_args), loc)
+            } else {
+                arena.add(Expr::Id(id), loc)
+            }
         }
         Token::True => {
             let loc = cx.lex.loc;

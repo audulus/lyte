@@ -360,6 +360,34 @@ impl Checker {
                     ArraySize::Known(s.bytes().len() as i32 + 1),
                 ))
             }
+            Expr::TypeApp(name, type_args) => {
+                // Explicit type application: name⟨i32⟩.
+                if let Some(Decl::Global { typevars, ty, .. }) = decls.find(*name).first() {
+                    self.lvalue[id] = true;
+                    let mut inst = Instance::new();
+                    for (tv, ta) in typevars.iter().zip(type_args.iter()) {
+                        inst.insert(mk_type(Type::Var(*tv)), *ta);
+                    }
+                    ty.subst(&inst)
+                } else {
+                    // Function with explicit type args.
+                    let fn_decls = decls.find(*name);
+                    let mut result_ty = self.fresh();
+                    for d in fn_decls {
+                        if let Decl::Func(fdecl) = d {
+                            if fdecl.typevars.len() == type_args.len() {
+                                let mut inst = Instance::new();
+                                for (tv, ta) in fdecl.typevars.iter().zip(type_args.iter()) {
+                                    inst.insert(mk_type(Type::Var(*tv)), *ta);
+                                }
+                                result_ty = fdecl.ty().subst(&inst);
+                                break;
+                            }
+                        }
+                    }
+                    result_ty
+                }
+            }
             Expr::Id(name) => {
                 // Local variables will override all declarations.
                 // Is this what we want?
@@ -1048,7 +1076,7 @@ impl Checker {
     /// Determine if an expression is an lvalue, using solved types.
     fn is_lvalue(&self, id: ExprID, func_decl: &FuncDecl) -> bool {
         match &func_decl.arena[id] {
-            Expr::Id(_) => self.lvalue[id],
+            Expr::Id(_) | Expr::TypeApp(_, _) => self.lvalue[id],
             Expr::Field(lhs, _) => self.is_lvalue(*lhs, func_decl),
             Expr::ArrayIndex(array_expr, _) => {
                 // Slice indexing is always an lvalue (slices are mutable references).

@@ -115,6 +115,56 @@ impl MonomorphPass {
         let expr = fdecl.arena[expr_id].clone();
 
         match &expr {
+            Expr::TypeApp(name, type_args) => {
+                // Explicit type application: name⟨i32⟩.
+                // The type args are known directly — no inference needed.
+                let fn_decls = decls.find(*name);
+
+                // Check generic functions.
+                for decl in fn_decls.iter() {
+                    if let Decl::Func(target_fdecl) = decl {
+                        if target_fdecl.typevars.len() == type_args.len() {
+                            let mangled = self.instantiate_function(
+                                *name,
+                                type_args.clone(),
+                                target_fdecl,
+                                decls,
+                            )?;
+                            fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
+                            return Ok(());
+                        }
+                    }
+                }
+
+                // Check generic globals.
+                for decl in fn_decls.iter() {
+                    if let Decl::Global {
+                        name: gname,
+                        typevars,
+                        ty,
+                    } = decl
+                    {
+                        if typevars.len() == type_args.len() {
+                            let mut inst = Instance::new();
+                            for (tv, ta) in typevars.iter().zip(type_args.iter()) {
+                                inst.insert(mk_type(Type::Var(*tv)), *ta);
+                            }
+                            let mangled = crate::mangle::mangle_name(*gname, type_args);
+                            if !self.processed_non_generic.contains(&mangled) {
+                                self.processed_non_generic.insert(mangled);
+                                let concrete_ty = ty.subst(&inst);
+                                self.out_decls.push(Decl::Global {
+                                    name: mangled,
+                                    typevars: vec![],
+                                    ty: concrete_ty,
+                                });
+                            }
+                            fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
             Expr::Id(name) => {
                 // Check if this identifier refers to a function
                 // Get the solved type for this expression
@@ -489,6 +539,15 @@ impl MonomorphPass {
         // Substitute types in the body's type map
         for ty in specialized.types.iter_mut() {
             *ty = subst_size_vars(ty.subst(&instance), &size_bindings);
+        }
+
+        // Substitute type args in TypeApp expressions (e.g. pool⟨T⟩ → pool⟨i32⟩)
+        for expr in specialized.arena.exprs.iter_mut() {
+            if let Expr::TypeApp(_, ref mut args) = expr {
+                for arg in args.iter_mut() {
+                    *arg = subst_size_vars(arg.subst(&instance), &size_bindings);
+                }
+            }
         }
 
         // Substitute size vars in the body expressions (e.g. Expr::Id("N") → Expr::Int(3))

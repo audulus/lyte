@@ -2165,6 +2165,7 @@ fn collect_free_vars_rec(
     seen: &mut std::collections::HashSet<String>,
 ) {
     match &arena[expr] {
+        Expr::TypeApp(_, _) => {} // Rewritten to Id by monomorphizer
         Expr::Id(name) => {
             let s = name.to_string();
             if local_vars.contains_key(&s) && !exclude.contains(&s) && !seen.contains(&s) {
