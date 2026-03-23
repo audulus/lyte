@@ -1,9 +1,15 @@
 // Generic linked list using typed arenas and typed handles.
-// T is inferred from ListNodeHandle<T> arguments — only nil
-// needs an explicit type arg since it has no value to infer from.
+// Supports freeing individual nodes and entire lists, with
+// freed nodes recycled via a per-type free list.
 
 // expected stdout:
 // compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
 // assert(true)
 // assert(true)
 // assert(true)
@@ -23,6 +29,7 @@ struct ListNode<T> {
 
 var __nodes<T>: [ListNode<T>; 256]
 var __node_count<T>: i32
+var __free_head<T>: i32
 
 nil<T>() -> ListNodeHandle<T> {
     var h: ListNodeHandle<T>
@@ -35,10 +42,20 @@ is_nil<T>(h: ListNodeHandle<T>) -> bool {
 }
 
 push<T>(head: ListNodeHandle<T>, val: T) -> ListNodeHandle<T> {
-    let idx = __node_count⟨T⟩
+    var idx = -1
+    // Reuse a freed node if one is available
+    if __free_head⟨T⟩ >= 0 {
+        idx = __free_head⟨T⟩
+        __free_head⟨T⟩ = __nodes⟨T⟩[idx].next
+    } else {
+        idx = __node_count⟨T⟩
+        if idx >= 0 && idx < 256 {
+            __node_count⟨T⟩ = __node_count⟨T⟩ + 1
+        }
+    }
     if idx >= 0 && idx < 256 {
-        __nodes[idx] = ListNode(value: val, next: head.__idx)
-        __node_count⟨T⟩ = __node_count⟨T⟩ + 1
+        __nodes⟨T⟩[idx].value = val
+        __nodes⟨T⟩[idx].next = head.__idx
     }
     var h: ListNodeHandle<T>
     h.__idx = idx
@@ -73,8 +90,30 @@ len<T>(head: ListNodeHandle<T>) -> i32 {
     n
 }
 
+// Free a single node, returning it to the free list.
+// Returns the next node in the list.
+free_node<T>(h: ListNodeHandle<T>) -> ListNodeHandle<T> {
+    let idx = h.__idx
+    var nxt = nil⟨T⟩()
+    if idx >= 0 && idx < 256 {
+        nxt.__idx = __nodes⟨T⟩[idx].next
+        __nodes⟨T⟩[idx].next = __free_head⟨T⟩
+        __free_head⟨T⟩ = idx
+    }
+    nxt
+}
+
+// Free an entire list, returning all nodes to the free list.
+free_list<T>(head: ListNodeHandle<T>) {
+    var cur = head
+    while !is_nil(cur) {
+        cur = free_node(cur)
+    }
+}
+
 main {
     __node_count⟨i32⟩ = 0
+    __free_head⟨i32⟩ = -1
 
     var head = nil()
 
@@ -95,8 +134,31 @@ main {
 
     assert(is_nil(next(third)))
 
+    // Free the entire list and verify it's empty
+    free_list(head)
+    // node_count stays at 3, but all 3 nodes are on the free list
+
+    // Build a new list — should reuse freed nodes (no new allocation)
+    var head2 = nil()
+    head2 = push(head2, 100)
+    head2 = push(head2, 200)
+    // node_count should still be 3 since nodes were reused
+    assert(__node_count⟨i32⟩ == 3)
+    assert(len(head2) == 2)
+    assert(value(head2) == 200)
+    assert(value(next(head2)) == 100)
+
+    // Push one more — still reusing
+    head2 = push(head2, 300)
+    assert(__node_count⟨i32⟩ == 3)
+
+    // Push a fourth — this one allocates fresh
+    head2 = push(head2, 400)
+    assert(__node_count⟨i32⟩ == 4)
+
     // f32 list — separate storage, separate handle type
     __node_count⟨f32⟩ = 0
+    __free_head⟨f32⟩ = -1
     var fhead = nil()
     fhead = push(fhead, 3.14)
     fhead = push(fhead, 2.71)
