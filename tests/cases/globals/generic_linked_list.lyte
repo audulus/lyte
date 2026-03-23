@@ -1,5 +1,5 @@
 // Generic linked list using typed arenas and typed handles.
-// T is inferred from ListNodeHandle<T> arguments — only nil_handle
+// T is inferred from ListNodeHandle<T> arguments — only nil
 // needs an explicit type arg since it has no value to infer from.
 
 // expected stdout:
@@ -24,7 +24,7 @@ struct ListNode<T> {
 var __nodes<T>: [ListNode<T>; 256]
 var __node_count<T>: i32
 
-nil_handle<T>() -> ListNodeHandle<T> {
+nil<T>() -> ListNodeHandle<T> {
     var h: ListNodeHandle<T>
     h.__idx = 0 - 1
     h
@@ -47,7 +47,7 @@ push<T>(head: ListNodeHandle<T>, val: T) -> ListNodeHandle<T> {
     h
 }
 
-list_value<T>(h: ListNodeHandle<T>) -> T {
+value<T>(h: ListNodeHandle<T>) -> T {
     let idx = h.__idx
     if idx >= 0 && idx < 256 {
         return __nodes⟨T⟩[idx].value
@@ -55,22 +55,22 @@ list_value<T>(h: ListNodeHandle<T>) -> T {
     return __nodes⟨T⟩[0].value
 }
 
-list_next<T>(h: ListNodeHandle<T>) -> ListNodeHandle<T> {
+next<T>(h: ListNodeHandle<T>) -> ListNodeHandle<T> {
     let idx = h.__idx
     if idx >= 0 && idx < 256 {
         var result: ListNodeHandle<T>
         result.__idx = __nodes⟨T⟩[idx].next
         return result
     }
-    return nil_handle⟨T⟩()
+    return nil⟨T⟩()
 }
 
-list_len<T>(head: ListNodeHandle<T>) -> i32 {
+len<T>(head: ListNodeHandle<T>) -> i32 {
     var n = 0
     var cur = head
     while is_nil(cur) == 0 {
         n = n + 1
-        cur = list_next(cur)
+        cur = next(cur)
     }
     n
 }
@@ -78,8 +78,8 @@ list_len<T>(head: ListNodeHandle<T>) -> i32 {
 main {
     __node_count⟨i32⟩ = 0
 
-    // Only nil_handle needs ⟨i32⟩ — no value to infer T from
-    var head = nil_handle⟨i32⟩()
+    // Only nil needs ⟨i32⟩ — no value to infer T from
+    var head = nil⟨i32⟩()
 
     // T=i32 inferred from the value argument (10, 20, 30)
     head = push(head, 10)
@@ -87,22 +87,22 @@ main {
     head = push(head, 30)
 
     // T inferred from head: ListNodeHandle<i32>
-    assert(list_len(head) == 3)
-    assert(list_value(head) == 30)
+    assert(len(head) == 3)
+    assert(value(head) == 30)
 
-    let second = list_next(head)
-    assert(list_value(second) == 20)
+    let second = next(head)
+    assert(value(second) == 20)
 
-    let third = list_next(second)
-    assert(list_value(third) == 10)
+    let third = next(second)
+    assert(value(third) == 10)
 
-    assert(is_nil(list_next(third)) == 1)
+    assert(is_nil(next(third)) == 1)
 
     // f32 list — separate storage, separate handle type
     __node_count⟨f32⟩ = 0
-    var fhead = nil_handle⟨f32⟩()
+    var fhead = nil⟨f32⟩()
     fhead = push(fhead, 3.14)
     fhead = push(fhead, 2.71)
-    assert(list_value(fhead) > 2.0)
-    assert(list_len(fhead) == 2)
+    assert(value(fhead) > 2.0)
+    assert(len(fhead) == 2)
 }
