@@ -398,7 +398,7 @@ impl MonomorphPass {
             Expr::Lambda { body, .. } => {
                 self.process_expr(*body, fdecl, decls)?;
             }
-            Expr::Return(inner) => {
+            Expr::Return(inner) | Expr::Assume(inner) => {
                 self.process_expr(*inner, fdecl, decls)?;
             }
             Expr::For {

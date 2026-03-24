@@ -1818,6 +1818,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.builder().position_at_end(exit_bb);
                 self.zero_i32()
             }
+            Expr::Assume(_) => {
+                // No-op: assume is only used by the safety checker.
+                self.zero_i32()
+            }
             Expr::Return(ret_id) => {
                 let ret_id = *ret_id;
                 let result = self.translate_expr(ret_id, decl);
@@ -3077,7 +3081,7 @@ fn collect_free_vars_rec_llvm(
                 collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Return(e) => {
+        Expr::Return(e) | Expr::Assume(e) => {
             collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
         }
         Expr::Field(e, _) => {

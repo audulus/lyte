@@ -1048,6 +1048,15 @@ impl<'a> FunctionTranslator<'a> {
                 body,
             } => self.translate_for(*var, *start, *end, *body, func),
 
+            Expr::Assume(_) => {
+                // No-op: assume is only used by the safety checker.
+                let result = self.alloc_reg();
+                func.emit(Opcode::LoadImm {
+                    dst: result,
+                    value: 0,
+                });
+                result
+            }
             Expr::Return(expr_id) => {
                 let result = self.translate_expr(*expr_id, func);
                 let ret_ty = self.expr_type(*expr_id);
@@ -3125,7 +3134,7 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Return(e) => {
+        Expr::Return(e) | Expr::Assume(e) => {
             collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
         }
         Expr::Field(e, _) => {

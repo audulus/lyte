@@ -762,6 +762,15 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             cx.next();
             arena.add(Expr::Continue, loc)
         }
+        Token::Assume => {
+            let loc = cx.lex.loc;
+            if loc.file.as_str() != "<stdlib>" {
+                cx.err(String::from("assume is only allowed in the standard library"));
+            }
+            cx.next();
+            let cond = parse_expr(arena, typevars, cx);
+            arena.add(Expr::Assume(cond), loc)
+        }
         Token::Defer => {
             cx.err(String::from("defer is reserved for future use"));
             skip_reserved(cx);

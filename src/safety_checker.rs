@@ -659,6 +659,12 @@ impl SafetyChecker {
                 self.check_expr(*expr, decl, decls);
                 IndexInterval::default()
             }
+            Expr::Assume(cond) => {
+                // Inject constraints from the condition without scoping —
+                // they persist for the rest of the function.
+                self.match_expr(*cond, decl, decls);
+                IndexInterval::default()
+            }
             Expr::Field(_, _) => {
                 // Look up constraints using the compound name (e.g., "h.index").
                 if let Some(name) = expr_constraint_name(expr, &decl.arena) {

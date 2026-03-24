@@ -110,6 +110,10 @@ pub enum Expr {
     /// Arena allocation expression.
     Arena(ExprID),
 
+    /// Assume expression: injects constraints into the safety checker
+    /// without generating runtime code. Only allowed in stdlib.
+    Assume(ExprID),
+
     /// Error expression used for recovery.
     Error,
 }
@@ -298,6 +302,11 @@ impl Expr {
                 format!("return {}", expr_str)
             }
 
+            Expr::Assume(expr) => {
+                let expr_str = arena.exprs[*expr].pretty_print(arena, indent);
+                format!("assume {}", expr_str)
+            }
+
             Expr::Break => "break".to_string(),
             Expr::Continue => "continue".to_string(),
 
@@ -465,6 +474,10 @@ pub fn copy_expr(
         Expr::Return(expr) => {
             let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
             dst_arena.add(Expr::Return(new_expr), loc)
+        }
+        Expr::Assume(expr) => {
+            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            dst_arena.add(Expr::Assume(new_expr), loc)
         }
         Expr::Break => dst_arena.add(Expr::Break, loc),
         Expr::Continue => dst_arena.add(Expr::Continue, loc),

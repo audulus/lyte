@@ -199,7 +199,7 @@ fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashS
             collect_written_fields(*base, fdecl, written);
             collect_written_fields(*idx, fdecl, written);
         }
-        Expr::Return(e) => {
+        Expr::Return(e) | Expr::Assume(e) => {
             collect_written_fields(*e, fdecl, written);
         }
         Expr::Var(_, init, _) => {
@@ -298,7 +298,7 @@ fn collect_invariant_field_reads(
             collect_invariant_field_reads(*base, fdecl, decls, written, reads);
             collect_invariant_field_reads(*idx, fdecl, decls, written, reads);
         }
-        Expr::Return(e) | Expr::AsTy(e, _) => {
+        Expr::Return(e) | Expr::Assume(e) | Expr::AsTy(e, _) => {
             collect_invariant_field_reads(*e, fdecl, decls, written, reads);
         }
         Expr::Var(_, init, _) => {
@@ -384,7 +384,7 @@ fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(N
             replace_field_reads(base, fdecl, subst);
             replace_field_reads(idx, fdecl, subst);
         }
-        Expr::Return(e) | Expr::AsTy(e, _) => {
+        Expr::Return(e) | Expr::Assume(e) | Expr::AsTy(e, _) => {
             replace_field_reads(e, fdecl, subst);
         }
         Expr::Var(_, init, _) => {

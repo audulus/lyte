@@ -635,6 +635,10 @@ impl Checker {
             }
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
             Expr::Return(expr) => self.check_expr(*expr, arena, decls),
+            Expr::Assume(cond) => {
+                self.check_expr(*cond, arena, decls);
+                mk_type(Type::Void)
+            }
             Expr::Break => {
                 if self.loop_depth == 0 {
                     self.errors.push(TypeError {
@@ -1369,7 +1373,7 @@ fn escape_walk(
             escape_walk(*rhs, arena, scope, tainted, errors);
         }
         Expr::Unop(_, arg) => escape_walk(*arg, arena, scope, tainted, errors),
-        Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
+        Expr::Assume(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
             escape_walk(*e, arena, scope, tainted, errors);
         }
         Expr::ArrayIndex(arr, idx) | Expr::Array(arr, idx) => {
@@ -1467,7 +1471,7 @@ fn lambda_has_captures(
                     .map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
                     .unwrap_or(false)
         }
-        Expr::Return(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
+        Expr::Return(e) | Expr::Assume(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
             lambda_has_captures(*e, arena, lambda_params, outer_scope)
         }
         Expr::While(cond, body) | Expr::ArrayIndex(cond, body) | Expr::Array(cond, body) => {

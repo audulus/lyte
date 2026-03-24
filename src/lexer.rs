@@ -79,6 +79,7 @@ pub enum Token {
     Endl,
     For,
     In,
+    Assume,
     End,
     Error,
 }
@@ -203,6 +204,7 @@ impl Lexer {
                 "defer" => Token::Defer,
                 "for" => Token::For,
                 "in" => Token::In,
+                "assume" => Token::Assume,
                 _ => Token::Id(Name::str(&id)),
             };
         }
