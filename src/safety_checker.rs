@@ -44,6 +44,13 @@ struct MinLenBound {
     pub min_len: i64,
 }
 
+/// Records that variable `lo` is proven < variable `hi`.
+#[derive(Clone, Debug)]
+struct VarBound {
+    pub lo: Name,
+    pub hi: Name,
+}
+
 /// Local variable declaration.
 #[derive(Copy, Clone, Debug)]
 struct Var {
@@ -88,6 +95,9 @@ pub struct SafetyChecker {
     /// Minimum length bounds: records that `array.len >= N`.
     min_len_bounds: Vec<MinLenBound>,
 
+    /// Variable-to-variable less-than bounds: records that `lo < hi`.
+    var_bounds: Vec<VarBound>,
+
     pub errors: Vec<SafetyError>,
 }
 
@@ -98,6 +108,7 @@ impl SafetyChecker {
             constraints: vec![],
             len_bounds: vec![],
             min_len_bounds: vec![],
+            var_bounds: vec![],
             errors: vec![],
         }
     }
@@ -176,21 +187,12 @@ impl SafetyChecker {
                             self.add(*name, None, Some(max));
                         }
                     }
-                    // Transitive LenBound: if max_name < array.len (has a LenBound),
-                    // then name < max_name < array.len, so name also has a LenBound.
-                    // This lets `j < hi && hi < a.len` prove `a[j]` is in bounds.
-                    let transitive: Vec<_> = self
-                        .len_bounds
-                        .iter()
-                        .filter(|b| b.index == *max_name)
-                        .map(|b| b.array)
-                        .collect();
-                    for array in transitive {
-                        self.len_bounds.push(LenBound {
-                            index: *name,
-                            array,
-                        });
-                    }
+                    // Record the variable-to-variable relationship for
+                    // later transitive propagation.
+                    self.var_bounds.push(VarBound {
+                        lo: *name,
+                        hi: *max_name,
+                    });
                 }
                 // match i < array.len — record symbolic length bound
                 if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
@@ -301,6 +303,35 @@ impl SafetyChecker {
         if let Expr::Binop(Binop::And, lhs, rhs) = &decl.arena[expr] {
             self.match_expr(*lhs, decl, decls);
             self.match_expr(*rhs, decl, decls);
+            self.propagate_len_bounds();
+        }
+    }
+
+    /// Propagate LenBounds through VarBounds transitively.
+    ///
+    /// If we know `lo < hi` (VarBound) and `hi < a.len` (LenBound),
+    /// then `lo < a.len`. This is done as a fixpoint so that chains
+    /// of any length are handled and ordering doesn't matter.
+    fn propagate_len_bounds(&mut self) {
+        loop {
+            let mut added = false;
+            for vb in 0..self.var_bounds.len() {
+                let lo = self.var_bounds[vb].lo;
+                let hi = self.var_bounds[vb].hi;
+                for lb in 0..self.len_bounds.len() {
+                    let array = self.len_bounds[lb].array;
+                    if self.len_bounds[lb].index == hi {
+                        // lo < hi < array.len → lo < array.len
+                        if !self.len_bounds.iter().any(|b| b.index == lo && b.array == array) {
+                            self.len_bounds.push(LenBound { index: lo, array });
+                            added = true;
+                        }
+                    }
+                }
+            }
+            if !added {
+                break;
+            }
         }
     }
 
@@ -437,8 +468,10 @@ impl SafetyChecker {
                 let initial_constraint_count = self.constraints.len();
                 let initial_len_bound_count = self.len_bounds.len();
                 let initial_min_len_bound_count = self.min_len_bounds.len();
+                let initial_var_bound_count = self.var_bounds.len();
 
                 self.match_expr(*cond, decl, decls);
+                self.propagate_len_bounds();
 
                 let mut r = self.check_expr(*then_expr, decl, decls);
 
@@ -450,6 +483,7 @@ impl SafetyChecker {
                 }
                 self.len_bounds.truncate(initial_len_bound_count);
                 self.min_len_bounds.truncate(initial_min_len_bound_count);
+                self.var_bounds.truncate(initial_var_bound_count);
 
                 if let Some(else_expr) = else_expr {
                     let else_r = self.check_expr(*else_expr, decl, decls);
@@ -531,12 +565,14 @@ impl SafetyChecker {
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
+                let saved_var_bounds = self.var_bounds.clone();
                 self.match_expr(*cond, decl, decls);
 
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints;
                 self.len_bounds = saved_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
+                self.var_bounds = saved_var_bounds;
 
                 // Invalidate constraints for variables assigned inside the loop.
                 // The restore gives us pre-loop state, but mutations in the body
@@ -663,6 +699,7 @@ impl SafetyChecker {
                 // Inject constraints from the condition without scoping —
                 // they persist for the rest of the function.
                 self.match_expr(*cond, decl, decls);
+                self.propagate_len_bounds();
                 IndexInterval::default()
             }
             Expr::Field(_, _) => {
@@ -715,15 +752,11 @@ impl SafetyChecker {
                 }
                 // for i in lo .. hi where hi has a LenBound — transitive bound
                 if let Expr::Id(end_name) = &decl.arena[*end] {
-                    let transitive: Vec<_> = self
-                        .len_bounds
-                        .iter()
-                        .filter(|b| b.index == *end_name)
-                        .map(|b| b.array)
-                        .collect();
-                    for array in transitive {
-                        self.len_bounds.push(LenBound { index: *var, array });
-                    }
+                    self.var_bounds.push(VarBound {
+                        lo: *var,
+                        hi: *end_name,
+                    });
+                    self.propagate_len_bounds();
                 }
                 // Save/restore constraints around the body so that mutations
                 // inside the loop (e.g. `i = i + 1`) don't clobber the
@@ -731,10 +764,12 @@ impl SafetyChecker {
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
+                let saved_var_bounds = self.var_bounds.clone();
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints.clone();
                 self.len_bounds = saved_len_bounds.clone();
                 self.min_len_bounds = saved_min_len_bounds;
+                self.var_bounds = saved_var_bounds;
 
                 // Invalidate constraints for variables assigned inside the loop.
                 self.invalidate_assigned(*body, &decl.arena);
@@ -888,6 +923,7 @@ impl SafetyChecker {
         for name in assigned {
             self.constraints.retain(|c| c.name != name);
             self.len_bounds.retain(|b| b.index != name);
+            self.var_bounds.retain(|b| b.lo != name);
         }
     }
 
@@ -913,6 +949,7 @@ impl SafetyChecker {
             self.constraints.clear();
             self.len_bounds.clear();
             self.min_len_bounds.clear();
+            self.var_bounds.clear();
         }
     }
 

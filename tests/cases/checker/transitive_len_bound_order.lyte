@@ -1,0 +1,20 @@
+// args: --check
+// expected stdout:
+
+// The safety checker should handle transitive len bounds regardless of
+// the order conditions appear. Both functions below are equivalent but
+// the conditions are in different orders.
+
+// hi < a.len first, then i < hi — checker learns hi's LenBound before i < hi
+foo(a: [i32], i: i32, hi: i32) {
+    if hi < a.len && i >= 0 && i < hi {
+        a[i] = 1
+    }
+}
+
+// i < hi first, then hi < a.len — checker must still deduce i < a.len
+bar(a: [i32], i: i32, hi: i32) {
+    if i >= 0 && i < hi && hi < a.len {
+        a[i] = 1
+    }
+}

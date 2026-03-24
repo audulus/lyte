@@ -160,10 +160,10 @@ cmp(lhs: f32, rhs: f32) -> i32 {
 // --- Sorting (in-place via slices, generic) ---
 
 quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
-    assume lo >= 0
-    assume hi >= 0
-    assume hi < a.len
     if lo < hi {
+        assume lo >= 0
+        assume hi >= 0
+        assume hi < a.len
 
         let pivot_val = a[hi]
         var i = lo
