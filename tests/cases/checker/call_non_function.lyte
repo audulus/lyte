@@ -1,9 +1,9 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: no solution for i32 == ?3 → ?2
+// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: attempt to call a non-function: i32 vs ?3 → ?2
 //         x(2)
 //         ^
-// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: no solution for i32 == (i32) → ?2
+// ❌ ../tests/cases/checker/call_non_function.lyte:17:5: argument types don't match function: i32 vs (i32) → ?2
 //         x(2)
 //         ^
 // ❌ ../tests/cases/checker/call_non_function.lyte:17:5: ambiguous constraint: i32 == ?3 → ?2

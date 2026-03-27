@@ -1,6 +1,6 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/assign_type_mismatch.lyte:8:7: no solution for f32 == bool
+// ❌ ../tests/cases/checker/assign_type_mismatch.lyte:8:7: assignment requires matching types: f32 vs bool
 //         x = true
 //           ^
 f {

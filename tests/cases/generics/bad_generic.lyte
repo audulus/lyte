@@ -1,6 +1,6 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/generics/bad_generic.lyte:8:7: no solution for T == i32
+// ❌ ../tests/cases/generics/bad_generic.lyte:8:7: equality requires matching types: T vs i32
 //         t == 0
 //           ^
 

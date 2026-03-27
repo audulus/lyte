@@ -1,6 +1,6 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/arity_too_few.lyte:8:5: no solution for (i32, i32) → i32 == (i32) → i32
+// ❌ ../tests/cases/checker/arity_too_few.lyte:8:5: function expects 2 arguments but 1 was given
 //         add(1)
 //         ^
 add(a: i32, b: i32) → i32 { return a + b }

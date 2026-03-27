@@ -1,9 +1,9 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/for_bad_range.lyte:10:14: no solution for f32 == i32
+// ❌ ../tests/cases/checker/for_bad_range.lyte:10:14: start of for loop must be an integer: f32 vs i32
 //         for i in 1.0 .. 10.0 { }
 //                  ^
-// ❌ ../tests/cases/checker/for_bad_range.lyte:10:14: no solution for f32 == i32
+// ❌ ../tests/cases/checker/for_bad_range.lyte:10:14: end of for loop must be an integer: f32 vs i32
 //         for i in 1.0 .. 10.0 { }
 //                  ^
 f {

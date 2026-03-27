@@ -1,6 +1,6 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/return_type_mismatch.lyte:6:18: no solution for f32 == i32
+// ❌ ../tests/cases/checker/return_type_mismatch.lyte:6:18: return type must match function return type: f32 vs i32
 //     f(x: i32) -> i32 {
 //                      ^
 f(x: i32) -> i32 {

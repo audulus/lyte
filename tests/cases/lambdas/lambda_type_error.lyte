@@ -1,5 +1,5 @@
 // expected stdout:
-// ❌ ../tests/cases/lambdas/lambda_type_error.lyte:12:5: no solution for (() → void) → void == (() → i32) → void
+// ❌ ../tests/cases/lambdas/lambda_type_error.lyte:12:5: argument types don't match function: (() → void) → void vs (() → i32) → void
 //         call_void(| | x = 1 )
 //         ^
 

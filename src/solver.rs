@@ -78,8 +78,8 @@ impl Alt {
 /// has a timeout (!!).
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub enum Constraint {
-    /// Equality.
-    Equal(TypeID, TypeID, Loc),
+    /// Equality. The optional string is a human-readable hint for error messages.
+    Equal(TypeID, TypeID, Loc, Option<String>),
 
     /// Function overloads, enum leading dot syntax.
     Or(TypeID, Vec<Alt>, Loc),
@@ -96,7 +96,7 @@ impl Constraint {
     /// resolved disjuctions?
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
-            Constraint::Equal(a, b, _) => a.solved_inst(inst) && b.solved_inst(inst),
+            Constraint::Equal(a, b, _, _) => a.solved_inst(inst) && b.solved_inst(inst),
             Constraint::Or(t, alts, _) => {
                 t.solved_inst(inst) && alts.iter().len() == 1 && alts[0].ty.solved_inst(inst)
             }
@@ -110,7 +110,7 @@ impl Constraint {
     /// Returns source code location of the constraint.
     pub fn loc(&self) -> Loc {
         match self {
-            Constraint::Equal(_, _, loc) => *loc,
+            Constraint::Equal(_, _, loc, _) => *loc,
             Constraint::Or(_, _, loc) => *loc,
             Constraint::Field(_, _, _, loc) => *loc,
             Constraint::ArrayOf(_, _, loc) => *loc,
@@ -120,7 +120,7 @@ impl Constraint {
     /// Returns a pretty-printed string for the constraint.
     pub fn pretty(&self, inst: &Instance) -> String {
         match self {
-            Constraint::Equal(a, b, _) => {
+            Constraint::Equal(a, b, _, _) => {
                 format!("{} == {}", a.subst(inst), b.subst(inst))
             }
             Constraint::Or(a, alts, _) => {
@@ -142,7 +142,7 @@ impl Constraint {
     /// Pretty-prints the constraint.
     pub fn print(&self, inst: &Instance) {
         match self {
-            Constraint::Equal(a, b, loc) => {
+            Constraint::Equal(a, b, loc, _) => {
                 println!("Equal({:?}, {:?}, {:?})", a.subst(inst), b.subst(inst), loc)
             }
             Constraint::Or(a, alts, loc) => println!(
@@ -171,6 +171,41 @@ impl Constraint {
     }
 }
 
+/// Build a human-readable error message for a failed equality constraint.
+fn format_equality_error(a: TypeID, b: TypeID, hint: &Option<String>, instance: &Instance) -> String {
+    let a_resolved = a.subst(instance);
+    let b_resolved = b.subst(instance);
+
+    // Detect function arity mismatch: (T1, T2, ...) → R vs (U1, ...) → S
+    if let (Type::Func(a_args, _), Type::Func(b_args, _)) = (&*a_resolved, &*b_resolved) {
+        let a_count = match &**a_args {
+            Type::Tuple(ts) => ts.len(),
+            Type::Void => 0,
+            _ => 1,
+        };
+        let b_count = match &**b_args {
+            Type::Tuple(ts) => ts.len(),
+            Type::Void => 0,
+            _ => 1,
+        };
+        if a_count != b_count {
+            return format!(
+                "function expects {} argument{} but {} {} given",
+                a_count,
+                if a_count == 1 { "" } else { "s" },
+                b_count,
+                if b_count == 1 { "was" } else { "were" },
+            );
+        }
+    }
+
+    if let Some(hint) = hint {
+        format!("{}: {} vs {}", hint, a_resolved, b_resolved)
+    } else {
+        format!("type mismatch: expected {}, got {}", a_resolved, b_resolved)
+    }
+}
+
 pub fn iterate_solver(
     constraints: &mut [Constraint],
     instance: &mut Instance,
@@ -179,15 +214,11 @@ pub fn iterate_solver(
 ) {
     for constraint in constraints {
         match constraint {
-            Constraint::Equal(a, b, loc) => {
+            Constraint::Equal(a, b, loc, hint) => {
                 if !unify(*a, *b, instance) {
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!(
-                            "no solution for {} == {}",
-                            a.subst(instance),
-                            b.subst(instance)
-                        ),
+                        message: format_equality_error(*a, *b, hint, instance),
                     });
                 }
             }
@@ -232,11 +263,7 @@ pub fn iterate_solver(
                     } else {
                         errors.push(TypeError {
                             location: *loc,
-                            message: format!(
-                                "no solution for {} == {}",
-                                t.subst(instance),
-                                alts[0].ty.subst(instance)
-                            ),
+                            message: format_equality_error(*t, alts[0].ty, &None, instance),
                         });
                     }
                 }
@@ -259,7 +286,7 @@ pub fn iterate_solver(
                                     field.ty
                                 };
 
-                                *constraint = Constraint::Equal(field_ty, *ft, *loc);
+                                *constraint = Constraint::Equal(field_ty, *ft, *loc, None);
                             } else {
                                 errors.push(TypeError {
                                     location: *loc,
@@ -275,7 +302,7 @@ pub fn iterate_solver(
                     }
                     Type::Array(_, _) | Type::Slice(_) => {
                         if *field_name == Name::new("len".into()) {
-                            *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc);
+                            *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc, None);
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
@@ -290,7 +317,7 @@ pub fn iterate_solver(
                 let resolved = find(*arr_ty, instance);
                 match &*resolved {
                     Type::Array(a, _) | Type::Slice(a) => {
-                        *constraint = Constraint::Equal(*a, *elem_ty, *loc);
+                        *constraint = Constraint::Equal(*a, *elem_ty, *loc, None);
                     }
                     Type::Anon(_) => {
                         // Not yet resolved, wait for more info.
@@ -387,7 +414,7 @@ mod tests {
     pub fn test_solve_1() {
         let t = anon(0);
         let vd = mk_type(Type::Void);
-        let mut constraints = [Constraint::Equal(vd, t, test_loc())];
+        let mut constraints = [Constraint::Equal(vd, t, test_loc(), None)];
         let mut instance = Instance::new();
 
         let mut errors = vec![];
@@ -401,7 +428,7 @@ mod tests {
     pub fn test_solve_2() {
         let int8 = mk_type(Type::Int8);
         let vd = mk_type(Type::Void);
-        let mut constraints = [Constraint::Equal(vd, int8, test_loc())];
+        let mut constraints = [Constraint::Equal(vd, int8, test_loc(), None)];
         let mut instance = Instance::new();
 
         let mut errors = vec![];
@@ -416,8 +443,8 @@ mod tests {
         let t = anon(0);
         let vd = mk_type(Type::Void);
         let mut constraints = [
-            Constraint::Equal(vd, t, test_loc()),
-            Constraint::Equal(int8, t, test_loc()),
+            Constraint::Equal(vd, t, test_loc(), None),
+            Constraint::Equal(int8, t, test_loc(), None),
         ];
         let mut instance = Instance::new();
 

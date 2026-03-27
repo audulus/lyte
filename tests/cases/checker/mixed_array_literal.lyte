@@ -1,6 +1,6 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/mixed_array_literal.lyte:7:17: no solution for i32 == f32
+// ❌ ../tests/cases/checker/mixed_array_literal.lyte:7:17: type mismatch: expected i32, got f32
 //         var x = [1, 2.0]
 //                     ^
 f {

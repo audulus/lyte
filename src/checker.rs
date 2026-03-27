@@ -169,8 +169,13 @@ impl Checker {
         }
     }
 
-    fn eq(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, _error_message: &str) {
-        self.add_constraint(Constraint::Equal(lhs, rhs, loc));
+    fn eq(&mut self, lhs: TypeID, rhs: TypeID, loc: Loc, hint: &str) {
+        let hint = if hint.is_empty() {
+            None
+        } else {
+            Some(hint.to_string())
+        };
+        self.add_constraint(Constraint::Equal(lhs, rhs, loc, hint));
     }
 
     fn fresh(&mut self) -> TypeID {
@@ -214,7 +219,7 @@ impl Checker {
                     func(argt, r),
                     ft,
                     arena.locs[id],
-                    &format!("no match for unary negation on {}", argt),
+                    "no match for unary negation",
                 );
 
                 r
@@ -249,10 +254,7 @@ impl Checker {
                 at,
                 bt,
                 arena.locs[id],
-                &format!(
-                    "equality operator requres equal types, got {} and {}",
-                    at, bt
-                ),
+                "equality requires matching types",
             );
 
             mk_type(Type::Bool)
@@ -264,10 +266,7 @@ impl Checker {
                 at,
                 bt,
                 arena.locs[id],
-                &format!(
-                    "assignment operator requres equal types, got {} and {}",
-                    at, bt
-                ),
+                "assignment requires matching types",
             );
 
             at
@@ -302,7 +301,7 @@ impl Checker {
                 func(tuple(vec![at, bt]), r),
                 ft,
                 arena.locs[id],
-                &format!("no match for arithemtic between {} and {}", at, bt),
+                "no match for arithmetic operator",
             );
 
             r
@@ -326,7 +325,7 @@ impl Checker {
                 func(tuple(vec![at, bt]), b),
                 ft,
                 arena.locs[id],
-                &format!("no match for relational between {} and {}", at, bt),
+                "no match for relational operator",
             );
 
             b
@@ -474,7 +473,7 @@ impl Checker {
                     func(et, *ty),
                     ft,
                     arena.locs[id],
-                    &format!("no match for cast between {} and {}", et, ty),
+                    "no match for cast",
                 );
 
                 *ty
@@ -503,11 +502,7 @@ impl Checker {
                     lhs,
                     ft,
                     arena.locs[id],
-                    &format!(
-                        "arguments ({:?}) don't match function ({:?})",
-                        find(lhs, &self.inst),
-                        find(ft, &self.inst)
-                    ),
+                    "argument types don't match function",
                 );
 
                 ret
@@ -725,7 +720,7 @@ impl Checker {
                 for e in exprs {
                     let elem_t = self.check_expr(*e, arena, decls);
                     self.constraints
-                        .push(Constraint::Equal(t, elem_t, arena.locs[*e]));
+                        .push(Constraint::Equal(t, elem_t, arena.locs[*e], None));
                 }
                 mk_type(Type::Array(t, ArraySize::Known(exprs.len() as i32)))
             }
