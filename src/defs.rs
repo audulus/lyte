@@ -65,6 +65,11 @@ pub fn test_loc() -> Loc {
 ///     source line content
 ///     ^
 /// ```
+/// Formats an error message as `file:line:col: message`.
+pub fn format_error(loc: Loc, message: &str) -> String {
+    format!("{}:{}:{}: {}", loc.file, loc.line, loc.col, message)
+}
+
 pub fn print_error_with_context(loc: Loc, message: &str) {
     println!("❌ {}:{}:{}: {}", loc.file, loc.line, loc.col, message);
 

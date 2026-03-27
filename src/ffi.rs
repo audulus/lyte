@@ -155,7 +155,7 @@ pub unsafe extern "C" fn lyte_compiler_add_source(
         };
         c.last_error = None;
         if !c.compiler.parse(source, filename) {
-            c.set_error("parse error");
+            c.set_error(&c.compiler.last_errors.join("\n"));
             return false;
         }
         true
@@ -185,7 +185,7 @@ pub unsafe extern "C" fn lyte_compiler_add_prelude(
         };
         c.last_error = None;
         if !c.compiler.parse(source, "<prelude>") {
-            c.set_error("prelude parse error");
+            c.set_error(&c.compiler.last_errors.join("\n"));
             return false;
         }
         true
@@ -235,7 +235,7 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
         c.last_error = None;
 
         if !c.compiler.check() {
-            c.set_error("type check error");
+            c.set_error(&c.compiler.last_errors.join("\n"));
             return ptr::null_mut();
         }
         if let Err(e) = c.compiler.specialize() {

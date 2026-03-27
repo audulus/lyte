@@ -31,6 +31,9 @@ void lyte_compiler_free(LyteCompiler* compiler);
 bool lyte_compiler_had_ice(const LyteCompiler* compiler);
 
 /// Get the last error message, or NULL if no error.
+/// Error messages include file, line, column, and description
+/// (e.g. "node.lyte:4:5: expected Rparen, got Lbrace").
+/// Multiple errors are separated by newlines.
 const char* lyte_compiler_get_error(const LyteCompiler* compiler);
 
 /// Add source code to the compiler. May be called multiple times

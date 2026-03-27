@@ -35,6 +35,54 @@ import Testing
     #expect(result == 4)
 }
 
+@Test func parseErrorContainsDetails() throws {
+    let compiler = LyteCompiler(entryPoints: ["main"])
+    do {
+        try compiler.addSource("""
+            main {
+                var x: i32
+                x = (
+            }
+        """, filename: "node.lyte")
+        #expect(Bool(false), "should have thrown")
+    } catch let error as LyteError {
+        #expect(error.message.contains("node.lyte"))
+        #expect(error.message.contains("expected"))
+    }
+}
+
+@Test func typeErrorContainsDetails() throws {
+    let compiler = LyteCompiler(entryPoints: ["main"])
+    do {
+        _ = try compiler.compile(source: """
+            add(a: i32, b: i32) -> i32 { a + b }
+            main {
+                add(1)
+            }
+        """, filename: "node.lyte")
+        #expect(Bool(false), "should have thrown")
+    } catch let error as LyteError {
+        #expect(error.message.contains("node.lyte"))
+        #expect(error.message.contains("function expects 2 arguments but 1 was given"))
+    }
+}
+
+@Test func safetyErrorContainsDetails() throws {
+    let compiler = LyteCompiler(entryPoints: ["main"])
+    do {
+        _ = try compiler.compile(source: """
+            main {
+                var a: [i32; 4]
+                a[10] = 1
+            }
+        """, filename: "node.lyte")
+        #expect(Bool(false), "should have thrown")
+    } catch let error as LyteError {
+        #expect(error.message.contains("node.lyte"))
+        #expect(error.message.contains("couldn't prove"))
+    }
+}
+
 @Test func multiEntryPoints() throws {
     let compiler = LyteCompiler(entryPoints: ["init", "process"])
     let program = try compiler.compile(source: """

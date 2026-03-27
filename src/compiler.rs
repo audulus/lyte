@@ -354,6 +354,8 @@ pub struct Compiler {
     stdlib_trees: usize,
     /// Entry point function names. If empty, defaults to ["main"].
     entry_points: Vec<Name>,
+    /// Formatted error messages from the last parse/check operation.
+    pub last_errors: Vec<String>,
 }
 
 impl Compiler {
@@ -364,6 +366,7 @@ impl Compiler {
             print_ir: false,
             stdlib_trees: 0,
             entry_points: Vec::new(),
+            last_errors: Vec::new(),
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
@@ -412,11 +415,14 @@ impl Compiler {
         lexer.next();
         tree.decls = parse_program(&mut lexer, &mut tree.errors);
 
+        self.last_errors.clear();
         for err in &tree.errors {
-            println!(
+            let msg = format!(
                 "{}:{}: {}",
                 err.location.file, err.location.line, err.message
             );
+            println!("{}", msg);
+            self.last_errors.push(msg);
         }
 
         let success = tree.errors.is_empty();
@@ -425,6 +431,7 @@ impl Compiler {
     }
 
     pub fn check(&mut self) -> bool {
+        self.last_errors.clear();
         let mut decls = builtin_decls();
         for tree in &self.ast {
             decls.append(&mut tree.decls.clone());
@@ -436,7 +443,9 @@ impl Compiler {
         for d in &decls {
             if let Decl::Macro(m) = d {
                 if macros.contains_key(&m.name) {
-                    print_error_with_context(m.loc, &format!("duplicate macro: {}", m.name));
+                    let msg = format!("duplicate macro: {}", m.name);
+                    print_error_with_context(m.loc, &msg);
+                    self.last_errors.push(format_error(m.loc, &msg));
                     has_errors = true;
                 } else {
                     macros.insert(m.name, m.clone());
@@ -476,6 +485,10 @@ impl Compiler {
             checker.check_decl(decl, &orig_decls);
 
             checker.print_errors();
+            for err in &checker.errors {
+                self.last_errors
+                    .push(format_error(err.location, &err.message));
+            }
             if !checker.errors.is_empty() {
                 return false;
             }
@@ -496,6 +509,10 @@ impl Compiler {
         let mut safety_checker = SafetyChecker::new();
         safety_checker.check(&self.decls);
         safety_checker.print_errors();
+        for err in &safety_checker.errors {
+            self.last_errors
+                .push(format_error(err.location, &err.message));
+        }
         if !safety_checker.errors.is_empty() {
             return false;
         }
