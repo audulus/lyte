@@ -162,6 +162,36 @@ pub unsafe extern "C" fn lyte_compiler_add_source(
     })
 }
 
+/// Add trusted prelude source code to the compiler.
+/// The prelude is allowed to use `assume` statements.
+/// Line numbers in the prelude are independent of the main source.
+/// Returns true on success.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_add_prelude(
+    ptr: *mut LyteCompiler,
+    source: *const c_char,
+) -> bool {
+    if ptr.is_null() || source.is_null() {
+        return false;
+    }
+    let src = source;
+    catch_panic(ptr, |c| {
+        let source = match CStr::from_ptr(src).to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                c.set_error("invalid UTF-8 in prelude source");
+                return false;
+            }
+        };
+        c.last_error = None;
+        if !c.compiler.parse(source, "<prelude>") {
+            c.set_error("prelude parse error");
+            return false;
+        }
+        true
+    })
+}
+
 // ============ Program API ============
 
 // On LLVM builds: JIT backend with function pointers.

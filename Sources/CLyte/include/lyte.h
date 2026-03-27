@@ -37,6 +37,12 @@ const char* lyte_compiler_get_error(const LyteCompiler* compiler);
 /// to add multiple files. Returns true on success.
 bool lyte_compiler_add_source(LyteCompiler* compiler, const char* source, const char* filename);
 
+/// Add trusted prelude source code to the compiler.
+/// The prelude is allowed to use `assume` statements (like the stdlib).
+/// Line numbers in the prelude are independent of the main source.
+/// Call before lyte_compiler_add_source. Returns true on success.
+bool lyte_compiler_add_prelude(LyteCompiler* compiler, const char* source);
+
 /// Parse, type-check, specialize, and compile all added source into
 /// a LyteProgram (auto-selects JIT or VM backend).
 /// Returns NULL on error. Caller must free with lyte_program_free.

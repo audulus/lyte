@@ -1350,4 +1350,41 @@ mod tests {
             _ => {}
         }
     }
+
+    #[test]
+    fn prelude_allows_assume() {
+        let prelude = r#"
+            clamp(a: [i32], i: i32) -> i32 {
+                assume i >= 0 && i < a.len
+                a[i]
+            }
+        "#;
+        let code = r#"
+            main {
+                var arr: [i32; 3]
+                arr[0] = 10
+                arr[1] = 20
+                arr[2] = 30
+                print(clamp(arr, 1))
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check());
+    }
+
+    #[test]
+    fn prelude_does_not_affect_user_line_numbers() {
+        // A 5-line prelude followed by user code with an error on its line 3.
+        // The error should report line 3, not line 8.
+        let prelude = "const BUF = 4\nconst X = 1\nconst Y = 2\nconst Z = 3\nconst W = 4";
+        let code = "main {\n    var x: i32\n    x = true\n}";
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        // check() should fail due to type error, and the error location
+        // should reference test.lyte line 3, not line 8.
+        assert!(!compiler.check());
+    }
 }

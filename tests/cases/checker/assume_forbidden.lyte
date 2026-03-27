@@ -1,6 +1,6 @@
 // args: --check
 // expected stdout:
-// ../tests/cases/checker/assume_forbidden.lyte:6: assume is only allowed in the standard library
+// ../tests/cases/checker/assume_forbidden.lyte:6: assume is only allowed in the standard library or prelude
 
 foo(a: [i32], i: i32) {
     assume i >= 0

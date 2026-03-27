@@ -775,8 +775,9 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
         }
         Token::Assume => {
             let loc = cx.lex.loc;
-            if loc.file.as_str() != "<stdlib>" {
-                cx.err(String::from("assume is only allowed in the standard library"));
+            let file = loc.file.as_str();
+            if file != "<stdlib>" && file != "<prelude>" {
+                cx.err(String::from("assume is only allowed in the standard library or prelude"));
             }
             cx.next();
             let cond = parse_expr(arena, typevars, cx);
