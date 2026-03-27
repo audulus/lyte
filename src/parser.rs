@@ -1,4 +1,5 @@
 use crate::*;
+use std::collections::HashMap;
 
 impl std::ops::Index<ExprID> for ExprArena {
     type Output = Expr;
@@ -11,6 +12,7 @@ impl std::ops::Index<ExprID> for ExprArena {
 struct ParseContext<'a> {
     pub lex: &'a mut Lexer,
     pub errors: &'a mut Vec<ParseError>,
+    pub consts: HashMap<Name, i64>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -121,7 +123,14 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
                     expect(Token::Rbracket, cx);
                     Type::Array(r, ArraySize::Known(n as i32))
                 } else if let Token::Id(name) = cx.lex.tok {
-                    if typevars.contains(&name) {
+                    if let Some(&value) = cx.consts.get(&name) {
+                        if value <= 0 {
+                            cx.err(String::from("array size must be greater than 0"));
+                        }
+                        cx.next();
+                        expect(Token::Rbracket, cx);
+                        Type::Array(r, ArraySize::Known(value as i32))
+                    } else if typevars.contains(&name) {
                         cx.next();
                         expect(Token::Rbracket, cx);
                         Type::Array(r, ArraySize::Var(name))
@@ -540,6 +549,8 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
                 }
                 expect(Token::Rmath, cx);
                 arena.add(Expr::TypeApp(id, type_args), loc)
+            } else if let Some(&value) = cx.consts.get(&id) {
+                arena.add(Expr::Int(value), loc)
             } else {
                 arena.add(Expr::Id(id), loc)
             }
@@ -1105,6 +1116,34 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
 
             Decl::Global { name, typevars, ty }
         }
+        Token::Const => {
+            cx.next();
+            let name = expect_id(cx);
+            expect(Token::Assign, cx);
+            let value = match cx.lex.tok {
+                Token::Integer(n) => {
+                    cx.next();
+                    n
+                }
+                Token::Minus => {
+                    cx.next();
+                    if let Token::Integer(n) = cx.lex.tok {
+                        cx.next();
+                        -n
+                    } else {
+                        cx.err(String::from("Expected integer value for const"));
+                        0
+                    }
+                }
+                _ => {
+                    cx.err(String::from("Expected integer value for const"));
+                    cx.next();
+                    0
+                }
+            };
+            cx.consts.insert(name, value);
+            Decl::Const { name, value }
+        }
         Token::Interface => parse_interface(cx),
         Token::Defer | Token::Arena => {
             let name = if cx.lex.tok == Token::Defer {
@@ -1138,7 +1177,11 @@ fn skip_newlines(lexer: &mut Lexer) {
 pub fn parse_program(lex: &mut Lexer, errors: &mut Vec<ParseError>) -> Vec<Decl> {
     let mut decls = vec![];
 
-    let mut cx = ParseContext { lex, errors };
+    let mut cx = ParseContext {
+        lex,
+        errors,
+        consts: HashMap::new(),
+    };
 
     skip_newlines(cx.lex);
 
@@ -1169,6 +1212,7 @@ mod tests {
         let mut cx = ParseContext {
             lex: &mut lexer,
             errors: &mut errors,
+            consts: HashMap::new(),
         };
         cx.next();
 
@@ -1212,6 +1256,7 @@ mod tests {
         let mut cx = ParseContext {
             lex: &mut lexer,
             errors: errors,
+            consts: HashMap::new(),
         };
         cx.next();
 
@@ -1512,6 +1557,28 @@ mod tests {
     fn round_trip_multi_decl() {
         assert_round_trip(
             "struct Point {\n    x: f32,\n    y: f32\n}\ndist(a: Point, b: Point) → f32 {\n    0.0\n}",
+        );
+    }
+
+    #[test]
+    fn round_trip_const() {
+        assert_round_trip("const SIZE = 4");
+    }
+
+    #[test]
+    fn round_trip_const_with_array() {
+        assert_round_trip("const N = 10\nfn fill(a: [i32; 10]) → i32 {\n    a[0]\n}");
+    }
+
+    #[test]
+    fn test_parse_const() {
+        test_strings(
+            |_arena, _, cx| parse_decl(cx),
+            &[
+                "const N = 42",
+                "const SIZE = 1024",
+                "const NEG = -1",
+            ],
         );
     }
 }

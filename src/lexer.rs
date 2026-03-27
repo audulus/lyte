@@ -80,6 +80,7 @@ pub enum Token {
     For,
     In,
     Assume,
+    Const,
     End,
     Error,
 }
@@ -205,6 +206,7 @@ impl Lexer {
                 "for" => Token::For,
                 "in" => Token::In,
                 "assume" => Token::Assume,
+                "const" => Token::Const,
                 _ => Token::Id(Name::str(&id)),
             };
         }
@@ -547,6 +549,7 @@ mod tests {
         assert_eq!(tokens("'\\''"), vec![Char('\'')]);
         assert_eq!(tokens("'\\\\'"), vec![Char('\\')]);
         assert_eq!(tokens("!"), vec![Not]);
+        assert_eq!(tokens("const"), vec![Const]);
         assert_eq!(tokens("x // comment"), vec![id("x")]);
         assert_eq!(tokens("// comment"), vec![]);
         tokens("]VV)y<)'");

@@ -538,6 +538,7 @@ impl Decl {
             Decl::Struct(StructDecl { name, .. }) => mk_type(Type::Name(*name, vec![])),
             Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Global { ty, .. } => *ty,
+            Decl::Const { .. } => mk_type(Type::Void),
         }
     }
 }

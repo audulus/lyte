@@ -166,6 +166,10 @@ pub enum Decl {
         ty: TypeID,
     },
     Interface(Interface),
+    Const {
+        name: Name,
+        value: i64,
+    },
 }
 
 impl Decl {
@@ -196,6 +200,7 @@ impl Decl {
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,
             Decl::Interface(Interface { name, .. }) => *name,
+            Decl::Const { name, .. } => *name,
         }
     }
 
@@ -223,6 +228,7 @@ impl Decl {
                 format!("var {}{}: {}", name, tvs, ty.pretty_print())
             }
             Decl::Interface(iface) => format_interface(iface),
+            Decl::Const { name, value } => format!("const {} = {}", name, value),
         }
     }
 }

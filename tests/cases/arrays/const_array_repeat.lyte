@@ -1,0 +1,14 @@
+const N = 3
+
+fn main() {
+    let a = [42; N]
+    print(a[0])
+    print(a[1])
+    print(a[2])
+}
+
+// expected stdout:
+// compilation successful
+// 42
+// 42
+// 42

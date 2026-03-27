@@ -1,0 +1,15 @@
+const ROWS = 2
+const COLS = 3
+
+fn main() {
+    var grid: [i32; ROWS]
+    grid[0] = COLS
+    grid[1] = ROWS
+    print(grid[0])
+    print(grid[1])
+}
+
+// expected stdout:
+// compilation successful
+// 3
+// 2

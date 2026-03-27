@@ -1,0 +1,28 @@
+const SIZE = 4
+
+fn fill(arr: [i32; SIZE]) -> [i32; SIZE] {
+    var result: [i32; SIZE]
+    for i in 0 .. SIZE {
+        result[i] = arr[i] * 2
+    }
+    result
+}
+
+fn main() {
+    var a: [i32; SIZE]
+    for i in 0 .. SIZE {
+        a[i] = i + 1
+    }
+    let b = fill(a)
+    print(b[0])
+    print(b[1])
+    print(b[2])
+    print(b[3])
+}
+
+// expected stdout:
+// compilation successful
+// 2
+// 4
+// 6
+// 8

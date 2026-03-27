@@ -1,0 +1,8 @@
+// args: --check
+const BUF_SIZE = 16
+
+fn process(buf: [f32; BUF_SIZE]) -> f32 {
+    buf[0]
+}
+
+// expected stdout:
