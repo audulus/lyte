@@ -170,6 +170,10 @@ pub enum Decl {
         name: Name,
         value: i64,
     },
+    Assume {
+        arena: ExprArena,
+        cond: ExprID,
+    },
 }
 
 impl Decl {
@@ -201,6 +205,7 @@ impl Decl {
             Decl::Global { name, .. } => *name,
             Decl::Interface(Interface { name, .. }) => *name,
             Decl::Const { name, .. } => *name,
+            Decl::Assume { .. } => Name::str("__assume"),
         }
     }
 
@@ -229,6 +234,9 @@ impl Decl {
             }
             Decl::Interface(iface) => format_interface(iface),
             Decl::Const { name, value } => format!("const {} = {}", name, value),
+            Decl::Assume { arena, cond } => {
+                format!("assume {}", arena.exprs[*cond].pretty_print(arena, 0))
+            }
         }
     }
 }

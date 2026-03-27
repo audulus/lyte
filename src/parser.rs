@@ -1117,6 +1117,19 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
 
             Decl::Global { name, typevars, ty }
         }
+        Token::Assume => {
+            let loc = cx.lex.loc;
+            let file = loc.file.as_str();
+            if file != "<stdlib>" && file != "<prelude>" {
+                cx.err(String::from(
+                    "assume is only allowed in the standard library or prelude",
+                ));
+            }
+            cx.next();
+            let mut arena = ExprArena::new();
+            let cond = parse_expr(&mut arena, &[], cx);
+            Decl::Assume { arena, cond }
+        }
         Token::Const => {
             cx.next();
             let name = expect_id(cx);

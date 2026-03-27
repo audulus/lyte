@@ -927,8 +927,35 @@ impl SafetyChecker {
         }
     }
 
+    /// Inject constraints from top-level `assume` declarations.
+    /// Uses a temporary FuncDecl so `match_expr` can access the assume's arena.
+    fn inject_global_assumes(&mut self, decls: &DeclTable) {
+        for decl in &decls.decls {
+            if let Decl::Assume { arena, cond } = decl {
+                let tmp = FuncDecl {
+                    name: Name::str("__assume"),
+                    typevars: vec![],
+                    size_vars: vec![],
+                    params: vec![],
+                    body: None,
+                    ret: mk_type(Type::Void),
+                    constraints: vec![],
+                    loc: test_loc(),
+                    arena: arena.clone(),
+                    types: vec![],
+                    closure_vars: vec![],
+                };
+                self.match_expr(*cond, &tmp, decls);
+                self.propagate_len_bounds();
+            }
+        }
+    }
+
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
         if let Some(body) = func_decl.body {
+            // Inject top-level assume constraints before checking the function.
+            self.inject_global_assumes(decls);
+
             for param in &func_decl.params {
                 if let Some(ty) = param.ty {
                     self.vars.push(Var {

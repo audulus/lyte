@@ -539,6 +539,7 @@ impl Decl {
             Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Global { ty, .. } => *ty,
             Decl::Const { .. } => mk_type(Type::Void),
+            Decl::Assume { .. } => mk_type(Type::Void),
         }
     }
 }

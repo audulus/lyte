@@ -1387,4 +1387,53 @@ mod tests {
         // should reference test.lyte line 3, not line 8.
         assert!(!compiler.check());
     }
+
+    #[test]
+    fn top_level_assume_constrains_globals() {
+        // Prelude declares globals and assumes that constrain them.
+        // The user code uses those globals as loop bounds for array access.
+        let prelude = r#"
+            const MAX_FRAMES = 1024
+            var frames: i32
+            var input: [f32; MAX_FRAMES]
+            var output: [f32; MAX_FRAMES]
+            assume frames >= 0 && frames <= MAX_FRAMES
+        "#;
+        let code = r#"
+            process {
+                for i in 0 .. frames {
+                    output[i] = input[i]
+                }
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "safety checker should pass with global assume");
+    }
+
+    #[test]
+    fn top_level_assume_rejects_without_assume() {
+        // Same code without the assume — safety checker should fail.
+        let prelude = r#"
+            const MAX_FRAMES = 1024
+            var frames: i32
+            var input: [f32; MAX_FRAMES]
+            var output: [f32; MAX_FRAMES]
+        "#;
+        let code = r#"
+            process {
+                for i in 0 .. frames {
+                    output[i] = input[i]
+                }
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(
+            !compiler.check(),
+            "safety checker should fail without global assume"
+        );
+    }
 }
