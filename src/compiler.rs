@@ -1457,13 +1457,10 @@ mod tests {
     #[test]
     fn global_slices_with_assume() {
         let prelude = r#"
-            const MAX_FRAMES = 1024
             var frames: i32
             var input: [f32]
             var output: [f32]
-            assume frames >= 0 && frames <= MAX_FRAMES
-            assume input.len >= MAX_FRAMES
-            assume output.len >= MAX_FRAMES
+            assume frames >= 0 && frames <= input.len && frames <= output.len
         "#;
         let code = r#"
             process {

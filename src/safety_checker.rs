@@ -92,6 +92,9 @@ pub struct SafetyChecker {
     /// Symbolic length bounds: records that `index < array.len`.
     len_bounds: Vec<LenBound>,
 
+    /// Symbolic length bounds (non-strict): records that `index <= array.len`.
+    leq_len_bounds: Vec<LenBound>,
+
     /// Minimum length bounds: records that `array.len >= N`.
     min_len_bounds: Vec<MinLenBound>,
 
@@ -107,6 +110,7 @@ impl SafetyChecker {
             vars: vec![],
             constraints: vec![],
             len_bounds: vec![],
+            leq_len_bounds: vec![],
             min_len_bounds: vec![],
             var_bounds: vec![],
             errors: vec![],
@@ -194,16 +198,39 @@ impl SafetyChecker {
             }
         }
 
-        // match `N <= array.len` — record min length bound
+        // match `n <= array.len` — record leq length bound and min length bound
         if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
             if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
                 if field_name.as_str() == "len" {
                     if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        // Record n <= array.len for transitive propagation
+                        if let Expr::Id(name) = &decl.arena[*lhs] {
+                            self.leq_len_bounds.push(LenBound {
+                                index: *name,
+                                array: *array_name,
+                            });
+                        }
                         let ival = self.check_expr(*lhs, decl, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
                                 min_len: ival.min,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // match `array.len >= n` — record leq length bound (same as n <= array.len)
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        if let Expr::Id(name) = &decl.arena[*rhs] {
+                            self.leq_len_bounds.push(LenBound {
+                                index: *name,
+                                array: *array_name,
                             });
                         }
                     }
@@ -344,18 +371,32 @@ impl SafetyChecker {
     /// Propagate LenBounds through VarBounds transitively.
     ///
     /// If we know `lo < hi` (VarBound) and `hi < a.len` (LenBound),
-    /// then `lo < a.len`. This is done as a fixpoint so that chains
-    /// of any length are handled and ordering doesn't matter.
+    /// then `lo < a.len`.
+    ///
+    /// Also: if `lo < hi` (VarBound) and `hi <= a.len` (LeqLenBound),
+    /// then `lo < a.len` (since `lo < hi <= a.len` implies `lo < a.len`).
+    ///
+    /// This is done as a fixpoint so that chains of any length are handled.
     fn propagate_len_bounds(&mut self) {
         loop {
             let mut added = false;
             for vb in 0..self.var_bounds.len() {
                 let lo = self.var_bounds[vb].lo;
                 let hi = self.var_bounds[vb].hi;
+                // lo < hi < array.len → lo < array.len
                 for lb in 0..self.len_bounds.len() {
                     let array = self.len_bounds[lb].array;
                     if self.len_bounds[lb].index == hi {
-                        // lo < hi < array.len → lo < array.len
+                        if !self.len_bounds.iter().any(|b| b.index == lo && b.array == array) {
+                            self.len_bounds.push(LenBound { index: lo, array });
+                            added = true;
+                        }
+                    }
+                }
+                // lo < hi <= array.len → lo < array.len
+                for lb in 0..self.leq_len_bounds.len() {
+                    let array = self.leq_len_bounds[lb].array;
+                    if self.leq_len_bounds[lb].index == hi {
                         if !self.len_bounds.iter().any(|b| b.index == lo && b.array == array) {
                             self.len_bounds.push(LenBound { index: lo, array });
                             added = true;
@@ -598,6 +639,7 @@ impl SafetyChecker {
             Expr::While(cond, body) => {
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
+                let saved_leq_len_bounds = self.leq_len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
                 let saved_var_bounds = self.var_bounds.clone();
                 self.match_expr(*cond, decl, decls);
@@ -605,6 +647,7 @@ impl SafetyChecker {
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints;
                 self.len_bounds = saved_len_bounds;
+                self.leq_len_bounds = saved_leq_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
                 self.var_bounds = saved_var_bounds;
 
@@ -797,11 +840,13 @@ impl SafetyChecker {
                 // constraints of outer variables after the loop exits.
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
+                let saved_leq_len_bounds = self.leq_len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
                 let saved_var_bounds = self.var_bounds.clone();
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints.clone();
                 self.len_bounds = saved_len_bounds.clone();
+                self.leq_len_bounds = saved_leq_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
                 self.var_bounds = saved_var_bounds;
 
@@ -1009,6 +1054,7 @@ impl SafetyChecker {
             self.vars.clear();
             self.constraints.clear();
             self.len_bounds.clear();
+            self.leq_len_bounds.clear();
             self.min_len_bounds.clear();
             self.var_bounds.clear();
         }

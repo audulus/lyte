@@ -86,13 +86,10 @@ import Testing
 @Test func globalSliceBinding() throws {
     let compiler = LyteCompiler(entryPoints: ["process"])
     try compiler.addSource("""
-        const MAX = 1024
         var input: [f32]
         var output: [f32]
         var n: i32
-        assume n >= 0 && n <= MAX
-        assume input.len >= MAX
-        assume output.len >= MAX
+        assume n >= 0 && n <= input.len && n <= output.len
     """, filename: "<prelude>")
     let program = try compiler.compile(source: """
         process {
