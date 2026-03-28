@@ -83,6 +83,54 @@ import Testing
     }
 }
 
+@Test func globalSliceBinding() throws {
+    let compiler = LyteCompiler(entryPoints: ["process"])
+    try compiler.addSource("""
+        const MAX = 1024
+        var input: [f32]
+        var output: [f32]
+        var n: i32
+        assume n >= 0 && n <= MAX
+        assume input.len >= MAX
+        assume output.len >= MAX
+    """, filename: "<prelude>")
+    let program = try compiler.compile(source: """
+        process {
+            for i in 0 .. n {
+                output[i] = input[i] * 2.0
+            }
+        }
+    """)
+
+    let inputGlobal = try #require(program.global(named: "input"))
+    let outputGlobal = try #require(program.global(named: "output"))
+    let nGlobal = try #require(program.global(named: "n"))
+
+    #expect(inputGlobal.type == "[f32]")
+    #expect(outputGlobal.type == "[f32]")
+
+    var inputBuf: [Float] = [1.0, 2.0, 3.0, 4.0]
+    var outputBuf: [Float] = [0.0, 0.0, 0.0, 0.0]
+
+    let globals = program.allocGlobals()
+    globals.write(at: nGlobal.offset, value: Int32(4))
+
+    inputBuf.withUnsafeMutableBufferPointer { inPtr in
+        outputBuf.withUnsafeMutableBufferPointer { outPtr in
+            globals.bindSlice(at: inputGlobal.offset, to: UnsafeBufferPointer(inPtr))
+            globals.bindSlice(at: outputGlobal.offset, to: outPtr)
+
+            let process = program.entryPoint(named: "process")!
+            process.call(globals: globals)
+        }
+    }
+
+    #expect(outputBuf[0] == 2.0)
+    #expect(outputBuf[1] == 4.0)
+    #expect(outputBuf[2] == 6.0)
+    #expect(outputBuf[3] == 8.0)
+}
+
 @Test func multiEntryPoints() throws {
     let compiler = LyteCompiler(entryPoints: ["init", "process"])
     let program = try compiler.compile(source: """

@@ -177,6 +177,40 @@ impl SafetyChecker {
             }
         }
 
+        // match `array.len >= N` — record min length bound
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        let ival = self.check_expr(*rhs, decl, decls);
+                        if ival.min != i64::MAX {
+                            self.min_len_bounds.push(MinLenBound {
+                                array: *array_name,
+                                min_len: ival.min,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // match `N <= array.len` — record min length bound
+        if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        let ival = self.check_expr(*lhs, decl, decls);
+                        if ival.min != i64::MAX {
+                            self.min_len_bounds.push(MinLenBound {
+                                array: *array_name,
+                                min_len: ival.min,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // match expressions of the form i < id, where id is another variable
         // with a constraint
         if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {

@@ -88,6 +88,12 @@ bool lyte_entry_point_call(LyteProgram* program, size_t entry_point, uint8_t* gl
 
 // ============ Globals helpers ============
 
+/// Bind an external buffer to a global slice variable.
+/// Writes the data pointer and length into the globals buffer at the given offset.
+/// The offset should come from lyte_program_get_global_offset for a slice-typed global.
+/// The caller must ensure the buffer remains valid for the lifetime of the program execution.
+void lyte_globals_bind_slice(uint8_t* globals, size_t offset, const void* data, int32_t len);
+
 /// Allocate a zeroed globals buffer of the correct size.
 /// Caller must free with lyte_globals_free().
 uint8_t* lyte_globals_alloc(const LyteProgram* program);

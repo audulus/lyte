@@ -1453,4 +1453,54 @@ mod tests {
             "safety checker should fail without global assume"
         );
     }
+
+    #[test]
+    fn global_slices_with_assume() {
+        let prelude = r#"
+            const MAX_FRAMES = 1024
+            var frames: i32
+            var input: [f32]
+            var output: [f32]
+            assume frames >= 0 && frames <= MAX_FRAMES
+            assume input.len >= MAX_FRAMES
+            assume output.len >= MAX_FRAMES
+        "#;
+        let code = r#"
+            process {
+                for i in 0 .. frames {
+                    output[i] = input[i]
+                }
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(
+            compiler.check(),
+            "global slices with assumes should pass safety checker"
+        );
+    }
+
+    #[test]
+    fn global_slices_without_assume_fails() {
+        let prelude = r#"
+            var input: [f32]
+            var output: [f32]
+            var frames: i32
+        "#;
+        let code = r#"
+            process {
+                for i in 0 .. frames {
+                    output[i] = input[i]
+                }
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(
+            !compiler.check(),
+            "global slices without assumes should fail safety checker"
+        );
+    }
 }

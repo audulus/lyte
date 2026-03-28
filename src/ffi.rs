@@ -497,6 +497,25 @@ pub unsafe extern "C" fn lyte_entry_point_call(
     }
 }
 
+/// Bind an external buffer to a global slice variable.
+/// Writes the data pointer and length into the globals buffer at the given offset.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_globals_bind_slice(
+    globals: *mut u8,
+    offset: usize,
+    data: *const u8,
+    len: i32,
+) {
+    if globals.is_null() {
+        return;
+    }
+    // Slice layout: data_ptr (i64, 8 bytes) at offset, len (i32, 4 bytes) at offset+8
+    let ptr_slot = globals.add(offset) as *mut u64;
+    let len_slot = globals.add(offset + 8) as *mut i32;
+    *ptr_slot = data as u64;
+    *len_slot = len;
+}
+
 /// Allocate a zeroed globals buffer of the correct size.
 /// Caller must free with lyte_globals_free().
 #[no_mangle]

@@ -181,6 +181,18 @@ public final class Globals {
     public func write<T>(at offset: Int, value: T) {
         ptr.advanced(by: offset).withMemoryRebound(to: T.self, capacity: 1) { $0.pointee = value }
     }
+
+    /// Bind an external buffer to a global slice variable.
+    /// The buffer must remain valid for the lifetime of program execution.
+    public func bindSlice<T>(at offset: Int, to buffer: UnsafeBufferPointer<T>) {
+        lyte_globals_bind_slice(ptr, offset, buffer.baseAddress, Int32(buffer.count))
+    }
+
+    /// Bind a mutable buffer to a global slice variable.
+    /// The buffer must remain valid for the lifetime of program execution.
+    public func bindSlice<T>(at offset: Int, to buffer: UnsafeMutableBufferPointer<T>) {
+        lyte_globals_bind_slice(ptr, offset, buffer.baseAddress, Int32(buffer.count))
+    }
 }
 
 /// An error from the lyte compiler.
