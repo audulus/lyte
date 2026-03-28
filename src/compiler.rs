@@ -560,11 +560,11 @@ impl Compiler {
 
     /// Returns info about each global variable: (name, offset, size, type_string).
     /// The offset and size are in bytes within the globals buffer.
-    pub fn globals_info(&self) -> Vec<(String, usize, usize, String)> {
+    /// The `base_offset` should be `CANCEL_FLAG_RESERVED` for JIT/LLVM backends
+    /// or `0` for the VM backend.
+    pub fn globals_info_with_offset(&self, base_offset: usize) -> Vec<(String, usize, usize, String)> {
         let mut result = Vec::new();
-        // Mirror the layout used by JIT::declare_globals: user globals start
-        // after the cancel flag reservation.
-        let mut offset: usize = CANCEL_FLAG_RESERVED as usize;
+        let mut offset: usize = base_offset;
         for decl in &self.decls.decls {
             if let Decl::Global { name, ty, .. } = decl {
                 let size = ty.size(&self.decls) as usize;

@@ -134,6 +134,12 @@ public final class Program {
     /// Allocate a zeroed globals buffer.
     public func allocGlobals() -> Globals {
         let size = globalsSize
+        if size == 0 {
+            // No globals — allocate a minimal buffer so callers don't need to handle nil.
+            let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+            ptr.initialize(to: 0)
+            return Globals(ptr: ptr, size: 0)
+        }
         let ptr = lyte_globals_alloc(handle)!
         return Globals(ptr: ptr, size: size)
     }
@@ -169,7 +175,11 @@ public final class Globals {
     }
 
     deinit {
-        lyte_globals_free(ptr, size)
+        if size == 0 {
+            ptr.deallocate()
+        } else {
+            lyte_globals_free(ptr, size)
+        }
     }
 
     /// Read a value from the globals buffer at the given byte offset.

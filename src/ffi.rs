@@ -243,17 +243,18 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             return ptr::null_mut();
         }
 
-        let globals_info: Vec<GlobalInfo> = c
-            .compiler
-            .globals_info()
-            .into_iter()
-            .map(|(name, offset, size, ty)| GlobalInfo {
-                name: CString::new(name).unwrap_or_default(),
-                offset,
-                size,
-                ty: CString::new(ty).unwrap_or_default(),
-            })
-            .collect();
+        let make_globals_info = |base_offset: usize| -> Vec<GlobalInfo> {
+            c.compiler
+                .globals_info_with_offset(base_offset)
+                .into_iter()
+                .map(|(name, offset, size, ty)| GlobalInfo {
+                    name: CString::new(name).unwrap_or_default(),
+                    offset,
+                    size,
+                    ty: CString::new(ty).unwrap_or_default(),
+                })
+                .collect()
+        };
         let entry_point_names = c.compiler.effective_entry_points();
 
         #[cfg(feature = "llvm")]
@@ -261,6 +262,7 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             match c.compiler.compile_program() {
                 Ok(compiled) => {
                     let globals_size = compiled.globals_size();
+                    let globals_info = make_globals_info(crate::cancel::CANCEL_FLAG_RESERVED as usize);
                     let inner = match compiled {
                         crate::compiler::CompiledProgram::Llvm(p) => p,
                         _ => unreachable!(),
@@ -296,6 +298,7 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             match c.compiler.compile_vm() {
                 Ok(vm_program) => {
                     let globals_size = vm_program.globals_size;
+                    let globals_info = make_globals_info(0);
                     let linked = LinkedProgram::from_program(&vm_program);
                     let vm = VM::new();
 
