@@ -356,6 +356,16 @@ pub struct Compiler {
     entry_points: Vec<Name>,
     /// Formatted error messages from the last parse/check operation.
     pub last_errors: Vec<String>,
+    /// Structured parse errors from the last parse operation.
+    pub last_parse_errors: Vec<ParseError>,
+    /// Structured type errors from the last check operation.
+    pub last_type_errors: Vec<TypeError>,
+    /// Structured safety errors from the last check operation.
+    pub last_safety_errors: Vec<SafetyError>,
+    /// When true, suppress all stdout output (for LSP usage).
+    pub quiet: bool,
+    /// When true, continue checking all declarations even after errors (for LSP).
+    pub check_all: bool,
 }
 
 impl Compiler {
@@ -367,6 +377,11 @@ impl Compiler {
             stdlib_trees: 0,
             entry_points: Vec::new(),
             last_errors: Vec::new(),
+            last_parse_errors: Vec::new(),
+            last_type_errors: Vec::new(),
+            last_safety_errors: Vec::new(),
+            quiet: false,
+            check_all: false,
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
@@ -416,13 +431,17 @@ impl Compiler {
         tree.decls = parse_program(&mut lexer, &mut tree.errors);
 
         self.last_errors.clear();
+        self.last_parse_errors.clear();
         for err in &tree.errors {
             let msg = format!(
                 "{}:{}: {}",
                 err.location.file, err.location.line, err.message
             );
-            println!("{}", msg);
+            if !self.quiet {
+                println!("{}", msg);
+            }
             self.last_errors.push(msg);
+            self.last_parse_errors.push(err.clone());
         }
 
         let success = tree.errors.is_empty();
@@ -432,6 +451,8 @@ impl Compiler {
 
     pub fn check(&mut self) -> bool {
         self.last_errors.clear();
+        self.last_type_errors.clear();
+        self.last_safety_errors.clear();
         let mut decls = builtin_decls();
         for tree in &self.ast {
             decls.append(&mut tree.decls.clone());
@@ -444,7 +465,9 @@ impl Compiler {
             if let Decl::Macro(m) = d {
                 if macros.contains_key(&m.name) {
                     let msg = format!("duplicate macro: {}", m.name);
-                    print_error_with_context(m.loc, &msg);
+                    if !self.quiet {
+                        print_error_with_context(m.loc, &msg);
+                    }
                     self.last_errors.push(format_error(m.loc, &msg));
                     has_errors = true;
                 } else {
@@ -484,14 +507,19 @@ impl Compiler {
             let mut checker = Checker::new();
             checker.check_decl(decl, &orig_decls);
 
-            checker.print_errors();
+            if !self.quiet {
+                checker.print_errors();
+            }
             for err in &checker.errors {
                 self.last_errors
                     .push(format_error(err.location, &err.message));
             }
-            if !checker.errors.is_empty() {
+            self.last_type_errors
+                .extend(checker.errors.iter().cloned());
+            if !checker.errors.is_empty() && !self.check_all {
                 return false;
             }
+            has_errors = has_errors || !checker.errors.is_empty();
 
             if let Decl::Func(ref mut fdecl) = decl {
                 fdecl.types = checker.solved_types();
@@ -508,16 +536,25 @@ impl Compiler {
         // Static safety checks (array bounds, division by zero).
         let mut safety_checker = SafetyChecker::new();
         safety_checker.check(&self.decls);
-        safety_checker.print_errors();
+        if !self.quiet {
+            safety_checker.print_errors();
+        }
         for err in &safety_checker.errors {
             self.last_errors
                 .push(format_error(err.location, &err.message));
         }
+        self.last_safety_errors
+            .extend(safety_checker.errors.iter().cloned());
         if !safety_checker.errors.is_empty() {
-            return false;
+            has_errors = true;
         }
 
-        true
+        !has_errors
+    }
+
+    /// Returns a reference to the declaration table (available after check()).
+    pub fn decls(&self) -> &DeclTable {
+        &self.decls
     }
 
     pub fn specialize(&mut self) -> Result<(), String> {

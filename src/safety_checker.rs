@@ -17,6 +17,7 @@ fn expr_constraint_name(id: ExprID, arena: &ExprArena) -> Option<Name> {
     }
 }
 
+#[derive(Clone)]
 pub struct SafetyError {
     pub location: Loc,
     pub message: String,

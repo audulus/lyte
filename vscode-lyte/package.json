@@ -1,10 +1,12 @@
 {
     "name": "lyte-language",
     "displayName": "Lyte",
-    "description": "Syntax highlighting for the Lyte programming language",
-    "version": "0.1.0",
-    "engines": { "vscode": "^1.70.0" },
+    "description": "Language support for the Lyte programming language",
+    "version": "0.2.0",
+    "engines": { "vscode": "^1.75.0" },
     "categories": ["Programming Languages"],
+    "activationEvents": ["onLanguage:lyte"],
+    "main": "./extension.js",
     "contributes": {
         "languages": [{
             "id": "lyte",
@@ -16,6 +18,20 @@
             "language": "lyte",
             "scopeName": "source.lyte",
             "path": "./syntaxes/lyte.tmLanguage.json"
-        }]
+        }],
+        "configuration": {
+            "type": "object",
+            "title": "Lyte",
+            "properties": {
+                "lyte.lspPath": {
+                    "type": "string",
+                    "default": "lyte-lsp",
+                    "description": "Path to the lyte-lsp binary"
+                }
+            }
+        }
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
     }
 }

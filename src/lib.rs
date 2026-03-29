@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
 mod defs;
-use defs::*;
+pub use defs::*;
 mod types;
-use types::*;
+pub use types::*;
 mod expr;
-use expr::*;
+pub use expr::*;
 mod decl;
-use decl::*;
+pub use decl::*;
 
 pub mod lexer;
 use lexer::*;
