@@ -361,6 +361,62 @@ impl SafetyChecker {
             }
         }
 
+        // match `a == b` — treat as both `a <= b` and `a >= b`
+        if let Expr::Binop(Binop::Equal, lhs, rhs) = &decl.arena[expr] {
+            // Constrain lhs from rhs value
+            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
+                let ival = self.check_expr(*rhs, decl, decls);
+                self.add(name, Some(ival.min), Some(ival.max));
+            }
+            // Constrain rhs from lhs value
+            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
+                let ival = self.check_expr(*lhs, decl, decls);
+                self.add(name, Some(ival.min), Some(ival.max));
+            }
+            // array.len == N → min_len_bound
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        let ival = self.check_expr(*rhs, decl, decls);
+                        if ival.min != i64::MAX {
+                            self.min_len_bounds.push(MinLenBound {
+                                array: *array_name,
+                                min_len: ival.min,
+                            });
+                        }
+                        // Also record leq bound: n <= array.len
+                        if let Expr::Id(name) = &decl.arena[*rhs] {
+                            self.leq_len_bounds.push(LenBound {
+                                index: *name,
+                                array: *array_name,
+                            });
+                        }
+                    }
+                }
+            }
+            // N == array.len → min_len_bound
+            if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+                if field_name.as_str() == "len" {
+                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        let ival = self.check_expr(*lhs, decl, decls);
+                        if ival.min != i64::MAX {
+                            self.min_len_bounds.push(MinLenBound {
+                                array: *array_name,
+                                min_len: ival.min,
+                            });
+                        }
+                        // Also record leq bound: n <= array.len
+                        if let Expr::Id(name) = &decl.arena[*lhs] {
+                            self.leq_len_bounds.push(LenBound {
+                                index: *name,
+                                array: *array_name,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         if let Expr::Binop(Binop::And, lhs, rhs) = &decl.arena[expr] {
             self.match_expr(*lhs, decl, decls);
             self.match_expr(*rhs, decl, decls);
