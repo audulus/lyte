@@ -344,6 +344,48 @@ process(bq: Biquad, x: f32) -> (Biquad, f32) {
 }
 ```
 
+## Language Server
+
+Lyte includes an LSP server (`lyte-lsp`) that provides IDE features for any editor that supports the Language Server Protocol.
+
+### Features
+
+- **Diagnostics** — parse errors, type errors, and safety warnings as you type
+- **Hover** — show inferred types for expressions and variables
+- **Go to Definition** — jump to function and struct field definitions
+
+### Building
+
+```bash
+cargo build -p lyte-lsp
+```
+
+The binary is at `target/debug/lyte-lsp` (or `target/release/lyte-lsp` with `--release`).
+
+### VS Code
+
+A VS Code extension is included in `vscode-lyte/`. To install it locally:
+
+```bash
+cd vscode-lyte
+npm install
+code --install-extension .
+```
+
+The extension activates on `.lyte` files and starts the language server automatically. Set `lyte.lspPath` in VS Code settings if the `lyte-lsp` binary isn't on your `PATH`.
+
+### Other Editors
+
+Point your editor's LSP client at the `lyte-lsp` binary. It communicates over stdin/stdout using the standard LSP protocol. For example, in Neovim with `nvim-lspconfig`:
+
+```lua
+vim.lsp.start({
+    name = 'lyte',
+    cmd = { 'lyte-lsp' },
+    filetypes = { 'lyte' },
+})
+```
+
 ## Embedding via Swift Package
 
 Lyte is available as a Swift package for embedding in macOS and iOS apps. Add it to your `Package.swift`:
