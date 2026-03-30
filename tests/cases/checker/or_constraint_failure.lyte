@@ -1,12 +1,9 @@
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/checker/or_constraint_failure.lyte:20:7: no solution for (Foo, Foo) → ?5 is one of []
+// ❌ ../tests/cases/checker/or_constraint_failure.lyte:17:7: no matching operator '+' for argument types (Foo, Foo) -> ?5
 //         a + b
 //           ^
-// ❌ ../tests/cases/checker/or_constraint_failure.lyte:20:7: ambiguous constraint: (Foo, Foo) → ?5 is one of []
-//         a + b
-//           ^
-// ❌ ../tests/cases/checker/or_constraint_failure.lyte:20:7: ambiguous constraint: (Foo, Foo) → ?5 == (Foo, Foo) → ?5
+// ❌ ../tests/cases/checker/or_constraint_failure.lyte:17:7: ambiguous constraint: (Foo, Foo) → ?5 == (Foo, Foo) → ?5
 //         a + b
 //           ^
 struct Foo {

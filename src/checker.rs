@@ -211,7 +211,7 @@ impl Checker {
                     })
                     .collect();
 
-                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], None));
 
                 let r = self.fresh();
 
@@ -293,7 +293,7 @@ impl Checker {
                 }
             }
 
-            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], Some(format!("operator '{}'", format_binop(op)))));
 
             let r = self.fresh();
 
@@ -317,7 +317,7 @@ impl Checker {
                 });
             }
 
-            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], Some(format!("comparison"))));
 
             let b = mk_type(Type::Bool);
 
@@ -360,7 +360,7 @@ impl Checker {
                     },
                     // Alt {ty: mk_type(Type::UInt32), interfaces: vec![]},
                 ];
-                self.add_constraint(Constraint::Or(ty, alts, arena.locs[id]));
+                self.add_constraint(Constraint::Or(ty, alts, arena.locs[id], None));
                 ty
             }
             Expr::UInt(_) => mk_type(Type::UInt32),
@@ -407,7 +407,7 @@ impl Checker {
                     } else {
                         let t = self.fresh();
                         if !alts.is_empty() {
-                            self.add_constraint(Constraint::Or(t, alts, arena.locs[id]));
+                            self.add_constraint(Constraint::Or(t, alts, arena.locs[id], None));
                         }
                         t
                     }
@@ -448,7 +448,7 @@ impl Checker {
                         });
                     }
 
-                    self.add_constraint(Constraint::Or(t, alts, arena.locs[id]));
+                    self.add_constraint(Constraint::Or(t, alts, arena.locs[id], Some(format!("'{}'", name))));
                     t
                 }
             }
@@ -467,7 +467,7 @@ impl Checker {
                     });
                 }
 
-                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id]));
+                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], None));
 
                 self.eq(
                     func(et, *ty),
@@ -571,7 +571,7 @@ impl Checker {
                 });
 
                 self.constraints
-                    .push(Constraint::Or(t, alts, arena.locs[id]));
+                    .push(Constraint::Or(t, alts, arena.locs[id], Some(format!("enum case '.{}'", name))));
 
                 t
             }
@@ -753,7 +753,7 @@ impl Checker {
                     },
                 ];
 
-                self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr]));
+                self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr], Some("array index".into())));
 
                 self.add_constraint(Constraint::ArrayOf(array_t, t, arena.locs[*array_expr]));
                 t

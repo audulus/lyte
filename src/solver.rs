@@ -82,7 +82,8 @@ pub enum Constraint {
     Equal(TypeID, TypeID, Loc, Option<String>),
 
     /// Function overloads, enum leading dot syntax.
-    Or(TypeID, Vec<Alt>, Loc),
+    /// The optional string is a human-readable hint (e.g. "operator `/`").
+    Or(TypeID, Vec<Alt>, Loc, Option<String>),
 
     /// Field access.
     Field(TypeID, Name, TypeID, Loc),
@@ -97,7 +98,7 @@ impl Constraint {
     pub fn solved(&self, inst: &Instance) -> bool {
         match self {
             Constraint::Equal(a, b, _, _) => a.solved_inst(inst) && b.solved_inst(inst),
-            Constraint::Or(t, alts, _) => {
+            Constraint::Or(t, alts, _, _) => {
                 t.solved_inst(inst) && alts.iter().len() == 1 && alts[0].ty.solved_inst(inst)
             }
             Constraint::Field(struct_ty, _, ft, _) => {
@@ -111,7 +112,7 @@ impl Constraint {
     pub fn loc(&self) -> Loc {
         match self {
             Constraint::Equal(_, _, loc, _) => *loc,
-            Constraint::Or(_, _, loc) => *loc,
+            Constraint::Or(_, _, loc, _) => *loc,
             Constraint::Field(_, _, _, loc) => *loc,
             Constraint::ArrayOf(_, _, loc) => *loc,
         }
@@ -123,12 +124,16 @@ impl Constraint {
             Constraint::Equal(a, b, _, _) => {
                 format!("{} == {}", a.subst(inst), b.subst(inst))
             }
-            Constraint::Or(a, alts, _) => {
+            Constraint::Or(a, alts, _, hint) => {
                 let alt_strs: Vec<String> = alts
                     .iter()
                     .map(|t| format!("{}", t.ty.subst(inst)))
                     .collect();
-                format!("{} is one of [{}]", a.subst(inst), alt_strs.join(", "))
+                if let Some(hint) = hint {
+                    format!("{}: {} is one of [{}]", hint, a.subst(inst), alt_strs.join(", "))
+                } else {
+                    format!("{} is one of [{}]", a.subst(inst), alt_strs.join(", "))
+                }
             }
             Constraint::Field(a, name, b, _) => {
                 format!("{}.{} == {}", a.subst(inst), name, b.subst(inst))
@@ -145,7 +150,7 @@ impl Constraint {
             Constraint::Equal(a, b, loc, _) => {
                 println!("Equal({:?}, {:?}, {:?})", a.subst(inst), b.subst(inst), loc)
             }
-            Constraint::Or(a, alts, loc) => println!(
+            Constraint::Or(a, alts, loc, _) => println!(
                 "Or({:?}, {:?}, {:?})",
                 a.subst(inst),
                 (*alts)
@@ -222,7 +227,7 @@ pub fn iterate_solver(
                     });
                 }
             }
-            Constraint::Or(t, alts, loc) => {
+            Constraint::Or(t, alts, loc, hint) => {
                 let alts_clone = alts.clone();
 
                 // Try to narrow it down.
@@ -234,14 +239,39 @@ pub fn iterate_solver(
 
                 // Nothing works!
                 if alts.is_empty() {
-                    let alt_strs: Vec<_> = alts_clone.iter().map(|a| format!("{}", a.ty)).collect();
+                    let resolved = t.subst(instance);
+
+                    // Extract argument types from function type for a clearer message.
+                    let msg = if let Type::Func(domain, range) = &*resolved {
+                        let args = if let Type::Tuple(args) = &**domain {
+                            args.iter()
+                                .map(|a| format!("{}", a))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        } else {
+                            format!("{}", domain)
+                        };
+
+                        if let Some(hint) = hint {
+                            format!("no matching {} for argument types ({}) -> {}", hint, args, range)
+                        } else {
+                            format!("no match for ({}) -> {}", args, range)
+                        }
+                    } else if let Some(hint) = hint {
+                        format!("no match for {}: {}", hint, resolved)
+                    } else {
+                        let alt_strs: Vec<_> =
+                            alts_clone.iter().map(|a| format!("{}", a.ty)).collect();
+                        format!(
+                            "no match for {} (candidates: [{}])",
+                            resolved,
+                            alt_strs.join(", ")
+                        )
+                    };
+
                     errors.push(TypeError {
                         location: *loc,
-                        message: format!(
-                            "no solution for {} is one of [{}]",
-                            t.subst(instance),
-                            alt_strs.join(", ")
-                        ),
+                        message: msg,
                     });
                 }
 
@@ -356,6 +386,12 @@ pub fn solved_constraints(
     errors: &mut Vec<TypeError>,
 ) {
     for c in constraints {
+        // Skip Or constraints with no alternatives — already reported as "no match".
+        if let Constraint::Or(_, alts, _, _) = c {
+            if alts.is_empty() {
+                continue;
+            }
+        }
         if !c.solved(instance) {
             errors.push(TypeError {
                 location: c.loc(),
@@ -468,7 +504,7 @@ mod tests {
             interfaces: vec![],
         };
 
-        let mut constraints = [Constraint::Or(i, vec![i_alt, f_alt], test_loc())];
+        let mut constraints = [Constraint::Or(i, vec![i_alt, f_alt], test_loc(), None)];
 
         let mut instance = Instance::new();
         let mut errors = vec![];

@@ -502,7 +502,7 @@ pub fn copy_expr(
     }
 }
 
-fn format_binop(op: Binop) -> &'static str {
+pub fn format_binop(op: Binop) -> &'static str {
     match op {
         Binop::Assign => "=",
         Binop::Plus => "+",
