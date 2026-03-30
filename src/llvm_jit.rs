@@ -29,17 +29,17 @@ pub use crate::cancel::CANCEL_FLAG_RESERVED;
 
 // External builtins (same implementations as in jit.rs).
 extern "C" fn llvm_lyte_assert(val: i8) {
-    println!("assert({})", val != 0);
+    crate::vm::println_output(&format!("assert({})", val != 0));
     assert!(val != 0, "lyte assertion failed");
 }
 
 extern "C" fn llvm_lyte_print_i32(val: i32) {
-    println!("{}", val);
+    crate::vm::println_output(&format!("{}", val));
 }
 
 extern "C" fn llvm_lyte_putc(val: i32) {
     if let Some(c) = char::from_u32(val as u32) {
-        print!("{}", c);
+        crate::vm::print_output(&format!("{}", c));
     }
 }
 

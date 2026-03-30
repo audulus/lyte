@@ -131,6 +131,14 @@ public final class Program {
         lyte_program_set_cancel_callback(handle, callback, userData)
     }
 
+    /// Set a print callback. When set, all print/println/putc output from
+    /// lyte scripts is routed through this callback instead of stdout.
+    /// Pass nil to restore default stdout behavior.
+    public func setPrintCallback(_ callback: lyte_print_fn?,
+                                  userData: UnsafeMutableRawPointer? = nil) {
+        lyte_program_set_print_callback(handle, callback, userData)
+    }
+
     /// Allocate a zeroed globals buffer.
     public func allocGlobals() -> Globals {
         let size = globalsSize

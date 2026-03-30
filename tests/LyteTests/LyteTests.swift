@@ -128,6 +128,56 @@ import Testing
     #expect(outputBuf[3] == 8.0)
 }
 
+@Test func printCallbackCapturesOutput() throws {
+    let compiler = LyteCompiler(entryPoints: ["main"])
+    let program = try compiler.compile(source: """
+        main {
+            println("hello from lyte")
+        }
+    """)
+
+    final class OutputCapture: @unchecked Sendable {
+        var text = ""
+    }
+    let capture = OutputCapture()
+    let capturePtr = Unmanaged.passRetained(capture).toOpaque()
+
+    program.setPrintCallback({ (textPtr, length, userData) in
+        guard let textPtr = textPtr, let userData = userData else { return }
+        let buf = UnsafeRawBufferPointer(start: textPtr, count: length)
+        let str = String(decoding: buf, as: UTF8.self)
+        let capture = Unmanaged<OutputCapture>.fromOpaque(userData).takeUnretainedValue()
+        capture.text += str
+    }, userData: capturePtr)
+
+    let globals = program.allocGlobals()
+    let main = try #require(program.entryPoint(named: "main"))
+    main.call(globals: globals)
+
+    // Release the retained reference.
+    Unmanaged<OutputCapture>.fromOpaque(capturePtr).release()
+
+    #expect(capture.text.contains("hello from lyte"))
+}
+
+@Test func printCallbackNilRestoresStdout() throws {
+    let compiler = LyteCompiler(entryPoints: ["main"])
+    let program = try compiler.compile(source: """
+        main {
+            println("test output")
+        }
+    """)
+
+    // Set and then clear the callback.
+    program.setPrintCallback({ (_, _, _) in })
+    program.setPrintCallback(nil)
+
+    // Should not crash — output goes to stdout.
+    let globals = program.allocGlobals()
+    let main = try #require(program.entryPoint(named: "main"))
+    main.call(globals: globals)
+}
+
 @Test func multiEntryPoints() throws {
     let compiler = LyteCompiler(entryPoints: ["init", "process"])
     let program = try compiler.compile(source: """

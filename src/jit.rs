@@ -2291,22 +2291,22 @@ fn collect_free_vars_rec(
 }
 
 extern "C" fn lyte_assert(val: i8) {
-    println!("assert({})", val != 0);
+    crate::vm::println_output(&format!("assert({})", val != 0));
     assert!(val != 0);
 }
 
 extern "C" fn lyte_print_i32(val: i32) {
-    println!("{}", val);
+    crate::vm::println_output(&format!("{}", val));
 }
 
 extern "C" fn lyte_putc(val: i32) {
     if let Some(c) = char::from_u32(val as u32) {
-        print!("{}", c);
+        crate::vm::print_output(&format!("{}", c));
     }
 }
 
 extern "C" fn lyte_print_i64(val: i64) {
-    println!("{}", val);
+    crate::vm::println_output(&format!("{}", val));
 }
 
 // Math builtins — f32 unary

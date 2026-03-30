@@ -109,20 +109,20 @@ extern "C" {
 // it survives across these calls automatically.
 
 unsafe extern "C" fn helper_print_i32(val: i64) {
-    println!("{}", val as i32);
+    crate::vm::println_output(&format!("{}", val as i32));
 }
 
 unsafe extern "C" fn helper_print_f32(bits: u32) {
     let v = f32::from_bits(bits);
-    println!("{}", v);
+    crate::vm::println_output(&format!("{}", v));
 }
 
 unsafe extern "C" fn helper_assert(val: u64, ip: u64) -> u64 {
     if val != 0 {
-        println!("assert(true)");
+        crate::vm::println_output("assert(true)");
         0
     } else {
-        println!("assert(false)");
+        crate::vm::println_output("assert(false)");
         eprintln!("Assertion failed at instruction {}", ip);
         1 // signal failure
     }
@@ -130,7 +130,7 @@ unsafe extern "C" fn helper_assert(val: u64, ip: u64) -> u64 {
 
 unsafe extern "C" fn helper_putc(val: u64) {
     if let Some(c) = char::from_u32(val as u32) {
-        print!("{}", c);
+        crate::vm::print_output(&format!("{}", c));
     }
 }
 

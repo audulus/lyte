@@ -6,6 +6,64 @@ pub use crate::opcode::*;
 use std::convert::TryInto;
 use std::fmt;
 
+// ============ Print callback ============
+//
+// Thread-local print callback used by the VM interpreter, ARM64 assembly
+// helpers, and LLVM helpers. When set, print/putc output is routed to the
+// callback instead of stdout.
+
+/// Print callback signature: (text pointer, text length, user data).
+pub type PrintCallbackFn = unsafe extern "C" fn(*const u8, usize, *mut u8);
+
+#[derive(Clone, Copy)]
+struct PrintCallback {
+    func: PrintCallbackFn,
+    user_data: *mut u8,
+}
+
+thread_local! {
+    static PRINT_CALLBACK: std::cell::Cell<Option<PrintCallback>> = const { std::cell::Cell::new(None) };
+}
+
+/// Set the thread-local print callback. Pass `None` to restore default stdout behavior.
+pub fn set_print_callback(
+    callback: Option<PrintCallbackFn>,
+    user_data: *mut u8,
+) {
+    PRINT_CALLBACK.with(|cb| {
+        cb.set(callback.map(|func| PrintCallback { func, user_data }));
+    });
+}
+
+/// Write text through the print callback if set, otherwise to stdout.
+#[inline]
+pub fn print_output(text: &str) {
+    PRINT_CALLBACK.with(|cb| {
+        // Safety: Cell<Option<PrintCallback>> is Copy (PrintCallback contains a fn ptr + raw ptr).
+        // We take a snapshot so the borrow on the Cell is released before calling out.
+        let snapshot = cb.get();
+        if let Some(ref pcb) = snapshot {
+            unsafe { (pcb.func)(text.as_ptr(), text.len(), pcb.user_data) };
+        } else {
+            print!("{}", text);
+        }
+    });
+}
+
+/// Write text + newline through the print callback if set, otherwise to stdout.
+#[inline]
+pub fn println_output(text: &str) {
+    PRINT_CALLBACK.with(|cb| {
+        let snapshot = cb.get();
+        if let Some(ref pcb) = snapshot {
+            let with_newline = format!("{}\n", text);
+            unsafe { (pcb.func)(with_newline.as_ptr(), with_newline.len(), pcb.user_data) };
+        } else {
+            println!("{}", text);
+        }
+    });
+}
+
 // ============ Packed Bytecode Format ============
 //
 // Each instruction is 4 bytes, matching LuaJIT's format:
@@ -1833,14 +1891,14 @@ impl VM {
 
                     // Debugging
                     tags::PRINT_I32 => {
-                        println!("{}", get_i64!(op.a()) as i32);
+                        println_output(&format!("{}", get_i64!(op.a()) as i32));
                     }
                     tags::PRINT_F32 => {
-                        println!("{}", r_f32!(op.a()));
+                        println_output(&format!("{}", r_f32!(op.a())));
                     }
                     tags::ASSERT => {
                         let val = r!(op.a()) != 0;
-                        println!("assert({})", val);
+                        println_output(&format!("assert({})", val));
                         if !val {
                             panic!(
                                 "Assertion failed at {}:{}",
@@ -1851,7 +1909,7 @@ impl VM {
                     }
                     tags::PUTC => {
                         if let Some(c) = char::from_u32(get_i64!(op.a()) as u32) {
-                            print!("{}", c);
+                            print_output(&format!("{}", c));
                         }
                     }
 

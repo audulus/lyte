@@ -4,6 +4,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 
 use crate::compiler::Compiler;
+use crate::vm::PrintCallbackFn;
 #[cfg(not(feature = "llvm"))]
 use crate::vm::{LinkedProgram, VMProgram, VM};
 
@@ -203,6 +204,8 @@ pub struct LyteProgram {
     entry_points: Vec<EntryPointInfo>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
+    print_callback: Option<PrintCallbackFn>,
+    print_userdata: *mut u8,
 }
 
 // On non-LLVM builds: VM backend with function indices.
@@ -216,6 +219,8 @@ pub struct LyteProgram {
     entry_points: Vec<EntryPointInfo>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
+    print_callback: Option<PrintCallbackFn>,
+    print_userdata: *mut u8,
 }
 
 /// Parse, type-check, specialize, and compile all added source into
@@ -282,6 +287,8 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                         entry_points,
                         cancel_callback: None,
                         cancel_userdata: ptr::null_mut(),
+                        print_callback: None,
+                        print_userdata: ptr::null_mut(),
                     });
 
                     Box::into_raw(program)
@@ -318,6 +325,8 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                         entry_points,
                         cancel_callback: None,
                         cancel_userdata: ptr::null_mut(),
+                        print_callback: None,
+                        print_userdata: ptr::null_mut(),
                     });
 
                     Box::into_raw(program)
@@ -446,6 +455,11 @@ pub unsafe extern "C" fn lyte_entry_point_call(
         None => return false,
     };
 
+    // Install print callback for the duration of this call.
+    crate::vm::set_print_callback(program.print_callback, program.print_userdata);
+
+    let result;
+
     #[cfg(feature = "llvm")]
     {
         extern "C" {
@@ -461,9 +475,9 @@ pub unsafe extern "C" fn lyte_entry_point_call(
         if setjmp(jmp_buf_ptr) == 0 {
             let code_fn: Entry = std::mem::transmute(ep.fn_addr);
             code_fn(globals, ptr::null_mut());
-            true
+            result = true;
         } else {
-            false // cancelled
+            result = false; // cancelled
         }
     }
 
@@ -496,8 +510,12 @@ pub unsafe extern "C" fn lyte_entry_point_call(
                 gs,
             );
         }
-        !program.vm.cancelled
+        result = !program.vm.cancelled;
     }
+
+    // Clear print callback.
+    crate::vm::set_print_callback(None, ptr::null_mut());
+    result
 }
 
 /// Bind an external buffer to a global slice variable.
@@ -562,4 +580,20 @@ pub unsafe extern "C" fn lyte_program_set_cancel_callback(
     }
     (*ptr).cancel_callback = callback;
     (*ptr).cancel_userdata = user_data;
+}
+
+/// Set a print callback for this program.
+/// When set, all print/println/putc output from lyte scripts is routed
+/// through this callback instead of stdout. Pass NULL to restore default behavior.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_set_print_callback(
+    ptr: *mut LyteProgram,
+    callback: Option<PrintCallbackFn>,
+    user_data: *mut u8,
+) {
+    if ptr.is_null() {
+        return;
+    }
+    (*ptr).print_callback = callback;
+    (*ptr).print_userdata = user_data;
 }

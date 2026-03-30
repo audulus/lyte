@@ -17,6 +17,10 @@ typedef struct LyteProgram LyteProgram;
 /// Cancel callback type. Return true to cancel execution.
 typedef bool (*lyte_cancel_fn)(void* user_data);
 
+/// Print callback type. Called with the text to display.
+/// text is NOT null-terminated; use length to determine the extent.
+typedef void (*lyte_print_fn)(const char* text, size_t length, void* user_data);
+
 
 // ============ Compiler ============
 
@@ -77,6 +81,11 @@ const char* lyte_program_get_global_type(const LyteProgram* program, size_t inde
 /// Set a cancel callback. Called approximately every 1024 backward jumps.
 /// If it returns true, execution is cancelled. Pass NULL to disable.
 void lyte_program_set_cancel_callback(LyteProgram* program, lyte_cancel_fn callback, void* user_data);
+
+/// Set a print callback. When set, all print/println/putc output from
+/// lyte scripts is routed through this callback instead of stdout.
+/// Pass NULL to restore default stdout behavior.
+void lyte_program_set_print_callback(LyteProgram* program, lyte_print_fn callback, void* user_data);
 
 // ============ Entry point invocation ============
 
