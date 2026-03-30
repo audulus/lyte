@@ -79,3 +79,60 @@ pub fn find_expr_at(
 
     best_id.map(|id| (id, func.arena.locs[id]))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsp_types::Uri;
+
+    fn test_uri(path: &str) -> Uri {
+        format!("file://{}", path).parse().unwrap()
+    }
+
+    fn make_hover_params(uri: &Uri, line: u32, character: u32) -> HoverParams {
+        HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+        }
+    }
+
+    #[test]
+    fn hover_on_variable_shows_type() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/hover.lyte");
+        // `x` is an f32; hovering over it should show its type.
+        state.update_document(uri.clone(), "fn foo() -> f32 {\n  let x = 1.0\n  x\n}".to_string());
+        let params = make_hover_params(&uri, 2, 2); // line 2 (0-indexed), col 2 = `x` return expr
+        let result = handle_hover(&state, &params);
+        assert!(result.is_some(), "expected hover result for variable");
+        if let Some(hover) = result {
+            if let HoverContents::Markup(markup) = hover.contents {
+                assert!(markup.value.contains("f32"), "expected f32 type, got: {}", markup.value);
+            } else {
+                panic!("expected markup content");
+            }
+        }
+    }
+
+    #[test]
+    fn hover_on_empty_returns_none() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/empty.lyte");
+        state.update_document(uri.clone(), "fn foo() -> f32 { 1.0 }".to_string());
+        // Hover at a position way past the code.
+        let params = make_hover_params(&uri, 10, 0);
+        let result = handle_hover(&state, &params);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn hover_no_compiler_returns_none() {
+        let state = AnalysisState::new();
+        let uri = test_uri("/nofile.lyte");
+        let params = make_hover_params(&uri, 0, 0);
+        assert!(handle_hover(&state, &params).is_none());
+    }
+}

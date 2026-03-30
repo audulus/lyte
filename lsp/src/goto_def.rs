@@ -87,3 +87,57 @@ fn loc_to_response(loc: &Loc) -> GotoDefinitionResponse {
     let pos = Position::new(line, col);
     GotoDefinitionResponse::Scalar(Location::new(uri, Range::new(pos, pos)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsp_types::Uri;
+
+    fn test_uri(path: &str) -> Uri {
+        format!("file://{}", path).parse().unwrap()
+    }
+
+    fn make_goto_params(uri: &Uri, line: u32, character: u32) -> GotoDefinitionParams {
+        GotoDefinitionParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    #[test]
+    fn goto_definition_finds_function() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/goto.lyte");
+        let src = "fn bar() -> Float { 1.0 }\nfn foo() -> Float { bar() }";
+        state.update_document(uri.clone(), src.to_string());
+        // Cursor on `bar` in the call `bar()` — line 1, col 20 (0-indexed).
+        let params = make_goto_params(&uri, 1, 20);
+        let result = handle_goto_definition(&state, &params);
+        assert!(result.is_some(), "expected goto definition result for function call");
+        if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
+            // Should point to `bar` definition at line 0.
+            assert_eq!(loc.range.start.line, 0);
+        }
+    }
+
+    #[test]
+    fn goto_definition_no_compiler_returns_none() {
+        let state = AnalysisState::new();
+        let uri = test_uri("/nofile.lyte");
+        let params = make_goto_params(&uri, 0, 0);
+        assert!(handle_goto_definition(&state, &params).is_none());
+    }
+
+    #[test]
+    fn goto_definition_unknown_position_returns_none() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/goto2.lyte");
+        state.update_document(uri.clone(), "fn foo() -> Float { 1.0 }".to_string());
+        let params = make_goto_params(&uri, 50, 0);
+        assert!(handle_goto_definition(&state, &params).is_none());
+    }
+}

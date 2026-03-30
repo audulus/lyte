@@ -56,3 +56,71 @@ fn make_diagnostic(loc: &Loc, message: &str, severity: DiagnosticSeverity) -> Di
         ..Default::default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_uri(path: &str) -> Uri {
+        format!("file://{}", path).parse().unwrap()
+    }
+
+    #[test]
+    fn no_diagnostics_for_valid_code() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/test.lyte");
+        state.update_document(uri.clone(), "fn foo() -> f32 { 1.0 }".to_string());
+        let diags = collect_diagnostics(&state);
+        let file_diags = diags.get(&uri).cloned().unwrap_or_default();
+        assert!(file_diags.is_empty(), "expected no diagnostics, got: {:?}", file_diags);
+    }
+
+    #[test]
+    fn parse_error_produces_diagnostic() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/bad.lyte");
+        state.update_document(uri.clone(), "fn foo( {".to_string());
+        let diags = collect_diagnostics(&state);
+        let file_diags = diags.get(&uri).cloned().unwrap_or_default();
+        assert!(!file_diags.is_empty(), "expected parse error diagnostic");
+        assert_eq!(file_diags[0].severity, Some(DiagnosticSeverity::ERROR));
+        assert_eq!(file_diags[0].source, Some("lyte".to_string()));
+    }
+
+    #[test]
+    fn type_error_produces_diagnostic() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/type_err.lyte");
+        // Assign a string to a float - should cause a type error.
+        state.update_document(uri.clone(), "fn foo() -> Float { \"hello\" }".to_string());
+        let diags = collect_diagnostics(&state);
+        let file_diags = diags.get(&uri).cloned().unwrap_or_default();
+        assert!(!file_diags.is_empty(), "expected type error diagnostic");
+        assert_eq!(file_diags[0].severity, Some(DiagnosticSeverity::ERROR));
+    }
+
+    #[test]
+    fn diagnostics_empty_after_document_removed() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/bad2.lyte");
+        state.update_document(uri.clone(), "fn foo( {".to_string());
+        assert!(!collect_diagnostics(&state).get(&uri).cloned().unwrap_or_default().is_empty());
+        state.remove_document(&uri);
+        let diags = collect_diagnostics(&state);
+        // No documents, no diagnostics.
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn fixing_error_clears_diagnostics() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/fixme.lyte");
+        state.update_document(uri.clone(), "fn foo( {".to_string());
+        assert!(!collect_diagnostics(&state).get(&uri).cloned().unwrap_or_default().is_empty());
+        // Fix the code.
+        state.update_document(uri.clone(), "fn foo() -> f32 { 1.0 }".to_string());
+        let diags = collect_diagnostics(&state);
+        let file_diags = diags.get(&uri).cloned().unwrap_or_default();
+        assert!(file_diags.is_empty(), "expected diagnostics to clear after fix, got: {:?}", file_diags);
+    }
+}

@@ -97,3 +97,82 @@ fn percent_decode(s: &str) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_uri(path: &str) -> Uri {
+        format!("file://{}", path).parse().unwrap()
+    }
+
+    #[test]
+    fn analysis_state_new_has_no_compiler() {
+        let state = AnalysisState::new();
+        assert!(state.compiler().is_none());
+    }
+
+    #[test]
+    fn update_document_triggers_analysis() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/test.lyte");
+        state.update_document(uri, "fn foo() -> Float { 1.0 }".to_string());
+        assert!(state.compiler().is_some());
+    }
+
+    #[test]
+    fn remove_last_document_clears_compiler() {
+        let mut state = AnalysisState::new();
+        let uri = test_uri("/test.lyte");
+        state.update_document(uri.clone(), "fn foo() -> Float { 1.0 }".to_string());
+        assert!(state.compiler().is_some());
+        state.remove_document(&uri);
+        assert!(state.compiler().is_none());
+    }
+
+    #[test]
+    fn document_uris_tracks_open_files() {
+        let mut state = AnalysisState::new();
+        let uri1 = test_uri("/a.lyte");
+        let uri2 = test_uri("/b.lyte");
+        state.update_document(uri1.clone(), "fn a() -> Float { 1.0 }".to_string());
+        state.update_document(uri2.clone(), "fn b() -> Float { 2.0 }".to_string());
+        let uris = state.document_uris();
+        assert_eq!(uris.len(), 2);
+        assert!(uris.contains(&uri1));
+        assert!(uris.contains(&uri2));
+    }
+
+    #[test]
+    fn uri_to_path_strips_file_scheme() {
+        assert_eq!(uri_to_path(&test_uri("/foo/bar.lyte")), "/foo/bar.lyte");
+    }
+
+    #[test]
+    fn uri_to_path_decodes_percent_encoding() {
+        let uri: Uri = "file:///my%20folder/test.lyte".parse().unwrap();
+        assert_eq!(uri_to_path(&uri), "/my folder/test.lyte");
+    }
+
+    #[test]
+    fn path_to_uri_roundtrip() {
+        let path = "/foo/bar.lyte";
+        let uri = path_to_uri(path);
+        assert_eq!(uri_to_path(&uri), path);
+    }
+
+    #[test]
+    fn percent_decode_no_encoding() {
+        assert_eq!(percent_decode("/simple/path"), "/simple/path");
+    }
+
+    #[test]
+    fn percent_decode_space() {
+        assert_eq!(percent_decode("/my%20path"), "/my path");
+    }
+
+    #[test]
+    fn percent_decode_multiple() {
+        assert_eq!(percent_decode("%41%42%43"), "ABC");
+    }
+}
