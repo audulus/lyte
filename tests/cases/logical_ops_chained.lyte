@@ -1,0 +1,44 @@
+// Regression test: chained && with mixed bool vars and comparisons
+// must not cause LLVM validation error (i8 vs i1 type mismatch).
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    var a = true
+    var b = true
+    var x = 3
+    var y = 10
+
+    // chained &&: bool var && bool var && comparison
+    assert(a && b && x < y)
+
+    // chained ||: bool var || bool var || comparison
+    assert(a || b || x > y)
+
+    // mixed && and || with comparisons
+    var c = false
+    assert(a && !c)
+    assert(!c && a && x < y)
+
+    // if-else with chained && condition (original bug report pattern)
+    var have_cur = true
+    var have_next = true
+    var phase = 3
+    var fade_len = 10
+    var result = 0
+    if have_cur && have_next && phase < fade_len {
+        result = 1
+    } else if have_next && !have_cur {
+        result = 2
+    }
+    assert(result == 1)
+
+    // chained || with comparisons
+    assert(c || c || x < y)
+}

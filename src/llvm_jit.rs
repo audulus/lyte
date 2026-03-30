@@ -2322,14 +2322,26 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::And => {
-                let lhs = self.translate_expr(lhs_id, decl).into_int_value();
-                let rhs = self.translate_expr(rhs_id, decl).into_int_value();
-                self.builder().build_and(lhs, rhs, "and").unwrap().into()
+                let lhs_raw = self.translate_expr(lhs_id, decl).into_int_value();
+                let lhs = self.to_i1(lhs_raw);
+                let rhs_raw = self.translate_expr(rhs_id, decl).into_int_value();
+                let rhs = self.to_i1(rhs_raw);
+                let result = self.builder().build_and(lhs, rhs, "and").unwrap();
+                self.builder()
+                    .build_int_z_extend(result, self.ctx().i8_type(), "and_zext")
+                    .unwrap()
+                    .into()
             }
             Binop::Or => {
-                let lhs = self.translate_expr(lhs_id, decl).into_int_value();
-                let rhs = self.translate_expr(rhs_id, decl).into_int_value();
-                self.builder().build_or(lhs, rhs, "or").unwrap().into()
+                let lhs_raw = self.translate_expr(lhs_id, decl).into_int_value();
+                let lhs = self.to_i1(lhs_raw);
+                let rhs_raw = self.translate_expr(rhs_id, decl).into_int_value();
+                let rhs = self.to_i1(rhs_raw);
+                let result = self.builder().build_or(lhs, rhs, "or").unwrap();
+                self.builder()
+                    .build_int_z_extend(result, self.ctx().i8_type(), "or_zext")
+                    .unwrap()
+                    .into()
             }
             Binop::Pow => {
                 // pow is handled as a call — should have been rewritten.
