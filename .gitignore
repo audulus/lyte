@@ -28,3 +28,6 @@ benchmark/biquad_c_o3
 benchmark/biquad_c_o2
 
 vscode-lyte/node_modules/
+
+# Local cargo config (may override target-dir for spaces-in-path workaround)
+.cargo/config.toml
