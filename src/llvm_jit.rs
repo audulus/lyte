@@ -2556,15 +2556,29 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 // Extern function: load {fn_ptr, context} from globals buffer.
                 let callee_name = if let Expr::Id(n) = &decl.arena[fn_id] { *n } else { unreachable!() };
                 let globals_offset = *self.state.globals.get(&callee_name).expect("extern fn not in globals");
-                let fn_ptr_addr = self.ptr_at_offset(self.globals_base, globals_offset as i64);
+                let fn_ptr_addr = self.ptr_at_offset(self.globals_base, globals_offset as u64);
                 let fn_ptr = self.builder().build_load(self.ptr_ty(), fn_ptr_addr, "extern_fn_ptr").unwrap().into_pointer_value();
-                let ctx_addr = self.ptr_at_offset(self.globals_base, globals_offset as i64 + 8);
+                let ctx_addr = self.ptr_at_offset(self.globals_base, globals_offset as u64 + 8);
                 let context = self.builder().build_load(self.ptr_ty(), ctx_addr, "extern_ctx").unwrap().into_pointer_value();
 
-                // Build function type: (context: ptr, params...) -> ret
-                let raw_fn_ty = self.build_raw_fn_type(from, to);
-                let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = vec![self.ptr_ty().into()];
-                param_tys.extend(raw_fn_ty.get_param_types().iter().map(|t| BasicMetadataTypeEnum::from(*t)));
+                // Build function type with slices expanded to (ptr, i32).
+                let callee_decl = {
+                    let decls_found = self.decls.find(callee_name);
+                    match decls_found.first() {
+                        Some(crate::Decl::Func(f)) => f.clone(),
+                        _ => unreachable!(),
+                    }
+                };
+                let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = vec![self.ptr_ty().into()]; // context
+                for param in &callee_decl.params {
+                    let pty = param.ty.unwrap();
+                    if matches!(&*pty, crate::Type::Slice(_)) {
+                        param_tys.push(self.ptr_ty().into()); // data ptr
+                        param_tys.push(self.i32_ty().into()); // len
+                    } else {
+                        param_tys.push(pty.llvm_basic_type(self.ctx()).into());
+                    }
+                }
                 let extern_fn_ty = if *to == crate::Type::Void || returns_via_pointer(to) {
                     self.ctx().void_type().fn_type(&param_tys, false)
                 } else {
@@ -2572,11 +2586,19 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 };
 
                 let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![context.into()];
-                if let Some(slot) = output_slot {
-                    args.push(slot.into());
-                }
-                for arg_id in arg_ids {
-                    args.push(self.translate_expr(*arg_id, decl).into());
+                for (i, arg_id) in arg_ids.iter().enumerate() {
+                    let arg_val = self.translate_expr(*arg_id, decl);
+                    let param_ty = callee_decl.params[i].ty.unwrap();
+                    if matches!(&*param_ty, crate::Type::Slice(_)) {
+                        // Slice: arg_val is a pointer to {data_ptr: ptr, len: i32}.
+                        let data_ptr = self.builder().build_load(self.ptr_ty(), arg_val.into_pointer_value(), "slice_data").unwrap();
+                        let len_addr = self.ptr_at_offset(arg_val.into_pointer_value(), 8);
+                        let len = self.builder().build_load(self.i32_ty(), len_addr, "slice_len").unwrap();
+                        args.push(data_ptr.into());
+                        args.push(len.into());
+                    } else {
+                        args.push(arg_val.into());
+                    }
                 }
                 let call = self.builder().build_indirect_call(extern_fn_ty, fn_ptr, &args, "extern_call").unwrap();
                 if let Some(slot) = output_slot {

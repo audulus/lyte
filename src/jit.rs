@@ -795,20 +795,49 @@ impl<'a> FunctionTranslator<'a> {
                     } else if is_extern_fn {
                         // Extern function: indirect call through {fn_ptr, context} in globals.
                         let callee_name = if let Expr::Id(n) = &decl.arena[*fn_id] { *n } else { unreachable!() };
+                        let callee_decl = {
+                            let decls_found = decls.find(callee_name);
+                            match decls_found.first() {
+                                Some(crate::Decl::Func(f)) => f.clone(),
+                                _ => unreachable!(),
+                            }
+                        };
                         let globals_offset = *self.globals.get(&callee_name).expect("extern fn not in globals");
                         let base = self.globals_base.expect("globals_base not set");
                         let fn_ptr = self.builder.ins().load(I64, MemFlags::new(), base, globals_offset);
                         let context = self.builder.ins().load(I64, MemFlags::new(), base, globals_offset + 8);
 
-                        // Build signature: (context: *mut u8, params...) -> ret
-                        let mut sig = fn_sig(&self.module, from, to);
-                        sig.params.insert(0, AbiParam::new(I64)); // context
-                        let mut args = vec![context];
-                        if let Some(addr) = output_slot {
-                            args.push(addr);
+                        // Build signature with slices expanded to (ptr, i32).
+                        use cranelift_codegen::ir::types::{I32, I64};
+                        let mut sig = self.module.make_signature();
+                        sig.params.push(AbiParam::new(I64)); // context
+                        for param in &callee_decl.params {
+                            let pty = param.ty.unwrap();
+                            if matches!(&*pty, crate::Type::Slice(_)) {
+                                sig.params.push(AbiParam::new(I64)); // data ptr
+                                sig.params.push(AbiParam::new(I32)); // len
+                            } else {
+                                sig.params.push(AbiParam::new(pty.cranelift_type()));
+                            }
                         }
-                        for arg_id in arg_ids {
-                            args.push(self.translate_expr(*arg_id, decl, decls));
+                        if !matches!(&*callee_decl.ret, crate::Type::Void) {
+                            sig.returns.push(AbiParam::new(callee_decl.ret.cranelift_type()));
+                        }
+                        sig.call_conv = cranelift_codegen::isa::CallConv::SystemV;
+
+                        let mut args = vec![context];
+                        for (i, arg_id) in arg_ids.iter().enumerate() {
+                            let arg_val = self.translate_expr(*arg_id, decl, decls);
+                            let param_ty = callee_decl.params[i].ty.unwrap();
+                            if matches!(&*param_ty, crate::Type::Slice(_)) {
+                                // Slice: arg_val is a pointer to {data_ptr: i64, len: i32}.
+                                let data_ptr = self.builder.ins().load(I64, MemFlags::new(), arg_val, 0);
+                                let len = self.builder.ins().load(I32, MemFlags::new(), arg_val, 8);
+                                args.push(data_ptr);
+                                args.push(len);
+                            } else {
+                                args.push(arg_val);
+                            }
                         }
                         let sref = self.builder.import_signature(sig);
                         self.builder.ins().call_indirect(sref, fn_ptr, &args)

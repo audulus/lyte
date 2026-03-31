@@ -50,6 +50,9 @@
 .set CTX_FN_ASSERT,       160
 .set CTX_FN_PUTC,         168
 .set CTX_FN_GROW_LOCALS,  176
+.set CTX_EXTERN_FUNCS_PTR, 184
+.set CTX_EXTERN_FUNCS_LEN, 192
+.set CTX_FN_CALL_EXTERN,  200
 
 // AsmCallFrame: 24 bytes each
 .set FRAME_SIZE,          24
@@ -703,6 +706,31 @@ Lop_slice_store32:
     ldr     x4, [x20, x2, lsl #3]      // index
     ldr     x5, [x20, x0, lsl #3]      // src value
     str     w5, [x3, x4, lsl #2]       // store as i32 at data_ptr[index*4]
+    next
+
+// =============================================================================
+// 160: CALL_EXTERN — ABC+data: A=args_start, B=arg_count, data=globals_offset
+// Calls helper_call_extern(ctx, args_start, arg_count, globals_offset).
+// The helper reads fn_ptr+context from globals, dispatches via libffi,
+// and stores the result in register 0.
+// =============================================================================
+Lop_call_extern:
+    extract_a w1                        // args_start -> x1
+    extract_b w2                        // arg_count -> x2
+    // Read data word (globals_offset)
+    ldr     w3, [x19, x21, lsl #2]     // data word at ip
+    add     x21, x21, #1               // ip += 1 (skip data word)
+    // Save ip and locals_base back to context (helper may need them)
+    str     x21, [x24, #CTX_IP]
+    str     x22, [x24, #CTX_LOCALS_BASE]
+    // Call helper: fn_call_extern(ctx, args_start, arg_count, globals_offset)
+    mov     x0, x24                     // ctx
+    ldr     x4, [x24, #CTX_FN_CALL_EXTERN]
+    blr     x4
+    // Result is already in register 0 via the helper.
+    // Reload ip/locals_base in case they changed (they shouldn't, but be safe).
+    ldr     x21, [x24, #CTX_IP]
+    ldr     x22, [x24, #CTX_LOCALS_BASE]
     next
 
 // =============================================================================
@@ -1963,8 +1991,9 @@ Ljump_table:
     .quad Lop_slice_ne          // 157: SLICE_NE
     .quad Lop_slice_load32      // 158: SLICE_LOAD32
     .quad Lop_slice_store32     // 159: SLICE_STORE32
-    // 160-255: invalid
-    .fill 96, 8, 0             // will be Lop_invalid pointers
+    .quad Lop_call_extern       // 160: CALL_EXTERN
+    // 161-255: invalid
+    .fill 95, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

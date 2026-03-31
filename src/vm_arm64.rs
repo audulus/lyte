@@ -66,6 +66,12 @@ pub struct AsmContext {
     pub fn_assert: unsafe extern "C" fn(u64, u64) -> u64, // 160: (val, ip) -> 0=ok, 1=fail
     pub fn_putc: unsafe extern "C" fn(u64),      // 168:
     pub fn_grow_locals: unsafe extern "C" fn(*mut AsmContext, u64), // 176: (ctx, needed)
+
+    // === Extern function support ===
+    pub extern_funcs_ptr: *const crate::vm::ExternFuncInfo, // 184:
+    pub extern_funcs_len: u64,                               // 192:
+    /// Helper: call_extern(ctx, args_start, arg_count, globals_offset) -> result in r0
+    pub fn_call_extern: unsafe extern "C" fn(*mut AsmContext, u64, u64, u64), // 200:
 }
 
 // Verify critical offsets with compile-time assertions
@@ -93,6 +99,9 @@ const _: () = {
     assert!(std::mem::offset_of!(AsmContext, fn_assert) == 160);
     assert!(std::mem::offset_of!(AsmContext, fn_putc) == 168);
     assert!(std::mem::offset_of!(AsmContext, fn_grow_locals) == 176);
+    assert!(std::mem::offset_of!(AsmContext, extern_funcs_ptr) == 184);
+    assert!(std::mem::offset_of!(AsmContext, extern_funcs_len) == 192);
+    assert!(std::mem::offset_of!(AsmContext, fn_call_extern) == 200);
 };
 
 // ============ Assembly entry point ============
@@ -145,6 +154,39 @@ unsafe extern "C" fn helper_grow_locals(ctx: *mut AsmContext, needed: u64) {
         needed,
         (*ctx).locals_cap
     );
+}
+
+/// Helper for CallExtern from assembly. Reads {fn_ptr, context} from globals,
+/// calls the extern function via libffi, and stores the result in register 0.
+unsafe extern "C" fn helper_call_extern(ctx: *mut AsmContext, args_start: u64, arg_count: u64, globals_offset: u64) {
+    let regs = std::slice::from_raw_parts((*ctx).regs, 256);
+    let globals_ptr = (*ctx).globals_ptr;
+
+    // Read fn_ptr and context from globals buffer.
+    let slot = globals_ptr.add(globals_offset as usize) as *const u64;
+    let fn_ptr = *slot as usize;
+    let context = *slot.add(1) as *mut u8;
+
+    if fn_ptr == 0 {
+        panic!("called unbound extern function (globals offset {})", globals_offset);
+    }
+
+    // Find the ExternFuncInfo for this globals_offset.
+    let extern_funcs = std::slice::from_raw_parts((*ctx).extern_funcs_ptr, (*ctx).extern_funcs_len as usize);
+    let info = extern_funcs.iter().find(|e| e.globals_offset == globals_offset as i32)
+        .expect("no ExternFuncInfo for extern call");
+
+    let result = crate::vm::call_extern_fn(
+        fn_ptr,
+        context,
+        regs,
+        args_start as usize,
+        &info.param_types,
+        info.ret_type,
+    );
+
+    // Store result in register 0.
+    *(*ctx).regs = result;
 }
 
 // ============ Maximum call stack depth ============
@@ -200,6 +242,9 @@ impl VM {
             fn_assert: helper_assert,
             fn_putc: helper_putc,
             fn_grow_locals: helper_grow_locals,
+            extern_funcs_ptr: program.extern_funcs.as_ptr(),
+            extern_funcs_len: program.extern_funcs.len() as u64,
+            fn_call_extern: helper_call_extern,
         };
 
         unsafe { vm_arm64_enter(&mut ctx) }
@@ -255,6 +300,9 @@ impl VM {
             fn_assert: helper_assert,
             fn_putc: helper_putc,
             fn_grow_locals: helper_grow_locals,
+            extern_funcs_ptr: program.extern_funcs.as_ptr(),
+            extern_funcs_len: program.extern_funcs.len() as u64,
+            fn_call_extern: helper_call_extern,
         };
 
         vm_arm64_enter(&mut ctx)

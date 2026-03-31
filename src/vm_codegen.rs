@@ -423,13 +423,15 @@ struct FunctionTranslator<'a> {
     extern_funcs: Vec<crate::vm::ExternFuncInfo>,
 }
 
-/// Convert a Lyte type to an ExternType for FFI marshalling.
-fn type_to_extern_type(ty: TypeID) -> crate::vm::ExternType {
+/// Convert a Lyte type to ExternTypes for FFI marshalling.
+/// Slices expand to two arguments: (pointer, i32 length).
+fn type_to_extern_types(ty: TypeID) -> Vec<crate::vm::ExternType> {
     match &*ty {
-        Type::Void => crate::vm::ExternType::Void,
-        Type::Int32 | Type::Bool => crate::vm::ExternType::I32,
-        Type::Float32 => crate::vm::ExternType::F32,
-        Type::Float64 => crate::vm::ExternType::F64,
+        Type::Void => vec![crate::vm::ExternType::Void],
+        Type::Int32 | Type::Bool => vec![crate::vm::ExternType::I32],
+        Type::Float32 => vec![crate::vm::ExternType::F32],
+        Type::Float64 => vec![crate::vm::ExternType::F64],
+        Type::Slice(_) => vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32],
         _ => panic!("unsupported extern function parameter type: {}", ty.pretty_print()),
     }
 }
@@ -2183,14 +2185,16 @@ impl<'a> FunctionTranslator<'a> {
                     if f.is_extern {
                         let globals_offset = *self.globals.get(callee_name).expect("extern function not in globals");
 
-                        // Register the extern function info.
-                        let param_types: Vec<crate::vm::ExternType> = f.params.iter().map(|p| {
-                            type_to_extern_type(p.ty.unwrap())
-                        }).collect();
-                        let ret_type = type_to_extern_type(f.ret);
+                        // Build the C-level parameter types (slices expand to ptr + i32).
+                        let mut c_param_types: Vec<crate::vm::ExternType> = Vec::new();
+                        for p in &f.params {
+                            c_param_types.extend(type_to_extern_types(p.ty.unwrap()));
+                        }
+                        let ret_types = type_to_extern_types(f.ret);
+                        let ret_type = ret_types[0];
                         self.extern_funcs.push(crate::vm::ExternFuncInfo {
                             globals_offset,
-                            param_types,
+                            param_types: c_param_types.clone(),
                             ret_type,
                         });
 
@@ -2200,21 +2204,36 @@ impl<'a> FunctionTranslator<'a> {
                             arg_values.push(self.translate_expr(*arg_id, func));
                         }
 
+                        // Stage arguments into consecutive registers.
+                        // Slices expand: load data_ptr and len from the fat pointer.
                         let args_start = self.next_reg;
-                        for (i, &arg_reg) in arg_values.iter().enumerate() {
-                            let target = args_start + i as Reg;
-                            let _ = self.alloc_reg();
-                            if arg_reg != target {
-                                func.emit(Opcode::Move {
-                                    dst: target,
-                                    src: arg_reg,
-                                });
+                        let mut c_arg_count: u8 = 0;
+                        for (i, param) in f.params.iter().enumerate() {
+                            let arg_reg = arg_values[i];
+                            let param_ty = param.ty.unwrap();
+                            if matches!(&*param_ty, Type::Slice(_)) {
+                                // Slice: arg_reg points to {data_ptr: i64, len: i32}.
+                                // Load data_ptr into one register, len into the next.
+                                let ptr_reg = self.alloc_reg();
+                                func.emit(Opcode::Load64 { dst: ptr_reg, addr: arg_reg });
+                                let len_reg = self.alloc_reg();
+                                func.emit(Opcode::Load32Off { dst: len_reg, base: arg_reg, offset: 8 });
+                                c_arg_count += 2;
+                            } else {
+                                let target = self.alloc_reg();
+                                if arg_reg != target {
+                                    func.emit(Opcode::Move {
+                                        dst: target,
+                                        src: arg_reg,
+                                    });
+                                }
+                                c_arg_count += 1;
                             }
                         }
 
                         func.emit(Opcode::CallExtern {
                             args_start,
-                            arg_count: arg_ids.len() as u8,
+                            arg_count: c_arg_count,
                             globals_offset,
                         });
 

@@ -12,6 +12,9 @@ set -euo pipefail
 export MACOSX_DEPLOYMENT_TARGET="15.0"
 export IPHONEOS_DEPLOYMENT_TARGET="16.0"
 
+# Use a target dir without spaces (autotools/libffi can't handle spaces in paths).
+export CARGO_TARGET_DIR="/tmp/lyte-build"
+
 FRAMEWORK_NAME="CLyte"
 XCFRAMEWORK="$FRAMEWORK_NAME.xcframework"
 HEADER_DIR="Sources/CLyte/include"
@@ -59,28 +62,52 @@ cargo rustc --release --target "$IOS_SIM_TARGET" --crate-type staticlib
 rm -rf "$XCFRAMEWORK" "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# Merge LLVM dependency static libraries (zstd, ffi) into the ARM64 macOS
-# library so the xcframework is fully self-contained.
-echo "Merging static dependencies into ARM64 macOS library..."
+# Helper: find the libffi.a built by libffi-sys for a given target.
+find_libffi() {
+    find "$CARGO_TARGET_DIR/$1/release/build" -path "*/libffi-sys-*/out/libffi-root/lib/libffi.a" 2>/dev/null | head -1
+}
+
+# Merge static dependencies into each target library so the xcframework is self-contained.
+echo "Merging static dependencies..."
+
+# macOS ARM64: merge LLVM deps (zstd, ffi from brew) + Rust-built libffi
 ZSTD_LIB="$(brew --prefix zstd)/lib/libzstd.a"
-FFI_LIB="$(brew --prefix libffi)/lib/libffi.a"
+BREW_FFI_LIB="$(brew --prefix libffi)/lib/libffi.a"
 libtool -static -o "$BUILD_DIR/liblyte-arm64.a" \
-    "target/$MACOS_ARM_TARGET/release/liblyte.a" \
-    "$ZSTD_LIB" "$FFI_LIB"
+    "$CARGO_TARGET_DIR/$MACOS_ARM_TARGET/release/liblyte.a" \
+    "$ZSTD_LIB" "$BREW_FFI_LIB"
+
+# macOS x86_64: merge cross-compiled libffi
+X86_FFI=$(find_libffi "$MACOS_X86_TARGET")
+libtool -static -o "$BUILD_DIR/liblyte-x86_64.a" \
+    "$CARGO_TARGET_DIR/$MACOS_X86_TARGET/release/liblyte.a" \
+    "$X86_FFI"
+
+# iOS: merge cross-compiled libffi
+IOS_FFI=$(find_libffi "$IOS_TARGET")
+libtool -static -o "$BUILD_DIR/liblyte-ios.a" \
+    "$CARGO_TARGET_DIR/$IOS_TARGET/release/liblyte.a" \
+    "$IOS_FFI"
+
+# iOS Simulator: merge cross-compiled libffi
+SIM_FFI=$(find_libffi "$IOS_SIM_TARGET")
+libtool -static -o "$BUILD_DIR/liblyte-ios-sim.a" \
+    "$CARGO_TARGET_DIR/$IOS_SIM_TARGET/release/liblyte.a" \
+    "$SIM_FFI"
 
 echo "Creating macOS universal static library..."
 lipo -create \
     "$BUILD_DIR/liblyte-arm64.a" \
-    "target/$MACOS_X86_TARGET/release/liblyte.a" \
+    "$BUILD_DIR/liblyte-x86_64.a" \
     -output "$BUILD_DIR/liblyte-macos.a"
 
 echo "Creating XCFramework..."
 xcodebuild -create-xcframework \
     -library "$BUILD_DIR/liblyte-macos.a" \
     -headers "$HEADER_DIR" \
-    -library "target/$IOS_TARGET/release/liblyte.a" \
+    -library "$BUILD_DIR/liblyte-ios.a" \
     -headers "$HEADER_DIR" \
-    -library "target/$IOS_SIM_TARGET/release/liblyte.a" \
+    -library "$BUILD_DIR/liblyte-ios-sim.a" \
     -headers "$HEADER_DIR" \
     -output "$XCFRAMEWORK"
 

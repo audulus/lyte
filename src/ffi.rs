@@ -527,27 +527,15 @@ pub unsafe extern "C" fn lyte_entry_point_call(
                 .set_cancel_callback(Some(cb), program.cancel_userdata);
         }
         let gs = program.globals_size;
-        // Use the Rust interpreter when extern functions are present
-        // (the ARM64 ASM interpreter doesn't handle CallExtern).
         #[cfg(target_arch = "aarch64")]
         {
-            if program.vm_program.extern_funcs.is_empty() {
-                program.vm.call_with_external_globals_asm(
-                    &program.linked,
-                    &program.vm_program,
-                    func_idx,
-                    globals,
-                    gs,
-                );
-            } else {
-                program.vm.call_with_external_globals(
-                    &program.linked,
-                    &program.vm_program,
-                    func_idx,
-                    globals,
-                    gs,
-                );
-            }
+            program.vm.call_with_external_globals_asm(
+                &program.linked,
+                &program.vm_program,
+                func_idx,
+                globals,
+                gs,
+            );
         }
         #[cfg(not(target_arch = "aarch64"))]
         {

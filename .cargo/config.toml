@@ -1,0 +1,3 @@
+[build]
+# Use a target dir without spaces — libffi's autotools build can't handle them.
+target-dir = "/tmp/lyte-target"

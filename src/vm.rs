@@ -309,14 +309,13 @@ pub(crate) mod tags {
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
-/// Call an extern function pointer with the correct C calling convention.
+/// Call an extern function pointer using libffi for correct C calling conventions.
 ///
-/// Dispatches based on parameter types and argument count. The function
-/// is called as `fn_ptr(context, args...)` where context is a `*mut u8`
-/// and args are the Lyte scalar types (i32, f32, f64).
+/// Supports any number of parameters and any combination of types (i32, f32, f64, ptr).
+/// The function is called as `fn_ptr(context, args...)` where context is a `*mut u8`.
 ///
 /// Returns the result as a u64 (reinterpreted from the actual return type).
-unsafe fn call_extern_fn(
+pub(crate) unsafe fn call_extern_fn(
     fn_ptr: usize,
     context: *mut u8,
     registers: &[u64],
@@ -324,174 +323,73 @@ unsafe fn call_extern_fn(
     param_types: &[ExternType],
     ret_type: ExternType,
 ) -> u64 {
-    // For each combination of (arg_count, param_types, ret_type), we cast fn_ptr
-    // to the correct extern "C" fn type and call it. This ensures the compiler
-    // generates the correct calling convention (int regs for i32, float regs for f32/f64).
-    //
-    // We handle up to 4 parameters. For functions with more parameters,
-    // this can be extended.
-    match param_types.len() {
-        0 => {
-            match ret_type {
-                ExternType::Void => {
-                    let f: unsafe extern "C" fn(*mut u8) = std::mem::transmute(fn_ptr);
-                    f(context);
-                    0
-                }
-                ExternType::I32 => {
-                    let f: unsafe extern "C" fn(*mut u8) -> i32 = std::mem::transmute(fn_ptr);
-                    f(context) as u64
-                }
-                ExternType::F32 => {
-                    let f: unsafe extern "C" fn(*mut u8) -> f32 = std::mem::transmute(fn_ptr);
-                    f(context).to_bits() as u64
-                }
-                ExternType::F64 => {
-                    let f: unsafe extern "C" fn(*mut u8) -> f64 = std::mem::transmute(fn_ptr);
-                    f(context).to_bits()
-                }
-            }
-        }
-        1 => call_extern_1(fn_ptr, context, registers, args_start, &param_types[0], ret_type),
-        2 => call_extern_2(fn_ptr, context, registers, args_start, &param_types[0], &param_types[1], ret_type),
-        3 => call_extern_3(fn_ptr, context, registers, args_start, param_types, ret_type),
-        4 => call_extern_4(fn_ptr, context, registers, args_start, param_types, ret_type),
-        n => panic!("extern functions with {} parameters not yet supported (max 4)", n),
+    use libffi::middle::{Cif, Type, arg, CodePtr};
+
+    // Build the libffi type list: context pointer + declared params.
+    let mut ffi_arg_types = Vec::with_capacity(param_types.len() + 1);
+    ffi_arg_types.push(Type::pointer()); // context
+    for pt in param_types {
+        ffi_arg_types.push(extern_type_to_ffi(*pt));
     }
-}
 
-unsafe fn call_extern_1(fn_ptr: usize, ctx: *mut u8, regs: &[u64], a: usize, p0: &ExternType, ret: ExternType) -> u64 {
-    match (p0, ret) {
-        (ExternType::I32, ExternType::Void) => { let f: unsafe extern "C" fn(*mut u8, i32) = std::mem::transmute(fn_ptr); f(ctx, regs[a] as i32); 0 }
-        (ExternType::I32, ExternType::I32) => { let f: unsafe extern "C" fn(*mut u8, i32) -> i32 = std::mem::transmute(fn_ptr); f(ctx, regs[a] as i32) as u64 }
-        (ExternType::I32, ExternType::F32) => { let f: unsafe extern "C" fn(*mut u8, i32) -> f32 = std::mem::transmute(fn_ptr); f(ctx, regs[a] as i32).to_bits() as u64 }
-        (ExternType::I32, ExternType::F64) => { let f: unsafe extern "C" fn(*mut u8, i32) -> f64 = std::mem::transmute(fn_ptr); f(ctx, regs[a] as i32).to_bits() }
-        (ExternType::F32, ExternType::Void) => { let f: unsafe extern "C" fn(*mut u8, f32) = std::mem::transmute(fn_ptr); f(ctx, f32::from_bits(regs[a] as u32)); 0 }
-        (ExternType::F32, ExternType::I32) => { let f: unsafe extern "C" fn(*mut u8, f32) -> i32 = std::mem::transmute(fn_ptr); f(ctx, f32::from_bits(regs[a] as u32)) as u64 }
-        (ExternType::F32, ExternType::F32) => { let f: unsafe extern "C" fn(*mut u8, f32) -> f32 = std::mem::transmute(fn_ptr); f(ctx, f32::from_bits(regs[a] as u32)).to_bits() as u64 }
-        (ExternType::F32, ExternType::F64) => { let f: unsafe extern "C" fn(*mut u8, f32) -> f64 = std::mem::transmute(fn_ptr); f(ctx, f32::from_bits(regs[a] as u32)).to_bits() }
-        (ExternType::F64, ExternType::Void) => { let f: unsafe extern "C" fn(*mut u8, f64) = std::mem::transmute(fn_ptr); f(ctx, f64::from_bits(regs[a])); 0 }
-        (ExternType::F64, ExternType::I32) => { let f: unsafe extern "C" fn(*mut u8, f64) -> i32 = std::mem::transmute(fn_ptr); f(ctx, f64::from_bits(regs[a])) as u64 }
-        (ExternType::F64, ExternType::F32) => { let f: unsafe extern "C" fn(*mut u8, f64) -> f32 = std::mem::transmute(fn_ptr); f(ctx, f64::from_bits(regs[a])).to_bits() as u64 }
-        (ExternType::F64, ExternType::F64) => { let f: unsafe extern "C" fn(*mut u8, f64) -> f64 = std::mem::transmute(fn_ptr); f(ctx, f64::from_bits(regs[a])).to_bits() }
-        _ => panic!("unsupported extern parameter type"),
-    }
-}
+    let ffi_ret_type = extern_type_to_ffi(ret_type);
+    let cif = Cif::new(ffi_arg_types, ffi_ret_type);
+    let code = CodePtr(fn_ptr as *mut _);
 
-unsafe fn call_extern_2(fn_ptr: usize, ctx: *mut u8, regs: &[u64], a: usize, p0: &ExternType, p1: &ExternType, ret: ExternType) -> u64 {
-    // Extract args based on type.
-    macro_rules! a0_i32 { () => { regs[a] as i32 }; }
-    macro_rules! a0_f32 { () => { f32::from_bits(regs[a] as u32) }; }
-    macro_rules! a0_f64 { () => { f64::from_bits(regs[a]) }; }
-    macro_rules! a1_i32 { () => { regs[a+1] as i32 }; }
-    macro_rules! a1_f32 { () => { f32::from_bits(regs[a+1] as u32) }; }
-    macro_rules! a1_f64 { () => { f64::from_bits(regs[a+1]) }; }
+    // Build the argument values. Each must be a reference to the correctly-typed value.
+    // We store the typed values on the stack so the references remain valid.
+    let mut i32_vals: Vec<i32> = Vec::new();
+    let mut f32_vals: Vec<f32> = Vec::new();
+    let mut f64_vals: Vec<f64> = Vec::new();
+    let mut ptr_vals: Vec<*mut u8> = Vec::new();
 
-    macro_rules! call2 {
-        ($a0_ty:ty, $a0:expr, $a1_ty:ty, $a1:expr) => {
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, $a0_ty, $a1_ty) = std::mem::transmute(fn_ptr); f(ctx, $a0, $a1); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, $a0_ty, $a1_ty) -> i32 = std::mem::transmute(fn_ptr); f(ctx, $a0, $a1) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, $a0_ty, $a1_ty) -> f32 = std::mem::transmute(fn_ptr); f(ctx, $a0, $a1).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, $a0_ty, $a1_ty) -> f64 = std::mem::transmute(fn_ptr); f(ctx, $a0, $a1).to_bits() }
-            }
+    // Pre-allocate typed values from registers so we can take references.
+    for (i, pt) in param_types.iter().enumerate() {
+        match pt {
+            ExternType::I32 => i32_vals.push(registers[args_start + i] as i32),
+            ExternType::F32 => f32_vals.push(f32::from_bits(registers[args_start + i] as u32)),
+            ExternType::F64 => f64_vals.push(f64::from_bits(registers[args_start + i])),
+            ExternType::Ptr => ptr_vals.push(registers[args_start + i] as *mut u8),
+            ExternType::Void => {}
         }
     }
 
-    match (p0, p1) {
-        (ExternType::I32, ExternType::I32) => call2!(i32, a0_i32!(), i32, a1_i32!()),
-        (ExternType::I32, ExternType::F32) => call2!(i32, a0_i32!(), f32, a1_f32!()),
-        (ExternType::I32, ExternType::F64) => call2!(i32, a0_i32!(), f64, a1_f64!()),
-        (ExternType::F32, ExternType::I32) => call2!(f32, a0_f32!(), i32, a1_i32!()),
-        (ExternType::F32, ExternType::F32) => call2!(f32, a0_f32!(), f32, a1_f32!()),
-        (ExternType::F32, ExternType::F64) => call2!(f32, a0_f32!(), f64, a1_f64!()),
-        (ExternType::F64, ExternType::I32) => call2!(f64, a0_f64!(), i32, a1_i32!()),
-        (ExternType::F64, ExternType::F32) => call2!(f64, a0_f64!(), f32, a1_f32!()),
-        (ExternType::F64, ExternType::F64) => call2!(f64, a0_f64!(), f64, a1_f64!()),
-        _ => panic!("unsupported extern parameter type"),
+    // Build the Arg references. We track indices into the typed value vectors.
+    let mut ffi_args = Vec::with_capacity(param_types.len() + 1);
+    ffi_args.push(arg(&context));
+    let mut i32_idx = 0;
+    let mut f32_idx = 0;
+    let mut f64_idx = 0;
+    let mut ptr_idx = 0;
+    for pt in param_types {
+        match pt {
+            ExternType::I32 => { ffi_args.push(arg(&i32_vals[i32_idx])); i32_idx += 1; }
+            ExternType::F32 => { ffi_args.push(arg(&f32_vals[f32_idx])); f32_idx += 1; }
+            ExternType::F64 => { ffi_args.push(arg(&f64_vals[f64_idx])); f64_idx += 1; }
+            ExternType::Ptr => { ffi_args.push(arg(&ptr_vals[ptr_idx])); ptr_idx += 1; }
+            ExternType::Void => {}
+        }
+    }
+
+    // Call and convert result to u64.
+    match ret_type {
+        ExternType::Void => { cif.call::<()>(code, &ffi_args); 0 }
+        ExternType::I32 => cif.call::<i32>(code, &ffi_args) as u64,
+        ExternType::F32 => cif.call::<f32>(code, &ffi_args).to_bits() as u64,
+        ExternType::F64 => cif.call::<f64>(code, &ffi_args).to_bits(),
+        ExternType::Ptr => cif.call::<*mut u8>(code, &ffi_args) as u64,
     }
 }
 
-/// Generic extern call for 3-4 args using an intermediate buffer.
-/// All args are passed as i64 with type info, and we dispatch through
-/// a uniform calling convention.
-unsafe fn call_extern_3(fn_ptr: usize, ctx: *mut u8, regs: &[u64], a: usize, pts: &[ExternType], ret: ExternType) -> u64 {
-    // For 3+ args, we use a simplified approach: all integer-typed args.
-    // This is a reasonable starting point since most multi-arg extern functions
-    // use uniform parameter types.
-    let args: Vec<u64> = (0..3).map(|i| regs[a + i]).collect();
-    call_extern_variadic(fn_ptr, ctx, &args, pts, ret)
-}
-
-unsafe fn call_extern_4(fn_ptr: usize, ctx: *mut u8, regs: &[u64], a: usize, pts: &[ExternType], ret: ExternType) -> u64 {
-    let args: Vec<u64> = (0..4).map(|i| regs[a + i]).collect();
-    call_extern_variadic(fn_ptr, ctx, &args, pts, ret)
-}
-
-/// Variadic extern call for 3-4 uniform-type arguments.
-unsafe fn call_extern_variadic(fn_ptr: usize, ctx: *mut u8, args: &[u64], pts: &[ExternType], ret: ExternType) -> u64 {
-    // Check if all params are the same type (common case).
-    let all_same = pts.iter().all(|p| *p == pts[0]);
-    if !all_same {
-        panic!("extern functions with mixed parameter types and >2 args not yet supported");
-    }
-
-    match (pts[0], args.len()) {
-        (ExternType::I32, 3) => {
-            let (a0, a1, a2) = (args[0] as i32, args[1] as i32, args[2] as i32);
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32) = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32) -> i32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32) -> f32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32) -> f64 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2).to_bits() }
-            }
-        }
-        (ExternType::F32, 3) => {
-            let (a0, a1, a2) = (f32::from_bits(args[0] as u32), f32::from_bits(args[1] as u32), f32::from_bits(args[2] as u32));
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32) = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32) -> i32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32) -> f32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32) -> f64 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2).to_bits() }
-            }
-        }
-        (ExternType::F64, 3) => {
-            let (a0, a1, a2) = (f64::from_bits(args[0]), f64::from_bits(args[1]), f64::from_bits(args[2]));
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64) = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64) -> i32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64) -> f32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2).to_bits() }
-            }
-        }
-        (ExternType::I32, 4) => {
-            let (a0, a1, a2, a3) = (args[0] as i32, args[1] as i32, args[2] as i32, args[3] as i32);
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32, i32) = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32, i32) -> i32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32, i32) -> f32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, i32, i32, i32, i32) -> f64 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3).to_bits() }
-            }
-        }
-        (ExternType::F32, 4) => {
-            let (a0, a1, a2, a3) = (f32::from_bits(args[0] as u32), f32::from_bits(args[1] as u32), f32::from_bits(args[2] as u32), f32::from_bits(args[3] as u32));
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32, f32) = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32, f32) -> i32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32, f32) -> f32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, f32, f32, f32, f32) -> f64 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3).to_bits() }
-            }
-        }
-        (ExternType::F64, 4) => {
-            let (a0, a1, a2, a3) = (f64::from_bits(args[0]), f64::from_bits(args[1]), f64::from_bits(args[2]), f64::from_bits(args[3]));
-            match ret {
-                ExternType::Void => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64, f64) = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3); 0 }
-                ExternType::I32 => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64, f64) -> i32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3) as u64 }
-                ExternType::F32 => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64, f64) -> f32 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3).to_bits() as u64 }
-                ExternType::F64 => { let f: unsafe extern "C" fn(*mut u8, f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr); f(ctx, a0, a1, a2, a3).to_bits() }
-            }
-        }
-        _ => panic!("unsupported extern function signature"),
+/// Convert an ExternType to a libffi Type.
+fn extern_type_to_ffi(t: ExternType) -> libffi::middle::Type {
+    use libffi::middle::Type;
+    match t {
+        ExternType::Void => Type::void(),
+        ExternType::I32 => Type::i32(),
+        ExternType::F32 => Type::f32(),
+        ExternType::F64 => Type::f64(),
+        ExternType::Ptr => Type::pointer(),
     }
 }
 
@@ -1026,13 +924,15 @@ impl VMFunction {
     }
 }
 
-/// Scalar types that can cross the extern function boundary.
+/// Types that can cross the extern function boundary.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExternType {
     Void,
     I32,
     F32,
     F64,
+    /// Pointer (used for slice data pointers and other by-reference args).
+    Ptr,
 }
 
 /// Descriptor for an extern function.
