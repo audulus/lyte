@@ -309,9 +309,12 @@ pub(crate) mod tags {
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
-/// Call an extern function pointer using libffi for correct C calling conventions.
+/// Maximum number of C-level arguments for an extern function (including context).
+const MAX_EXTERN_ARGS: usize = 16;
+
+/// Call an extern function pointer using libffi's low-level API (no heap allocation).
 ///
-/// Supports any number of parameters and any combination of types (i32, f32, f64, ptr).
+/// Supports any combination of types (i32, f32, f64, ptr) up to MAX_EXTERN_ARGS - 1 params.
 /// The function is called as `fn_ptr(context, args...)` where context is a `*mut u8`.
 ///
 /// Returns the result as a u64 (reinterpreted from the actual return type).
@@ -323,73 +326,71 @@ pub(crate) unsafe fn call_extern_fn(
     param_types: &[ExternType],
     ret_type: ExternType,
 ) -> u64 {
-    use libffi::middle::{Cif, Type, arg, CodePtr};
+    use core::ffi::c_void;
+    use libffi::low::{self, ffi_cif, ffi_type, CodePtr, types};
+    use libffi::raw::ffi_abi_FFI_DEFAULT_ABI;
 
-    // Build the libffi type list: context pointer + declared params.
-    let mut ffi_arg_types = Vec::with_capacity(param_types.len() + 1);
-    ffi_arg_types.push(Type::pointer()); // context
-    for pt in param_types {
-        ffi_arg_types.push(extern_type_to_ffi(*pt));
-    }
+    let n = param_types.len();
+    assert!(n + 1 <= MAX_EXTERN_ARGS, "extern function has too many parameters (max {})", MAX_EXTERN_ARGS - 1);
 
-    let ffi_ret_type = extern_type_to_ffi(ret_type);
-    let cif = Cif::new(ffi_arg_types, ffi_ret_type);
-    let code = CodePtr(fn_ptr as *mut _);
-
-    // Build the argument values. Each must be a reference to the correctly-typed value.
-    // We store the typed values on the stack so the references remain valid.
-    let mut i32_vals: Vec<i32> = Vec::new();
-    let mut f32_vals: Vec<f32> = Vec::new();
-    let mut f64_vals: Vec<f64> = Vec::new();
-    let mut ptr_vals: Vec<*mut u8> = Vec::new();
-
-    // Pre-allocate typed values from registers so we can take references.
+    // Build the ffi_type pointer array on the stack: [context, params...]
+    let mut arg_types: [*mut ffi_type; MAX_EXTERN_ARGS] = [std::ptr::null_mut(); MAX_EXTERN_ARGS];
+    arg_types[0] = &mut types::pointer;
     for (i, pt) in param_types.iter().enumerate() {
-        match pt {
-            ExternType::I32 => i32_vals.push(registers[args_start + i] as i32),
-            ExternType::F32 => f32_vals.push(f32::from_bits(registers[args_start + i] as u32)),
-            ExternType::F64 => f64_vals.push(f64::from_bits(registers[args_start + i])),
-            ExternType::Ptr => ptr_vals.push(registers[args_start + i] as *mut u8),
-            ExternType::Void => {}
-        }
+        arg_types[i + 1] = extern_type_to_ffi_ptr(*pt);
     }
 
-    // Build the Arg references. We track indices into the typed value vectors.
-    let mut ffi_args = Vec::with_capacity(param_types.len() + 1);
-    ffi_args.push(arg(&context));
-    let mut i32_idx = 0;
-    let mut f32_idx = 0;
-    let mut f64_idx = 0;
-    let mut ptr_idx = 0;
-    for pt in param_types {
-        match pt {
-            ExternType::I32 => { ffi_args.push(arg(&i32_vals[i32_idx])); i32_idx += 1; }
-            ExternType::F32 => { ffi_args.push(arg(&f32_vals[f32_idx])); f32_idx += 1; }
-            ExternType::F64 => { ffi_args.push(arg(&f64_vals[f64_idx])); f64_idx += 1; }
-            ExternType::Ptr => { ffi_args.push(arg(&ptr_vals[ptr_idx])); ptr_idx += 1; }
-            ExternType::Void => {}
-        }
+    // Prepare the CIF on the stack.
+    let mut cif: ffi_cif = Default::default();
+    low::prep_cif(
+        &mut cif,
+        ffi_abi_FFI_DEFAULT_ABI,
+        n + 1,
+        extern_type_to_ffi_ptr(ret_type),
+        arg_types.as_mut_ptr(),
+    ).expect("ffi_prep_cif failed");
+
+    // Store argument values on the stack as u64. On little-endian (ARM64/x86_64),
+    // a pointer to the u64 works as a pointer to the i32/f32 value in its low bytes,
+    // which is what libffi expects — it reads the correct number of bytes based on ffi_type.
+    let mut vals: [u64; MAX_EXTERN_ARGS] = [0; MAX_EXTERN_ARGS];
+    vals[0] = context as u64;
+    for (i, pt) in param_types.iter().enumerate() {
+        vals[i + 1] = match pt {
+            ExternType::I32 => registers[args_start + i] as i32 as u32 as u64,
+            ExternType::F32 => (registers[args_start + i] as u32) as u64,
+            ExternType::F64 | ExternType::Ptr => registers[args_start + i],
+            ExternType::Void => 0,
+        };
     }
+
+    // Build the args pointer array: each entry points to the corresponding value.
+    let mut arg_ptrs: [*mut c_void; MAX_EXTERN_ARGS] = [std::ptr::null_mut(); MAX_EXTERN_ARGS];
+    for i in 0..n + 1 {
+        arg_ptrs[i] = &mut vals[i] as *mut u64 as *mut c_void;
+    }
+
+    let code = CodePtr(fn_ptr as *mut c_void);
 
     // Call and convert result to u64.
     match ret_type {
-        ExternType::Void => { cif.call::<()>(code, &ffi_args); 0 }
-        ExternType::I32 => cif.call::<i32>(code, &ffi_args) as u64,
-        ExternType::F32 => cif.call::<f32>(code, &ffi_args).to_bits() as u64,
-        ExternType::F64 => cif.call::<f64>(code, &ffi_args).to_bits(),
-        ExternType::Ptr => cif.call::<*mut u8>(code, &ffi_args) as u64,
+        ExternType::Void => { low::call::<()>(&mut cif, code, arg_ptrs.as_mut_ptr()); 0 }
+        ExternType::I32 => low::call::<i32>(&mut cif, code, arg_ptrs.as_mut_ptr()) as u64,
+        ExternType::F32 => low::call::<f32>(&mut cif, code, arg_ptrs.as_mut_ptr()).to_bits() as u64,
+        ExternType::F64 => low::call::<f64>(&mut cif, code, arg_ptrs.as_mut_ptr()).to_bits(),
+        ExternType::Ptr => low::call::<*mut u8>(&mut cif, code, arg_ptrs.as_mut_ptr()) as u64,
     }
 }
 
-/// Convert an ExternType to a libffi Type.
-fn extern_type_to_ffi(t: ExternType) -> libffi::middle::Type {
-    use libffi::middle::Type;
+/// Get a pointer to the static ffi_type for an ExternType.
+unsafe fn extern_type_to_ffi_ptr(t: ExternType) -> *mut libffi::low::ffi_type {
+    use libffi::low::types;
     match t {
-        ExternType::Void => Type::void(),
-        ExternType::I32 => Type::i32(),
-        ExternType::F32 => Type::f32(),
-        ExternType::F64 => Type::f64(),
-        ExternType::Ptr => Type::pointer(),
+        ExternType::Void => &raw mut types::void,
+        ExternType::I32 => &raw mut types::sint32,
+        ExternType::F32 => &raw mut types::float,
+        ExternType::F64 => &raw mut types::double,
+        ExternType::Ptr => &raw mut types::pointer,
     }
 }
 
