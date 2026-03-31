@@ -1699,4 +1699,65 @@ mod tests {
 
         jit.free_memory();
     }
+
+    #[test]
+    fn test_extern_fn_string_param_vm() {
+        // Test that extern functions can receive string ([u8]) parameters.
+        // Slices expand to (ptr, i32 len) at the C boundary.
+        let prelude = r#"
+            extern fn send(msg: [i8])
+        "#;
+        let code = r#"
+            fn main() {
+                send("hello")
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let vm_program = compiler.compile_vm().expect("VM compile failed");
+        let globals_size = vm_program.globals_size;
+
+        assert_eq!(vm_program.extern_funcs.len(), 1);
+        // Slice expands to [Ptr, I32] at C level.
+        assert_eq!(vm_program.extern_funcs[0].param_types, vec![
+            crate::vm::ExternType::Ptr,
+            crate::vm::ExternType::I32,
+        ]);
+
+        let linked = crate::vm::LinkedProgram::from_program(&vm_program);
+        let mut vm = crate::vm::VM::new();
+        let mut globals = vec![0u8; globals_size];
+        let extern_offset = vm_program.extern_funcs[0].globals_offset as usize;
+
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEND_CALLED: AtomicBool = AtomicBool::new(false);
+
+        // The C signature is: void send(void* ctx, const char* data, int32_t len)
+        // String literals in Lyte are null-terminated [i8; N+1].
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) {
+            let slice = std::slice::from_raw_parts(data, len as usize);
+            // "hello" becomes [104, 101, 108, 108, 111, 0] (null-terminated)
+            assert_eq!(&slice[..5], b"hello");
+            assert_eq!(len, 6); // includes null terminator
+            SEND_CALLED.store(true, Ordering::SeqCst);
+        }
+
+        unsafe {
+            let ptr_slot = globals.as_mut_ptr().add(extern_offset) as *mut u64;
+            let ctx_slot = globals.as_mut_ptr().add(extern_offset + 8) as *mut u64;
+            *ptr_slot = host_send as *const () as u64;
+            *ctx_slot = 0;
+        }
+
+        SEND_CALLED.store(false, Ordering::SeqCst);
+        let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
+        unsafe {
+            vm.call_with_external_globals(&linked, &vm_program, func_idx, globals.as_mut_ptr(), globals_size);
+        }
+        assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+    }
 }

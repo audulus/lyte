@@ -2198,10 +2198,18 @@ impl<'a> FunctionTranslator<'a> {
                             ret_type,
                         });
 
-                        // Translate arguments.
+                        // Translate arguments, wrapping arrays as slices where needed.
                         let mut arg_values = Vec::new();
-                        for arg_id in arg_ids {
-                            arg_values.push(self.translate_expr(*arg_id, func));
+                        for (i, arg_id) in arg_ids.iter().enumerate() {
+                            let arg_reg = self.translate_expr(*arg_id, func);
+                            let param_ty = f.params[i].ty.unwrap();
+                            if matches!(&*param_ty, Type::Slice(_)) {
+                                // Coerce array → slice if needed.
+                                let wrapped = self.wrap_as_slice(arg_reg, self.expr_type(*arg_id), func);
+                                arg_values.push(wrapped);
+                            } else {
+                                arg_values.push(arg_reg);
+                            }
                         }
 
                         // Stage arguments into consecutive registers.
@@ -2212,8 +2220,7 @@ impl<'a> FunctionTranslator<'a> {
                             let arg_reg = arg_values[i];
                             let param_ty = param.ty.unwrap();
                             if matches!(&*param_ty, Type::Slice(_)) {
-                                // Slice: arg_reg points to {data_ptr: i64, len: i32}.
-                                // Load data_ptr into one register, len into the next.
+                                // arg_reg points to fat pointer {data_ptr: i64, len: i32}.
                                 let ptr_reg = self.alloc_reg();
                                 func.emit(Opcode::Load64 { dst: ptr_reg, addr: arg_reg });
                                 let len_reg = self.alloc_reg();
