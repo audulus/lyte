@@ -71,6 +71,11 @@ pub struct FuncDecl {
     /// array of `i64` slots, one per entry here.  Each slot holds the address
     /// of the captured variable's storage.
     pub closure_vars: Vec<ClosureVar>,
+
+    /// True if this is an extern function provided by the host.
+    /// Extern functions have no body and are called indirectly through
+    /// a {fn_ptr, context} pair stored in the globals buffer.
+    pub is_extern: bool,
 }
 
 impl FuncDecl {
@@ -399,6 +404,7 @@ mod tests {
             arena: ExprArena::new(),
             types: vec![],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decl = Decl::Func(func);
@@ -426,6 +432,7 @@ mod tests {
             arena,
             types: vec![],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decl = Decl::Func(func);
@@ -483,6 +490,7 @@ mod tests {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
+            is_extern: false,
             }],
             loc: test_loc(),
         };
@@ -542,6 +550,7 @@ mod tests {
             arena,
             types: vec![],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decl = Decl::Func(func);

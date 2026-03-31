@@ -268,9 +268,17 @@ impl JIT {
         // Reserve the first CANCEL_FLAG_RESERVED bytes for the cancel flag at offset 0.
         let mut offset: i32 = CANCEL_FLAG_RESERVED;
         for decl in &decls.decls {
-            if let Decl::Global { name, ty, .. } = decl {
-                self.globals.insert(*name, offset);
-                offset += ty.size(decls) as i32;
+            match decl {
+                Decl::Global { name, ty, .. } => {
+                    self.globals.insert(*name, offset);
+                    offset += ty.size(decls) as i32;
+                }
+                Decl::Func(f) if f.is_extern => {
+                    // Extern functions get 16 bytes: {fn_ptr, context}
+                    self.globals.insert(f.name, offset);
+                    offset += 16;
+                }
+                _ => {}
             }
         }
         self.globals_size = offset as usize;
@@ -757,6 +765,16 @@ impl<'a> FunctionTranslator<'a> {
                         None
                     };
 
+                    // Check if this is an extern function call.
+                    let is_extern_fn = if let Expr::Id(callee_name) = &decl.arena[*fn_id] {
+                        let callee_decls = decls.find(*callee_name);
+                        callee_decls.first().map_or(false, |d| {
+                            matches!(d, crate::Decl::Func(f) if f.is_extern)
+                        })
+                    } else {
+                        false
+                    };
+
                     let call = if let Some(sym) = math_sym {
                         // Math builtin: use a direct call via declared function.
                         let sig = fn_sig(&self.module, from, to);
@@ -774,6 +792,26 @@ impl<'a> FunctionTranslator<'a> {
                             args.push(self.translate_expr(*arg_id, decl, decls));
                         }
                         self.builder.ins().call(local_callee, &args)
+                    } else if is_extern_fn {
+                        // Extern function: indirect call through {fn_ptr, context} in globals.
+                        let callee_name = if let Expr::Id(n) = &decl.arena[*fn_id] { *n } else { unreachable!() };
+                        let globals_offset = *self.globals.get(&callee_name).expect("extern fn not in globals");
+                        let base = self.globals_base.expect("globals_base not set");
+                        let fn_ptr = self.builder.ins().load(I64, MemFlags::new(), base, globals_offset);
+                        let context = self.builder.ins().load(I64, MemFlags::new(), base, globals_offset + 8);
+
+                        // Build signature: (context: *mut u8, params...) -> ret
+                        let mut sig = fn_sig(&self.module, from, to);
+                        sig.params.insert(0, AbiParam::new(I64)); // context
+                        let mut args = vec![context];
+                        if let Some(addr) = output_slot {
+                            args.push(addr);
+                        }
+                        for arg_id in arg_ids {
+                            args.push(self.translate_expr(*arg_id, decl, decls));
+                        }
+                        let sref = self.builder.import_signature(sig);
+                        self.builder.ins().call_indirect(sref, fn_ptr, &args)
                     } else if is_builtin {
                         // Other builtins (assert, print, putc): indirect call.
                         let f = self.translate_expr(*fn_id, decl, decls);
@@ -1463,6 +1501,7 @@ impl<'a> FunctionTranslator<'a> {
                             arena: decl.arena.clone(),
                             types: decl.types.clone(),
                             closure_vars,
+                            is_extern: false,
                         };
 
                         self.pending_lambdas.push(lambda_decl);

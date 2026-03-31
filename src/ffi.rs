@@ -14,6 +14,7 @@ struct GlobalInfo {
     offset: usize,
     size: usize,
     ty: CString,
+    is_extern: bool,
 }
 
 /// An entry point: backend-specific data.
@@ -252,11 +253,12 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             c.compiler
                 .globals_info_with_offset(base_offset)
                 .into_iter()
-                .map(|(name, offset, size, ty)| GlobalInfo {
+                .map(|(name, offset, size, ty, is_extern)| GlobalInfo {
                     name: CString::new(name).unwrap_or_default(),
                     offset,
                     size,
                     ty: CString::new(ty).unwrap_or_default(),
+                    is_extern,
                 })
                 .collect()
         };
@@ -437,6 +439,41 @@ pub unsafe extern "C" fn lyte_program_get_global_type(
         .map_or(ptr::null(), |g| g.ty.as_ptr())
 }
 
+/// Returns true if the global at this index is an extern function.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_get_global_is_extern(
+    ptr: *const LyteProgram,
+    index: usize,
+) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let p = &*ptr;
+    p.globals_info.get(index).map_or(false, |g| g.is_extern)
+}
+
+/// Bind a host function to an extern function slot in the globals buffer.
+/// The offset should come from lyte_program_get_global_offset for an extern function global.
+/// The host function must use C calling conventions with a prepended context parameter:
+///   extern fn foo(i32) -> f32  →  float (*)(void* ctx, int32_t)
+/// The caller must ensure func_ptr and context remain valid for program execution.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_globals_bind_extern(
+    globals: *mut u8,
+    offset: usize,
+    func_ptr: *const u8,
+    context: *mut u8,
+) {
+    if globals.is_null() {
+        return;
+    }
+    // Extern layout: {fn_ptr: *const (), context: *const ()} — 16 bytes
+    let ptr_slot = globals.add(offset) as *mut u64;
+    let ctx_slot = globals.add(offset + 8) as *mut u64;
+    *ptr_slot = func_ptr as u64;
+    *ctx_slot = context as u64;
+}
+
 /// Call an entry point by index with an external globals buffer.
 /// The index corresponds to the order of entry points passed to lyte_compiler_new.
 /// Returns true on success, false if cancelled or invalid index.
@@ -490,15 +527,27 @@ pub unsafe extern "C" fn lyte_entry_point_call(
                 .set_cancel_callback(Some(cb), program.cancel_userdata);
         }
         let gs = program.globals_size;
+        // Use the Rust interpreter when extern functions are present
+        // (the ARM64 ASM interpreter doesn't handle CallExtern).
         #[cfg(target_arch = "aarch64")]
         {
-            program.vm.call_with_external_globals_asm(
-                &program.linked,
-                &program.vm_program,
-                func_idx,
-                globals,
-                gs,
-            );
+            if program.vm_program.extern_funcs.is_empty() {
+                program.vm.call_with_external_globals_asm(
+                    &program.linked,
+                    &program.vm_program,
+                    func_idx,
+                    globals,
+                    gs,
+                );
+            } else {
+                program.vm.call_with_external_globals(
+                    &program.linked,
+                    &program.vm_program,
+                    func_idx,
+                    globals,
+                    gs,
+                );
+            }
         }
         #[cfg(not(target_arch = "aarch64"))]
         {

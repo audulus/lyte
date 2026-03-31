@@ -1005,6 +1005,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
         arena,
         types: vec![],
         closure_vars: vec![],
+        is_extern: false,
     }
 }
 
@@ -1050,6 +1051,19 @@ fn parse_interface(cx: &mut ParseContext) -> Decl {
 
 fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
     Some(match cx.lex.tok.clone() {
+        Token::Extern => {
+            // Extern function declaration: extern fn name(params) -> ret
+            cx.next();
+            expect(Token::Fn, cx);
+            let name = expect_id(cx);
+            let mut decl = parse_func_decl(name, cx);
+            if decl.body.is_some() {
+                cx.err("extern functions cannot have a body".to_string());
+            }
+            decl.body = None;
+            decl.is_extern = true;
+            Decl::Func(decl)
+        }
         Token::Fn => {
             // Function declaration with optional `fn` keyword.
             cx.next();

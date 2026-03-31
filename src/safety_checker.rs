@@ -1080,6 +1080,7 @@ impl SafetyChecker {
                     arena: arena.clone(),
                     types: vec![],
                     closure_vars: vec![],
+                    is_extern: false,
                 };
                 self.match_expr(*cond, &tmp, decls);
                 self.propagate_len_bounds();

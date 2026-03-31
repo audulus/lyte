@@ -81,6 +81,7 @@ fn dead_code_elimination(code: &mut Vec<Opcode>) {
                     Opcode::Call { .. }
                     | Opcode::CallIndirect { .. }
                     | Opcode::CallClosure { .. }
+                    | Opcode::CallExtern { .. }
                     | Opcode::Store8 { .. }
                     | Opcode::Store32 { .. }
                     | Opcode::Store64 { .. }
@@ -300,6 +301,7 @@ fn copy_propagation(code: &mut [Opcode]) {
                     Opcode::Call { .. }
                     | Opcode::CallIndirect { .. }
                     | Opcode::CallClosure { .. }
+                    | Opcode::CallExtern { .. }
                     | Opcode::SaveRegs { .. }
                     | Opcode::RestoreRegs { .. } => break,
                     _ => {}
@@ -379,6 +381,7 @@ fn redundant_local_addr(code: &mut [Opcode]) {
             Opcode::Call { .. }
             | Opcode::CallIndirect { .. }
             | Opcode::CallClosure { .. }
+            | Opcode::CallExtern { .. }
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => {
                 slot_reg.clear();
@@ -423,8 +426,8 @@ fn replace_reg_uses_until_clobber(
             | Opcode::FLtJump { .. }
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => break,
-            // For Call/CallIndirect/CallClosure: replace in the args range, then stop.
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => {
+            // For Call/CallIndirect/CallClosure/CallExtern: replace in the args range, then stop.
+            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } | Opcode::CallExtern { .. } => {
                 code[i].replace_src_reg(old_reg, new_reg);
                 break;
             }
@@ -701,6 +704,11 @@ fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
                 arg_count,
                 ..
             } => (*args_start, *arg_count),
+            Opcode::CallExtern {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
             _ => continue,
         };
         for r in args_start..(args_start + arg_count as Reg) {
@@ -836,7 +844,7 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
     for (i, op) in code.iter().enumerate() {
         let is_call = matches!(
             op,
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. }
+            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } | Opcode::CallExtern { .. }
         );
         if !is_call {
             continue;
@@ -865,6 +873,11 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
                 ..
             } => (*args_start, *arg_count),
             Opcode::CallClosure {
+                args_start,
+                arg_count,
+                ..
+            } => (*args_start, *arg_count),
+            Opcode::CallExtern {
                 args_start,
                 arg_count,
                 ..

@@ -84,14 +84,21 @@ impl VMCodegen {
     fn declare_globals(&mut self, decls: &DeclTable) {
         let mut offset: i32 = 0;
         for decl in &decls.decls {
-            if let Decl::Global {
-                name, typevars, ty, ..
-            } = decl
-            {
-                if typevars.is_empty() {
-                    self.globals.insert(*name, offset);
-                    offset += ty.size(decls) as i32;
+            match decl {
+                Decl::Global {
+                    name, typevars, ty, ..
+                } => {
+                    if typevars.is_empty() {
+                        self.globals.insert(*name, offset);
+                        offset += ty.size(decls) as i32;
+                    }
                 }
+                Decl::Func(f) if f.is_extern => {
+                    // Extern functions get 16 bytes: {fn_ptr, context}
+                    self.globals.insert(f.name, offset);
+                    offset += 16;
+                }
+                _ => {}
             }
         }
         self.program.globals_size = offset as usize;
@@ -243,7 +250,11 @@ impl VMCodegen {
         let func_load_patches = std::mem::take(&mut translator.func_load_patches);
         let pending_lambdas = std::mem::take(&mut translator.pending_lambdas);
         let lambda_patches = std::mem::take(&mut translator.lambda_patches);
+        let extern_funcs = std::mem::take(&mut translator.extern_funcs);
         drop(translator);
+
+        // Collect extern function descriptors.
+        self.program.extern_funcs.extend(extern_funcs);
 
         // Collect pending calls.
         for call in calls_to_patch {
@@ -407,6 +418,20 @@ struct FunctionTranslator<'a> {
 
     /// Variables captured from an enclosing scope (accessed via double indirection).
     captured_vars: HashSet<Name>,
+
+    /// Extern function info collected during translation.
+    extern_funcs: Vec<crate::vm::ExternFuncInfo>,
+}
+
+/// Convert a Lyte type to an ExternType for FFI marshalling.
+fn type_to_extern_type(ty: TypeID) -> crate::vm::ExternType {
+    match &*ty {
+        Type::Void => crate::vm::ExternType::Void,
+        Type::Int32 | Type::Bool => crate::vm::ExternType::I32,
+        Type::Float32 => crate::vm::ExternType::F32,
+        Type::Float64 => crate::vm::ExternType::F64,
+        _ => panic!("unsupported extern function parameter type: {}", ty.pretty_print()),
+    }
 }
 
 /// Check if a type should be returned via output pointer.
@@ -449,6 +474,7 @@ impl<'a> FunctionTranslator<'a> {
             save_regs_offset: 0,
             captured_vars: HashSet::new(),
             loop_stack: Vec::new(),
+            extern_funcs: Vec::new(),
         }
     }
 
@@ -1276,6 +1302,7 @@ impl<'a> FunctionTranslator<'a> {
                             arena: self.decl.arena.clone(),
                             types: self.decl.types.clone(),
                             closure_vars,
+                            is_extern: false,
                         };
 
                         self.pending_lambdas.push(lambda_decl);
@@ -2146,6 +2173,58 @@ impl<'a> FunctionTranslator<'a> {
                     let dst = self.alloc_reg();
                     func.emit(mk_op(dst, a, b));
                     return dst;
+                }
+            }
+
+            // Check for extern function calls — emit CallExtern instead of Call.
+            if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
+                let callee_decls = self.decls.find(*callee_name);
+                if let Some(Decl::Func(f)) = callee_decls.first() {
+                    if f.is_extern {
+                        let globals_offset = *self.globals.get(callee_name).expect("extern function not in globals");
+
+                        // Register the extern function info.
+                        let param_types: Vec<crate::vm::ExternType> = f.params.iter().map(|p| {
+                            type_to_extern_type(p.ty.unwrap())
+                        }).collect();
+                        let ret_type = type_to_extern_type(f.ret);
+                        self.extern_funcs.push(crate::vm::ExternFuncInfo {
+                            globals_offset,
+                            param_types,
+                            ret_type,
+                        });
+
+                        // Translate arguments.
+                        let mut arg_values = Vec::new();
+                        for arg_id in arg_ids {
+                            arg_values.push(self.translate_expr(*arg_id, func));
+                        }
+
+                        let args_start = self.next_reg;
+                        for (i, &arg_reg) in arg_values.iter().enumerate() {
+                            let target = args_start + i as Reg;
+                            let _ = self.alloc_reg();
+                            if arg_reg != target {
+                                func.emit(Opcode::Move {
+                                    dst: target,
+                                    src: arg_reg,
+                                });
+                            }
+                        }
+
+                        func.emit(Opcode::CallExtern {
+                            args_start,
+                            arg_count: arg_ids.len() as u8,
+                            globals_offset,
+                        });
+
+                        let result_reg = self.alloc_reg();
+                        func.emit(Opcode::Move {
+                            dst: result_reg,
+                            src: 0,
+                        });
+                        return result_reg;
+                    }
                 }
             }
 
@@ -3225,6 +3304,7 @@ mod tests {
             arena,
             types: vec![ret_ty], // Simplified - just use return type.
             closure_vars: vec![],
+            is_extern: false,
         };
 
         DeclTable::new(vec![Decl::Func(func)])
@@ -3247,6 +3327,7 @@ mod tests {
             arena,
             types: vec![mk_type(Type::Int32)],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -3279,6 +3360,7 @@ mod tests {
             arena,
             types: vec![int32, int32, int32],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -3311,6 +3393,7 @@ mod tests {
             arena,
             types: vec![f32_ty, f32_ty, f32_ty],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -3345,6 +3428,7 @@ mod tests {
             arena,
             types: vec![bool_ty, int32, int32, int32],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);
@@ -3381,6 +3465,7 @@ mod tests {
             arena,
             types: vec![bool_ty, int32, int32, int32, int32],
             closure_vars: vec![],
+            is_extern: false,
         };
 
         let decls = DeclTable::new(vec![Decl::Func(func)]);

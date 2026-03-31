@@ -78,6 +78,11 @@ size_t lyte_program_get_global_size(const LyteProgram* program, size_t index);
 /// Get the type of a global variable as a string.
 const char* lyte_program_get_global_type(const LyteProgram* program, size_t index);
 
+/// Returns true if the global at this index is an extern function.
+/// Extern functions are declared in lyte source with `extern fn name(params) -> ret`
+/// and must be bound by the host before execution using lyte_globals_bind_extern.
+bool lyte_program_get_global_is_extern(const LyteProgram* program, size_t index);
+
 /// Set a cancel callback. Called approximately every 1024 backward jumps.
 /// If it returns true, execution is cancelled. Pass NULL to disable.
 void lyte_program_set_cancel_callback(LyteProgram* program, lyte_cancel_fn callback, void* user_data);
@@ -102,6 +107,13 @@ bool lyte_entry_point_call(LyteProgram* program, size_t entry_point, uint8_t* gl
 /// The offset should come from lyte_program_get_global_offset for a slice-typed global.
 /// The caller must ensure the buffer remains valid for the lifetime of the program execution.
 void lyte_globals_bind_slice(uint8_t* globals, size_t offset, const void* data, int32_t len);
+
+/// Bind a host function to an extern function slot in the globals buffer.
+/// The offset should come from lyte_program_get_global_offset for an extern function.
+/// The host function must use C calling conventions with a prepended void* context parameter.
+/// For example, `extern fn foo(i32) -> f32` expects: float (*)(void* ctx, int32_t)
+/// Pass NULL for context if the function doesn't need state.
+void lyte_globals_bind_extern(uint8_t* globals, size_t offset, const void* func_ptr, void* context);
 
 /// Allocate a zeroed globals buffer of the correct size.
 /// Caller must free with lyte_globals_free().

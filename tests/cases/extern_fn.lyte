@@ -1,0 +1,12 @@
+// Test: extern function declarations parse and type-check correctly.
+// args: --check
+
+extern fn host_add(a: i32, b: i32) -> i32
+extern fn host_scale(x: f32, factor: f32) -> f32
+extern fn host_notify(code: i32)
+
+fn main() {
+    var result = host_add(1, 2)
+    var scaled = host_scale(3.0, 2.0)
+    host_notify(42)
+}

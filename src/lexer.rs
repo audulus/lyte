@@ -81,6 +81,7 @@ pub enum Token {
     In,
     Assume,
     Const,
+    Extern,
     End,
     Error,
 }
@@ -207,6 +208,7 @@ impl Lexer {
                 "in" => Token::In,
                 "assume" => Token::Assume,
                 "const" => Token::Const,
+                "extern" => Token::Extern,
                 _ => Token::Id(Name::str(&id)),
             };
         }

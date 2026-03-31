@@ -632,6 +632,16 @@ pub enum Opcode {
         arg_count: u8,
     },
 
+    /// Call an extern function through a {fn_ptr, context} pair in the globals buffer.
+    /// The globals_offset points to the 16-byte slot in the globals buffer.
+    /// At runtime, the VM loads fn_ptr and context from globals, then calls
+    /// fn_ptr(context, args...) using C calling conventions.
+    CallExtern {
+        args_start: Reg,
+        arg_count: u8,
+        globals_offset: i32,
+    },
+
     /// Load the current closure pointer into dst (set by CallClosure).
     GetClosurePtr {
         dst: Reg,
@@ -1068,8 +1078,8 @@ impl Opcode {
 
             Opcode::SliceStore32 { .. } => None,
 
-            // Call/CallIndirect/CallClosure implicitly define r0 (return value register).
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } => {
+            // Call/CallIndirect/CallClosure/CallExtern implicitly define r0 (return value register).
+            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } | Opcode::CallExtern { .. } => {
                 Some(0)
             }
 
@@ -1352,6 +1362,11 @@ impl Opcode {
                 args_start,
                 arg_count,
             } => *fat_ptr == reg || (reg >= *args_start && reg < *args_start + *arg_count as Reg),
+            Opcode::CallExtern {
+                args_start,
+                arg_count,
+                ..
+            } => reg >= *args_start && reg < *args_start + *arg_count as Reg,
 
             Opcode::GetClosurePtr { .. } => false,
 
@@ -1796,6 +1811,18 @@ impl Opcode {
                     }
                 }
             }
+            Opcode::CallExtern {
+                args_start,
+                arg_count,
+                ..
+            } => {
+                for r in *args_start..(*args_start + *arg_count as Reg) {
+                    if r == old && r == *args_start {
+                        *args_start = new;
+                        break;
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1933,6 +1960,15 @@ impl Opcode {
                 arg_count,
             } => {
                 f(*fat_ptr);
+                for r in *args_start..(*args_start + *arg_count as Reg) {
+                    f(r);
+                }
+            }
+            Opcode::CallExtern {
+                args_start,
+                arg_count,
+                ..
+            } => {
                 for r in *args_start..(*args_start + *arg_count as Reg) {
                     f(r);
                 }
@@ -2206,6 +2242,15 @@ impl Opcode {
                 ..
             } => {
                 *fat_ptr = map[*fat_ptr as usize];
+                if *arg_count > 0 {
+                    *args_start = map[*args_start as usize];
+                }
+            }
+            Opcode::CallExtern {
+                args_start,
+                arg_count,
+                ..
+            } => {
                 if *arg_count > 0 {
                     *args_start = map[*args_start as usize];
                 }

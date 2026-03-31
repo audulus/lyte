@@ -69,6 +69,7 @@ fn builtin_decls() -> Vec<Decl> {
             arena: ExprArena::new(),
             types: vec![],
             closure_vars: vec![],
+            is_extern: false,
         }),
         // print(value: i32) → void
         Decl::Func(FuncDecl {
@@ -86,6 +87,7 @@ fn builtin_decls() -> Vec<Decl> {
             arena: ExprArena::new(),
             types: vec![],
             closure_vars: vec![],
+            is_extern: false,
         }),
         // putc(c: i32) → void
         Decl::Func(FuncDecl {
@@ -103,6 +105,7 @@ fn builtin_decls() -> Vec<Decl> {
             arena: ExprArena::new(),
             types: vec![],
             closure_vars: vec![],
+            is_extern: false,
         }),
     ];
 
@@ -131,6 +134,7 @@ fn builtin_decls() -> Vec<Decl> {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
+            is_extern: false,
             }));
         }
     }
@@ -155,6 +159,7 @@ fn builtin_decls() -> Vec<Decl> {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
+            is_extern: false,
             }));
         }
     }
@@ -187,6 +192,7 @@ fn builtin_decls() -> Vec<Decl> {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
+            is_extern: false,
             }));
         }
     }
@@ -599,15 +605,32 @@ impl Compiler {
     /// The offset and size are in bytes within the globals buffer.
     /// The `base_offset` should be `CANCEL_FLAG_RESERVED` for JIT/LLVM backends
     /// or `0` for the VM backend.
-    pub fn globals_info_with_offset(&self, base_offset: usize) -> Vec<(String, usize, usize, String)> {
+    pub fn globals_info_with_offset(&self, base_offset: usize) -> Vec<(String, usize, usize, String, bool)> {
         let mut result = Vec::new();
         let mut offset: usize = base_offset;
         for decl in &self.decls.decls {
-            if let Decl::Global { name, ty, .. } = decl {
-                let size = ty.size(&self.decls) as usize;
-                let type_str = ty.pretty_print();
-                result.push((name.to_string(), offset, size, type_str));
-                offset += size;
+            match decl {
+                Decl::Global { name, ty, .. } => {
+                    let size = ty.size(&self.decls) as usize;
+                    let type_str = ty.pretty_print();
+                    result.push((name.to_string(), offset, size, type_str, false));
+                    offset += size;
+                }
+                Decl::Func(f) if f.is_extern => {
+                    // Extern functions occupy 16 bytes in the globals buffer:
+                    // {fn_ptr: *const (), context: *const ()}
+                    let type_str = format!("extern fn({})", f.params.iter().map(|p| {
+                        p.ty.map_or("?".to_string(), |t| t.pretty_print())
+                    }).collect::<Vec<_>>().join(", "));
+                    let type_str = if matches!(&*f.ret, Type::Void) {
+                        type_str
+                    } else {
+                        format!("{} -> {}", type_str, f.ret.pretty_print())
+                    };
+                    result.push((f.name.to_string(), offset, 16, type_str, true));
+                    offset += 16;
+                }
+                _ => {}
             }
         }
         result
@@ -1563,5 +1586,117 @@ mod tests {
             !compiler.check(),
             "global slices without assumes should fail safety checker"
         );
+    }
+
+    #[test]
+    fn test_extern_fn_compile_and_call() {
+        // Test that extern functions can be compiled and called through the VM.
+        let prelude = r#"
+            extern fn host_add(a: i32, b: i32) -> i32
+        "#;
+        let code = r#"
+            fn main() -> i32 {
+                host_add(3, 4)
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let vm_program = compiler.compile_vm().expect("VM compile failed");
+        let globals_size = vm_program.globals_size;
+
+        // Verify extern function info was collected.
+        assert_eq!(vm_program.extern_funcs.len(), 1);
+        assert_eq!(vm_program.extern_funcs[0].param_types.len(), 2);
+
+        let linked = crate::vm::LinkedProgram::from_program(&vm_program);
+        let mut vm = crate::vm::VM::new();
+
+        // Allocate globals and bind the extern function.
+        let mut globals = vec![0u8; globals_size];
+        let extern_offset = vm_program.extern_funcs[0].globals_offset as usize;
+
+        // Define a C function that adds two i32s.
+        unsafe extern "C" fn host_add(_ctx: *mut u8, a: i32, b: i32) -> i32 {
+            a + b
+        }
+
+        // Bind the function pointer and context into the globals buffer.
+        unsafe {
+            let ptr_slot = globals.as_mut_ptr().add(extern_offset) as *mut u64;
+            let ctx_slot = globals.as_mut_ptr().add(extern_offset + 8) as *mut u64;
+            *ptr_slot = host_add as *const () as u64;
+            *ctx_slot = 0; // null context
+        }
+
+        // Run and check result.
+        let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
+        let result = unsafe {
+            vm.call_with_external_globals(&linked, &vm_program, func_idx, globals.as_mut_ptr(), globals_size)
+        };
+        assert_eq!(result, 7, "host_add(3, 4) should return 7");
+    }
+
+    #[cfg(feature = "cranelift")]
+    #[test]
+    fn test_extern_fn_cranelift_jit() {
+        let prelude = r#"
+            extern fn host_mul(a: i32, b: i32) -> i32
+        "#;
+        let code = r#"
+            fn main() -> i32 {
+                host_mul(5, 6)
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let (map, globals_size, jit) = compiler.jit_multi().unwrap();
+        let main_ptr = *map.get(&Name::str("main")).unwrap();
+        let mut globals = vec![0u8; globals_size];
+
+        // Find the extern function's globals offset.
+        let globals_info = compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+        let extern_info = globals_info.iter().find(|g| g.4).expect("no extern global found");
+        let extern_offset = extern_info.1;
+
+        unsafe extern "C" fn host_mul(_ctx: *mut u8, a: i32, b: i32) -> i32 {
+            a * b
+        }
+
+        unsafe {
+            extern "C" {
+                fn setjmp(env: *mut u8) -> i32;
+            }
+
+            // Bind extern function.
+            let ptr_slot = globals.as_mut_ptr().add(extern_offset) as *mut u64;
+            let ctx_slot = globals.as_mut_ptr().add(extern_offset + 8) as *mut u64;
+            *ptr_slot = host_mul as *const () as u64;
+            *ctx_slot = 0;
+
+            crate::cancel::set_cancel_callback(
+                globals.as_mut_ptr(),
+                None,
+                std::ptr::null_mut(),
+            );
+            let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
+            if setjmp(jmp_buf_ptr) == 0 {
+                type Entry = fn(*mut u8, *mut u8) -> i32;
+                let code_fn = mem::transmute::<_, Entry>(main_ptr);
+                let result = code_fn(globals.as_mut_ptr(), std::ptr::null_mut());
+                assert_eq!(result, 30, "host_mul(5, 6) should return 30");
+            } else {
+                panic!("execution was cancelled unexpectedly");
+            }
+        }
+
+        jit.free_memory();
     }
 }

@@ -693,9 +693,17 @@ impl<'ctx> LLVMJITState<'ctx> {
     fn declare_globals(&mut self, decls: &DeclTable) {
         let mut offset: i32 = CANCEL_FLAG_RESERVED;
         for decl in &decls.decls {
-            if let Decl::Global { name, ty, .. } = decl {
-                self.globals.insert(*name, offset);
-                offset += ty.size(decls) as i32;
+            match decl {
+                Decl::Global { name, ty, .. } => {
+                    self.globals.insert(*name, offset);
+                    offset += ty.size(decls) as i32;
+                }
+                Decl::Func(f) if f.is_extern => {
+                    // Extern functions get 16 bytes: {fn_ptr, context}
+                    self.globals.insert(f.name, offset);
+                    offset += 16;
+                }
+                _ => {}
             }
         }
         self.globals_size = offset as usize;
@@ -2538,6 +2546,44 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         .basic()
                         .unwrap_or_else(|| self.zero_i32())
                 }
+            } else if {
+                // Check for extern function.
+                if let Expr::Id(callee_name) = &decl.arena[fn_id] {
+                    let callee_decls = self.decls.find(*callee_name);
+                    callee_decls.first().map_or(false, |d| matches!(d, crate::Decl::Func(f) if f.is_extern))
+                } else { false }
+            } {
+                // Extern function: load {fn_ptr, context} from globals buffer.
+                let callee_name = if let Expr::Id(n) = &decl.arena[fn_id] { *n } else { unreachable!() };
+                let globals_offset = *self.state.globals.get(&callee_name).expect("extern fn not in globals");
+                let fn_ptr_addr = self.ptr_at_offset(self.globals_base, globals_offset as i64);
+                let fn_ptr = self.builder().build_load(self.ptr_ty(), fn_ptr_addr, "extern_fn_ptr").unwrap().into_pointer_value();
+                let ctx_addr = self.ptr_at_offset(self.globals_base, globals_offset as i64 + 8);
+                let context = self.builder().build_load(self.ptr_ty(), ctx_addr, "extern_ctx").unwrap().into_pointer_value();
+
+                // Build function type: (context: ptr, params...) -> ret
+                let raw_fn_ty = self.build_raw_fn_type(from, to);
+                let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = vec![self.ptr_ty().into()];
+                param_tys.extend(raw_fn_ty.get_param_types().iter().map(|t| BasicMetadataTypeEnum::from(*t)));
+                let extern_fn_ty = if *to == crate::Type::Void || returns_via_pointer(to) {
+                    self.ctx().void_type().fn_type(&param_tys, false)
+                } else {
+                    to.llvm_basic_type(self.ctx()).fn_type(&param_tys, false)
+                };
+
+                let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![context.into()];
+                if let Some(slot) = output_slot {
+                    args.push(slot.into());
+                }
+                for arg_id in arg_ids {
+                    args.push(self.translate_expr(*arg_id, decl).into());
+                }
+                let call = self.builder().build_indirect_call(extern_fn_ty, fn_ptr, &args, "extern_call").unwrap();
+                if let Some(slot) = output_slot {
+                    slot.into()
+                } else {
+                    call.try_as_basic_value().basic().unwrap_or_else(|| self.zero_i32())
+                }
             } else if is_builtin {
                 // assert / print / putc — load raw fn ptr from fat pointer and indirect call.
                 let fat_ptr = self.translate_expr(fn_id, decl).into_pointer_value();
@@ -2985,6 +3031,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     arena: decl.arena.clone(),
                     types: decl.types.clone(),
                     closure_vars,
+                    is_extern: false,
                 };
 
                 self.pending_lambdas.push(lambda_decl);
