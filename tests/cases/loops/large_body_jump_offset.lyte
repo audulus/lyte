@@ -1,0 +1,103 @@
+// Regression test: ILtJump offset overflow for large loop bodies.
+// The fused compare-branch (ILtJump) used an i8 offset field (max 127).
+// A loop body exceeding 127 packed instructions caused the offset to
+// wrap negative, creating an infinite loop in the VM backend.
+//
+// expected stdout:
+// compilation successful
+// 12
+
+main {
+    var sum = 0.0
+    var v0 = 0.01
+    var v1 = 0.02
+    var v2 = 0.03
+    var v3 = 0.04
+    var v4 = 0.05
+    var v5 = 0.06
+    var v6 = 0.07
+    var v7 = 0.08
+    var v8 = 0.09
+    var v9 = 0.1
+    var v10 = 0.11
+    var v11 = 0.12
+    var v12 = 0.13
+    var v13 = 0.14
+    var v14 = 0.15
+    var v15 = 0.16
+    var v16 = 0.17
+    var v17 = 0.18
+    var v18 = 0.19
+    var v19 = 0.2
+    var v20 = 0.21
+    var v21 = 0.22
+    var v22 = 0.23
+    var v23 = 0.24
+    var v24 = 0.25
+    var v25 = 0.26
+    var v26 = 0.27
+    var v27 = 0.28
+    var v28 = 0.29
+    var v29 = 0.3
+    var v30 = 0.31
+    var v31 = 0.32
+    var v32 = 0.33
+    var v33 = 0.34
+    var v34 = 0.35
+    var v35 = 0.36
+    var v36 = 0.37
+    var v37 = 0.38
+    var v38 = 0.39
+    var v39 = 0.4
+    var v40 = 0.41
+    var v41 = 0.42
+    var v42 = 0.43
+    for i in 0 .. 42 {
+        let x = i as f32
+        v0 = v0 + x * 0.001
+        v1 = v1 + x * 0.002
+        v2 = v2 + x * 0.003
+        v3 = v3 + x * 0.004
+        v4 = v4 + x * 0.005
+        v5 = v5 + x * 0.006
+        v6 = v6 + x * 0.007
+        v7 = v7 + x * 0.008
+        v8 = v8 + x * 0.009
+        v9 = v9 + x * 0.01
+        v10 = v10 + x * 0.011
+        v11 = v11 + x * 0.012
+        v12 = v12 + x * 0.013
+        v13 = v13 + x * 0.014
+        v14 = v14 + x * 0.015
+        v15 = v15 + x * 0.016
+        v16 = v16 + x * 0.017
+        v17 = v17 + x * 0.018
+        v18 = v18 + x * 0.019
+        v19 = v19 + x * 0.02
+        v20 = v20 + x * 0.021
+        v21 = v21 + x * 0.022
+        v22 = v22 + x * 0.023
+        v23 = v23 + x * 0.024
+        v24 = v24 + x * 0.025
+        v25 = v25 + x * 0.026
+        v26 = v26 + x * 0.027
+        v27 = v27 + x * 0.028
+        v28 = v28 + x * 0.029
+        v29 = v29 + x * 0.03
+        v30 = v30 + x * 0.031
+        v31 = v31 + x * 0.032
+        v32 = v32 + x * 0.033
+        v33 = v33 + x * 0.034
+        v34 = v34 + x * 0.035
+        v35 = v35 + x * 0.036
+        v36 = v36 + x * 0.037
+        v37 = v37 + x * 0.038
+        v38 = v38 + x * 0.039
+        v39 = v39 + x * 0.04
+        v40 = v40 + x * 0.041
+        v41 = v41 + x * 0.042
+        v42 = v42 + x * 0.043
+        sum = sum + v0
+    }
+    print(floor(sum) as i32)
+}
