@@ -306,6 +306,8 @@ pub(crate) mod tags {
     pub const SLICE_NE: u8 = 157; // ABC+data: A=dst, B=a, C=b, next word=elem_size
     pub const SLICE_LOAD32: u8 = 158; // ABC: A=dst, B=slice, C=index
     pub const SLICE_STORE32: u8 = 159; // ABC: A=src, B=slice, C=index
+    pub const ILT_JUMP_WIDE: u8 = 161; // AB+data: A=a, B=b, next word=offset (i32)
+    pub const FLT_JUMP_WIDE: u8 = 162; // AB+data: A=a, B=b, next word=offset (i32)
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
@@ -458,16 +460,20 @@ impl LinkedProgram {
                     Opcode::ILtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
-                        let new_offset = target_packed as i32 - packed_idx as i32 - 1;
+                        // Wide format: 2 packed words. ip advances past both, so offset
+                        // is relative to packed_idx + 2 (the word after the data word).
+                        let new_offset = target_packed as i32 - (packed_idx as i32 + 2);
                         ops[packed_idx] =
-                            PackedOp::abc(tags::ILT_JUMP, a as u8, b as u8, new_offset as i8 as u8);
+                            PackedOp::abc(tags::ILT_JUMP_WIDE, a as u8, b as u8, 0);
+                        ops[packed_idx + 1] = PackedOp::data(new_offset as u32);
                     }
                     Opcode::FLtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
-                        let new_offset = target_packed as i32 - packed_idx as i32 - 1;
+                        let new_offset = target_packed as i32 - (packed_idx as i32 + 2);
                         ops[packed_idx] =
-                            PackedOp::abc(tags::FLT_JUMP, a as u8, b as u8, new_offset as i8 as u8);
+                            PackedOp::abc(tags::FLT_JUMP_WIDE, a as u8, b as u8, 0);
+                        ops[packed_idx + 1] = PackedOp::data(new_offset as u32);
                     }
                     _ => {}
                 }
@@ -689,10 +695,15 @@ impl LinkedProgram {
                 PackedOp::ad(tags::JUMP_IF_NOT_ZERO, r(cond), offset as i16)
             }
             Opcode::ILtJump { a, b, offset } => {
-                PackedOp::abc(tags::ILT_JUMP, r(a), r(b), offset as i8 as u8)
+                // Always emit wide (2-word) format; fixup will set the correct offset.
+                ops.push(PackedOp::abc(tags::ILT_JUMP_WIDE, r(a), r(b), 0));
+                ops.push(PackedOp::data(offset as u32));
+                return;
             }
             Opcode::FLtJump { a, b, offset } => {
-                PackedOp::abc(tags::FLT_JUMP, r(a), r(b), offset as i8 as u8)
+                ops.push(PackedOp::abc(tags::FLT_JUMP_WIDE, r(a), r(b), 0));
+                ops.push(PackedOp::data(offset as u32));
+                return;
             }
             // Superinstructions — AD
             Opcode::LoadSlot32 { dst, slot } => {
@@ -1764,6 +1775,47 @@ impl VM {
                         if r_f32!(op.a()) >= r_f32!(op.b()) {
                             let off = op.c_i8();
                             ip = (ip as i32 + off as i32) as usize;
+                            if off < 0 {
+                                cancel_counter -= 1;
+                                if cancel_counter <= 0 {
+                                    cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
+                                    if let Some(cb) = self.cancel_callback {
+                                        if cb(self.cancel_userdata) {
+                                            self.cancelled = true;
+                                            return 0;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ILtJump/FLtJump wide — AB+data: next word is i32 offset
+                    tags::ILT_JUMP_WIDE => {
+                        let off = (*ops.add(ip)).0 as i32;
+                        ip += 1;
+                        if get_i64!(op.a()) >= get_i64!(op.b()) {
+                            ip = (ip as i32 + off) as usize;
+                            if off < 0 {
+                                cancel_counter -= 1;
+                                if cancel_counter <= 0 {
+                                    cancel_counter = crate::cancel::CANCEL_CHECK_INTERVAL;
+                                    if let Some(cb) = self.cancel_callback {
+                                        if cb(self.cancel_userdata) {
+                                            self.cancelled = true;
+                                            return 0;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    tags::FLT_JUMP_WIDE => {
+                        let off = (*ops.add(ip)).0 as i32;
+                        ip += 1;
+                        if r_f32!(op.a()) >= r_f32!(op.b()) {
+                            ip = (ip as i32 + off) as usize;
                             if off < 0 {
                                 cancel_counter -= 1;
                                 if cancel_counter <= 0 {

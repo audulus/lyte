@@ -977,6 +977,36 @@ Lop_flt_jump:
     tbnz    x0, #63, Lcheck_cancel
     next
 
+// ILT_JUMP_WIDE: AB+data, jump if regs[A] >= regs[B], offset from data word
+Lop_ilt_jump_wide:
+    extract_a w0
+    extract_b w1
+    ldrsw   x2, [x19, x21, lsl #2]     // signed i32 offset from data word
+    add     x21, x21, #1               // skip data word
+    ldr     x3, [x20, x0, lsl #3]
+    ldr     x4, [x20, x1, lsl #3]
+    cmp     x3, x4
+    b.lt    Ldispatch                   // if a < b, don't jump
+    add     x21, x21, x2
+    tbnz    x2, #63, Lcheck_cancel
+    next
+
+// FLT_JUMP_WIDE: AB+data, jump if f32(regs[A]) >= f32(regs[B]), offset from data word
+Lop_flt_jump_wide:
+    extract_a w0
+    extract_b w1
+    ldrsw   x2, [x19, x21, lsl #2]     // signed i32 offset from data word
+    add     x21, x21, #1               // skip data word
+    add     x3, x20, x0, lsl #3
+    ldr     s0, [x3]
+    add     x3, x20, x1, lsl #3
+    ldr     s1, [x3]
+    fcmp    s0, s1
+    b.mi    Ldispatch                   // if a < b (ordered), don't jump
+    add     x21, x21, x2
+    tbnz    x2, #63, Lcheck_cancel
+    next
+
 Lcheck_cancel:
     ldr     x1, [x24, #CTX_CANCELLED_PTR]
     ldrb    w2, [x1]
@@ -1992,8 +2022,10 @@ Ljump_table:
     .quad Lop_slice_load32      // 158: SLICE_LOAD32
     .quad Lop_slice_store32     // 159: SLICE_STORE32
     .quad Lop_call_extern       // 160: CALL_EXTERN
-    // 161-255: invalid
-    .fill 95, 8, 0             // will be Lop_invalid pointers
+    .quad Lop_ilt_jump_wide     // 161: ILT_JUMP_WIDE
+    .quad Lop_flt_jump_wide     // 162: FLT_JUMP_WIDE
+    // 163-255: invalid
+    .fill 93, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

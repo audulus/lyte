@@ -34,6 +34,14 @@ struct Args {
     /// Falls back to LYTE_SKIP_BACKEND env var if not specified.
     #[clap(long, default_value = "")]
     skip_backend: String,
+
+    /// Allow `assume` statements (parse file as if it were a prelude).
+    #[clap(long)]
+    allow_assume: bool,
+
+    /// Entry point function name(s), comma-separated. Defaults to "main".
+    #[clap(long)]
+    entry: Option<String>,
 }
 
 fn run(args: Args) -> i32 {
@@ -85,13 +93,19 @@ fn run(args: Args) -> i32 {
     let mut compiler = lyte::Compiler::new();
     for path in &paths {
         if let Ok(contents) = fs::read_to_string(path) {
-            if !compiler.parse(&contents, &path) {
+            let parse_path = if args.allow_assume { "<prelude>" } else { path.as_str() };
+            if !compiler.parse(&contents, parse_path) {
                 return 1;
             }
         } else {
             eprintln!("could not read file {:?}", path);
             return 1;
         }
+    }
+
+    if let Some(ref entry) = args.entry {
+        let names: Vec<&str> = entry.split(',').collect();
+        compiler.set_entry_points(&names);
     }
 
     if args.ast {
