@@ -1,0 +1,18 @@
+// f32x4 variable assignment
+// expected stdout:
+// compilation successful
+// 1
+// 100
+// 110
+
+main {
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+    print(v[0] as i32)
+
+    v = f32x4(100.0, 200.0, 300.0, 400.0)
+    print(v[0] as i32)
+
+    var w = f32x4(10.0, 20.0, 30.0, 40.0)
+    v = v + w
+    print(v[0] as i32)
+}

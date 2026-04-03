@@ -1,0 +1,52 @@
+// f32x4 arithmetic operations
+// expected stdout:
+// compilation successful
+// 11
+// 22
+// 33
+// 44
+// -9
+// -18
+// -27
+// -36
+// 10
+// 40
+// 90
+// 160
+// 10
+// 10
+// 10
+// 10
+
+main {
+    var a = f32x4(1.0, 2.0, 3.0, 4.0)
+    var b = f32x4(10.0, 20.0, 30.0, 40.0)
+
+    // add
+    var c = a + b
+    print(c[0] as i32)
+    print(c[1] as i32)
+    print(c[2] as i32)
+    print(c[3] as i32)
+
+    // sub
+    var d = a - b
+    print(d[0] as i32)
+    print(d[1] as i32)
+    print(d[2] as i32)
+    print(d[3] as i32)
+
+    // mul
+    var e = a * b
+    print(e[0] as i32)
+    print(e[1] as i32)
+    print(e[2] as i32)
+    print(e[3] as i32)
+
+    // div
+    var f = b / a
+    print(f[0] as i32)
+    print(f[1] as i32)
+    print(f[2] as i32)
+    print(f[3] as i32)
+}

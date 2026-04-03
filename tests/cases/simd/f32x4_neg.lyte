@@ -1,0 +1,16 @@
+// f32x4 negation
+// expected stdout:
+// compilation successful
+// -1
+// -2
+// -3
+// -4
+
+main {
+    var a = f32x4(1.0, 2.0, 3.0, 4.0)
+    var b = -a
+    print(b[0] as i32)
+    print(b[1] as i32)
+    print(b[2] as i32)
+    print(b[3] as i32)
+}

@@ -1,0 +1,25 @@
+// f32x4 constructor and splat
+// expected stdout:
+// compilation successful
+// 1
+// 2
+// 3
+// 4
+// 7
+// 7
+// 7
+// 7
+
+main {
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+    print(v[0] as i32)
+    print(v[1] as i32)
+    print(v[2] as i32)
+    print(v[3] as i32)
+
+    var s = f32x4_splat(7.0)
+    print(s[0] as i32)
+    print(s[1] as i32)
+    print(s[2] as i32)
+    print(s[3] as i32)
+}

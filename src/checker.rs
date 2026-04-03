@@ -208,11 +208,10 @@ impl Checker {
         match op {
             Unop::Neg => {
                 let ft = self.fresh();
-                let types = vec![mk_type(Type::Int32), mk_type(Type::Float32)];
-                let alts: Vec<_> = types
+                let alts: Vec<_> = self.neg_overloads
                     .iter()
                     .map(|t| Alt {
-                        ty: func(*t, *t),
+                        ty: *t,
                         interfaces: vec![],
                     })
                     .collect();

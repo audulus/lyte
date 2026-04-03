@@ -419,7 +419,7 @@ impl crate::Type {
             crate::Type::UInt32 => I32,
             crate::Type::Float32 => F32,
             crate::Type::Float64 => F64,
-            crate::Type::Float32x4 => I64, // ptr-represented in JIT (for now)
+            crate::Type::Float32x4 => F32X4,
             crate::Type::Bool => I8,
 
             // Functions probably need a closure pointer?
@@ -445,6 +445,9 @@ impl crate::Type {
 
 /// Returns true if this type is returned via an output pointer parameter.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
+    if matches!(*ty, crate::Type::Float32x4) {
+        return false;
+    }
     ty.is_ptr()
 }
 
@@ -699,8 +702,8 @@ impl<'a> FunctionTranslator<'a> {
                     let base = self.globals_base.expect("globals_base not set");
                     let addr = self.builder.ins().iadd_imm(base, offset as i64);
                     // Composite types (arrays, structs) are pointer-represented:
-                    // return the address, don't load.
-                    if ty.is_ptr() {
+                    // return the address, don't load. f32x4 is a value type — load it.
+                    if ty.is_ptr() && !matches!(**ty, crate::types::Type::Float32x4) {
                         addr
                     } else {
                         self.builder
@@ -723,6 +726,25 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     false
                 };
+
+                // f32x4 constructor and splat — emit inline vector construction.
+                if let Expr::Id(name) = &decl.arena[*fn_id] {
+                    if **name == "f32x4" && arg_ids.len() == 4 {
+                        let x = self.translate_expr(arg_ids[0], decl, decls);
+                        let y = self.translate_expr(arg_ids[1], decl, decls);
+                        let z = self.translate_expr(arg_ids[2], decl, decls);
+                        let w = self.translate_expr(arg_ids[3], decl, decls);
+                        let vec = self.builder.ins().scalar_to_vector(F32X4, x);
+                        let vec = self.builder.ins().insertlane(vec, y, 1);
+                        let vec = self.builder.ins().insertlane(vec, z, 2);
+                        let vec = self.builder.ins().insertlane(vec, w, 3);
+                        return vec;
+                    }
+                    if **name == "f32x4_splat" && arg_ids.len() == 1 {
+                        let x = self.translate_expr(arg_ids[0], decl, decls);
+                        return self.builder.ins().splat(F32X4, x);
+                    }
+                }
 
                 if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
                     // If return type is pointer, allocate stack space and pass as first arg.
@@ -917,6 +939,22 @@ impl<'a> FunctionTranslator<'a> {
                 // Remove from let_bindings in case this var shadows a let binding
                 // (e.g., a for-loop counter with the same name).
                 self.let_bindings.remove(&name.to_string());
+
+                // f32x4: treat as value type (like a let binding) so it lives in
+                // a Cranelift variable (F32X4) rather than a pointer to a stack slot.
+                if matches!(**ty, crate::types::Type::Float32x4) {
+                    let var = self.declare_variable(name, F32X4);
+                    let init_val = if let Some(init_id) = init {
+                        self.translate_expr(*init_id, decl, decls)
+                    } else {
+                        let zero = self.builder.ins().f32const(0.0);
+                        self.builder.ins().splat(F32X4, zero)
+                    };
+                    self.builder.def_var(var, init_val);
+                    self.let_bindings.insert(name.to_string());
+                    return init_val;
+                }
+
                 let var = self.declare_variable(name, I64);
 
                 let sz = ty.size(decls) as u32;
@@ -1055,6 +1093,29 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::ArrayIndex(lhs, rhs) => {
                 let lhs_ty = decl.types[*lhs];
+
+                // f32x4 element extraction
+                if matches!(*lhs_ty, crate::types::Type::Float32x4) {
+                    let vec = self.translate_expr(*lhs, decl, decls);
+                    // Try constant lane index
+                    if let Expr::Int(n) = &decl.arena.exprs[*rhs] {
+                        return self.builder.ins().extractlane(vec, *n as u8);
+                    }
+                    // Dynamic index: spill to stack and load
+                    let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size: 16,
+                        align_shift: 0,
+                        key: None,
+                    });
+                    let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                    self.builder.ins().store(MemFlags::new(), vec, addr, 0);
+                    let idx = self.translate_expr(*rhs, decl, decls);
+                    let byte_offset = self.builder.ins().imul_imm(idx, 4);
+                    let elem_addr = self.builder.ins().iadd(addr, byte_offset);
+                    return self.builder.ins().load(F32, MemFlags::new(), elem_addr, 0);
+                }
+
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
                 let rhs_val = self.translate_expr(*rhs, decl, decls);
                 let (elem_ty, is_sl) = match &*lhs_ty {
@@ -1675,7 +1736,8 @@ impl<'a> FunctionTranslator<'a> {
             Unop::Neg => {
                 let t = decl.types[arg_id];
                 match *t {
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                    crate::types::Type::Float32 | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => {
                         self.builder.ins().fneg(v)
                     }
                     _ => self.builder.ins().imul_imm(v, -1),
@@ -1847,7 +1909,8 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().iadd(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                    crate::types::Type::Float32 | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => {
                         self.builder.ins().fadd(lhs, rhs)
                     }
                     _ => unreachable!("type {:?} not supported for this binary op", t),
@@ -1863,7 +1926,8 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().isub(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                    crate::types::Type::Float32 | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => {
                         self.builder.ins().fsub(lhs, rhs)
                     }
                     _ => unreachable!("type {:?} not supported for this binary op", t),
@@ -1878,7 +1942,8 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().imul(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                    crate::types::Type::Float32 | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => {
                         self.builder.ins().fmul(lhs, rhs)
                     }
                     _ => unreachable!("type {:?} not supported for this binary op", t),
@@ -1893,7 +1958,8 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().udiv(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64 => {
+                    crate::types::Type::Float32 | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => {
                         self.builder.ins().fdiv(lhs, rhs)
                     }
                     _ => unreachable!("type {:?} not supported for this binary op", t),
@@ -1912,9 +1978,19 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Assign => {
+                let t = decl.types[lhs_id];
+                // f32x4: value-type assignment via def_var
+                if matches!(*t, crate::types::Type::Float32x4) {
+                    if let Expr::Id(name) = &decl.arena[lhs_id] {
+                        if let Some(&var) = self.variables.get(&**name) {
+                            let rhs = self.translate_expr(rhs_id, decl, decls);
+                            self.builder.def_var(var, rhs);
+                            return rhs;
+                        }
+                    }
+                }
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
                 self.gen_copy(t, lhs, rhs, decls);
                 rhs
             }
@@ -2611,6 +2687,8 @@ const BUILTIN_NAMES: &[&str] = &[
     "min$f64$f64",
     "max$f32$f32",
     "max$f64$f64",
+    "f32x4",
+    "f32x4_splat",
 ];
 
 fn is_builtin_name(name: &Name) -> bool {
