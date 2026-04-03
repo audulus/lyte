@@ -31,7 +31,7 @@
 //     24: Load32Off { dst: 8, base: 15, offset: 12 }
 //     25: Load32Off { dst: 9, base: 15, offset: 16 }
 //     26: LoadImm { dst: 10, value: 0 }
-// =>  27: ILtJump { a: 10, b: 1, offset: 29 }
+// =>  27: ILtJump { a: 10, b: 1, offset: 27 }
 //     28: FMul { dst: 11, a: 2, b: 6 }
 //     29: SinF32 { dst: 12, src: 11 }
 //     30: FAdd { dst: 2, a: 2, b: 5 }
@@ -42,29 +42,27 @@
 // =>  35: FMul { dst: 11, a: 3, b: 12 }
 //     36: LocalAddr { dst: 15, slot: 0 }
 //     37: Load32Off { dst: 13, base: 15, offset: 20 }
-//     38: FMul { dst: 14, a: 4, b: 13 }
-//     39: FAdd { dst: 13, a: 11, b: 14 }
-//     40: Load32Off { dst: 11, base: 15, offset: 24 }
-//     41: FMul { dst: 14, a: 7, b: 11 }
-//     42: FAdd { dst: 11, a: 13, b: 14 }
-//     43: Load32Off { dst: 13, base: 15, offset: 28 }
-//     44: FMul { dst: 14, a: 8, b: 13 }
-//     45: FSub { dst: 13, a: 11, b: 14 }
-//     46: Load32Off { dst: 11, base: 15, offset: 32 }
-//     47: FMul { dst: 14, a: 9, b: 11 }
-//     48: FSub { dst: 11, a: 13, b: 14 }
-//     49: Load32Off { dst: 13, base: 15, offset: 20 }
-//     50: Store32Off { base: 15, offset: 24, src: 13 }
-//     51: Store32Off { base: 15, offset: 20, src: 12 }
-//     52: Load32Off { dst: 12, base: 15, offset: 28 }
-//     53: Store32Off { base: 15, offset: 32, src: 12 }
-//     54: Store32Off { base: 15, offset: 28, src: 11 }
-//     55: IAddImm { dst: 10, src: 10, imm: 1 }
-//     56: Jump { offset: -30 }
-// =>  57: LoadImm { dst: 1, value: 0 }
-//     58: Move { dst: 0, src: 1 }
-//     59: RestoreRegs { start_reg: 1, count: 15, slot: 88 }
-//     60: Return
+//     38: FMulAdd { dst: 14, a: 4, b: 13, c: 11 }
+//     39: Load32Off { dst: 11, base: 15, offset: 24 }
+//     40: FMulAdd { dst: 13, a: 7, b: 11, c: 14 }
+//     41: Load32Off { dst: 11, base: 15, offset: 28 }
+//     42: FMul { dst: 14, a: 8, b: 11 }
+//     43: FSub { dst: 11, a: 13, b: 14 }
+//     44: Load32Off { dst: 13, base: 15, offset: 32 }
+//     45: FMul { dst: 14, a: 9, b: 13 }
+//     46: FSub { dst: 13, a: 11, b: 14 }
+//     47: Load32Off { dst: 11, base: 15, offset: 20 }
+//     48: Store32Off { base: 15, offset: 24, src: 11 }
+//     49: Store32Off { base: 15, offset: 20, src: 12 }
+//     50: Load32Off { dst: 11, base: 15, offset: 28 }
+//     51: Store32Off { base: 15, offset: 32, src: 11 }
+//     52: Store32Off { base: 15, offset: 28, src: 13 }
+//     53: IAddImm { dst: 10, src: 10, imm: 1 }
+//     54: Jump { offset: -28 }
+// =>  55: LoadImm { dst: 1, value: 0 }
+//     56: Move { dst: 0, src: 1 }
+//     57: RestoreRegs { start_reg: 1, count: 15, slot: 88 }
+//     58: Return
 // fn lpf (params: 4, locals: 112 bytes):
 //      0: SaveRegs { start_reg: 0, count: 8, slot: 48 }
 //      1: LocalAddr { dst: 4, slot: 0 }

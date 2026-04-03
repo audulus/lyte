@@ -526,6 +526,63 @@ fn fuse_offset_access(code: &mut Vec<Opcode>) {
     }
 }
 
+/// Fuse FMul + FAdd/FSub into FMulAdd/FMulSub (and f64 variants).
+///
+/// Patterns (T must be single-use and not a jump target):
+///   FMul { dst: T, a, b } + FAdd { dst: D, a: X, b: T } → FMulAdd { dst: D, a, b, c: X }
+///   FMul { dst: T, a, b } + FAdd { dst: D, a: T, b: X } → FMulAdd { dst: D, a, b, c: X }
+///   FMul { dst: T, a, b } + FSub { dst: D, a: X, b: T } → FMulSub { dst: D, a, b, c: X }  (X - a*b)
+///   (Same patterns for DMul + DAdd/DSub → DMulAdd/DMulSub)
+fn fuse_multiply_add(code: &mut Vec<Opcode>) {
+    let uses = compute_use_counts(code);
+    let targets = jump_targets(code);
+
+    for i in 0..code.len().saturating_sub(1) {
+        if targets.contains(&(i + 1)) {
+            continue;
+        }
+        match code[i] {
+            Opcode::FMul { dst: t, a, b } if uses[t as usize] == 1 => {
+                match code[i + 1] {
+                    Opcode::FAdd { dst: d, a: x, b: y } if y == t => {
+                        code[i] = Opcode::FMulAdd { dst: d, a, b, c: x };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    Opcode::FAdd { dst: d, a: x, b: y } if x == t => {
+                        code[i] = Opcode::FMulAdd { dst: d, a, b, c: y };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    Opcode::FSub { dst: d, a: x, b: y } if x == t => {
+                        // D = T - Y = a*b - Y → FMulSub { dst: D, a, b, c: Y }
+                        code[i] = Opcode::FMulSub { dst: d, a, b, c: y };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    _ => {}
+                }
+            }
+            Opcode::DMul { dst: t, a, b } if uses[t as usize] == 1 => {
+                match code[i + 1] {
+                    Opcode::DAdd { dst: d, a: x, b: y } if y == t => {
+                        code[i] = Opcode::DMulAdd { dst: d, a, b, c: x };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    Opcode::DAdd { dst: d, a: x, b: y } if x == t => {
+                        code[i] = Opcode::DMulAdd { dst: d, a, b, c: y };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    Opcode::DSub { dst: d, a: x, b: y } if x == t => {
+                        // D = T - Y = a*b - Y → DMulSub { dst: D, a, b, c: Y }
+                        code[i] = Opcode::DMulSub { dst: d, a, b, c: y };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Fuse compare + branch into single superinstructions.
 ///
 /// Patterns:
@@ -1635,6 +1692,93 @@ mod tests {
         ];
         let original = code.clone();
         fuse_compare_branch(&mut code);
+        assert_eq!(code, original);
+    }
+
+    // ========== fuse_multiply_add tests ==========
+
+    #[test]
+    fn test_fuse_fmul_add() {
+        // FMul { dst: 2 } + FAdd { dst: 3, a: 1, b: 2 } → FMulAdd { dst: 3, a: 0, b: 1, c: 1 }
+        let mut code = vec![
+            Opcode::FMul { dst: 2, a: 0, b: 1 },
+            Opcode::FAdd { dst: 3, a: 4, b: 2 },
+        ];
+        fuse_multiply_add(&mut code);
+        assert_eq!(
+            code[0],
+            Opcode::FMulAdd {
+                dst: 3,
+                a: 0,
+                b: 1,
+                c: 4
+            }
+        );
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_fmul_add_commuted() {
+        // FAdd with the mul result as the first operand
+        let mut code = vec![
+            Opcode::FMul { dst: 2, a: 0, b: 1 },
+            Opcode::FAdd { dst: 3, a: 2, b: 4 },
+        ];
+        fuse_multiply_add(&mut code);
+        assert_eq!(
+            code[0],
+            Opcode::FMulAdd {
+                dst: 3,
+                a: 0,
+                b: 1,
+                c: 4
+            }
+        );
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_fmul_sub() {
+        // FMul { dst: 2 } + FSub { dst: 3, a: 2, b: 4 } → FMulSub (a*b - c)
+        let mut code = vec![
+            Opcode::FMul { dst: 2, a: 0, b: 1 },
+            Opcode::FSub { dst: 3, a: 2, b: 4 },
+        ];
+        fuse_multiply_add(&mut code);
+        assert_eq!(
+            code[0],
+            Opcode::FMulSub {
+                dst: 3,
+                a: 0,
+                b: 1,
+                c: 4
+            }
+        );
+        assert_eq!(code[1], Opcode::Nop);
+    }
+
+    #[test]
+    fn test_fuse_fmul_sub_not_commuted() {
+        // FSub { a: X, b: T } where T is the mul result → X - a*b, NOT fusible to FMulSub
+        let mut code = vec![
+            Opcode::FMul { dst: 2, a: 0, b: 1 },
+            Opcode::FSub { dst: 3, a: 4, b: 2 },
+        ];
+        let original = code.clone();
+        fuse_multiply_add(&mut code);
+        assert_eq!(code, original);
+    }
+
+    #[test]
+    fn test_fuse_fmul_add_multi_use_no_fuse() {
+        // T is used more than once — don't fuse
+        let mut code = vec![
+            Opcode::FMul { dst: 2, a: 0, b: 1 },
+            Opcode::FAdd { dst: 3, a: 4, b: 2 },
+            Opcode::FAdd { dst: 5, a: 6, b: 2 }, // second use of reg 2
+        ];
+        let original = code.clone();
+        fuse_multiply_add(&mut code);
         assert_eq!(code, original);
     }
 

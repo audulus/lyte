@@ -1396,6 +1396,63 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Try to emit a fused multiply-add/subtract instruction.
+    /// Returns Some(dst) if successful, None if the pattern doesn't match.
+    fn try_emit_fma(
+        &mut self,
+        op: Binop,
+        lhs_id: ExprID,
+        rhs_id: ExprID,
+        is_f64: bool,
+        func: &mut VMFunction,
+    ) -> Option<Reg> {
+        let arena = &self.decl.arena;
+
+        if op == Binop::Plus {
+            // a + b*c → FMulAdd { dst, a: b, b: c, c: a }
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[rhs_id] {
+                let c = self.translate_expr(lhs_id, func);
+                let a = self.translate_expr(ma, func);
+                let b = self.translate_expr(mb, func);
+                let dst = self.alloc_reg();
+                func.emit(if is_f64 {
+                    Opcode::DMulAdd { dst, a, b, c }
+                } else {
+                    Opcode::FMulAdd { dst, a, b, c }
+                });
+                return Some(dst);
+            }
+            // b*c + a → FMulAdd { dst, a: b, b: c, c: a }
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[lhs_id] {
+                let a = self.translate_expr(ma, func);
+                let b = self.translate_expr(mb, func);
+                let c = self.translate_expr(rhs_id, func);
+                let dst = self.alloc_reg();
+                func.emit(if is_f64 {
+                    Opcode::DMulAdd { dst, a, b, c }
+                } else {
+                    Opcode::FMulAdd { dst, a, b, c }
+                });
+                return Some(dst);
+            }
+        } else if op == Binop::Minus {
+            // b*c - a → FMulSub { dst, a: b, b: c, c: a }  (b*c - a)
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[lhs_id] {
+                let a = self.translate_expr(ma, func);
+                let b = self.translate_expr(mb, func);
+                let c = self.translate_expr(rhs_id, func);
+                let dst = self.alloc_reg();
+                func.emit(if is_f64 {
+                    Opcode::DMulSub { dst, a, b, c }
+                } else {
+                    Opcode::FMulSub { dst, a, b, c }
+                });
+                return Some(dst);
+            }
+        }
+        None
+    }
+
     /// Translate a binary operation.
     fn translate_binop(
         &mut self,
@@ -1407,6 +1464,21 @@ impl<'a> FunctionTranslator<'a> {
         // Handle assignment specially.
         if op == Binop::Assign {
             return self.translate_assign(lhs_id, rhs_id, func);
+        }
+
+        // FMA: emit FMulAdd/FMulSub directly from the expression tree.
+        //   a + b*c  →  FMulAdd { dst, a: b, b: c, c: a }
+        //   b*c + a  →  FMulAdd { dst, a: b, b: c, c: a }
+        //   b*c - a  →  FMulSub { dst, a: b, b: c, c: a }  (b*c - a)
+        if op == Binop::Plus || op == Binop::Minus {
+            let ty = self.expr_type(lhs_id);
+            let is_f32 = matches!(&*ty, Type::Float32);
+            let is_f64 = matches!(&*ty, Type::Float64);
+            if is_f32 || is_f64 {
+                if let Some(reg) = self.try_emit_fma(op, lhs_id, rhs_id, is_f64, func) {
+                    return reg;
+                }
+            }
         }
 
         let lhs = self.translate_expr(lhs_id, func);

@@ -1007,6 +1007,74 @@ Lop_flt_jump_wide:
     tbnz    x2, #63, Lcheck_cancel
     next
 
+// FMUL_ADD: ABC+data, dst = a*b + c (ARM64 fmadd)
+Lop_fmul_add:
+    extract_a w0                        // dst
+    extract_b w1                        // a
+    extract_c w2                        // b
+    ldr     w3, [x19, x21, lsl #2]     // c reg index from data word
+    add     x21, x21, #1
+    and     w3, w3, #0xff
+    add     x4, x20, x1, lsl #3
+    ldr     s0, [x4]                    // a
+    add     x4, x20, x2, lsl #3
+    ldr     s1, [x4]                    // b
+    add     x4, x20, x3, lsl #3
+    ldr     s2, [x4]                    // c
+    fmadd   s0, s0, s1, s2             // a*b + c
+    fmov    w3, s0
+    str     x3, [x20, x0, lsl #3]
+    next
+
+// FMUL_SUB: ABC+data, dst = a*b - c (ARM64 fnmsub = -(c - a*b) = a*b - c)
+Lop_fmul_sub:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     w3, [x19, x21, lsl #2]
+    add     x21, x21, #1
+    and     w3, w3, #0xff
+    add     x4, x20, x1, lsl #3
+    ldr     s0, [x4]
+    add     x4, x20, x2, lsl #3
+    ldr     s1, [x4]
+    add     x4, x20, x3, lsl #3
+    ldr     s2, [x4]
+    fnmsub  s0, s0, s1, s2             // a*b - c
+    fmov    w3, s0
+    str     x3, [x20, x0, lsl #3]
+    next
+
+// DMUL_ADD: ABC+data, dst = a*b + c (f64)
+Lop_dmul_add:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     w3, [x19, x21, lsl #2]
+    add     x21, x21, #1
+    and     w3, w3, #0xff
+    ldr     d0, [x20, x1, lsl #3]
+    ldr     d1, [x20, x2, lsl #3]
+    ldr     d2, [x20, x3, lsl #3]
+    fmadd   d0, d0, d1, d2
+    str     d0, [x20, x0, lsl #3]
+    next
+
+// DMUL_SUB: ABC+data, dst = a*b - c (f64)
+Lop_dmul_sub:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     w3, [x19, x21, lsl #2]
+    add     x21, x21, #1
+    and     w3, w3, #0xff
+    ldr     d0, [x20, x1, lsl #3]
+    ldr     d1, [x20, x2, lsl #3]
+    ldr     d2, [x20, x3, lsl #3]
+    fnmsub  d0, d0, d1, d2
+    str     d0, [x20, x0, lsl #3]
+    next
+
 Lcheck_cancel:
     ldr     x1, [x24, #CTX_CANCELLED_PTR]
     ldrb    w2, [x1]
@@ -2024,8 +2092,12 @@ Ljump_table:
     .quad Lop_call_extern       // 160: CALL_EXTERN
     .quad Lop_ilt_jump_wide     // 161: ILT_JUMP_WIDE
     .quad Lop_flt_jump_wide     // 162: FLT_JUMP_WIDE
-    // 163-255: invalid
-    .fill 93, 8, 0             // will be Lop_invalid pointers
+    .quad Lop_fmul_add          // 163: FMUL_ADD
+    .quad Lop_fmul_sub          // 164: FMUL_SUB
+    .quad Lop_dmul_add          // 165: DMUL_ADD
+    .quad Lop_dmul_sub          // 166: DMUL_SUB
+    // 167-255: invalid
+    .fill 89, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

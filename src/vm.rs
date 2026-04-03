@@ -308,6 +308,10 @@ pub(crate) mod tags {
     pub const SLICE_STORE32: u8 = 159; // ABC: A=src, B=slice, C=index
     pub const ILT_JUMP_WIDE: u8 = 161; // AB+data: A=a, B=b, next word=offset (i32)
     pub const FLT_JUMP_WIDE: u8 = 162; // AB+data: A=a, B=b, next word=offset (i32)
+    pub const FMUL_ADD: u8 = 163; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b + c)
+    pub const FMUL_SUB: u8 = 164; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b - c)
+    pub const DMUL_ADD: u8 = 165; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b + c)
+    pub const DMUL_SUB: u8 = 166; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b - c)
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
@@ -548,8 +552,15 @@ impl LinkedProgram {
             Opcode::FDiv { dst, a, b } => PackedOp::abc(tags::FDIV, r(dst), r(a), r(b)),
             Opcode::FNeg { dst, src } => PackedOp::abc(tags::FNEG, r(dst), r(src), 0),
             Opcode::FPow { dst, a, b } => PackedOp::abc(tags::FPOW, r(dst), r(a), r(b)),
-            Opcode::FMulAdd { .. } | Opcode::FMulSub { .. } => {
-                panic!("FMulAdd/FMulSub not supported in 4-byte encoding")
+            Opcode::FMulAdd { dst, a, b, c } => {
+                ops.push(PackedOp::abc(tags::FMUL_ADD, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(r(c) as u32));
+                return;
+            }
+            Opcode::FMulSub { dst, a, b, c } => {
+                ops.push(PackedOp::abc(tags::FMUL_SUB, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(r(c) as u32));
+                return;
             }
             // Float64 arithmetic — ABC
             Opcode::DAdd { dst, a, b } => PackedOp::abc(tags::DADD, r(dst), r(a), r(b)),
@@ -558,8 +569,15 @@ impl LinkedProgram {
             Opcode::DDiv { dst, a, b } => PackedOp::abc(tags::DDIV, r(dst), r(a), r(b)),
             Opcode::DNeg { dst, src } => PackedOp::abc(tags::DNEG, r(dst), r(src), 0),
             Opcode::DPow { dst, a, b } => PackedOp::abc(tags::DPOW, r(dst), r(a), r(b)),
-            Opcode::DMulAdd { .. } | Opcode::DMulSub { .. } => {
-                panic!("DMulAdd/DMulSub not supported in 4-byte encoding")
+            Opcode::DMulAdd { dst, a, b, c } => {
+                ops.push(PackedOp::abc(tags::DMUL_ADD, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(r(c) as u32));
+                return;
+            }
+            Opcode::DMulSub { dst, a, b, c } => {
+                ops.push(PackedOp::abc(tags::DMUL_SUB, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(r(c) as u32));
+                return;
             }
             // Bitwise — ABC
             Opcode::And { dst, a, b } => PackedOp::abc(tags::AND, r(dst), r(a), r(b)),
@@ -1829,6 +1847,28 @@ impl VM {
                                 }
                             }
                         }
+                    }
+
+                    // FMulAdd/FMulSub — ABC+data: dst=A, a=B, b=C, c=data; dst = a*b +/- c
+                    tags::FMUL_ADD => {
+                        let c_reg = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        set_f32!(op.a(), r_f32!(op.b()) * r_f32!(op.c()) + r_f32!(c_reg));
+                    }
+                    tags::FMUL_SUB => {
+                        let c_reg = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        set_f32!(op.a(), r_f32!(op.b()) * r_f32!(op.c()) - r_f32!(c_reg));
+                    }
+                    tags::DMUL_ADD => {
+                        let c_reg = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        set_f64!(op.a(), r_f64!(op.b()) * r_f64!(op.c()) + r_f64!(c_reg));
+                    }
+                    tags::DMUL_SUB => {
+                        let c_reg = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        set_f64!(op.a(), r_f64!(op.b()) * r_f64!(op.c()) - r_f64!(c_reg));
                     }
 
                     // Call — ABC: A=args_start, B=arg_count, C=func_idx
