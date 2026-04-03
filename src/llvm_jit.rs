@@ -250,7 +250,7 @@ unsafe extern "C" fn lyte_slice_eq(a: *const u8, b: *const u8, elem_size: u64) -
     (std::slice::from_raw_parts(ptr_a, total) == std::slice::from_raw_parts(ptr_b, total)) as u64
 }
 
-const BUILTIN_NAMES: &[&str] = &["assert", "print", "putc"];
+const BUILTIN_NAMES: &[&str] = &["assert", "print", "putc", "f32x4", "f32x4_splat"];
 
 fn is_builtin_name(name: &Name) -> bool {
     BUILTIN_NAMES.iter().any(|&n| *name == Name::str(n))
@@ -324,7 +324,15 @@ fn math_builtin_ptr(name: &Name) -> Option<usize> {
 
 /// Returns true if the type is returned via an output pointer.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
+    if is_llvm_value_type(ty) {
+        return false;
+    }
     ty.is_ptr()
+}
+
+/// Types that are pointer-represented in the VM but first-class values in LLVM.
+fn is_llvm_value_type(ty: crate::TypeID) -> bool {
+    matches!(*ty, crate::Type::Float32x4)
 }
 
 fn is_slice(ty: crate::TypeID) -> bool {
@@ -343,6 +351,7 @@ impl crate::Type {
             crate::Type::UInt32 => ctx.i32_type().into(),
             crate::Type::Float32 => ctx.f32_type().into(),
             crate::Type::Float64 => ctx.f64_type().into(),
+            crate::Type::Float32x4 => ctx.f32_type().vec_type(4).into(),
             // Everything pointer-sized in Cranelift maps to a ptr or i64 in LLVM.
             crate::Type::Func(_, _) => ptr_ty.into(),
             crate::Type::Name(_, _) => ptr_ty.into(),
@@ -1446,7 +1455,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::Id(name) => {
                 let ty = decl.types[expr];
                 if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) || ty.is_ptr() {
+                    if self.let_bindings.contains(&**name) || ty.is_ptr() || is_llvm_value_type(ty) {
                         // let binding or pointer type: load the value from the alloca.
                         self.builder()
                             .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
@@ -1466,7 +1475,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let addr = self.ptr_at_offset(self.globals_base, offset as u64);
                     // Composite types (arrays, structs) are pointer-represented:
                     // return the address, don't load.
-                    if ty.is_ptr() {
+                    if ty.is_ptr() && !is_llvm_value_type(ty) {
                         addr.into()
                     } else {
                         self.builder()
@@ -1506,8 +1515,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let sz = ty.size(self.decls) as usize;
                 assert!(sz > 0, "var size must be > 0");
 
-                if !ty.is_ptr() {
-                    // Scalar var: use a single typed alloca (same as let bindings).
+                if !ty.is_ptr() || is_llvm_value_type(ty) {
+                    // Scalar/vector var: use a single typed alloca (same as let bindings).
                     // This avoids double-indirection and lets LLVM promote to SSA.
                     let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
                     if let Some(init_id) = init_id {
@@ -1573,6 +1582,18 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::ArrayIndex(lhs_id, rhs_id) => {
                 let (lhs_id, rhs_id) = (*lhs_id, *rhs_id);
                 let lhs_ty = decl.types[lhs_id];
+
+                // f32x4 element extraction: use extractelement
+                if matches!(*lhs_ty, crate::Type::Float32x4) {
+                    let vec = self.translate_expr(lhs_id, decl).into_vector_value();
+                    let idx = self.translate_expr(rhs_id, decl).into_int_value();
+                    return self.builder()
+                        .build_extract_element(vec, idx, "lane")
+                        .unwrap()
+                        .into_float_value()
+                        .into();
+                }
+
                 let lhs_val = self.translate_expr(lhs_id, decl).into_pointer_value();
                 let rhs_val = self.translate_expr(rhs_id, decl).into_int_value();
                 let elem_ptr = self.compute_array_elem_ptr(lhs_val, lhs_ty, rhs_val);
@@ -2013,6 +2034,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         let ty = decl.types[arg_id];
         match op {
             Unop::Neg => match *ty {
+                crate::Type::Float32x4 => self
+                    .builder()
+                    .build_float_neg(val.into_vector_value(), "vneg")
+                    .unwrap()
+                    .into(),
                 crate::Type::Float32 | crate::Type::Float64 => self
                     .builder()
                     .build_float_neg(val.into_float_value(), "fneg")
@@ -2045,6 +2071,13 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Binop::Plus => {
                 let t = decl.types[lhs_id];
                 let is_float = matches!(*t, crate::Type::Float32 | crate::Type::Float64);
+
+                // f32x4: vector fadd
+                if matches!(*t, crate::Type::Float32x4) {
+                    let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
+                    let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
+                    return self.builder().build_float_add(lhs, rhs, "vadd").unwrap().into();
+                }
 
                 // FMA: a*b + c
                 if is_float {
@@ -2080,6 +2113,12 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let t = decl.types[lhs_id];
                 let is_float = matches!(*t, crate::Type::Float32 | crate::Type::Float64);
 
+                if matches!(*t, crate::Type::Float32x4) {
+                    let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
+                    let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
+                    return self.builder().build_float_sub(lhs, rhs, "vsub").unwrap().into();
+                }
+
                 // FMA: c - a*b => fma(-a, b, c)
                 if is_float {
                     if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena.exprs[rhs_id] {
@@ -2107,6 +2146,13 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Binop::Mult => {
                 let t = decl.types[lhs_id];
+
+                if matches!(*t, crate::Type::Float32x4) {
+                    let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
+                    let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
+                    return self.builder().build_float_mul(lhs, rhs, "vmul").unwrap().into();
+                }
+
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 if matches!(*t, crate::Type::Float32 | crate::Type::Float64) {
@@ -2123,6 +2169,13 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Binop::Div => {
                 let t = decl.types[lhs_id];
+
+                if matches!(*t, crate::Type::Float32x4) {
+                    let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
+                    let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
+                    return self.builder().build_float_div(lhs, rhs, "vdiv").unwrap().into();
+                }
+
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
@@ -2500,6 +2553,30 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             } else {
                 None
             };
+
+            // f32x4 constructor and splat.
+            if let Expr::Id(name) = &decl.arena[fn_id] {
+                if **name == "f32x4" && arg_ids.len() == 4 {
+                    let vec_ty = self.ctx().f32_type().vec_type(4);
+                    let mut vec = vec_ty.get_undef();
+                    for (i, &arg_id) in arg_ids.iter().enumerate() {
+                        let val = self.translate_expr(arg_id, decl).into_float_value();
+                        let idx = self.i32_ty().const_int(i as u64, false);
+                        vec = self.builder().build_insert_element(vec, val, idx, "ins").unwrap();
+                    }
+                    return vec.into();
+                }
+                if **name == "f32x4_splat" && arg_ids.len() == 1 {
+                    let vec_ty = self.ctx().f32_type().vec_type(4);
+                    let val = self.translate_expr(arg_ids[0], decl).into_float_value();
+                    let mut vec = vec_ty.get_undef();
+                    for i in 0..4 {
+                        let idx = self.i32_ty().const_int(i, false);
+                        vec = self.builder().build_insert_element(vec, val, idx, "splat").unwrap();
+                    }
+                    return vec.into();
+                }
+            }
 
             // Check for math builtin by name.
             let math_intrinsic = if let Expr::Id(name) = &decl.arena[fn_id] {
