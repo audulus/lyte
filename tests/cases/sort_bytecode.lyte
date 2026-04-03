@@ -1,0 +1,156 @@
+// Sort benchmark — bytecode golden test.
+// Tracks codegen quality for the quicksort hot loop.
+
+// args: --bytecode
+// expected stdout:
+// fn main (params: 0, locals: 40104 bytes):
+//      0: SaveRegs { start_reg: 0, count: 11, slot: 40016 }
+//      1: LoadImm { dst: 6, value: 10000 }
+//      2: LoadImm { dst: 7, value: 50 }
+//      3: LocalAddr { dst: 8, slot: 0 }
+//      4: MemZero { dst: 8, size: 40000 }
+//      5: LoadImm { dst: 9, value: 0 }
+//      6: LoadImm { dst: 10, value: 0 }
+// =>   7: ILtJump { a: 10, b: 7, offset: 43 }
+//      8: LoadImm { dst: 1, value: 7 }
+//      9: IMul { dst: 2, a: 10, b: 1 }
+//     10: LoadImm { dst: 1, value: 42 }
+//     11: IAdd { dst: 3, a: 2, b: 1 }
+//     12: LoadImm { dst: 1, value: 0 }
+// =>  13: ILtJump { a: 1, b: 6, offset: 12 }
+//     14: LoadImm { dst: 2, value: 1103 }
+//     15: IMul { dst: 4, a: 3, b: 2 }
+//     16: LoadImm { dst: 2, value: 12345 }
+//     17: IAdd { dst: 5, a: 4, b: 2 }
+//     18: LoadImm { dst: 2, value: 1000000 }
+//     19: IRem { dst: 3, a: 5, b: 2 }
+//     20: LoadImm { dst: 2, value: 4 }
+//     21: IMul { dst: 4, a: 1, b: 2 }
+//     22: IAdd { dst: 2, a: 8, b: 4 }
+//     23: Store32 { addr: 2, src: 3 }
+//     24: IAddImm { dst: 1, src: 1, imm: 1 }
+//     25: Jump { offset: -13 }
+// =>  26: LocalAddr { dst: 8, slot: 0 }
+//     27: LocalAddr { dst: 1, slot: 5000 }
+//     28: Store64 { addr: 1, src: 8 }
+//     29: LoadImm { dst: 2, value: 10000 }
+//     30: Store32Off { base: 1, offset: 8, src: 2 }
+//     31: Move { dst: 2, src: 1 }
+//     32: Call { func: 1, args_start: 2, arg_count: 1 }
+//     33: LoadImm { dst: 1, value: 1 }
+//     34: ILtJump { a: 1, b: 6, offset: 14 }
+//     35: LocalAddr { dst: 8, slot: 0 }
+//     36: LoadImm { dst: 1, value: 0 }
+//     37: LoadImm { dst: 2, value: 4 }
+//     38: IMul { dst: 3, a: 1, b: 2 }
+//     39: IAdd { dst: 1, a: 8, b: 3 }
+//     40: Load32 { dst: 2, addr: 1 }
+//     41: IAdd { dst: 1, a: 9, b: 2 }
+//     42: LoadImm { dst: 2, value: 1 }
+//     43: ISub { dst: 3, a: 6, b: 2 }
+//     44: LoadImm { dst: 2, value: 4 }
+//     45: IMul { dst: 4, a: 3, b: 2 }
+//     46: IAdd { dst: 2, a: 8, b: 4 }
+//     47: Load32 { dst: 3, addr: 2 }
+//     48: IAdd { dst: 9, a: 1, b: 3 }
+// =>  49: IAddImm { dst: 10, src: 10, imm: 1 }
+//     50: Jump { offset: -44 }
+// =>  51: LoadImm { dst: 1, value: 0 }
+//     52: Move { dst: 0, src: 1 }
+//     53: RestoreRegs { start_reg: 1, count: 10, slot: 40024 }
+//     54: Return
+// fn sort$i32 (params: 1, locals: 88 bytes):
+//      0: SaveRegs { start_reg: 0, count: 9, slot: 16 }
+//      1: LocalAddr { dst: 1, slot: 0 }  ; a
+//      2: MemCopy { dst: 1, src: 0, size: 12 }
+//      3: LoadImm { dst: 2, value: 0 }
+//      4: Load32Off { dst: 3, base: 1, offset: 8 }
+//      5: LoadImm { dst: 4, value: 1 }
+//      6: ISub { dst: 5, a: 3, b: 4 }
+//      7: Move { dst: 6, src: 1 }
+//      8: Move { dst: 7, src: 2 }
+//      9: Move { dst: 8, src: 5 }
+//     10: Call { func: 2, args_start: 6, arg_count: 3 }
+//     11: RestoreRegs { start_reg: 1, count: 8, slot: 24 }
+//     12: Return
+// locals:
+//   slot 0	a
+// fn quicksort$i32 (params: 3, locals: 104 bytes):
+//      0: SaveRegs { start_reg: 0, count: 11, slot: 16 }
+//      1: LocalAddr { dst: 8, slot: 0 }  ; a
+//      2: MemCopy { dst: 8, src: 0, size: 12 }
+//      3: Move { dst: 3, src: 1 }
+//      4: Move { dst: 9, src: 2 }
+//      5: ILtJump { a: 1, b: 2, offset: 39 }
+//      6: LocalAddr { dst: 8, slot: 0 }  ; a
+//      7: SliceLoad32 { dst: 1, slice: 8, index: 9 }
+//      8: Move { dst: 2, src: 3 }
+//      9: Move { dst: 4, src: 3 }
+// =>  10: ILtJump { a: 4, b: 9, offset: 14 }
+//     11: LocalAddr { dst: 8, slot: 0 }  ; a
+//     12: SliceLoad32 { dst: 5, slice: 8, index: 4 }
+//     13: ISub { dst: 6, a: 5, b: 1 }
+//     14: LoadImm { dst: 5, value: 0 }
+//     15: ILtJump { a: 6, b: 5, offset: 7 }
+//     16: LocalAddr { dst: 8, slot: 0 }  ; a
+//     17: SliceLoad32 { dst: 5, slice: 8, index: 2 }
+//     18: SliceLoad32 { dst: 6, slice: 8, index: 4 }
+//     19: SliceStore32 { slice: 8, index: 2, src: 6 }
+//     20: SliceStore32 { slice: 8, index: 4, src: 5 }
+//     21: LoadImm { dst: 5, value: 1 }
+//     22: IAdd { dst: 2, a: 2, b: 5 }
+// =>  23: IAddImm { dst: 4, src: 4, imm: 1 }
+//     24: Jump { offset: -15 }
+// =>  25: LocalAddr { dst: 8, slot: 0 }  ; a
+//     26: SliceLoad32 { dst: 1, slice: 8, index: 2 }
+//     27: SliceLoad32 { dst: 4, slice: 8, index: 9 }
+//     28: SliceStore32 { slice: 8, index: 2, src: 4 }
+//     29: SliceStore32 { slice: 8, index: 9, src: 1 }
+//     30: Move { dst: 10, src: 2 }
+//     31: LoadImm { dst: 1, value: 1 }
+//     32: ISub { dst: 4, a: 2, b: 1 }
+//     33: Move { dst: 5, src: 8 }
+//     34: Move { dst: 6, src: 3 }
+//     35: Move { dst: 7, src: 4 }
+//     36: Call { func: 2, args_start: 5, arg_count: 3 }
+//     37: LocalAddr { dst: 8, slot: 0 }  ; a
+//     38: LoadImm { dst: 1, value: 1 }
+//     39: IAdd { dst: 2, a: 10, b: 1 }
+//     40: Move { dst: 3, src: 8 }
+//     41: Move { dst: 4, src: 2 }
+//     42: Move { dst: 5, src: 9 }
+//     43: Call { func: 2, args_start: 3, arg_count: 3 }
+//     44: Move { dst: 1, src: 0 }
+// =>  45: Move { dst: 0, src: 1 }
+//     46: RestoreRegs { start_reg: 1, count: 10, slot: 24 }
+//     47: Return
+// locals:
+//   r3	lo
+//   r9	hi
+//   slot 0	a
+
+lcg(state: i32) -> i32 {
+    (state * 1103 + 12345) % 1000000
+}
+
+main {
+    var n = 10000
+    var iters = 50
+    var a: [i32; 10000]
+
+    var checksum = 0
+
+    for iter in 0 .. iters {
+        var seed = iter * 7 + 42
+        for i in 0 .. n {
+            seed = lcg(seed)
+            a[i] = seed
+        }
+
+        sort(a)
+
+        if n > 1 {
+            checksum = checksum + a[0] + a[n - 1]
+        }
+    }
+}

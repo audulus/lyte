@@ -1,0 +1,306 @@
+// FFT benchmark — bytecode golden test.
+// Tracks codegen quality for the butterfly loop.
+
+// args: --bytecode
+// expected stdout:
+// fn main (params: 0, locals: 8352 bytes):
+//      0: SaveRegs { start_reg: 0, count: 16, slot: 8224 }
+//      1: LoadImm { dst: 10, value: 1024 }
+//      2: LoadImm { dst: 11, value: 2000 }
+//      3: LocalAddr { dst: 12, slot: 0 }
+//      4: MemZero { dst: 12, size: 4096 }
+//      5: LocalAddr { dst: 13, slot: 512 }
+//      6: MemZero { dst: 13, size: 4096 }
+//      7: LoadF32 { dst: 14, value: 0.0 }
+//      8: LoadImm { dst: 15, value: 0 }
+// =>   9: ILtJump { a: 15, b: 11, offset: 55 }
+//     10: LoadF32 { dst: 1, value: 50.0 }
+//     11: LoadF32 { dst: 2, value: 120.0 }
+//     12: LoadImm { dst: 3, value: 0 }
+// =>  13: ILtJump { a: 3, b: 10, offset: 29 }
+//     14: I32ToF32 { dst: 4, src: 3 }
+//     15: I32ToF32 { dst: 5, src: 10 }
+//     16: FDiv { dst: 6, a: 4, b: 5 }
+//     17: LoadF32 { dst: 4, value: 2.0 }
+//     18: LoadF32 { dst: 5, value: 3.1415927 }
+//     19: FMul { dst: 7, a: 4, b: 5 }
+//     20: FMul { dst: 4, a: 7, b: 1 }
+//     21: FMul { dst: 5, a: 4, b: 6 }
+//     22: SinF32 { dst: 4, src: 5 }
+//     23: LoadF32 { dst: 5, value: 0.5 }
+//     24: LoadF32 { dst: 7, value: 2.0 }
+//     25: LoadF32 { dst: 8, value: 3.1415927 }
+//     26: FMul { dst: 9, a: 7, b: 8 }
+//     27: FMul { dst: 7, a: 9, b: 2 }
+//     28: FMul { dst: 8, a: 7, b: 6 }
+//     29: SinF32 { dst: 6, src: 8 }
+//     30: FMul { dst: 7, a: 5, b: 6 }
+//     31: FAdd { dst: 5, a: 4, b: 7 }
+//     32: LoadImm { dst: 4, value: 4 }
+//     33: IMul { dst: 6, a: 3, b: 4 }
+//     34: IAdd { dst: 4, a: 12, b: 6 }
+//     35: Store32 { addr: 4, src: 5 }
+//     36: LoadF32 { dst: 4, value: 0.0 }
+//     37: LoadImm { dst: 5, value: 4 }
+//     38: IMul { dst: 6, a: 3, b: 5 }
+//     39: IAdd { dst: 5, a: 13, b: 6 }
+//     40: Store32 { addr: 5, src: 4 }
+//     41: IAddImm { dst: 3, src: 3, imm: 1 }
+//     42: Jump { offset: -30 }
+// =>  43: LocalAddr { dst: 12, slot: 0 }
+//     44: LocalAddr { dst: 1, slot: 1024 }
+//     45: Store64 { addr: 1, src: 12 }
+//     46: LoadImm { dst: 2, value: 1024 }
+//     47: Store32Off { base: 1, offset: 8, src: 2 }
+//     48: LocalAddr { dst: 13, slot: 512 }
+//     49: LocalAddr { dst: 2, slot: 1026 }
+//     50: Store64 { addr: 2, src: 13 }
+//     51: LoadImm { dst: 3, value: 1024 }
+//     52: Store32Off { base: 2, offset: 8, src: 3 }
+//     53: Move { dst: 3, src: 1 }
+//     54: Move { dst: 4, src: 2 }
+//     55: Call { func: 1, args_start: 3, arg_count: 2 }
+//     56: LocalAddr { dst: 12, slot: 0 }
+//     57: LoadImm { dst: 1, value: 0 }
+//     58: LoadImm { dst: 2, value: 4 }
+//     59: IMul { dst: 3, a: 1, b: 2 }
+//     60: IAdd { dst: 1, a: 12, b: 3 }
+//     61: Load32 { dst: 2, addr: 1 }
+//     62: FAdd { dst: 14, a: 14, b: 2 }
+//     63: IAddImm { dst: 15, src: 15, imm: 1 }
+//     64: Jump { offset: -56 }
+// =>  65: LoadImm { dst: 1, value: 0 }
+//     66: Move { dst: 0, src: 1 }
+//     67: RestoreRegs { start_reg: 1, count: 15, slot: 8232 }
+//     68: Return
+// fn fft (params: 2, locals: 216 bytes):
+//      0: SaveRegs { start_reg: 0, count: 23, slot: 32 }
+//      1: LocalAddr { dst: 19, slot: 0 }  ; re
+//      2: MemCopy { dst: 19, src: 0, size: 12 }
+//      3: LocalAddr { dst: 20, slot: 2 }  ; im
+//      4: MemCopy { dst: 20, src: 1, size: 12 }
+//      5: Load32Off { dst: 21, base: 19, offset: 8 }
+//      6: LoadF32 { dst: 22, value: 3.1415927 }
+//      7: Move { dst: 1, src: 19 }
+//      8: Move { dst: 2, src: 20 }
+//      9: Call { func: 2, args_start: 1, arg_count: 2 }
+//     10: LoadImm { dst: 1, value: 2 }
+//     11: LocalAddr { dst: 19, slot: 0 }  ; re
+//     12: Load32Off { dst: 2, base: 19, offset: 8 }
+//     13: LocalAddr { dst: 20, slot: 2 }  ; im
+//     14: Load32Off { dst: 3, base: 20, offset: 8 }
+// =>  15: ILe { dst: 4, a: 1, b: 21 }
+//     16: JumpIfZero { cond: 4, offset: 57 }
+//     17: LoadImm { dst: 4, value: 2 }
+//     18: IDiv { dst: 5, a: 1, b: 4 }
+//     19: LoadF32 { dst: 4, value: 0.0 }
+//     20: LoadF32 { dst: 6, value: 2.0 }
+//     21: FMul { dst: 7, a: 6, b: 22 }
+//     22: I32ToF32 { dst: 6, src: 1 }
+//     23: FDiv { dst: 8, a: 7, b: 6 }
+//     24: FSub { dst: 6, a: 4, b: 8 }
+//     25: LoadImm { dst: 4, value: 0 }
+//     26: Move { dst: 7, src: 2 }
+//     27: Move { dst: 8, src: 3 }
+// =>  28: ILtJump { a: 4, b: 21, offset: 42 }
+//     29: Move { dst: 9, src: 7 }
+//     30: Move { dst: 10, src: 8 }
+//     31: LoadImm { dst: 11, value: 0 }
+// =>  32: ILtJump { a: 11, b: 5, offset: 36 }
+//     33: I32ToF32 { dst: 12, src: 11 }
+//     34: FMul { dst: 13, a: 6, b: 12 }
+//     35: CosF32 { dst: 12, src: 13 }
+//     36: SinF32 { dst: 14, src: 13 }
+//     37: IAdd { dst: 13, a: 4, b: 11 }
+//     38: IAdd { dst: 15, a: 13, b: 5 }
+//     39: ILt { dst: 16, a: 15, b: 9 }
+//     40: ILt { dst: 17, a: 15, b: 10 }
+//     41: And { dst: 18, a: 16, b: 17 }
+//     42: JumpIfZero { cond: 18, offset: 24 }
+//     43: LocalAddr { dst: 19, slot: 0 }  ; re
+//     44: SliceLoad32 { dst: 16, slice: 19, index: 15 }
+//     45: FMul { dst: 17, a: 12, b: 16 }
+//     46: LocalAddr { dst: 20, slot: 2 }  ; im
+//     47: SliceLoad32 { dst: 16, slice: 20, index: 15 }
+//     48: FMul { dst: 18, a: 14, b: 16 }
+//     49: FSub { dst: 16, a: 17, b: 18 }
+//     50: SliceLoad32 { dst: 17, slice: 20, index: 15 }
+//     51: FMul { dst: 18, a: 12, b: 17 }
+//     52: SliceLoad32 { dst: 12, slice: 19, index: 15 }
+//     53: FMul { dst: 17, a: 14, b: 12 }
+//     54: FAdd { dst: 12, a: 18, b: 17 }
+//     55: SliceLoad32 { dst: 14, slice: 19, index: 13 }
+//     56: FSub { dst: 17, a: 14, b: 16 }
+//     57: SliceStore32 { slice: 19, index: 15, src: 17 }
+//     58: SliceLoad32 { dst: 14, slice: 20, index: 13 }
+//     59: FSub { dst: 17, a: 14, b: 12 }
+//     60: SliceStore32 { slice: 20, index: 15, src: 17 }
+//     61: SliceLoad32 { dst: 14, slice: 19, index: 13 }
+//     62: FAdd { dst: 15, a: 14, b: 16 }
+//     63: SliceStore32 { slice: 19, index: 13, src: 15 }
+//     64: SliceLoad32 { dst: 14, slice: 20, index: 13 }
+//     65: FAdd { dst: 15, a: 14, b: 12 }
+//     66: SliceStore32 { slice: 20, index: 13, src: 15 }
+// =>  67: IAddImm { dst: 11, src: 11, imm: 1 }
+//     68: Jump { offset: -37 }
+// =>  69: IAdd { dst: 4, a: 4, b: 1 }
+//     70: Jump { offset: -43 }
+// =>  71: LoadImm { dst: 4, value: 2 }
+//     72: IMul { dst: 1, a: 1, b: 4 }
+//     73: Jump { offset: -59 }
+// =>  74: LoadImm { dst: 1, value: 0 }
+//     75: Move { dst: 0, src: 1 }
+//     76: RestoreRegs { start_reg: 1, count: 22, slot: 40 }
+//     77: Return
+// locals:
+//   slot 0	re
+//   slot 2	im
+// fn bit_reverse_permute (params: 2, locals: 120 bytes):
+//      0: SaveRegs { start_reg: 0, count: 11, slot: 32 }
+//      1: LocalAddr { dst: 5, slot: 0 }  ; re
+//      2: MemCopy { dst: 5, src: 0, size: 12 }
+//      3: LocalAddr { dst: 6, slot: 2 }  ; im
+//      4: MemCopy { dst: 6, src: 1, size: 12 }
+//      5: Load32Off { dst: 7, base: 5, offset: 8 }
+//      6: Load32Off { dst: 8, base: 6, offset: 8 }
+//      7: LoadImm { dst: 9, value: 0 }
+//      8: Load32Off { dst: 10, base: 5, offset: 8 }
+// =>   9: ILtJump { a: 9, b: 10, offset: 25 }
+//     10: LoadImm { dst: 1, value: 10 }
+//     11: Move { dst: 2, src: 9 }
+//     12: Move { dst: 3, src: 1 }
+//     13: Call { func: 3, args_start: 2, arg_count: 2 }
+//     14: Move { dst: 1, src: 0 }
+//     15: ILt { dst: 2, a: 9, b: 0 }
+//     16: ILt { dst: 3, a: 0, b: 7 }
+//     17: And { dst: 4, a: 2, b: 3 }
+//     18: ILt { dst: 2, a: 9, b: 8 }
+//     19: And { dst: 3, a: 4, b: 2 }
+//     20: ILt { dst: 2, a: 0, b: 8 }
+//     21: And { dst: 4, a: 3, b: 2 }
+//     22: JumpIfZero { cond: 4, offset: 10 }
+//     23: LocalAddr { dst: 5, slot: 0 }  ; re
+//     24: SliceLoad32 { dst: 2, slice: 5, index: 9 }
+//     25: SliceLoad32 { dst: 3, slice: 5, index: 1 }
+//     26: SliceStore32 { slice: 5, index: 9, src: 3 }
+//     27: SliceStore32 { slice: 5, index: 1, src: 2 }
+//     28: LocalAddr { dst: 6, slot: 2 }  ; im
+//     29: SliceLoad32 { dst: 2, slice: 6, index: 9 }
+//     30: SliceLoad32 { dst: 3, slice: 6, index: 1 }
+//     31: SliceStore32 { slice: 6, index: 9, src: 3 }
+//     32: SliceStore32 { slice: 6, index: 1, src: 2 }
+// =>  33: IAddImm { dst: 9, src: 9, imm: 1 }
+//     34: Jump { offset: -26 }
+// =>  35: LoadImm { dst: 1, value: 0 }
+//     36: Move { dst: 0, src: 1 }
+//     37: RestoreRegs { start_reg: 1, count: 10, slot: 40 }
+//     38: Return
+// locals:
+//   slot 0	re
+//   slot 2	im
+// fn bit_reverse (params: 2, locals: 64 bytes):
+//      0: SaveRegs { start_reg: 0, count: 8, slot: 0 }
+//      1: Move { dst: 2, src: 1 }
+//      2: LoadImm { dst: 1, value: 0 }
+//      3: Move { dst: 3, src: 0 }
+//      4: LoadImm { dst: 4, value: 0 }
+// =>   5: ILtJump { a: 4, b: 2, offset: 9 }
+//      6: LoadImm { dst: 5, value: 2 }
+//      7: IMul { dst: 6, a: 1, b: 5 }
+//      8: LoadImm { dst: 5, value: 2 }
+//      9: IRem { dst: 7, a: 3, b: 5 }
+//     10: IAdd { dst: 1, a: 6, b: 7 }
+//     11: LoadImm { dst: 5, value: 2 }
+//     12: IDiv { dst: 3, a: 3, b: 5 }
+//     13: IAddImm { dst: 4, src: 4, imm: 1 }
+//     14: Jump { offset: -10 }
+// =>  15: Move { dst: 0, src: 1 }
+//     16: RestoreRegs { start_reg: 1, count: 7, slot: 8 }
+//     17: Return
+// locals:
+//   r2	bits
+//   r2	x
+
+bit_reverse(x: i32, bits: i32) -> i32 {
+    var result = 0
+    var val = x
+    for i in 0 .. bits {
+        result = result * 2 + val % 2
+        val = val / 2
+    }
+    result
+}
+
+bit_reverse_permute(re: [f32], im: [f32]) {
+    for i in 0 .. re.len {
+        var j = bit_reverse(i, 10)
+        if i < j && j < re.len && i < im.len && j < im.len {
+            var tr = re[i]
+            re[i] = re[j]
+            re[j] = tr
+            var ti = im[i]
+            im[i] = im[j]
+            im[j] = ti
+        }
+    }
+}
+
+fft(re: [f32], im: [f32]) {
+    var n = re.len
+    var pi = 3.14159265
+
+    bit_reverse_permute(re, im)
+
+    var size = 2
+    while size <= n {
+        var half = size / 2
+        var angle = 0.0 - 2.0 * pi / (size as f32)
+
+        var group = 0
+        while group < n {
+            for k in 0 .. half {
+                var theta = angle * (k as f32)
+                var wr = cos(theta)
+                var wi = sin(theta)
+
+                var i = group + k
+                var j = i + half
+
+                if j < re.len && j < im.len {
+                    var tr = wr * re[j] - wi * im[j]
+                    var ti = wr * im[j] + wi * re[j]
+
+                    re[j] = re[i] - tr
+                    im[j] = im[i] - ti
+                    re[i] = re[i] + tr
+                    im[i] = im[i] + ti
+                }
+            }
+            group = group + size
+        }
+        size = size * 2
+    }
+}
+
+main {
+    var n = 1024
+    var iters = 2000
+    var re: [f32; 1024]
+    var im: [f32; 1024]
+
+    var checksum = 0.0
+
+    for iter in 0 .. iters {
+        var freq1 = 50.0
+        var freq2 = 120.0
+        for i in 0 .. n {
+            var t = (i as f32) / (n as f32)
+            re[i] = sin(2.0 * 3.14159265 * freq1 * t) + 0.5 * sin(2.0 * 3.14159265 * freq2 * t)
+            im[i] = 0.0
+        }
+
+        fft(re, im)
+
+        checksum = checksum + re[0]
+    }
+}
