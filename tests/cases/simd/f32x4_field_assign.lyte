@@ -1,0 +1,18 @@
+// f32x4 field assignment: v.x = val, v.r = val, etc.
+// expected stdout:
+// compilation successful
+// 10
+// 20
+// 3
+// 40
+
+main {
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+    v.x = 10.0
+    v.w = 40.0
+    v.g = 20.0
+    print(v.x as i32)
+    print(v.y as i32)
+    print(v.z as i32)
+    print(v.w as i32)
+}

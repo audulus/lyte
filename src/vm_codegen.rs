@@ -1998,6 +1998,18 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_addr = self.translate_lvalue(*lhs_id, func);
                 let lhs_ty = self.expr_type(*lhs_id);
 
+                if matches!(&*lhs_ty, Type::Float32x4) {
+                    let s: &str = name;
+                    let offset: i32 = match s {
+                        "x" | "r" => 0, "y" | "g" => 4,
+                        "z" | "b" => 8, "w" | "a" => 12,
+                        _ => panic!("invalid f32x4 field: {}", name),
+                    };
+                    let dst = self.alloc_reg();
+                    func.emit(Opcode::IAddImm { dst, src: lhs_addr, imm: offset });
+                    return dst;
+                }
+
                 if let Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = self.decls.find(*struct_name);
                     if let Decl::Struct(s) = &struct_decl[0] {

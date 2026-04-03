@@ -1992,7 +1992,27 @@ impl<'a> FunctionTranslator<'a> {
             }
             Binop::Assign => {
                 let t = decl.types[lhs_id];
-                // f32x4: value-type assignment via def_var
+                // f32x4 field assignment: v.x = val → insertlane
+                if let Expr::Field(vec_id, field_name) = &decl.arena[lhs_id] {
+                    let vec_ty = decl.types[*vec_id];
+                    if matches!(*vec_ty, crate::types::Type::Float32x4) {
+                        let lane: u8 = match &***field_name {
+                            "x" | "r" => 0, "y" | "g" => 1,
+                            "z" | "b" => 2, "w" | "a" => 3,
+                            _ => panic!("invalid f32x4 field: {}", field_name),
+                        };
+                        let rhs = self.translate_expr(rhs_id, decl, decls);
+                        if let Expr::Id(name) = &decl.arena[*vec_id] {
+                            if let Some(&var) = self.variables.get(&**name) {
+                                let vec = self.builder.use_var(var);
+                                let new_vec = self.builder.ins().insertlane(vec, rhs, lane);
+                                self.builder.def_var(var, new_vec);
+                                return rhs;
+                            }
+                        }
+                    }
+                }
+                // f32x4: full value-type assignment via def_var
                 if matches!(*t, crate::types::Type::Float32x4) {
                     if let Expr::Id(name) = &decl.arena[lhs_id] {
                         if let Some(&var) = self.variables.get(&**name) {

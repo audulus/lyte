@@ -2232,6 +2232,32 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Assign => {
+                // f32x4 field assignment: v.x = val → insert_element + store
+                if let Expr::Field(vec_id, field_name) = &decl.arena.exprs[lhs_id] {
+                    let vec_ty = decl.types[*vec_id];
+                    if matches!(*vec_ty, crate::Type::Float32x4) {
+                        let lane: u64 = match &***field_name {
+                            "x" | "r" => 0, "y" | "g" => 1,
+                            "z" | "b" => 2, "w" | "a" => 3,
+                            _ => panic!("invalid f32x4 field: {}", field_name),
+                        };
+                        let rhs_val = self.translate_expr(rhs_id, decl);
+                        if let Expr::Id(name) = &decl.arena.exprs[*vec_id] {
+                            if let Some(&alloca) = self.variables.get(&**name) {
+                                let vec_val = self.builder()
+                                    .build_load(self.ctx().f32_type().vec_type(4).into(), alloca, "vec")
+                                    .unwrap()
+                                    .into_vector_value();
+                                let idx = self.i32_ty().const_int(lane, false);
+                                let new_vec = self.builder()
+                                    .build_insert_element(vec_val, rhs_val.into_float_value(), idx, "ins")
+                                    .unwrap();
+                                self.builder().build_store(alloca, new_vec).unwrap();
+                                return rhs_val;
+                            }
+                        }
+                    }
+                }
                 let lhs_addr = self.translate_lvalue(lhs_id, decl);
                 let rhs_val = self.translate_expr(rhs_id, decl);
                 let t = decl.types[lhs_id];
