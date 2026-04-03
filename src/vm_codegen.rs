@@ -1449,6 +1449,19 @@ impl<'a> FunctionTranslator<'a> {
                 });
                 return Some(dst);
             }
+            // a - b*c → FNMulAdd { dst, a: b, b: c, c: a }  (a - b*c)
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[rhs_id] {
+                let c = self.translate_expr(lhs_id, func);
+                let a = self.translate_expr(ma, func);
+                let b = self.translate_expr(mb, func);
+                let dst = self.alloc_reg();
+                func.emit(if is_f64 {
+                    Opcode::DNMulAdd { dst, a, b, c }
+                } else {
+                    Opcode::FNMulAdd { dst, a, b, c }
+                });
+                return Some(dst);
+            }
         }
         None
     }

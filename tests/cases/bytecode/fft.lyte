@@ -1,6 +1,7 @@
 // FFT benchmark — bytecode golden test.
 // Tracks codegen quality for the butterfly loop.
 
+
 // args: --bytecode
 // expected stdout:
 // fn main (params: 0, locals: 8352 bytes):

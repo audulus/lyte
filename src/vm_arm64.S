@@ -1075,6 +1075,40 @@ Lop_dmul_sub:
     str     d0, [x20, x0, lsl #3]
     next
 
+// FNMUL_ADD: ABC+data, dst = c - a*b (ARM64 fmsub Sd,Sn,Sm,Sa = Sa - Sn*Sm)
+Lop_fnmul_add:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     w3, [x19, x21, lsl #2]
+    add     x21, x21, #1
+    and     w3, w3, #0xff
+    add     x4, x20, x1, lsl #3
+    ldr     s0, [x4]
+    add     x4, x20, x2, lsl #3
+    ldr     s1, [x4]
+    add     x4, x20, x3, lsl #3
+    ldr     s2, [x4]
+    fmsub   s0, s0, s1, s2             // c - a*b
+    fmov    w3, s0
+    str     x3, [x20, x0, lsl #3]
+    next
+
+// DNMUL_ADD: ABC+data, dst = c - a*b (f64)
+Lop_dnmul_add:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     w3, [x19, x21, lsl #2]
+    add     x21, x21, #1
+    and     w3, w3, #0xff
+    ldr     d0, [x20, x1, lsl #3]
+    ldr     d1, [x20, x2, lsl #3]
+    ldr     d2, [x20, x3, lsl #3]
+    fmsub   d0, d0, d1, d2
+    str     d0, [x20, x0, lsl #3]
+    next
+
 Lcheck_cancel:
     ldr     x1, [x24, #CTX_CANCELLED_PTR]
     ldrb    w2, [x1]
@@ -2096,8 +2130,10 @@ Ljump_table:
     .quad Lop_fmul_sub          // 164: FMUL_SUB
     .quad Lop_dmul_add          // 165: DMUL_ADD
     .quad Lop_dmul_sub          // 166: DMUL_SUB
-    // 167-255: invalid
-    .fill 89, 8, 0             // will be Lop_invalid pointers
+    .quad Lop_fnmul_add         // 167: FNMUL_ADD
+    .quad Lop_dnmul_add         // 168: DNMUL_ADD
+    // 169-255: invalid
+    .fill 87, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

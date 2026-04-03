@@ -1,6 +1,7 @@
 // Biquad filter benchmark — bytecode golden test.
 // Tracks codegen quality for the DSP hot loop.
 
+
 // args: --bytecode
 // expected stdout:
 // fn main (params: 0, locals: 208 bytes):
@@ -31,7 +32,7 @@
 //     24: Load32Off { dst: 8, base: 15, offset: 12 }
 //     25: Load32Off { dst: 9, base: 15, offset: 16 }
 //     26: LoadImm { dst: 10, value: 0 }
-// =>  27: ILtJump { a: 10, b: 1, offset: 27 }
+// =>  27: ILtJump { a: 10, b: 1, offset: 25 }
 //     28: FMul { dst: 11, a: 2, b: 6 }
 //     29: SinF32 { dst: 12, src: 11 }
 //     30: FAdd { dst: 2, a: 2, b: 5 }
@@ -46,23 +47,21 @@
 //     39: Load32Off { dst: 11, base: 15, offset: 24 }
 //     40: FMulAdd { dst: 13, a: 7, b: 11, c: 14 }
 //     41: Load32Off { dst: 11, base: 15, offset: 28 }
-//     42: FMul { dst: 14, a: 8, b: 11 }
-//     43: FSub { dst: 11, a: 13, b: 14 }
-//     44: Load32Off { dst: 13, base: 15, offset: 32 }
-//     45: FMul { dst: 14, a: 9, b: 13 }
-//     46: FSub { dst: 13, a: 11, b: 14 }
-//     47: Load32Off { dst: 11, base: 15, offset: 20 }
-//     48: Store32Off { base: 15, offset: 24, src: 11 }
-//     49: Store32Off { base: 15, offset: 20, src: 12 }
-//     50: Load32Off { dst: 11, base: 15, offset: 28 }
-//     51: Store32Off { base: 15, offset: 32, src: 11 }
-//     52: Store32Off { base: 15, offset: 28, src: 13 }
-//     53: IAddImm { dst: 10, src: 10, imm: 1 }
-//     54: Jump { offset: -28 }
-// =>  55: LoadImm { dst: 1, value: 0 }
-//     56: Move { dst: 0, src: 1 }
-//     57: RestoreRegs { start_reg: 1, count: 15, slot: 88 }
-//     58: Return
+//     42: FNMulAdd { dst: 14, a: 8, b: 11, c: 13 }
+//     43: Load32Off { dst: 11, base: 15, offset: 32 }
+//     44: FNMulAdd { dst: 13, a: 9, b: 11, c: 14 }
+//     45: Load32Off { dst: 11, base: 15, offset: 20 }
+//     46: Store32Off { base: 15, offset: 24, src: 11 }
+//     47: Store32Off { base: 15, offset: 20, src: 12 }
+//     48: Load32Off { dst: 11, base: 15, offset: 28 }
+//     49: Store32Off { base: 15, offset: 32, src: 11 }
+//     50: Store32Off { base: 15, offset: 28, src: 13 }
+//     51: IAddImm { dst: 10, src: 10, imm: 1 }
+//     52: Jump { offset: -26 }
+// =>  53: LoadImm { dst: 1, value: 0 }
+//     54: Move { dst: 0, src: 1 }
+//     55: RestoreRegs { start_reg: 1, count: 15, slot: 88 }
+//     56: Return
 // fn lpf (params: 4, locals: 112 bytes):
 //      0: SaveRegs { start_reg: 0, count: 8, slot: 48 }
 //      1: LocalAddr { dst: 4, slot: 0 }
@@ -95,26 +94,25 @@
 //     28: Store32Off { base: 1, offset: 8, src: 3 }
 //     29: LoadF32 { dst: 3, value: 0.0 }
 //     30: LoadF32 { dst: 6, value: 2.0 }
-//     31: FMul { dst: 7, a: 6, b: 0 }
-//     32: FSub { dst: 0, a: 3, b: 7 }
-//     33: FMul { dst: 3, a: 0, b: 5 }
-//     34: Store32Off { base: 1, offset: 12, src: 3 }
-//     35: LoadF32 { dst: 0, value: 1.0 }
-//     36: FSub { dst: 3, a: 0, b: 2 }
-//     37: FMul { dst: 0, a: 3, b: 5 }
-//     38: Store32Off { base: 1, offset: 16, src: 0 }
-//     39: LoadF32 { dst: 0, value: 0.0 }
-//     40: Store32Off { base: 1, offset: 20, src: 0 }
-//     41: LoadF32 { dst: 0, value: 0.0 }
-//     42: Store32Off { base: 1, offset: 24, src: 0 }
-//     43: LoadF32 { dst: 0, value: 0.0 }
-//     44: Store32Off { base: 1, offset: 28, src: 0 }
-//     45: LoadF32 { dst: 0, value: 0.0 }
-//     46: Store32Off { base: 1, offset: 32, src: 0 }
-//     47: Load64 { dst: 0, addr: 4 }
-//     48: MemCopy { dst: 0, src: 1, size: 36 }
-//     49: RestoreRegs { start_reg: 0, count: 8, slot: 48 }
-//     50: Return
+//     31: FNMulAdd { dst: 7, a: 6, b: 0, c: 3 }
+//     32: FMul { dst: 0, a: 7, b: 5 }
+//     33: Store32Off { base: 1, offset: 12, src: 0 }
+//     34: LoadF32 { dst: 0, value: 1.0 }
+//     35: FSub { dst: 3, a: 0, b: 2 }
+//     36: FMul { dst: 0, a: 3, b: 5 }
+//     37: Store32Off { base: 1, offset: 16, src: 0 }
+//     38: LoadF32 { dst: 0, value: 0.0 }
+//     39: Store32Off { base: 1, offset: 20, src: 0 }
+//     40: LoadF32 { dst: 0, value: 0.0 }
+//     41: Store32Off { base: 1, offset: 24, src: 0 }
+//     42: LoadF32 { dst: 0, value: 0.0 }
+//     43: Store32Off { base: 1, offset: 28, src: 0 }
+//     44: LoadF32 { dst: 0, value: 0.0 }
+//     45: Store32Off { base: 1, offset: 32, src: 0 }
+//     46: Load64 { dst: 0, addr: 4 }
+//     47: MemCopy { dst: 0, src: 1, size: 36 }
+//     48: RestoreRegs { start_reg: 0, count: 8, slot: 48 }
+//     49: Return
 // locals:
 //   r5	fc
 //   r6	fs

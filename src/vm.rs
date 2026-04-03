@@ -312,6 +312,8 @@ pub(crate) mod tags {
     pub const FMUL_SUB: u8 = 164; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b - c)
     pub const DMUL_ADD: u8 = 165; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b + c)
     pub const DMUL_SUB: u8 = 166; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b - c)
+    pub const FNMUL_ADD: u8 = 167; // ABC+data: A=dst, B=a, C=b, next word=c (dst = c - a*b)
+    pub const DNMUL_ADD: u8 = 168; // ABC+data: A=dst, B=a, C=b, next word=c (dst = c - a*b)
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
@@ -562,6 +564,11 @@ impl LinkedProgram {
                 ops.push(PackedOp::data(r(c) as u32));
                 return;
             }
+            Opcode::FNMulAdd { dst, a, b, c } => {
+                ops.push(PackedOp::abc(tags::FNMUL_ADD, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(r(c) as u32));
+                return;
+            }
             // Float64 arithmetic — ABC
             Opcode::DAdd { dst, a, b } => PackedOp::abc(tags::DADD, r(dst), r(a), r(b)),
             Opcode::DSub { dst, a, b } => PackedOp::abc(tags::DSUB, r(dst), r(a), r(b)),
@@ -576,6 +583,11 @@ impl LinkedProgram {
             }
             Opcode::DMulSub { dst, a, b, c } => {
                 ops.push(PackedOp::abc(tags::DMUL_SUB, r(dst), r(a), r(b)));
+                ops.push(PackedOp::data(r(c) as u32));
+                return;
+            }
+            Opcode::DNMulAdd { dst, a, b, c } => {
+                ops.push(PackedOp::abc(tags::DNMUL_ADD, r(dst), r(a), r(b)));
                 ops.push(PackedOp::data(r(c) as u32));
                 return;
             }
@@ -1869,6 +1881,16 @@ impl VM {
                         let c_reg = (*ops.add(ip)).0 as usize;
                         ip += 1;
                         set_f64!(op.a(), r_f64!(op.b()) * r_f64!(op.c()) - r_f64!(c_reg));
+                    }
+                    tags::FNMUL_ADD => {
+                        let c_reg = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        set_f32!(op.a(), r_f32!(c_reg) - r_f32!(op.b()) * r_f32!(op.c()));
+                    }
+                    tags::DNMUL_ADD => {
+                        let c_reg = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        set_f64!(op.a(), r_f64!(c_reg) - r_f64!(op.b()) * r_f64!(op.c()));
                     }
 
                     // Call — ABC: A=args_start, B=arg_count, C=func_idx

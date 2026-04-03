@@ -557,6 +557,11 @@ fn fuse_multiply_add(code: &mut Vec<Opcode>) {
                         code[i] = Opcode::FMulSub { dst: d, a, b, c: y };
                         code[i + 1] = Opcode::Nop;
                     }
+                    Opcode::FSub { dst: d, a: x, b: y } if y == t => {
+                        // D = X - T = X - a*b → FNMulAdd { dst: D, a, b, c: X }
+                        code[i] = Opcode::FNMulAdd { dst: d, a, b, c: x };
+                        code[i + 1] = Opcode::Nop;
+                    }
                     _ => {}
                 }
             }
@@ -573,6 +578,11 @@ fn fuse_multiply_add(code: &mut Vec<Opcode>) {
                     Opcode::DSub { dst: d, a: x, b: y } if x == t => {
                         // D = T - Y = a*b - Y → DMulSub { dst: D, a, b, c: Y }
                         code[i] = Opcode::DMulSub { dst: d, a, b, c: y };
+                        code[i + 1] = Opcode::Nop;
+                    }
+                    Opcode::DSub { dst: d, a: x, b: y } if y == t => {
+                        // D = X - T = X - a*b → DNMulAdd { dst: D, a, b, c: X }
+                        code[i] = Opcode::DNMulAdd { dst: d, a, b, c: x };
                         code[i + 1] = Opcode::Nop;
                     }
                     _ => {}
@@ -1758,15 +1768,23 @@ mod tests {
     }
 
     #[test]
-    fn test_fuse_fmul_sub_not_commuted() {
-        // FSub { a: X, b: T } where T is the mul result → X - a*b, NOT fusible to FMulSub
+    fn test_fuse_fnmul_add() {
+        // FSub { a: X, b: T } where T is the mul result → X - a*b → FNMulAdd
         let mut code = vec![
             Opcode::FMul { dst: 2, a: 0, b: 1 },
             Opcode::FSub { dst: 3, a: 4, b: 2 },
         ];
-        let original = code.clone();
         fuse_multiply_add(&mut code);
-        assert_eq!(code, original);
+        assert_eq!(
+            code[0],
+            Opcode::FNMulAdd {
+                dst: 3,
+                a: 0,
+                b: 1,
+                c: 4
+            }
+        );
+        assert_eq!(code[1], Opcode::Nop);
     }
 
     #[test]
