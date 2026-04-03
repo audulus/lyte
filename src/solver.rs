@@ -330,6 +330,21 @@ pub fn iterate_solver(
                             });
                         }
                     }
+                    Type::Float32x4 => {
+                        let s: &str = field_name;
+                        let valid = matches!(
+                            s,
+                            "x" | "y" | "z" | "w" | "r" | "g" | "b" | "a"
+                        );
+                        if valid {
+                            *constraint = Constraint::Equal(mk_type(Type::Float32), *ft, *loc, None);
+                        } else {
+                            errors.push(TypeError {
+                                location: *loc,
+                                message: format!("f32x4 has fields x/y/z/w or r/g/b/a, not {}", field_name),
+                            });
+                        }
+                    }
                     Type::Array(_, _) | Type::Slice(_) => {
                         if *field_name == Name::new("len".into()) {
                             *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc, None);

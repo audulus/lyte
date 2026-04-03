@@ -1039,6 +1039,19 @@ impl<'a> FunctionTranslator<'a> {
                         _ => {}
                     }
                 }
+                // f32x4 swizzle: v.x, v.y, v.z, v.w, v.r, v.g, v.b, v.a
+                if matches!(*lhs_ty, crate::types::Type::Float32x4) {
+                    let lane: u8 = match &***name {
+                        "x" | "r" => 0,
+                        "y" | "g" => 1,
+                        "z" | "b" => 2,
+                        "w" | "a" => 3,
+                        _ => panic!("invalid f32x4 field: {}", name),
+                    };
+                    let vec = self.translate_expr(*lhs, decl, decls);
+                    return self.builder.ins().extractlane(vec, lane);
+                }
+
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
                 if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);

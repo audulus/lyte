@@ -1568,6 +1568,24 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         _ => {}
                     }
                 }
+                // f32x4 swizzle: v.x, v.y, v.z, v.w, v.r, v.g, v.b, v.a
+                if matches!(*lhs_ty, crate::Type::Float32x4) {
+                    let lane: u64 = match &**field_name {
+                        "x" | "r" => 0,
+                        "y" | "g" => 1,
+                        "z" | "b" => 2,
+                        "w" | "a" => 3,
+                        _ => panic!("invalid f32x4 field: {}", field_name),
+                    };
+                    let vec = self.translate_expr(lhs_id, decl).into_vector_value();
+                    let idx = self.i32_ty().const_int(lane, false);
+                    return self.builder()
+                        .build_extract_element(vec, idx, "lane")
+                        .unwrap()
+                        .into_float_value()
+                        .into();
+                }
+
                 let lhs_val = self.translate_expr(lhs_id, decl).into_pointer_value();
                 let field_ty = decl.types[expr];
                 let field_ptr = self.compute_field_ptr(lhs_val, lhs_ty, &field_name, decl);

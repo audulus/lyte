@@ -1,0 +1,23 @@
+// f32x4 field access: x/y/z/w and r/g/b/a
+// expected stdout:
+// compilation successful
+// 1
+// 2
+// 3
+// 4
+// 1
+// 2
+// 3
+// 4
+
+main {
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+    print(v.x as i32)
+    print(v.y as i32)
+    print(v.z as i32)
+    print(v.w as i32)
+    print(v.r as i32)
+    print(v.g as i32)
+    print(v.b as i32)
+    print(v.a as i32)
+}

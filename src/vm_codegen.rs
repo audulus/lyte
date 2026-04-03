@@ -2784,6 +2784,26 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
+        // f32x4 swizzle fields: x/r=0, y/g=1, z/b=2, w/a=3
+        if matches!(&*lhs_ty, Type::Float32x4) {
+            let s: &str = &name;
+            let lane: i32 = match s {
+                "x" | "r" => 0,
+                "y" | "g" => 1,
+                "z" | "b" => 2,
+                "w" | "a" => 3,
+                _ => panic!("invalid f32x4 field: {}", name),
+            };
+            let lhs = self.translate_expr(lhs_id, func);
+            let dst = self.alloc_reg();
+            func.emit(Opcode::Load32Off {
+                dst,
+                base: lhs,
+                offset: lane * 4,
+            });
+            return dst;
+        }
+
         let lhs = self.translate_expr(lhs_id, func);
 
         if let Type::Name(struct_name, type_args) = &*lhs_ty {
