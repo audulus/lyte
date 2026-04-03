@@ -256,6 +256,21 @@ pub enum Opcode {
         c: Reg,
     },
 
+    // ============ SIMD Float32x4 ============
+    // All pointer operands (dst, a, b) are registers holding memory addresses.
+    // The SIMD ops load 128 bits from a/b, operate lane-wise, store to dst.
+
+    /// f32x4 lane-wise add: *dst = *a + *b
+    F32x4Add { dst: Reg, a: Reg, b: Reg },
+    /// f32x4 lane-wise sub: *dst = *a - *b
+    F32x4Sub { dst: Reg, a: Reg, b: Reg },
+    /// f32x4 lane-wise mul: *dst = *a * *b
+    F32x4Mul { dst: Reg, a: Reg, b: Reg },
+    /// f32x4 lane-wise div: *dst = *a / *b
+    F32x4Div { dst: Reg, a: Reg, b: Reg },
+    /// f32x4 lane-wise neg: *dst = -*src
+    F32x4Neg { dst: Reg, src: Reg },
+
     // ============ Bitwise Operations ============
     /// Bitwise AND: dst = a & b
     And {
@@ -1122,6 +1137,11 @@ impl Opcode {
             | Opcode::AllocLocals { .. }
             | Opcode::MemCopy { .. }
             | Opcode::MemZero { .. }
+            | Opcode::F32x4Add { .. }
+            | Opcode::F32x4Sub { .. }
+            | Opcode::F32x4Mul { .. }
+            | Opcode::F32x4Div { .. }
+            | Opcode::F32x4Neg { .. }
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. }
             | Opcode::PrintI32 { .. }
@@ -1314,6 +1334,12 @@ impl Opcode {
             Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } | Opcode::DNMulAdd { a, b, c, .. } => {
                 *a == reg || *b == reg || *c == reg
             }
+
+            Opcode::F32x4Add { dst, a, b }
+            | Opcode::F32x4Sub { dst, a, b }
+            | Opcode::F32x4Mul { dst, a, b }
+            | Opcode::F32x4Div { dst, a, b } => *dst == reg || *a == reg || *b == reg,
+            Opcode::F32x4Neg { dst, src } => *dst == reg || *src == reg,
 
             Opcode::And { a, b, .. }
             | Opcode::Or { a, b, .. }
@@ -2000,6 +2026,18 @@ impl Opcode {
                 f(*src);
             }
             Opcode::MemZero { dst, .. } => f(*dst),
+            Opcode::F32x4Add { dst, a, b }
+            | Opcode::F32x4Sub { dst, a, b }
+            | Opcode::F32x4Mul { dst, a, b }
+            | Opcode::F32x4Div { dst, a, b } => {
+                f(*dst);
+                f(*a);
+                f(*b);
+            }
+            Opcode::F32x4Neg { dst, src } => {
+                f(*dst);
+                f(*src);
+            }
             // SaveRegs/RestoreRegs are function-level bookkeeping, not data flow.
             Opcode::SaveRegs { .. } => {}
             Opcode::RestoreRegs { .. } => {}
@@ -2287,6 +2325,18 @@ impl Opcode {
             }
             Opcode::MemZero { dst, .. } => {
                 *dst = map[*dst as usize];
+            }
+            Opcode::F32x4Add { dst, a, b }
+            | Opcode::F32x4Sub { dst, a, b }
+            | Opcode::F32x4Mul { dst, a, b }
+            | Opcode::F32x4Div { dst, a, b } => {
+                *dst = map[*dst as usize];
+                *a = map[*a as usize];
+                *b = map[*b as usize];
+            }
+            Opcode::F32x4Neg { dst, src } => {
+                *dst = map[*dst as usize];
+                *src = map[*src as usize];
             }
             // SaveRegs/RestoreRegs are patched separately (Step 6), not remapped.
             Opcode::SaveRegs { .. } => {}

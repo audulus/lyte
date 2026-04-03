@@ -60,6 +60,8 @@ pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>
     fuse_local_access(code);
     // Fuse IAddImm+Load/Store into offset-addressing superinstructions
     fuse_offset_access(code);
+    // Fuse FMul+FAdd/FSub into FMulAdd/FMulSub/FNMulAdd (and f64 variants)
+    fuse_multiply_add(code);
     // Fuse compare+branch into single instructions
     fuse_compare_branch(code);
     // Register allocation: compact register numbering via linear scan

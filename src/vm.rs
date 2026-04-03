@@ -314,6 +314,11 @@ pub(crate) mod tags {
     pub const DMUL_SUB: u8 = 166; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b - c)
     pub const FNMUL_ADD: u8 = 167; // ABC+data: A=dst, B=a, C=b, next word=c (dst = c - a*b)
     pub const DNMUL_ADD: u8 = 168; // ABC+data: A=dst, B=a, C=b, next word=c (dst = c - a*b)
+    pub const F32X4_ADD: u8 = 170; // ABC: A=dst, B=a, C=b (ptr-represented, lane-wise)
+    pub const F32X4_SUB: u8 = 171;
+    pub const F32X4_MUL: u8 = 172;
+    pub const F32X4_DIV: u8 = 173;
+    pub const F32X4_NEG: u8 = 174; // AB: A=dst, B=src
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
@@ -591,6 +596,12 @@ impl LinkedProgram {
                 ops.push(PackedOp::data(r(c) as u32));
                 return;
             }
+            // SIMD f32x4 — ABC (ptr-represented)
+            Opcode::F32x4Add { dst, a, b } => PackedOp::abc(tags::F32X4_ADD, r(dst), r(a), r(b)),
+            Opcode::F32x4Sub { dst, a, b } => PackedOp::abc(tags::F32X4_SUB, r(dst), r(a), r(b)),
+            Opcode::F32x4Mul { dst, a, b } => PackedOp::abc(tags::F32X4_MUL, r(dst), r(a), r(b)),
+            Opcode::F32x4Div { dst, a, b } => PackedOp::abc(tags::F32X4_DIV, r(dst), r(a), r(b)),
+            Opcode::F32x4Neg { dst, src } => PackedOp::abc(tags::F32X4_NEG, r(dst), r(src), 0),
             // Bitwise — ABC
             Opcode::And { dst, a, b } => PackedOp::abc(tags::AND, r(dst), r(a), r(b)),
             Opcode::Or { dst, a, b } => PackedOp::abc(tags::OR, r(dst), r(a), r(b)),
@@ -1449,6 +1460,32 @@ impl VM {
                     }
                     tags::DPOW => {
                         set_f64!(op.a(), r_f64!(op.b()).powf(r_f64!(op.c())));
+                    }
+
+                    // SIMD f32x4 — ptr-represented, lane-wise ops
+                    tags::F32X4_ADD | tags::F32X4_SUB | tags::F32X4_MUL | tags::F32X4_DIV => {
+                        let dst_ptr = r!(op.a()) as *mut f32;
+                        let a_ptr = r!(op.b()) as *const f32;
+                        let b_ptr = r!(op.c()) as *const f32;
+                        for lane in 0..4 {
+                            let a_val = *a_ptr.add(lane);
+                            let b_val = *b_ptr.add(lane);
+                            let result = match op.tag() {
+                                tags::F32X4_ADD => a_val + b_val,
+                                tags::F32X4_SUB => a_val - b_val,
+                                tags::F32X4_MUL => a_val * b_val,
+                                tags::F32X4_DIV => a_val / b_val,
+                                _ => unreachable!(),
+                            };
+                            *dst_ptr.add(lane) = result;
+                        }
+                    }
+                    tags::F32X4_NEG => {
+                        let dst_ptr = r!(op.a()) as *mut f32;
+                        let src_ptr = r!(op.b()) as *const f32;
+                        for lane in 0..4 {
+                            *dst_ptr.add(lane) = -*src_ptr.add(lane);
+                        }
                     }
 
                     // Bitwise — ABC

@@ -138,6 +138,12 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
+        // f32x4: arithmetic and negation, but not relational comparisons
+        let f32x4 = mk_type(Type::Float32x4);
+        let f32x4_pair = tuple(vec![f32x4, f32x4]);
+        arith_overloads.push(func(f32x4_pair, f32x4));
+        neg_overloads.push(func(f32x4, f32x4));
+
         let float32 = mk_type(Type::Float32);
         let float64 = mk_type(Type::Float64);
         let cast_overloads = vec![

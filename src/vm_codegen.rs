@@ -1480,9 +1480,6 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // FMA: emit FMulAdd/FMulSub directly from the expression tree.
-        //   a + b*c  →  FMulAdd { dst, a: b, b: c, c: a }
-        //   b*c + a  →  FMulAdd { dst, a: b, b: c, c: a }
-        //   b*c - a  →  FMulSub { dst, a: b, b: c, c: a }  (b*c - a)
         if op == Binop::Plus || op == Binop::Minus {
             let ty = self.expr_type(lhs_id);
             let is_f32 = matches!(&*ty, Type::Float32);
@@ -1491,6 +1488,26 @@ impl<'a> FunctionTranslator<'a> {
                 if let Some(reg) = self.try_emit_fma(op, lhs_id, rhs_id, is_f64, func) {
                     return reg;
                 }
+            }
+        }
+
+        // f32x4: ptr-represented SIMD ops — allocate result slot and emit SIMD opcode
+        {
+            let ty = self.expr_type(lhs_id);
+            if matches!(&*ty, Type::Float32x4) {
+                let lhs = self.translate_expr(lhs_id, func);
+                let rhs = self.translate_expr(rhs_id, func);
+                let slot = self.alloc_local(16);
+                let dst = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst, slot });
+                match op {
+                    Binop::Plus => { func.emit(Opcode::F32x4Add { dst, a: lhs, b: rhs }); }
+                    Binop::Minus => { func.emit(Opcode::F32x4Sub { dst, a: lhs, b: rhs }); }
+                    Binop::Mult => { func.emit(Opcode::F32x4Mul { dst, a: lhs, b: rhs }); }
+                    Binop::Div => { func.emit(Opcode::F32x4Div { dst, a: lhs, b: rhs }); }
+                    _ => panic!("unsupported f32x4 binop: {:?}", op),
+                }
+                return dst;
             }
         }
 
@@ -2061,8 +2078,18 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate a unary operation.
     fn translate_unop(&mut self, op: Unop, arg_id: ExprID, func: &mut VMFunction) -> Reg {
         let arg = self.translate_expr(arg_id, func);
-        let dst = self.alloc_reg();
         let ty = self.expr_type(arg_id);
+
+        // f32x4 negation: ptr-represented
+        if op == Unop::Neg && matches!(&*ty, Type::Float32x4) {
+            let slot = self.alloc_local(16);
+            let dst = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst, slot });
+            func.emit(Opcode::F32x4Neg { dst, src: arg });
+            return dst;
+        }
+
+        let dst = self.alloc_reg();
 
         match op {
             Unop::Neg => match &*ty {
@@ -2179,6 +2206,35 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 let dst = self.alloc_reg();
                 func.emit(Opcode::LoadImm { dst, value: 0 });
+                return dst;
+            }
+
+            // f32x4 constructor: f32x4(x, y, z, w) → allocate 16-byte slot, store 4 f32s
+            if **name == "f32x4" && arg_ids.len() == 4 {
+                let x = self.translate_expr(arg_ids[0], func);
+                let y = self.translate_expr(arg_ids[1], func);
+                let z = self.translate_expr(arg_ids[2], func);
+                let w = self.translate_expr(arg_ids[3], func);
+                let slot = self.alloc_local(16);
+                let dst = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst, slot });
+                func.emit(Opcode::Store32Off { base: dst, offset: 0, src: x });
+                func.emit(Opcode::Store32Off { base: dst, offset: 4, src: y });
+                func.emit(Opcode::Store32Off { base: dst, offset: 8, src: z });
+                func.emit(Opcode::Store32Off { base: dst, offset: 12, src: w });
+                return dst;
+            }
+
+            // f32x4_splat: broadcast one f32 to all 4 lanes
+            if **name == "f32x4_splat" && arg_ids.len() == 1 {
+                let x = self.translate_expr(arg_ids[0], func);
+                let slot = self.alloc_local(16);
+                let dst = self.alloc_reg();
+                func.emit(Opcode::LocalAddr { dst, slot });
+                func.emit(Opcode::Store32Off { base: dst, offset: 0, src: x });
+                func.emit(Opcode::Store32Off { base: dst, offset: 4, src: x });
+                func.emit(Opcode::Store32Off { base: dst, offset: 8, src: x });
+                func.emit(Opcode::Store32Off { base: dst, offset: 12, src: x });
                 return dst;
             }
 
@@ -2840,6 +2896,19 @@ impl<'a> FunctionTranslator<'a> {
         let idx = self.translate_expr(idx_id, func);
         let arr_ty = self.expr_type(arr_id);
 
+        // f32x4 element extraction: base[idx] where base is a ptr to 4 f32s
+        if matches!(&*arr_ty, Type::Float32x4) {
+            let size_reg = self.alloc_reg();
+            func.emit(Opcode::LoadImm { dst: size_reg, value: 4 });
+            let offset = self.alloc_reg();
+            func.emit(Opcode::IMul { dst: offset, a: idx, b: size_reg });
+            let addr = self.alloc_reg();
+            func.emit(Opcode::IAdd { dst: addr, a: arr, b: offset });
+            let dst = self.alloc_reg();
+            func.emit(Opcode::Load32 { dst, addr });
+            return dst;
+        }
+
         let (elem_ty, is_slice) = match &*arr_ty {
             Type::Array(elem_ty, _) => (*elem_ty, false),
             Type::Slice(elem_ty) => (*elem_ty, true),
@@ -3125,6 +3194,7 @@ impl<'a> FunctionTranslator<'a> {
                 | Type::Array(_, _)
                 | Type::Slice(_)
                 | Type::Func(_, _)
+                | Type::Float32x4
         )
     }
 

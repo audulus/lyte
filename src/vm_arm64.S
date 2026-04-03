@@ -1109,6 +1109,69 @@ Lop_dnmul_add:
     str     d0, [x20, x0, lsl #3]
     next
 
+// F32X4_ADD: lane-wise f32x4 add via NEON (ptr-represented)
+Lop_f32x4_add:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]      // a ptr
+    ldr     x4, [x20, x2, lsl #3]      // b ptr
+    ldr     x5, [x20, x0, lsl #3]      // dst ptr
+    ld1     {{v0.4s}}, [x3]
+    ld1     {{v1.4s}}, [x4]
+    fadd    v0.4s, v0.4s, v1.4s
+    st1     {{v0.4s}}, [x5]
+    next
+
+Lop_f32x4_sub:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]
+    ldr     x4, [x20, x2, lsl #3]
+    ldr     x5, [x20, x0, lsl #3]
+    ld1     {{v0.4s}}, [x3]
+    ld1     {{v1.4s}}, [x4]
+    fsub    v0.4s, v0.4s, v1.4s
+    st1     {{v0.4s}}, [x5]
+    next
+
+Lop_f32x4_mul:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]
+    ldr     x4, [x20, x2, lsl #3]
+    ldr     x5, [x20, x0, lsl #3]
+    ld1     {{v0.4s}}, [x3]
+    ld1     {{v1.4s}}, [x4]
+    fmul    v0.4s, v0.4s, v1.4s
+    st1     {{v0.4s}}, [x5]
+    next
+
+Lop_f32x4_div:
+    extract_a w0
+    extract_b w1
+    extract_c w2
+    ldr     x3, [x20, x1, lsl #3]
+    ldr     x4, [x20, x2, lsl #3]
+    ldr     x5, [x20, x0, lsl #3]
+    ld1     {{v0.4s}}, [x3]
+    ld1     {{v1.4s}}, [x4]
+    fdiv    v0.4s, v0.4s, v1.4s
+    st1     {{v0.4s}}, [x5]
+    next
+
+Lop_f32x4_neg:
+    extract_a w0
+    extract_b w1
+    ldr     x3, [x20, x1, lsl #3]      // src ptr
+    ldr     x4, [x20, x0, lsl #3]      // dst ptr
+    ld1     {{v0.4s}}, [x3]
+    fneg    v0.4s, v0.4s
+    st1     {{v0.4s}}, [x4]
+    next
+
 Lcheck_cancel:
     ldr     x1, [x24, #CTX_CANCELLED_PTR]
     ldrb    w2, [x1]
@@ -2132,8 +2195,14 @@ Ljump_table:
     .quad Lop_dmul_sub          // 166: DMUL_SUB
     .quad Lop_fnmul_add         // 167: FNMUL_ADD
     .quad Lop_dnmul_add         // 168: DNMUL_ADD
-    // 169-255: invalid
-    .fill 87, 8, 0             // will be Lop_invalid pointers
+    .quad 0                     // 169: unused
+    .quad Lop_f32x4_add         // 170: F32X4_ADD
+    .quad Lop_f32x4_sub         // 171: F32X4_SUB
+    .quad Lop_f32x4_mul         // 172: F32X4_MUL
+    .quad Lop_f32x4_div         // 173: F32X4_DIV
+    .quad Lop_f32x4_neg         // 174: F32X4_NEG
+    // 175-255: invalid
+    .fill 81, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

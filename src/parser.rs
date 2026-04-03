@@ -99,6 +99,10 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             cx.next();
             Type::Float64
         }
+        Token::Float32x4 => {
+            cx.next();
+            Type::Float32x4
+        }
         Token::Lmath => {
             cx.next();
             let name = expect_id(cx);
@@ -554,6 +558,12 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             } else {
                 arena.add(Expr::Id(id), loc)
             }
+        }
+        Token::Float32x4 => {
+            // In expression position, treat as a function call identifier.
+            let loc = cx.lex.loc;
+            cx.next();
+            arena.add(Expr::Id(Name::new("f32x4".into())), loc)
         }
         Token::True => {
             let loc = cx.lex.loc;

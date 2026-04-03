@@ -349,6 +349,10 @@ pub fn iterate_solver(
                     Type::Array(a, _) | Type::Slice(a) => {
                         *constraint = Constraint::Equal(*a, *elem_ty, *loc, None);
                     }
+                    Type::Float32x4 => {
+                        let f32_ty = mk_type(Type::Float32);
+                        *constraint = Constraint::Equal(f32_ty, *elem_ty, *loc, None);
+                    }
                     Type::Anon(_) => {
                         // Not yet resolved, wait for more info.
                     }

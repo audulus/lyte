@@ -47,6 +47,7 @@ fn type_to_string(ty: TypeID) -> String {
         Type::UInt32 => "u32".to_string(),
         Type::Float32 => "f32".to_string(),
         Type::Float64 => "f64".to_string(),
+        Type::Float32x4 => "f32x4".to_string(),
 
         Type::Tuple(types) => {
             let type_strs: Vec<_> = types.iter().map(|t| type_to_string(*t)).collect();

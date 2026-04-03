@@ -199,7 +199,8 @@ fn type_complexity(ty: TypeID) -> usize {
         | Type::Int32
         | Type::UInt32
         | Type::Float32
-        | Type::Float64 => 0,
+        | Type::Float64
+        | Type::Float32x4 => 0,
 
         // Type variables have complexity 0 (they're placeholders)
         Type::Var(_) | Type::Anon(_) => 0,

@@ -197,6 +197,47 @@ fn builtin_decls() -> Vec<Decl> {
         }
     }
 
+    // f32x4 constructor: f32x4(x, y, z, w) → f32x4
+    let f32x4_ty = mk_type(Type::Float32x4);
+    let f32_ty = mk_type(Type::Float32);
+    decls.push(Decl::Func(FuncDecl {
+        name: Name::new("f32x4".into()),
+        typevars: vec![],
+        size_vars: vec![],
+        params: vec![
+            Param { name: Name::new("x".into()), ty: Some(f32_ty) },
+            Param { name: Name::new("y".into()), ty: Some(f32_ty) },
+            Param { name: Name::new("z".into()), ty: Some(f32_ty) },
+            Param { name: Name::new("w".into()), ty: Some(f32_ty) },
+        ],
+        body: None,
+        ret: f32x4_ty,
+        constraints: vec![],
+        loc: test_loc(),
+        arena: ExprArena::new(),
+        types: vec![],
+        closure_vars: vec![],
+        is_extern: false,
+    }));
+
+    // f32x4_splat: broadcast a single f32 to all 4 lanes
+    decls.push(Decl::Func(FuncDecl {
+        name: Name::new("f32x4_splat".into()),
+        typevars: vec![],
+        size_vars: vec![],
+        params: vec![
+            Param { name: Name::new("x".into()), ty: Some(f32_ty) },
+        ],
+        body: None,
+        ret: f32x4_ty,
+        constraints: vec![],
+        loc: test_loc(),
+        arena: ExprArena::new(),
+        types: vec![],
+        closure_vars: vec![],
+        is_extern: false,
+    }));
+
     decls
 }
 

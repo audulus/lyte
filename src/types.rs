@@ -53,6 +53,7 @@ pub enum Type {
     UInt32,
     Float32,
     Float64,
+    Float32x4,
     Tuple(Vec<TypeID>),
 
     /// Named type variable.
@@ -85,6 +86,7 @@ impl Type {
                 | Type::Array(_, _)
                 | Type::Slice(_)
                 | Type::Func(_, _)
+                | Type::Float32x4
         )
     }
 }
@@ -233,6 +235,7 @@ impl TypeID {
             Type::UInt32 => 4,
             Type::Float32 => 4,
             Type::Float64 => 8,
+            Type::Float32x4 => 16,
             Type::Tuple(v) => v.iter().map(|t| t.size(decls)).sum(),
             Type::Name(name, vars) => {
                 let decl = decls.find(*name);
@@ -309,6 +312,7 @@ impl TypeID {
             Type::UInt32 => "u32".to_string(),
             Type::Float32 => "f32".to_string(),
             Type::Float64 => "f64".to_string(),
+            Type::Float32x4 => "f32x4".to_string(),
             Type::Tuple(types) => {
                 format!(
                     "({})",

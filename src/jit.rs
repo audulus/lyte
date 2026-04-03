@@ -419,6 +419,7 @@ impl crate::Type {
             crate::Type::UInt32 => I32,
             crate::Type::Float32 => F32,
             crate::Type::Float64 => F64,
+            crate::Type::Float32x4 => I64, // ptr-represented in JIT (for now)
             crate::Type::Bool => I8,
 
             // Functions probably need a closure pointer?
