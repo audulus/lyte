@@ -2722,12 +2722,24 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let arg_val = self.translate_expr(*arg_id, decl);
                     let param_ty = callee_decl.params[i].ty.unwrap();
                     if matches!(&*param_ty, crate::Type::Slice(_)) {
-                        // Slice: arg_val is a pointer to {data_ptr: ptr, len: i32}.
-                        let data_ptr = self.builder().build_load(self.ptr_ty(), arg_val.into_pointer_value(), "slice_data").unwrap();
-                        let len_addr = self.ptr_at_offset(arg_val.into_pointer_value(), 8);
-                        let len = self.builder().build_load(self.i32_ty(), len_addr, "slice_len").unwrap();
-                        args.push(data_ptr.into());
-                        args.push(len.into());
+                        let actual_ty = decl.types[*arg_id];
+                        match &*actual_ty {
+                            crate::Type::Slice(_) => {
+                                // Already a fat pointer: load data_ptr and len.
+                                let data_ptr = self.builder().build_load(self.ptr_ty(), arg_val.into_pointer_value(), "slice_data").unwrap();
+                                let len_addr = self.ptr_at_offset(arg_val.into_pointer_value(), 8);
+                                let len = self.builder().build_load(self.i32_ty(), len_addr, "slice_len").unwrap();
+                                args.push(data_ptr.into());
+                                args.push(len.into());
+                            }
+                            crate::Type::Array(_, sz) => {
+                                // Sized array: arg_val IS the data pointer.
+                                args.push(arg_val.into());
+                                let len_val = self.i32_ty().const_int(sz.known() as u64, false);
+                                args.push(len_val.into());
+                            }
+                            _ => panic!("LLVM extern call: expected slice or array, got {:?}", actual_ty),
+                        }
                     } else {
                         args.push(arg_val.into());
                     }

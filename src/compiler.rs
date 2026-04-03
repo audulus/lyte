@@ -1801,4 +1801,76 @@ mod tests {
         }
         assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
     }
+
+    #[cfg(feature = "llvm")]
+    #[test]
+    fn test_extern_fn_string_param_llvm() {
+        // Test that LLVM extern functions correctly receive string ([i8]) parameters.
+        // Slices expand to (ptr, i32 len) at the C boundary.
+        let prelude = r#"
+            extern fn send(msg: [i8])
+        "#;
+        let code = r#"
+            fn main() {
+                send("hello")
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let llvm_prog = {
+            let jit = crate::llvm_jit::LLVMJIT::new();
+            let entry_points = vec![Name::str("main")];
+            jit.compile_only(&compiler.decls, &entry_points).expect("LLVM compile failed")
+        };
+        let globals_size = llvm_prog.globals_size;
+        let main_ptr = *llvm_prog.entry_points.get(&Name::str("main")).unwrap();
+        let mut globals = vec![0u8; globals_size];
+
+        // Find the extern function's globals offset.
+        let globals_info = compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+        let extern_info = globals_info.iter().find(|g| g.4).expect("no extern global found");
+        let extern_offset = extern_info.1;
+
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static LLVM_SEND_CALLED: AtomicBool = AtomicBool::new(false);
+
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) {
+            let slice = std::slice::from_raw_parts(data, len as usize);
+            assert_eq!(&slice[..5], b"hello");
+            assert_eq!(len, 6); // includes null terminator
+            LLVM_SEND_CALLED.store(true, Ordering::SeqCst);
+        }
+
+        unsafe {
+            extern "C" {
+                fn setjmp(env: *mut u8) -> i32;
+            }
+
+            let ptr_slot = globals.as_mut_ptr().add(extern_offset) as *mut u64;
+            let ctx_slot = globals.as_mut_ptr().add(extern_offset + 8) as *mut u64;
+            *ptr_slot = host_send as *const () as u64;
+            *ctx_slot = 0;
+
+            crate::cancel::set_cancel_callback(
+                globals.as_mut_ptr(),
+                None,
+                std::ptr::null_mut(),
+            );
+            let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
+            LLVM_SEND_CALLED.store(false, Ordering::SeqCst);
+            if setjmp(jmp_buf_ptr) == 0 {
+                type Entry = fn(*mut u8, *mut u8) -> i32;
+                let code_fn = mem::transmute::<_, Entry>(main_ptr);
+                code_fn(globals.as_mut_ptr(), std::ptr::null_mut());
+            } else {
+                panic!("execution was cancelled unexpectedly");
+            }
+        }
+
+        assert!(LLVM_SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+    }
 }

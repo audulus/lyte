@@ -853,11 +853,22 @@ impl<'a> FunctionTranslator<'a> {
                             let arg_val = self.translate_expr(*arg_id, decl, decls);
                             let param_ty = callee_decl.params[i].ty.unwrap();
                             if matches!(&*param_ty, crate::Type::Slice(_)) {
-                                // Slice: arg_val is a pointer to {data_ptr: i64, len: i32}.
-                                let data_ptr = self.builder.ins().load(I64, MemFlags::new(), arg_val, 0);
-                                let len = self.builder.ins().load(I32, MemFlags::new(), arg_val, 8);
-                                args.push(data_ptr);
-                                args.push(len);
+                                let actual_ty = decl.types[*arg_id];
+                                match &*actual_ty {
+                                    crate::Type::Slice(_) => {
+                                        // Already a fat pointer: load data_ptr and len.
+                                        let data_ptr = self.builder.ins().load(I64, MemFlags::new(), arg_val, 0);
+                                        let len = self.builder.ins().load(I32, MemFlags::new(), arg_val, 8);
+                                        args.push(data_ptr);
+                                        args.push(len);
+                                    }
+                                    crate::Type::Array(_, sz) => {
+                                        // Sized array: arg_val IS the data pointer.
+                                        args.push(arg_val);
+                                        args.push(self.builder.ins().iconst(I32, sz.known() as i64));
+                                    }
+                                    _ => panic!("JIT extern call: expected slice or array, got {:?}", actual_ty),
+                                }
                             } else {
                                 args.push(arg_val);
                             }
