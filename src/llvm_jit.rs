@@ -2244,8 +2244,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         let rhs_val = self.translate_expr(rhs_id, decl);
                         if let Expr::Id(name) = &decl.arena.exprs[*vec_id] {
                             if let Some(&alloca) = self.variables.get(&**name) {
+                                let vec_ty: inkwell::types::BasicTypeEnum = self.ctx().f32_type().vec_type(4).into();
                                 let vec_val = self.builder()
-                                    .build_load(self.ctx().f32_type().vec_type(4).into(), alloca, "vec")
+                                    .build_load(vec_ty, alloca, "vec")
                                     .unwrap()
                                     .into_vector_value();
                                 let idx = self.i32_ty().const_int(lane, false);
@@ -2258,9 +2259,19 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         }
                     }
                 }
+                // f32x4 full assignment: v = expr → store vector to alloca
+                let t = decl.types[lhs_id];
+                if matches!(*t, crate::Type::Float32x4) {
+                    if let Expr::Id(name) = &decl.arena.exprs[lhs_id] {
+                        if let Some(&alloca) = self.variables.get(&**name) {
+                            let rhs_val = self.translate_expr(rhs_id, decl);
+                            self.builder().build_store(alloca, rhs_val).unwrap();
+                            return rhs_val;
+                        }
+                    }
+                }
                 let lhs_addr = self.translate_lvalue(lhs_id, decl);
                 let rhs_val = self.translate_expr(rhs_id, decl);
-                let t = decl.types[lhs_id];
                 self.gen_copy(t, lhs_addr, rhs_val);
                 rhs_val
             }
