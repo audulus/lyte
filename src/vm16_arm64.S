@@ -200,9 +200,8 @@ _vm16_exit:
 // Shared trampoline for unimplemented opcodes (halt/return to Rust)
 // =============================================================================
 _vm16_halt:
-    // Store the IP (pointing past the faulting instruction) in ctx for debugging.
-    // The faulting instruction's word was loaded in w0 by the dispatch.
-    // Store it somewhere the Rust code can read.
+    // Store the instruction word that triggered halt (still in w0 from dispatch).
+    str     x0, [x23, #CTX_CLOSURE_PTR]   // abuse closure_ptr to pass debug info
     b       _vm16_exit
 
 // =============================================================================
@@ -571,8 +570,91 @@ _vm16_handler_table:
 .endr
 .endr
 
-// --- Opcodes 0x1F-0x4E: FPOW through I64_TO_U32 — stub ---
-.rept (0x4F - 0x1F) * 256
+// --- Opcode 0x1F: FPOW — stub ---
+.rept 256
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_halt
+    .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0x20: FMUL_ADD ra, rb (+trail: rc in low 4 bits) ---
+// ra = ra * rb + rc
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_fmuladd_trampoline
+    .space HANDLER_STRIDE - 4
+.endr
+.endr
+
+// --- Opcode 0x21: FMUL_SUB — stub ---
+.rept 256
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_halt
+    .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0x22: FNMUL_ADD ra, rb (+trail: rc) ---
+// ra = rc - ra * rb
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_fnmuladd_trampoline
+    .space HANDLER_STRIDE - 4
+.endr
+.endr
+
+// --- Opcodes 0x23-0x3F: f64 ops, bitwise, comparisons — stub ---
+.rept (0x40 - 0x23) * 256
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_halt
+    .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0x40: ILT_JUMP ra, rb (+trail i16 offset) ---
+// if !(ra < rb) then IP += offset
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.p2align HANDLER_STRIDE_SHIFT
+    ldrsh   x0, [x19]          // read offset
+    cmp     w\ra, w\rb
+    b.lt    1f                  // if ra < rb, skip the jump (continue)
+    add     x19, x19, x0, lsl #1  // IP += offset * 2
+1:  add     x19, x19, #2       // skip trail word
+    next
+    .space HANDLER_STRIDE - 28
+.endr
+.endr
+
+// --- Opcode 0x41: FLT_JUMP ra, rb (+trail i16 offset) ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_halt  // TODO: f32 compare + jump
+    .space HANDLER_STRIDE - 4
+.endr
+.endr
+
+// --- Opcodes 0x42-0x44: ILE_JUMP, FLE_JUMP, I32_TO_F32 — stub ---
+.rept (0x45 - 0x42) * 256
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_halt
+    .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0x45: F32_TO_I32 ra ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.p2align HANDLER_STRIDE_SHIFT
+    fmov    s0, w\ra
+    fcvtzs  w\ra, s0
+    next
+    .space HANDLER_STRIDE - 20
+.endr
+.endr
+
+// --- Opcodes 0x46-0x4E: remaining conversions — stub ---
+.rept (0x4F - 0x46) * 256
 .p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
@@ -681,7 +763,7 @@ _vm16_handler_table:
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .p2align HANDLER_STRIDE_SHIFT
-    sxtw    x0, w\ra                // sign-extend i32 arg
+    sxtw    x0, w\ra
     b       _vm16_print_i32_trampoline
     .space HANDLER_STRIDE - 8
 .endr
@@ -717,8 +799,27 @@ _vm16_handler_table:
 .endr
 .endr
 
-// --- Opcodes 0x94-0xFF: remaining (math builtins, SIMD, etc.) — stub ---
-.rept (0x100 - 0x94) * 256
+// --- Opcodes 0x94-0x9F: reserved — stub ---
+.rept (0xA0 - 0x94) * 256
+.p2align HANDLER_STRIDE_SHIFT
+    b       _vm16_halt
+    .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0xA0: SIN_F32 ra ---
+// Calls sinf. Must save/restore caller-saved VM regs.
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.p2align HANDLER_STRIDE_SHIFT
+    fmov    s0, w\ra            // arg: f32 in s0
+    mov     x24, #\ra           // save ARM reg number for result
+    b       _vm16_sinf32_trampoline
+    .space HANDLER_STRIDE - 12
+.endr
+.endr
+
+// --- Opcodes 0xA1-0xFF: remaining math builtins, SIMD — stub ---
+.rept (0x100 - 0xA1) * 256
 .p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
@@ -823,6 +924,116 @@ _vm16_putc_trampoline:
     ldp     x13, x14, [sp, #80]
     ldr     x15,       [sp, #96]
     add     sp, sp, #128
+    next
+
+// --- SinF32 trampoline ---
+// On entry: s0 has the f32 arg, x24 has the ARM reg number for result.
+_vm16_sinf32_trampoline:
+    // Save caller-saved VM registers.
+    stp     x3,  x4,  [sp, #-128]!
+    stp     x5,  x6,  [sp, #16]
+    stp     x7,  x8,  [sp, #32]
+    stp     x9,  x10, [sp, #48]
+    stp     x11, x12, [sp, #64]
+    stp     x13, x14, [sp, #80]
+    str     x15,       [sp, #96]
+    // s0 already has the arg. Call sinf.
+    fcvt    d0, s0              // sinf expects double on some platforms; use float
+    bl      _sinf
+    // Result in s0. Convert to w-reg bits.
+    fmov    w26, s0
+    // Restore caller-saved VM registers.
+    ldp     x3,  x4,  [sp]
+    ldp     x5,  x6,  [sp, #16]
+    ldp     x7,  x8,  [sp, #32]
+    ldp     x9,  x10, [sp, #48]
+    ldp     x11, x12, [sp, #64]
+    ldp     x13, x14, [sp, #80]
+    ldr     x15,       [sp, #96]
+    add     sp, sp, #128
+    // Store result into the correct VM register via the regs array.
+    // x24 has the ARM register number. Use the context regs array.
+    // Simpler: save result to regs array, then reload all VM regs.
+    save_vm_regs_to_ctx
+    ldr     x1, [x23, #CTX_REGS]
+    // Map ARM reg number to VM index: 3->0, 4->1, ..., 15->12, 27->13, 28->14, 25->15
+    // For x3-x15: vm_idx = arm_reg - 3
+    // For x25: vm_idx = 15, x27: vm_idx = 13, x28: vm_idx = 14
+    cmp     x24, #16
+    b.ge    2f
+    sub     x0, x24, #3        // vm_idx = arm_reg - 3 (for x3-x15)
+    b       3f
+2:  // Handle x25, x27, x28
+    cmp     x24, #25
+    mov     x0, #15
+    b.eq    3f
+    cmp     x24, #27
+    mov     x0, #13
+    b.eq    3f
+    mov     x0, #14            // must be x28
+3:  add     x1, x1, x0, lsl #3  // &regs[vm_idx]
+    fmov    w26, s0
+    str     x26, [x1]          // store f32 result (zero-extended)
+    load_vm_regs_from_ctx
+    next
+
+// --- FMulAdd trampoline (opcode 0x20) ---
+// ra = ra * rb + rc. Trail word has rc index in low 4 bits.
+// The instruction word was already loaded by dispatch. ra/rb are the ARM reg
+// numbers from the .irp iteration. We need to reload them from the instruction.
+_vm16_fmuladd_trampoline:
+    // Re-decode the instruction word. x19 points past the opcode word.
+    // The opcode word is at [x19 - 2]. But we also have a trail word.
+    ldrh    w0, [x19], #2      // read trail word (rc index in bits 0-3)
+    and     w0, w0, #0xf       // rc VM index (0-15)
+    // Re-extract ra and rb from the instruction word that dispatched here.
+    // That word was loaded into w0 by the dispatch, but we overwrote w0.
+    // We need the previous instruction word. It's at [x19 - 4] (2 bytes back from trail).
+    ldrh    w1, [x19, #-4]     // reload instruction word
+    ubfx    w2, w1, #4, #4     // ra VM index
+    and     w3, w1, #0xf       // rb VM index
+    // Now we have: w2=ra_idx, w3=rb_idx, w0=rc_idx.
+    // We need to load the f32 values from the VM registers.
+    // Use the regs array in the context as a lookup.
+    save_vm_regs_to_ctx
+    ldr     x1, [x23, #CTX_REGS]
+    // Load f32 from 8-byte slots: compute byte offset manually.
+    add     x4, x1, x2, lsl #3     // &regs[ra]
+    ldr     s0, [x4]
+    add     x4, x1, x3, lsl #3     // &regs[rb]
+    ldr     s1, [x4]
+    add     x4, x1, x0, lsl #3     // &regs[rc]
+    ldr     s2, [x4]
+    fmadd   s0, s0, s1, s2         // ra = ra * rb + rc
+    add     x4, x1, x2, lsl #3
+    str     s0, [x4]                // store result back to ra (32-bit)
+    // Zero upper 32 bits.
+    fmov    w0, s0
+    str     x0, [x4]
+    load_vm_regs_from_ctx
+    next
+
+// --- FNMulAdd trampoline (opcode 0x22) ---
+// ra = rc - ra * rb
+_vm16_fnmuladd_trampoline:
+    ldrh    w0, [x19], #2
+    and     w0, w0, #0xf
+    ldrh    w1, [x19, #-4]
+    ubfx    w2, w1, #4, #4
+    and     w3, w1, #0xf
+    save_vm_regs_to_ctx
+    ldr     x1, [x23, #CTX_REGS]
+    add     x4, x1, x2, lsl #3
+    ldr     s0, [x4]
+    add     x4, x1, x3, lsl #3
+    ldr     s1, [x4]
+    add     x4, x1, x0, lsl #3
+    ldr     s2, [x4]
+    fnmsub  s0, s0, s1, s2         // ra = rc - ra * rb
+    add     x4, x1, x2, lsl #3
+    fmov    w0, s0
+    str     x0, [x4]
+    load_vm_regs_from_ctx
     next
 
 _vm16_do_return:
