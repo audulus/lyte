@@ -17,6 +17,8 @@ struct CallFrame {
     func_idx: FuncIdx,
     ip: usize,
     locals_base: usize,
+    /// Saved registers for cross-call preservation.
+    saved_regs: [u64; 16],
 }
 
 /// 16-bit VM with 16 general-purpose 64-bit registers.
@@ -197,19 +199,23 @@ impl VM16 {
                             return r!(0) as i64;
                         }
                         let frame = self.call_stack.pop().unwrap();
+                        let ret_val = r!(0);
+                        self.regs = frame.saved_regs;
+                        r![0] = ret_val; // return value in r0
                         self.current_func = frame.func_idx;
                         ip = frame.ip;
                         locals_base = frame.locals_base;
                     }
 
                     tags::RETURN_REG => {
-                        if ra != 0 {
-                            r![0] = r![ra];
-                        }
+                        let ret_val = if ra != 0 { r!(ra) } else { r!(0) };
                         if self.call_stack.is_empty() {
-                            return r!(0) as i64;
+                            r![0] = ret_val;
+                            return ret_val as i64;
                         }
                         let frame = self.call_stack.pop().unwrap();
+                        self.regs = frame.saved_regs;
+                        r![0] = ret_val;
                         self.current_func = frame.func_idx;
                         ip = frame.ip;
                         locals_base = frame.locals_base;
@@ -513,18 +519,18 @@ impl VM16 {
                         let _arg_count = ra; // args already in r0..rN-1
                         let func = trail!() as FuncIdx;
 
-                        // Save current frame.
+                        // Save current frame with register snapshot.
                         self.call_stack.push(CallFrame {
                             func_idx: self.current_func,
                             ip,
                             locals_base,
+                            saved_regs: self.regs,
                         });
 
                         self.current_func = func;
                         ip = linked.func_offsets[func as usize];
                         locals_base += linked.func_locals[self.call_stack.last().unwrap().func_idx as usize] as usize;
 
-                        // Ensure locals are large enough.
                         let needed = locals_base + linked.func_locals[func as usize] as usize;
                         if needed > self.locals.len() {
                             self.locals.resize(needed * 2, 0);
@@ -572,27 +578,13 @@ impl VM16 {
                     }
 
                     tags::SAVE_REGS => {
-                        let byte_offset = trail!() as usize;
-                        let base = locals_base + byte_offset;
-                        let needed = base + 16 * 8;
-                        if needed > self.locals.len() {
-                            self.locals.resize(needed * 2, 0);
-                        }
-                        let dst = self.locals.as_mut_ptr().add(base) as *mut u64;
-                        for i in 0..16 {
-                            *dst.add(i) = self.regs[i];
-                        }
+                        // No-op: register preservation is handled by CallFrame.
+                        let _byte_offset = trail!(); // consume trail word
                     }
 
                     tags::RESTORE_REGS => {
-                        let skip_r0 = ra;
-                        let byte_offset = trail!() as usize;
-                        let base = locals_base + byte_offset;
-                        let src = self.locals.as_ptr().add(base) as *const u64;
-                        let start = if skip_r0 != 0 { 1 } else { 0 };
-                        for i in start..16 {
-                            self.regs[i] = *src.add(i);
-                        }
+                        // No-op: register preservation is handled by CallFrame.
+                        let _byte_offset = trail!(); // consume trail word
                     }
 
                     tags::MEM_COPY => {
@@ -750,13 +742,14 @@ impl VM16 {
                     }
 
                     tags::CALL_INDIRECT => {
-                        let func = r!(ra) as FuncIdx; // ra = func_reg
-                        let _arg_count = rb; // rb = arg_count (args already moved to r0..N)
+                        let func = r!(ra) as FuncIdx;
+                        let _arg_count = rb;
 
                         self.call_stack.push(CallFrame {
                             func_idx: self.current_func,
                             ip,
                             locals_base,
+                            saved_regs: self.regs,
                         });
 
                         ip = linked.func_offsets[func as usize];
@@ -770,15 +763,16 @@ impl VM16 {
                     }
 
                     tags::CALL_CLOSURE => {
-                        let fat_ptr = r!(ra) as *const u64; // ra = fat_ptr reg
+                        let fat_ptr = r!(ra) as *const u64;
                         let func = *fat_ptr as FuncIdx;
                         let closure_ptr_val = *fat_ptr.add(1);
-                        let _arg_count = rb; // rb = arg_count
+                        let _arg_count = rb;
 
                         self.call_stack.push(CallFrame {
                             func_idx: self.current_func,
                             ip,
                             locals_base,
+                            saved_regs: self.regs,
                         });
 
                         self.closure_ptr = closure_ptr_val;
