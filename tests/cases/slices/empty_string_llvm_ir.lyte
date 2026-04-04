@@ -2,6 +2,7 @@
 // skip-backend: jit
 // skip-backend: vm
 // skip-backend: asm
+// skip-backend: vm16
 // args: --ir
 // expected stdout:
 // LLVM IR:

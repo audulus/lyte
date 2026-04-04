@@ -721,33 +721,17 @@ fn translate_function(
                 out.push(Op16Instr::a_trail(tags::JUMP_IF_NOT_ZERO, r(cond), offset as u16));
             }
 
-            // Calls: move args from r[args_start..] to r[0..arg_count]
+            // Calls: encode args_start in rb so the dispatch can move args after saving regs.
             Opcode::Call { func, args_start, arg_count } => {
-                for i in 0..arg_count as Reg {
-                    let src = args_start + i;
-                    if i != src && src < 16 {
-                        out.push(Op16Instr::ab(tags::MOVE, r(i), r(src)));
-                    }
-                }
-                out.push(Op16Instr::a_trail(tags::CALL, arg_count as Reg16, func as u16));
+                out.push(Op16Instr::ab_trail(tags::CALL, arg_count as Reg16, r(args_start), func as u16));
             }
             Opcode::CallIndirect { func_reg, args_start, arg_count } => {
-                for i in 0..arg_count as Reg {
-                    let src = args_start + i;
-                    if i != src && src < 16 {
-                        out.push(Op16Instr::ab(tags::MOVE, r(i), r(src)));
-                    }
-                }
-                out.push(Op16Instr::ab(tags::CALL_INDIRECT, r(func_reg), arg_count as Reg16));
+                // Encode: ra=func_reg, rb=arg_count, trail=args_start
+                out.push(Op16Instr::ab_trail(tags::CALL_INDIRECT, r(func_reg), arg_count as Reg16, r(args_start) as u16));
             }
             Opcode::CallClosure { fat_ptr, args_start, arg_count } => {
-                for i in 0..arg_count as Reg {
-                    let src = args_start + i;
-                    if i != src && src < 16 {
-                        out.push(Op16Instr::ab(tags::MOVE, r(i), r(src)));
-                    }
-                }
-                out.push(Op16Instr::ab(tags::CALL_CLOSURE, r(fat_ptr), arg_count as Reg16));
+                // Encode: ra=fat_ptr, rb=arg_count, trail=args_start
+                out.push(Op16Instr::ab_trail(tags::CALL_CLOSURE, r(fat_ptr), arg_count as Reg16, r(args_start) as u16));
             }
             Opcode::CallExtern { args_start: _, arg_count, globals_offset } => {
                 out.push(Op16Instr::a_trail(tags::CALL_EXTERN, arg_count as Reg16, globals_offset as u16));
@@ -849,12 +833,18 @@ fn translate_function(
             Opcode::MinF64 { dst, a, b } => emit_binary_destructive(&mut out, tags::MIN_F64, dst, a, b, true),
             Opcode::MaxF64 { dst, a, b } => emit_binary_destructive(&mut out, tags::MAX_F64, dst, a, b, true),
 
-            // SIMD f32x4
-            Opcode::F32x4Add { dst, a, b } => emit_binary_destructive(&mut out, tags::F32X4_ADD, dst, a, b, true),
-            Opcode::F32x4Sub { dst, a, b } => emit_binary_destructive(&mut out, tags::F32X4_SUB, dst, a, b, false),
-            Opcode::F32x4Mul { dst, a, b } => emit_binary_destructive(&mut out, tags::F32X4_MUL, dst, a, b, true),
-            Opcode::F32x4Div { dst, a, b } => emit_binary_destructive(&mut out, tags::F32X4_DIV, dst, a, b, false),
-            Opcode::F32x4Neg { dst, src } => emit_unary(&mut out, tags::F32X4_NEG, dst, src),
+            // SIMD f32x4 — pointer-represented, need MemCopy instead of Move for aliasing
+            Opcode::F32x4Add { dst, a, b } => emit_f32x4_binary(&mut out, tags::F32X4_ADD, dst, a, b),
+            Opcode::F32x4Sub { dst, a, b } => emit_f32x4_binary(&mut out, tags::F32X4_SUB, dst, a, b),
+            Opcode::F32x4Mul { dst, a, b } => emit_f32x4_binary(&mut out, tags::F32X4_MUL, dst, a, b),
+            Opcode::F32x4Div { dst, a, b } => emit_f32x4_binary(&mut out, tags::F32X4_DIV, dst, a, b),
+            Opcode::F32x4Neg { dst, src } => {
+                if dst != src {
+                    // Copy 16 bytes from src to dst before negating in-place.
+                    out.push(Op16Instr::ab_trail(tags::MEM_COPY, r(dst), r(src), 16));
+                }
+                out.push(Op16Instr::a_only(tags::F32X4_NEG, r(dst)));
+            }
 
             // Fused slot access
             Opcode::LoadSlot32 { dst, slot } => {
@@ -903,9 +893,22 @@ fn translate_function(
                 let old_target = (old_idx as i32 + 1) + old_offset; // +1 because offset is from next insn
                 let old_target = old_target.max(0).min(old_to_new.len() as i32 - 1) as usize;
 
-                let new_source = i + 1; // the Op16Instr after this jump (where ip would be after consuming the jump)
+                let new_source = i + 1; // the Op16Instr after this jump
                 let new_target = old_to_new[old_target];
                 let new_offset = new_target as i32 - new_source as i32;
+
+                // Verify the target is within the function.
+                debug_assert!(
+                    new_target <= out.len(),
+                    "jump fixup: target {} out of bounds (len {}), old_idx={} old_offset={} old_target={}",
+                    new_target, out.len(), old_idx, old_offset, old_target
+                );
+
+                // Verify offset fits in i16.
+                debug_assert!(
+                    new_offset >= i16::MIN as i32 && new_offset <= i16::MAX as i32,
+                    "jump fixup: offset {} overflows i16, old_offset={}", new_offset, old_offset
+                );
 
                 out[i].trail = Some(new_offset as u16);
             }
@@ -937,6 +940,19 @@ fn emit_binary_destructive(
     } else {
         // Need a move first.
         out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a)));
+        out.push(Op16Instr::ab(tag, r(dst), r(b)));
+    }
+}
+
+/// Emit a f32x4 binary operation. Uses MemCopy (16 bytes) instead of Move
+/// since these are pointer-represented and Move would alias the pointers.
+fn emit_f32x4_binary(out: &mut Vec<Op16Instr>, tag: u8, dst: Reg, a: Reg, b: Reg) {
+    if dst == a {
+        // Already in-place.
+        out.push(Op16Instr::ab(tag, r(dst), r(b)));
+    } else {
+        // Copy 16 bytes from a to dst, then op in-place.
+        out.push(Op16Instr::ab_trail(tags::MEM_COPY, r(dst), r(a), 16));
         out.push(Op16Instr::ab(tag, r(dst), r(b)));
     }
 }

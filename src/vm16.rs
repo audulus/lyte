@@ -112,6 +112,7 @@ impl VM16 {
             ip += 1;
             let opcode = (word >> 8) as u8;
             let ra = ((word >> 4) & 0xF) as usize;
+
             let rb = (word & 0xF) as usize;
 
             macro_rules! trail {
@@ -516,16 +517,24 @@ impl VM16 {
 
                     // === Calls ===
                     tags::CALL => {
-                        let _arg_count = ra; // args already in r0..rN-1
+                        let arg_count = ra;
+                        let args_start = rb;
                         let func = trail!() as FuncIdx;
 
-                        // Save current frame with register snapshot.
+                        // Save registers BEFORE moving args.
                         self.call_stack.push(CallFrame {
                             func_idx: self.current_func,
                             ip,
                             locals_base,
                             saved_regs: self.regs,
                         });
+
+                        // Move args from r[args_start..] to r[0..arg_count].
+                        for i in 0..arg_count {
+                            if i != args_start + i {
+                                self.regs[i] = self.regs[args_start + i];
+                            }
+                        }
 
                         self.current_func = func;
                         ip = linked.func_offsets[func as usize];
@@ -688,11 +697,29 @@ impl VM16 {
                     tags::MIN_F64 => { set_f64!(ra, r_f64!(ra).min(r_f64!(rb))); }
                     tags::MAX_F64 => { set_f64!(ra, r_f64!(ra).max(r_f64!(rb))); }
 
-                    // === SIMD f32x4 — use 128-bit locals or fake with arrays ===
-                    // TODO: proper SIMD support
-                    tags::F32X4_ADD | tags::F32X4_SUB | tags::F32X4_MUL |
-                    tags::F32X4_DIV | tags::F32X4_NEG => {
-                        panic!("vm16: f32x4 SIMD not yet implemented");
+                    // === SIMD f32x4 — scalar emulation (pointer-represented) ===
+                    tags::F32X4_ADD | tags::F32X4_SUB | tags::F32X4_MUL | tags::F32X4_DIV => {
+                        // Destructive: rA op= rB. Both are pointers to 4 × f32.
+                        let dst_ptr = r!(ra) as *mut f32;
+                        let b_ptr = r!(rb) as *const f32;
+                        for lane in 0..4 {
+                            let a_val = *dst_ptr.add(lane);
+                            let b_val = *b_ptr.add(lane);
+                            let result = match opcode {
+                                tags::F32X4_ADD => a_val + b_val,
+                                tags::F32X4_SUB => a_val - b_val,
+                                tags::F32X4_MUL => a_val * b_val,
+                                tags::F32X4_DIV => a_val / b_val,
+                                _ => unreachable!(),
+                            };
+                            *dst_ptr.add(lane) = result;
+                        }
+                    }
+                    tags::F32X4_NEG => {
+                        let ptr = r!(ra) as *mut f32;
+                        for lane in 0..4 {
+                            *ptr.add(lane) = -*ptr.add(lane);
+                        }
                     }
 
                     // === Extended ===
@@ -729,10 +756,32 @@ impl VM16 {
                         *data_ptr.add(idx) = r!(src_reg) as u32;
                     }
 
-                    tags::SLICE_EQ | tags::SLICE_NE => {
-                        let _elem_size = trail!();
-                        // TODO: slice comparison
-                        set_i32!(ra, 0);
+                    tags::SLICE_EQ => {
+                        let elem_size = trail!() as usize;
+                        let fat_a = r!(ra) as *const u8;
+                        let fat_b = r!(rb) as *const u8;
+                        let ptr_a = *(fat_a as *const u64) as *const u8;
+                        let len_a = *(fat_a.add(8) as *const u32) as usize;
+                        let ptr_b = *(fat_b as *const u64) as *const u8;
+                        let len_b = *(fat_b.add(8) as *const u32) as usize;
+                        let eq = len_a == len_b
+                            && std::slice::from_raw_parts(ptr_a, len_a * elem_size)
+                                == std::slice::from_raw_parts(ptr_b, len_b * elem_size);
+                        set_i32!(ra, if eq { 1 } else { 0 });
+                    }
+
+                    tags::SLICE_NE => {
+                        let elem_size = trail!() as usize;
+                        let fat_a = r!(ra) as *const u8;
+                        let fat_b = r!(rb) as *const u8;
+                        let ptr_a = *(fat_a as *const u64) as *const u8;
+                        let len_a = *(fat_a.add(8) as *const u32) as usize;
+                        let ptr_b = *(fat_b as *const u64) as *const u8;
+                        let len_b = *(fat_b.add(8) as *const u32) as usize;
+                        let ne = len_a != len_b
+                            || std::slice::from_raw_parts(ptr_a, len_a * elem_size)
+                                != std::slice::from_raw_parts(ptr_b, len_b * elem_size);
+                        set_i32!(ra, if ne { 1 } else { 0 });
                     }
 
                     tags::LOAD8_OFF => {
@@ -743,7 +792,8 @@ impl VM16 {
 
                     tags::CALL_INDIRECT => {
                         let func = r!(ra) as FuncIdx;
-                        let _arg_count = rb;
+                        let arg_count = rb;
+                        let args_start = trail!() as usize;
 
                         self.call_stack.push(CallFrame {
                             func_idx: self.current_func,
@@ -751,6 +801,12 @@ impl VM16 {
                             locals_base,
                             saved_regs: self.regs,
                         });
+
+                        for i in 0..arg_count {
+                            if i != args_start + i {
+                                self.regs[i] = self.regs[args_start + i];
+                            }
+                        }
 
                         ip = linked.func_offsets[func as usize];
                         locals_base += linked.func_locals[self.call_stack.last().unwrap().func_idx as usize] as usize;
@@ -766,7 +822,8 @@ impl VM16 {
                         let fat_ptr = r!(ra) as *const u64;
                         let func = *fat_ptr as FuncIdx;
                         let closure_ptr_val = *fat_ptr.add(1);
-                        let _arg_count = rb;
+                        let arg_count = rb;
+                        let args_start = trail!() as usize;
 
                         self.call_stack.push(CallFrame {
                             func_idx: self.current_func,
@@ -774,6 +831,12 @@ impl VM16 {
                             locals_base,
                             saved_regs: self.regs,
                         });
+
+                        for i in 0..arg_count {
+                            if i != args_start + i {
+                                self.regs[i] = self.regs[args_start + i];
+                            }
+                        }
 
                         self.closure_ptr = closure_ptr_val;
 
