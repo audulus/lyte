@@ -731,10 +731,22 @@ fn translate_function(
                 }
                 out.push(Op16Instr::a_trail(tags::CALL, arg_count as Reg16, func as u16));
             }
-            Opcode::CallIndirect { func_reg, args_start: _, arg_count } => {
+            Opcode::CallIndirect { func_reg, args_start, arg_count } => {
+                for i in 0..arg_count as Reg {
+                    let src = args_start + i;
+                    if i != src && src < 16 {
+                        out.push(Op16Instr::ab(tags::MOVE, r(i), r(src)));
+                    }
+                }
                 out.push(Op16Instr::ab(tags::CALL_INDIRECT, r(func_reg), arg_count as Reg16));
             }
-            Opcode::CallClosure { fat_ptr, args_start: _, arg_count } => {
+            Opcode::CallClosure { fat_ptr, args_start, arg_count } => {
+                for i in 0..arg_count as Reg {
+                    let src = args_start + i;
+                    if i != src && src < 16 {
+                        out.push(Op16Instr::ab(tags::MOVE, r(i), r(src)));
+                    }
+                }
                 out.push(Op16Instr::ab(tags::CALL_CLOSURE, r(fat_ptr), arg_count as Reg16));
             }
             Opcode::CallExtern { args_start: _, arg_count, globals_offset } => {

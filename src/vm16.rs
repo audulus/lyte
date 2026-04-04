@@ -28,6 +28,7 @@ pub struct VM16 {
     current_func: FuncIdx,
     locals_base: usize,
     pub cancelled: bool,
+    closure_ptr: u64,
 }
 
 impl VM16 {
@@ -40,6 +41,7 @@ impl VM16 {
             current_func: 0,
             locals_base: 0,
             cancelled: false,
+            closure_ptr: 0,
         }
     }
 
@@ -273,8 +275,7 @@ impl VM16 {
                     }
 
                     tags::GET_CLOSURE_PTR => {
-                        // TODO: closures
-                        set_i64!(ra, 0);
+                        set_i64!(ra, self.closure_ptr as i64);
                     }
 
                     // === Integer Arithmetic (destructive, 64-bit) ===
@@ -748,10 +749,48 @@ impl VM16 {
                         set_i32!(ra, *addr as i8 as i32);
                     }
 
-                    // CallIndirect, CallClosure — TODO
-                    tags::CALL_INDIRECT | tags::CALL_CLOSURE => {
-                        let _trail = if crate::vm16_opcode::has_trailing_word(opcode) { trail!() } else { 0 };
-                        panic!("vm16: CallIndirect/CallClosure not yet implemented");
+                    tags::CALL_INDIRECT => {
+                        let func = r!(ra) as FuncIdx; // ra = func_reg
+                        let _arg_count = rb; // rb = arg_count (args already moved to r0..N)
+
+                        self.call_stack.push(CallFrame {
+                            func_idx: self.current_func,
+                            ip,
+                            locals_base,
+                        });
+
+                        ip = linked.func_offsets[func as usize];
+                        locals_base += linked.func_locals[self.call_stack.last().unwrap().func_idx as usize] as usize;
+                        self.current_func = func;
+
+                        let needed = locals_base + linked.func_locals[func as usize] as usize;
+                        if needed > self.locals.len() {
+                            self.locals.resize(needed * 2, 0);
+                        }
+                    }
+
+                    tags::CALL_CLOSURE => {
+                        let fat_ptr = r!(ra) as *const u64; // ra = fat_ptr reg
+                        let func = *fat_ptr as FuncIdx;
+                        let closure_ptr_val = *fat_ptr.add(1);
+                        let _arg_count = rb; // rb = arg_count
+
+                        self.call_stack.push(CallFrame {
+                            func_idx: self.current_func,
+                            ip,
+                            locals_base,
+                        });
+
+                        self.closure_ptr = closure_ptr_val;
+
+                        ip = linked.func_offsets[func as usize];
+                        locals_base += linked.func_locals[self.call_stack.last().unwrap().func_idx as usize] as usize;
+                        self.current_func = func;
+
+                        let needed = locals_base + linked.func_locals[func as usize] as usize;
+                        if needed > self.locals.len() {
+                            self.locals.resize(needed * 2, 0);
+                        }
                     }
 
                     _ => {
