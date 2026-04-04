@@ -58,20 +58,25 @@ pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>
 /// Run peephole optimization and instruction fusion passes without register allocation.
 /// Used by the 16-bit VM backend which has its own register allocator.
 pub fn optimize_peephole(code: &mut Vec<Opcode>) {
-    // Run optimization passes iteratively until no more changes.
+    optimize_peephole_opts(code, true);
+}
+
+pub fn optimize_peephole_no_fma(code: &mut Vec<Opcode>) {
+    optimize_peephole_opts(code, false);
+}
+
+fn optimize_peephole_opts(code: &mut Vec<Opcode>, fuse_fma: bool) {
     for _ in 0..3 {
         move_forwarding(code);
         copy_propagation(code);
         redundant_local_addr(code);
         dead_code_elimination(code);
     }
-    // Fuse LocalAddr+Load/Store into superinstructions (after all other opts)
     fuse_local_access(code);
-    // Fuse IAddImm+Load/Store into offset-addressing superinstructions
     fuse_offset_access(code);
-    // Fuse FMul+FAdd/FSub into FMulAdd/FMulSub/FNMulAdd (and f64 variants)
-    fuse_multiply_add(code);
-    // Fuse compare+branch into single instructions
+    if fuse_fma {
+        fuse_multiply_add(code);
+    }
     fuse_compare_branch(code);
 }
 

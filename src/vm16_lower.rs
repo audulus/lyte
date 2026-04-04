@@ -77,7 +77,7 @@ pub fn lower_program(
         let mut locals_size = *locals_size;
 
         // Step 1: Run shared peephole optimization (no regalloc).
-        vm_optimize::optimize_peephole(&mut code);
+        vm_optimize::optimize_peephole_no_fma(&mut code);
         vm_optimize::compact(&mut code);
 
         // Step 2: 16-register allocation with spilling.
@@ -612,25 +612,23 @@ fn translate_function(
             Opcode::FNeg { dst, src } => emit_unary(&mut out, tags::FNEG, dst, src),
             Opcode::FPow { dst, a, b } => emit_binary_destructive(&mut out, tags::FPOW, dst, a, b, false),
 
+            // Unfuse FMA: decompose to separate FMul + FAdd/FSub.
+            // Avoids expensive trampolines in ARM64 dispatch.
             Opcode::FMulAdd { dst, a, b, c } => {
-                // rA = rA * rB + rC. Need dst == a.
-                if dst != a {
-                    out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a)));
-                }
-                out.push(Op16Instr::ab_trail(tags::FMUL_ADD, r(dst), r(b), r(c) as u16));
+                // dst = a * b + c
+                emit_binary_destructive(&mut out, tags::FMUL, dst, a, b, true);
+                out.push(Op16Instr::ab(tags::FADD, r(dst), r(c)));
             }
             Opcode::FMulSub { dst, a, b, c } => {
-                if dst != a {
-                    out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a)));
-                }
-                out.push(Op16Instr::ab_trail(tags::FMUL_SUB, r(dst), r(b), r(c) as u16));
+                // dst = a * b - c
+                emit_binary_destructive(&mut out, tags::FMUL, dst, a, b, true);
+                out.push(Op16Instr::ab(tags::FSUB, r(dst), r(c)));
             }
             Opcode::FNMulAdd { dst, a, b, c } => {
-                // rA = rC - rA * rB. Need dst == a.
-                if dst != a {
-                    out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a)));
-                }
-                out.push(Op16Instr::ab_trail(tags::FNMUL_ADD, r(dst), r(b), r(c) as u16));
+                // dst = c - a * b
+                emit_binary_destructive(&mut out, tags::FMUL, dst, a, b, true);
+                out.push(Op16Instr::a_only(tags::FNEG, r(dst)));
+                out.push(Op16Instr::ab(tags::FADD, r(dst), r(c)));
             }
 
             // Float64 arithmetic
@@ -642,16 +640,17 @@ fn translate_function(
             Opcode::DPow { dst, a, b } => emit_binary_destructive(&mut out, tags::DPOW, dst, a, b, false),
 
             Opcode::DMulAdd { dst, a, b, c } => {
-                if dst != a { out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a))); }
-                out.push(Op16Instr::ab_trail(tags::DMUL_ADD, r(dst), r(b), r(c) as u16));
+                emit_binary_destructive(&mut out, tags::DMUL, dst, a, b, true);
+                out.push(Op16Instr::ab(tags::DADD, r(dst), r(c)));
             }
             Opcode::DMulSub { dst, a, b, c } => {
-                if dst != a { out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a))); }
-                out.push(Op16Instr::ab_trail(tags::DMUL_SUB, r(dst), r(b), r(c) as u16));
+                emit_binary_destructive(&mut out, tags::DMUL, dst, a, b, true);
+                out.push(Op16Instr::ab(tags::DSUB, r(dst), r(c)));
             }
             Opcode::DNMulAdd { dst, a, b, c } => {
-                if dst != a { out.push(Op16Instr::ab(tags::MOVE, r(dst), r(a))); }
-                out.push(Op16Instr::ab_trail(tags::DNMUL_ADD, r(dst), r(b), r(c) as u16));
+                emit_binary_destructive(&mut out, tags::DMUL, dst, a, b, true);
+                out.push(Op16Instr::a_only(tags::DNEG, r(dst)));
+                out.push(Op16Instr::ab(tags::DADD, r(dst), r(c)));
             }
 
             // Bitwise

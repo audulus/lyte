@@ -8,6 +8,14 @@
 /// test functions can safely run in parallel without environment variable races.
 
 fn run_golden_tests(backend: &str) -> goldentests::TestResult<()> {
+    // On macOS ARM64, the binary needs ad-hoc code signing when the __TEXT segment
+    // is large (e.g., the 2MB VM16 ARM64 handler table). Sign before running tests.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("codesign")
+            .args(["-s", "-", "-f", "../target/debug/lyte"])
+            .output();
+    }
     let mut config = goldentests::TestConfig::new("../target/debug/lyte", "../tests/cases", "// ");
     config.base_args = format!("--backend {} --skip-backend {}", backend, backend);
     config.run_tests()

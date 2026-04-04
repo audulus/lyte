@@ -240,27 +240,7 @@ impl VM16 {
             fn_call_extern: helper_call_extern,
         };
 
-        // Debug: dump first few instruction words
-        #[cfg(debug_assertions)]
-        {
-            let start = linked.func_offsets[func_idx as usize];
-            let end = (start + 20).min(linked.ops.len());
-            for i in start..end {
-                let w = linked.ops[i];
-                eprintln!("  word[{}] = 0x{:04X} (op=0x{:02X} ra={} rb={})",
-                    i, w, w >> 8, (w >> 4) & 0xF, w & 0xF);
-            }
-        }
-
         let result = unsafe { vm16_arm64_enter(&mut ctx) };
-
-        // Debug: check if halt was triggered
-        #[cfg(debug_assertions)]
-        if ctx.closure_ptr != 0 {
-            let w = ctx.closure_ptr as u16;
-            eprintln!("  VM16-ASM: halt on instruction word 0x{:04X} (op=0x{:02X} ra={} rb={})",
-                w, w >> 8, (w >> 4) & 0xF, w & 0xF);
-        }
 
         // Copy registers back.
         self.regs = unsafe { *(ctx.regs as *const [u64; 16]) };
