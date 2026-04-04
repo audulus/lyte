@@ -869,52 +869,26 @@ _vm16_putc_trampoline:
 
 // --- SinF32 trampoline ---
 // On entry: s0 has the f32 arg, x24 has the ARM reg number for result.
+// Save VM regs to context array, call sinf, write result, reload.
 _vm16_sinf32_trampoline:
-    // Save caller-saved VM registers.
-    stp     x3,  x4,  [sp, #-128]!
-    stp     x5,  x6,  [sp, #16]
-    stp     x7,  x8,  [sp, #32]
-    stp     x9,  x10, [sp, #48]
-    stp     x11, x12, [sp, #64]
-    stp     x13, x14, [sp, #80]
-    str     x15,       [sp, #96]
-    // s0 already has the arg. Call sinf (takes float, returns float).
-    bl      _sinf
-    // Result in s0. Convert to w-reg bits.
-    fmov    w26, s0
-    // Restore caller-saved VM registers.
-    ldp     x3,  x4,  [sp]
-    ldp     x5,  x6,  [sp, #16]
-    ldp     x7,  x8,  [sp, #32]
-    ldp     x9,  x10, [sp, #48]
-    ldp     x11, x12, [sp, #64]
-    ldp     x13, x14, [sp, #80]
-    ldr     x15,       [sp, #96]
-    add     sp, sp, #128
-    // Store result into the correct VM register via the regs array.
-    // x24 has the ARM register number. Use the context regs array.
-    // Simpler: save result to regs array, then reload all VM regs.
-    save_vm16_regs
+    save_vm16_regs                  // 8 stp to regs array
+    bl      _sinf                   // s0 = sinf(s0)
+    fmov    w26, s0                 // result in callee-saved w26
+    // Write result to regs[vm_idx]. x24 = ARM reg number.
     ldr     x1, [x23, #CTX_REGS]
-    // Map ARM reg number to VM index: 3->0, 4->1, ..., 15->12, 27->13, 28->14, 25->15
-    // For x3-x15: vm_idx = arm_reg - 3
-    // For x25: vm_idx = 15, x27: vm_idx = 13, x28: vm_idx = 14
     cmp     x24, #16
     b.ge    2f
-    sub     x0, x24, #3        // vm_idx = arm_reg - 3 (for x3-x15)
+    sub     x0, x24, #3            // vm_idx = arm_reg - 3 (x3-x15)
     b       3f
-2:  // Handle x25, x27, x28
-    cmp     x24, #25
+2:  cmp     x24, #25
     mov     x0, #15
     b.eq    3f
     cmp     x24, #27
     mov     x0, #13
     b.eq    3f
-    mov     x0, #14            // must be x28
-3:  add     x1, x1, x0, lsl #3  // &regs[vm_idx]
-    fmov    w26, s0
-    str     x26, [x1]          // store f32 result (zero-extended)
-    load_vm16_regs
+    mov     x0, #14                // x28
+3:  str     x26, [x1, x0, lsl #3]  // regs[vm_idx] = result
+    load_vm16_regs                  // 8 ldp from regs array
     next16
 
 // --- FMulAdd trampoline (opcode 0x20) ---
