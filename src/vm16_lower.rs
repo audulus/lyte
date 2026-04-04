@@ -137,8 +137,13 @@ fn register_allocation_16(
     }
     intervals.sort_by_key(|&(_, start, end)| (start, end));
 
-    // Identify call argument groups (must be contiguous).
+    // Identify call argument groups (must be contiguous in physical regs).
+    // Merge overlapping groups: if Call A needs (3,4) and Call B needs (4,5),
+    // we need (3,4,5) to be one contiguous block.
+    // Use a union-find to merge overlapping ranges.
     let mut call_group: Vec<Option<(Reg, u8)>> = vec![None; n];
+    // First collect all ranges.
+    let mut ranges: Vec<(Reg, u8)> = Vec::new(); // (start, count)
     for op in code.iter() {
         let (args_start, arg_count) = match op {
             Opcode::Call { args_start, arg_count, .. } => (*args_start, *arg_count),
@@ -148,12 +153,51 @@ fn register_allocation_16(
             _ => continue,
         };
         if arg_count >= 2 {
-            for offset in 0..arg_count {
-                let vreg = args_start + offset as Reg;
-                if (vreg as usize) < n {
-                    call_group[vreg as usize] = Some((args_start, offset));
+            ranges.push((args_start, arg_count));
+        }
+    }
+    // Merge overlapping ranges into supergroups.
+    // Simple approach: for each vreg, find the min start and max end across all ranges containing it.
+    let mut vreg_range_start = vec![Reg::MAX; n];
+    let mut vreg_range_end = vec![0u16; n];
+    for &(start, count) in &ranges {
+        for offset in 0..count {
+            let vreg = (start + offset as Reg) as usize;
+            if vreg < n {
+                vreg_range_start[vreg] = vreg_range_start[vreg].min(start);
+                vreg_range_end[vreg] = vreg_range_end[vreg].max(start + count as Reg);
+            }
+        }
+    }
+    // Propagate: if vreg X has range [a, b), all vregs in [a, b) should share the same range.
+    for _ in 0..4 { // iterate to convergence
+        for r in 0..n {
+            if vreg_range_start[r] == Reg::MAX { continue; }
+            let s = vreg_range_start[r] as usize;
+            let e = vreg_range_end[r] as usize;
+            for j in s..e.min(n) {
+                if vreg_range_start[j] != Reg::MAX {
+                    let ns = vreg_range_start[j].min(vreg_range_start[r]);
+                    let ne = vreg_range_end[j].max(vreg_range_end[r]);
+                    vreg_range_start[j] = ns;
+                    vreg_range_end[j] = ne;
+                    vreg_range_start[r] = ns;
+                    vreg_range_end[r] = ne;
                 }
             }
+        }
+    }
+    // Build call_group from merged ranges.
+    // Skip groups that are too large to fit in 16 registers.
+    for r in 0..n {
+        if vreg_range_start[r] != Reg::MAX {
+            let group_start = vreg_range_start[r];
+            let group_size = vreg_range_end[r] - group_start;
+            if (group_size as usize) <= MAX_REGS {
+                let offset = (r as Reg - group_start) as u8;
+                call_group[r] = Some((group_start, offset));
+            }
+            // else: too large, fall back to normal allocation
         }
     }
 
@@ -265,16 +309,13 @@ fn register_allocation_16(
             let block_start = match block_start {
                 Some(b) => b,
                 None => {
-                    // Spill enough registers to make room.
-                    for _ in 0..group_size {
-                        spill_furthest(
-                            &mut active,
-                            &mut preg_free,
-                            &mut mapping,
-                            &mut spill_slot,
-                            &mut next_spill_offset,
-                        );
-                    }
+                    spill_furthest(
+                        &mut active,
+                        &mut preg_free,
+                        &mut mapping,
+                        &mut spill_slot,
+                        &mut next_spill_offset,
+                    );
                     (0..=(MAX_REGS as u8).saturating_sub(group_size))
                         .find(|&p| (0..group_size).all(|j| preg_free[(p + j) as usize]))
                         .expect("register allocation: no contiguous block after spilling")
@@ -283,7 +324,7 @@ fn register_allocation_16(
 
             for j in 0..group_size {
                 let gvreg = group_start + j as Reg;
-                if is_used[gvreg as usize] {
+                if is_used[gvreg as usize] && mapping[gvreg as usize] == UNASSIGNED {
                     mapping[gvreg as usize] = (block_start + j) as Reg;
                     preg_free[(block_start + j) as usize] = false;
                     let gend = last_use[gvreg as usize].max(def_point[gvreg as usize]);
@@ -723,15 +764,16 @@ fn translate_function(
 
             // Calls: encode args_start in rb so the dispatch can move args after saving regs.
             Opcode::Call { func, args_start, arg_count } => {
-                out.push(Op16Instr::ab_trail(tags::CALL, arg_count as Reg16, r(args_start), func as u16));
+                let as_reg = if arg_count > 0 { r(args_start) } else { 0 };
+                out.push(Op16Instr::ab_trail(tags::CALL, arg_count as Reg16, as_reg, func as u16));
             }
             Opcode::CallIndirect { func_reg, args_start, arg_count } => {
-                // Encode: ra=func_reg, rb=arg_count, trail=args_start
-                out.push(Op16Instr::ab_trail(tags::CALL_INDIRECT, r(func_reg), arg_count as Reg16, r(args_start) as u16));
+                let as_reg = if arg_count > 0 { r(args_start) as u16 } else { 0 };
+                out.push(Op16Instr::ab_trail(tags::CALL_INDIRECT, r(func_reg), arg_count as Reg16, as_reg));
             }
             Opcode::CallClosure { fat_ptr, args_start, arg_count } => {
-                // Encode: ra=fat_ptr, rb=arg_count, trail=args_start
-                out.push(Op16Instr::ab_trail(tags::CALL_CLOSURE, r(fat_ptr), arg_count as Reg16, r(args_start) as u16));
+                let as_reg = if arg_count > 0 { r(args_start) as u16 } else { 0 };
+                out.push(Op16Instr::ab_trail(tags::CALL_CLOSURE, r(fat_ptr), arg_count as Reg16, as_reg));
             }
             Opcode::CallExtern { args_start: _, arg_count, globals_offset } => {
                 out.push(Op16Instr::a_trail(tags::CALL_EXTERN, arg_count as Reg16, globals_offset as u16));
