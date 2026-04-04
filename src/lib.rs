@@ -72,4 +72,6 @@ pub mod ffi;
 pub mod vm16_opcode;
 pub mod vm16_lower;
 pub mod vm16_link;
+#[cfg(target_arch = "aarch64")]
+pub mod vm16_arm64;
 pub mod vm16;
