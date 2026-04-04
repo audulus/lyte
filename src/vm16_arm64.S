@@ -238,7 +238,6 @@ _vm16_handler_table:
 // --- Opcode 0x00: NOP ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     next
     .space HANDLER_STRIDE - 12
 .endr
@@ -247,7 +246,6 @@ _vm16_handler_table:
 // --- Opcode 0x01: HALT ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_exit
     .space HANDLER_STRIDE - 4
 .endr
@@ -257,7 +255,6 @@ _vm16_handler_table:
 // Pop call frame, restore registers, continue in caller.
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_do_return
     .space HANDLER_STRIDE - 4
 .endr
@@ -266,7 +263,6 @@ _vm16_handler_table:
 // --- Opcode 0x03: RETURN_REG (move src to r0 then return) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     mov     x3, x\ra
     b       _vm16_do_return
     .space HANDLER_STRIDE - 8
@@ -276,7 +272,6 @@ _vm16_handler_table:
 // --- Opcode 0x04: JUMP (+trail i16 offset) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsh   x0, [x19]          // read i16 offset (don't advance yet)
     add     x19, x19, x0, lsl #1  // IP += offset * 2 (word offset to byte offset)
     add     x19, x19, #2       // skip past the trail word itself
@@ -288,7 +283,6 @@ _vm16_handler_table:
 // --- Opcode 0x05: JUMP_IF_ZERO ra (+trail i16 offset) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsh   x0, [x19]
     tst     w\ra, w\ra
     // If zero: IP = IP + offset * 2 + 2; else IP += 2 (skip trail)
@@ -296,27 +290,25 @@ _vm16_handler_table:
     add     x19, x19, x0, lsl #1
 1:  add     x19, x19, #2
     next
-    .space HANDLER_STRIDE - 28
+    .space HANDLER_STRIDE - 32
 .endr
 .endr
 
 // --- Opcode 0x06: JUMP_IF_NOT_ZERO ra (+trail i16 offset) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsh   x0, [x19]
     tst     w\ra, w\ra
     b.eq    1f
     add     x19, x19, x0, lsl #1
 1:  add     x19, x19, #2
     next
-    .space HANDLER_STRIDE - 28
+    .space HANDLER_STRIDE - 32
 .endr
 .endr
 
 // --- Opcode 0x07: reserved ---
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -324,7 +316,6 @@ _vm16_handler_table:
 // --- Opcode 0x08: MOVE ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     mov     x\ra, x\rb
     next
     .space HANDLER_STRIDE - 16
@@ -334,7 +325,6 @@ _vm16_handler_table:
 // --- Opcode 0x09: LOAD_IMM ra (+trail i16) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsh   x\ra, [x19], #2    // sign-extend i16 trail into ra
     next
     .space HANDLER_STRIDE - 16
@@ -344,7 +334,6 @@ _vm16_handler_table:
 // --- Opcode 0x0A: LOAD_IMM_WIDE ra (+trail u16 pool index) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrh    w0, [x19], #2          // pool index
     ldr     x1, [x23, #CTX_I64_POOL]
     ldr     x\ra, [x1, x0, lsl #3] // load i64 from pool
@@ -356,7 +345,6 @@ _vm16_handler_table:
 // --- Opcode 0x0B: LOAD_F32 ra (+trail u16 f32 pool index) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrh    w0, [x19], #2
     ldr     x1, [x23, #CTX_F32_POOL]
     ldr     w\ra, [x1, x0, lsl #2] // load f32 bits
@@ -368,7 +356,6 @@ _vm16_handler_table:
 // --- Opcode 0x0C: LOAD_F64 ra (+trail u16 f64 pool index) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrh    w0, [x19], #2
     ldr     x1, [x23, #CTX_F64_POOL]
     ldr     x\ra, [x1, x0, lsl #3]
@@ -379,7 +366,6 @@ _vm16_handler_table:
 
 // --- Opcode 0x0D: LOAD_CONST ra (+trail u16 const index) --- stub
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     add     x19, x19, #2       // skip trail
     next
     .space HANDLER_STRIDE - 16
@@ -388,7 +374,6 @@ _vm16_handler_table:
 // --- Opcode 0x0E: LOCAL_ADDR ra (+trail u16 slot) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrh    w0, [x19], #2
     add     x\ra, x21, x0, lsl #3  // locals_base + slot * 8
     next
@@ -399,7 +384,6 @@ _vm16_handler_table:
 // --- Opcode 0x0F: GLOBAL_ADDR ra (+trail u16 offset) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrh    w0, [x19], #2
     add     x\ra, x22, x0      // globals_ptr + offset
     next
@@ -410,7 +394,6 @@ _vm16_handler_table:
 // --- Opcode 0x10: GET_CLOSURE_PTR ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldr     x\ra, [x23, #CTX_CLOSURE_PTR]
     next
     .space HANDLER_STRIDE - 16
@@ -420,7 +403,6 @@ _vm16_handler_table:
 // --- Opcode 0x11: IADD ra, rb (destructive: ra += rb) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     add     x\ra, x\ra, x\rb
     next
     .space HANDLER_STRIDE - 16
@@ -430,7 +412,6 @@ _vm16_handler_table:
 // --- Opcode 0x12: ISUB ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     sub     x\ra, x\ra, x\rb
     next
     .space HANDLER_STRIDE - 16
@@ -440,7 +421,6 @@ _vm16_handler_table:
 // --- Opcode 0x13: IMUL ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     mul     x\ra, x\ra, x\rb
     next
     .space HANDLER_STRIDE - 16
@@ -450,7 +430,6 @@ _vm16_handler_table:
 // --- Opcode 0x14: IDIV ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     sdiv    x\ra, x\ra, x\rb
     next
     .space HANDLER_STRIDE - 16
@@ -460,7 +439,6 @@ _vm16_handler_table:
 // --- Opcode 0x15: UDIV ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     udiv    w\ra, w\ra, w\rb
     next
     .space HANDLER_STRIDE - 16
@@ -470,7 +448,6 @@ _vm16_handler_table:
 // --- Opcode 0x16: IREM ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     sdiv    x0, x\ra, x\rb
     msub    x\ra, x0, x\rb, x\ra   // ra = ra - (ra/rb)*rb
     next
@@ -480,7 +457,6 @@ _vm16_handler_table:
 
 // --- Opcode 0x17: IPOW --- trampoline (complex)
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt  // TODO
     .space HANDLER_STRIDE - 4
 .endr
@@ -488,7 +464,6 @@ _vm16_handler_table:
 // --- Opcode 0x18: INEG ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     neg     x\ra, x\ra
     next
     .space HANDLER_STRIDE - 16
@@ -498,7 +473,6 @@ _vm16_handler_table:
 // --- Opcode 0x19: IADD_IMM ra (+trail i16) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsh   x0, [x19], #2
     add     x\ra, x\ra, x0
     next
@@ -509,7 +483,6 @@ _vm16_handler_table:
 // --- Opcode 0x1A: FADD ra, rb (f32 destructive: ra += rb) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra
     fmov    s1, w\rb
     fadd    s0, s0, s1
@@ -522,7 +495,6 @@ _vm16_handler_table:
 // --- Opcode 0x1B: FSUB ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra
     fmov    s1, w\rb
     fsub    s0, s0, s1
@@ -535,7 +507,6 @@ _vm16_handler_table:
 // --- Opcode 0x1C: FMUL ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra
     fmov    s1, w\rb
     fmul    s0, s0, s1
@@ -548,7 +519,6 @@ _vm16_handler_table:
 // --- Opcode 0x1D: FDIV ra, rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra
     fmov    s1, w\rb
     fdiv    s0, s0, s1
@@ -561,7 +531,6 @@ _vm16_handler_table:
 // --- Opcode 0x1E: FNEG ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra
     fneg    s0, s0
     fmov    w\ra, s0
@@ -572,7 +541,6 @@ _vm16_handler_table:
 
 // --- Opcode 0x1F: FPOW — stub ---
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -581,7 +549,6 @@ _vm16_handler_table:
 // ra = ra * rb + rc
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_fmuladd_trampoline
     .space HANDLER_STRIDE - 4
 .endr
@@ -589,7 +556,6 @@ _vm16_handler_table:
 
 // --- Opcode 0x21: FMUL_SUB — stub ---
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -598,7 +564,6 @@ _vm16_handler_table:
 // ra = rc - ra * rb
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_fnmuladd_trampoline
     .space HANDLER_STRIDE - 4
 .endr
@@ -606,7 +571,6 @@ _vm16_handler_table:
 
 // --- Opcodes 0x23-0x3F: f64 ops, bitwise, comparisons — stub ---
 .rept (0x40 - 0x23) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -615,21 +579,19 @@ _vm16_handler_table:
 // if !(ra < rb) then IP += offset
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsh   x0, [x19]          // read offset
     cmp     w\ra, w\rb
     b.lt    1f                  // if ra < rb, skip the jump (continue)
     add     x19, x19, x0, lsl #1  // IP += offset * 2
 1:  add     x19, x19, #2       // skip trail word
     next
-    .space HANDLER_STRIDE - 28
+    .space HANDLER_STRIDE - 32
 .endr
 .endr
 
 // --- Opcode 0x41: FLT_JUMP ra, rb (+trail i16 offset) ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt  // TODO: f32 compare + jump
     .space HANDLER_STRIDE - 4
 .endr
@@ -637,7 +599,6 @@ _vm16_handler_table:
 
 // --- Opcodes 0x42-0x44: ILE_JUMP, FLE_JUMP, I32_TO_F32 — stub ---
 .rept (0x45 - 0x42) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -645,7 +606,6 @@ _vm16_handler_table:
 // --- Opcode 0x45: F32_TO_I32 ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra
     fcvtzs  w\ra, s0
     next
@@ -655,7 +615,6 @@ _vm16_handler_table:
 
 // --- Opcodes 0x46-0x4E: remaining conversions — stub ---
 .rept (0x4F - 0x46) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -663,7 +622,6 @@ _vm16_handler_table:
 // --- Opcode 0x4F: LOAD8 ra, [rb] ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldrsb   x\ra, [x\rb]
     next
     .space HANDLER_STRIDE - 16
@@ -673,7 +631,6 @@ _vm16_handler_table:
 // --- Opcode 0x50: LOAD32 ra, [rb] ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldr     w\ra, [x\rb]
     next
     .space HANDLER_STRIDE - 16
@@ -683,7 +640,6 @@ _vm16_handler_table:
 // --- Opcode 0x51: LOAD64 ra, [rb] ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     ldr     x\ra, [x\rb]
     next
     .space HANDLER_STRIDE - 16
@@ -693,7 +649,6 @@ _vm16_handler_table:
 // --- Opcode 0x52: STORE8 [ra], rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     strb    w\rb, [x\ra]
     next
     .space HANDLER_STRIDE - 16
@@ -703,7 +658,6 @@ _vm16_handler_table:
 // --- Opcode 0x53: STORE32 [ra], rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     str     w\rb, [x\ra]
     next
     .space HANDLER_STRIDE - 16
@@ -713,7 +667,6 @@ _vm16_handler_table:
 // --- Opcode 0x54: STORE64 [ra], rb ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     str     x\rb, [x\ra]
     next
     .space HANDLER_STRIDE - 16
@@ -722,14 +675,12 @@ _vm16_handler_table:
 
 // --- Opcodes 0x55-0x87: Load/Store offsets, slot access, calls — stub ---
 .rept (0x88 - 0x55) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
 
 // --- Opcode 0x88: ALLOC_LOCALS (+trail u16 size) — skip trail, no-op for now ---
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     add     x19, x19, #2   // skip trail
     next
     .space HANDLER_STRIDE - 16
@@ -737,7 +688,6 @@ _vm16_handler_table:
 
 // --- Opcode 0x89: SAVE_REGS (+trail) — no-op (CallFrame handles save) ---
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     add     x19, x19, #2   // skip trail
     next
     .space HANDLER_STRIDE - 16
@@ -745,7 +695,6 @@ _vm16_handler_table:
 
 // --- Opcode 0x8A: RESTORE_REGS (+trail) — no-op ---
 .rept 256
-.p2align HANDLER_STRIDE_SHIFT
     add     x19, x19, #2   // skip trail
     next
     .space HANDLER_STRIDE - 16
@@ -753,7 +702,6 @@ _vm16_handler_table:
 
 // --- Opcodes 0x8B-0x8F: MEM_COPY, MEM_ZERO, SPILL, RELOAD — stub ---
 .rept (0x90 - 0x8B) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -762,7 +710,6 @@ _vm16_handler_table:
 // Calls helper_print_i32. Must save caller-saved VM regs.
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     sxtw    x0, w\ra
     b       _vm16_print_i32_trampoline
     .space HANDLER_STRIDE - 8
@@ -772,7 +719,6 @@ _vm16_handler_table:
 // --- Opcode 0x91: PRINT_F32 ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     mov     w0, w\ra
     b       _vm16_print_f32_trampoline
     .space HANDLER_STRIDE - 8
@@ -782,7 +728,6 @@ _vm16_handler_table:
 // --- Opcode 0x92: ASSERT ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     mov     x0, x\ra
     b       _vm16_assert_trampoline
     .space HANDLER_STRIDE - 8
@@ -792,7 +737,6 @@ _vm16_handler_table:
 // --- Opcode 0x93: PUTC ra ---
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     mov     x0, x\ra
     b       _vm16_putc_trampoline
     .space HANDLER_STRIDE - 8
@@ -801,7 +745,6 @@ _vm16_handler_table:
 
 // --- Opcodes 0x94-0x9F: reserved — stub ---
 .rept (0xA0 - 0x94) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -810,7 +753,6 @@ _vm16_handler_table:
 // Calls sinf. Must save/restore caller-saved VM regs.
 .irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
 .irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
-.p2align HANDLER_STRIDE_SHIFT
     fmov    s0, w\ra            // arg: f32 in s0
     mov     x24, #\ra           // save ARM reg number for result
     b       _vm16_sinf32_trampoline
@@ -820,7 +762,6 @@ _vm16_handler_table:
 
 // --- Opcodes 0xA1-0xFF: remaining math builtins, SIMD — stub ---
 .rept (0x100 - 0xA1) * 256
-.p2align HANDLER_STRIDE_SHIFT
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
