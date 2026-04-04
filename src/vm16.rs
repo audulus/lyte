@@ -86,12 +86,15 @@ impl VM16 {
         let mut ip = linked.func_offsets[func_idx as usize];
         let mut locals_base = 0usize;
 
-        // Allocate initial locals.
-        let needed = linked.func_locals[func_idx as usize] as usize;
-        if needed > self.locals.len() {
-            self.locals.resize(needed * 2, 0);
+        // Pre-allocate locals for all potential call depths to avoid resizing
+        // (which would invalidate LocalAddr pointers stored in registers).
+        let total_locals: usize = linked.func_locals.iter().map(|&s| s as usize).sum::<usize>()
+            .max(1024 * 64); // At least 64KB
+        if total_locals > self.locals.len() {
+            self.locals.resize(total_locals, 0);
         }
         // Zero locals for current frame.
+        let needed = linked.func_locals[func_idx as usize] as usize;
         for b in &mut self.locals[0..needed] {
             *b = 0;
         }
@@ -274,31 +277,31 @@ impl VM16 {
                         set_i64!(ra, 0);
                     }
 
-                    // === Integer Arithmetic (destructive) ===
-                    tags::IADD => { set_i32!(ra, r_i32!(ra).wrapping_add(r_i32!(rb))); }
-                    tags::ISUB => { set_i32!(ra, r_i32!(ra).wrapping_sub(r_i32!(rb))); }
-                    tags::IMUL => { set_i32!(ra, r_i32!(ra).wrapping_mul(r_i32!(rb))); }
+                    // === Integer Arithmetic (destructive, 64-bit) ===
+                    tags::IADD => { set_i64!(ra, (r!(ra) as i64).wrapping_add(r!(rb) as i64)); }
+                    tags::ISUB => { set_i64!(ra, (r!(ra) as i64).wrapping_sub(r!(rb) as i64)); }
+                    tags::IMUL => { set_i64!(ra, (r!(ra) as i64).wrapping_mul(r!(rb) as i64)); }
                     tags::IDIV => {
-                        let b = r_i32!(rb);
-                        set_i32!(ra, if b != 0 { r_i32!(ra) / b } else { 0 });
+                        let b = r!(rb) as i64;
+                        set_i64!(ra, if b != 0 { (r!(ra) as i64) / b } else { 0 });
                     }
                     tags::UDIV => {
                         let b = r!(rb) as u32;
                         set_i32!(ra, if b != 0 { (r!(ra) as u32 / b) as i32 } else { 0 });
                     }
                     tags::IREM => {
-                        let b = r_i32!(rb);
-                        set_i32!(ra, if b != 0 { r_i32!(ra) % b } else { 0 });
+                        let b = r!(rb) as i64;
+                        set_i64!(ra, if b != 0 { (r!(ra) as i64) % b } else { 0 });
                     }
                     tags::IPOW => {
                         let base = r_i32!(ra);
                         let exp = r_i32!(rb);
                         set_i32!(ra, i32_pow(base, exp));
                     }
-                    tags::INEG => { set_i32!(ra, -r_i32!(ra)); }
+                    tags::INEG => { set_i64!(ra, -(r!(ra) as i64)); }
                     tags::IADD_IMM => {
-                        let imm = trail_i16!() as i32;
-                        set_i32!(ra, r_i32!(ra).wrapping_add(imm));
+                        let imm = trail_i16!() as i64;
+                        set_i64!(ra, (r!(ra) as i64).wrapping_add(imm));
                     }
 
                     // === Float32 Arithmetic ===
@@ -568,8 +571,8 @@ impl VM16 {
                     }
 
                     tags::SAVE_REGS => {
-                        let slot = trail!() as usize;
-                        let base = locals_base + slot * 8;
+                        let byte_offset = trail!() as usize;
+                        let base = locals_base + byte_offset;
                         let needed = base + 16 * 8;
                         if needed > self.locals.len() {
                             self.locals.resize(needed * 2, 0);
@@ -582,8 +585,8 @@ impl VM16 {
 
                     tags::RESTORE_REGS => {
                         let skip_r0 = ra;
-                        let slot = trail!() as usize;
-                        let base = locals_base + slot * 8;
+                        let byte_offset = trail!() as usize;
+                        let base = locals_base + byte_offset;
                         let src = self.locals.as_ptr().add(base) as *const u64;
                         let start = if skip_r0 != 0 { 1 } else { 0 };
                         for i in start..16 {

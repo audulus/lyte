@@ -446,6 +446,7 @@ fn r(reg: Reg) -> Reg16 {
 }
 
 /// Translate a function's Opcodes (already register-allocated to 0-15) into Op16Instrs.
+/// Handles the 3-op → 2-op conversion and recalculates jump offsets.
 fn translate_function(
     code: &[Opcode],
     f32_pool: &mut Vec<f32>,
@@ -453,8 +454,11 @@ fn translate_function(
     i64_pool: &mut Vec<i64>,
 ) -> Vec<Op16Instr> {
     let mut out = Vec::new();
+    // Map from old instruction index → first Op16Instr index for that instruction.
+    let mut old_to_new: Vec<usize> = Vec::with_capacity(code.len() + 1);
 
-    for op in code {
+    for (old_idx, op) in code.iter().enumerate() {
+        old_to_new.push(out.len());
         match *op {
             Opcode::Nop => {}
             Opcode::Halt => out.push(Op16Instr::bare(tags::HALT)),
@@ -664,8 +668,14 @@ fn translate_function(
                 out.push(Op16Instr::a_trail(tags::JUMP_IF_NOT_ZERO, r(cond), offset as u16));
             }
 
-            // Calls: args are already in r0..rN-1
-            Opcode::Call { func, args_start: _, arg_count } => {
+            // Calls: move args from r[args_start..] to r[0..arg_count]
+            Opcode::Call { func, args_start, arg_count } => {
+                for i in 0..arg_count as Reg {
+                    let src = args_start + i;
+                    if i != src && src < 16 {
+                        out.push(Op16Instr::ab(tags::MOVE, r(i), r(src)));
+                    }
+                }
                 out.push(Op16Instr::a_trail(tags::CALL, arg_count as Reg16, func as u16));
             }
             Opcode::CallIndirect { func_reg, args_start: _, arg_count } => {
@@ -800,6 +810,39 @@ fn translate_function(
             Opcode::SliceStore32 { slice, index, src } => {
                 // A=slice, B=index, trail=src_reg
                 out.push(Op16Instr::ab_trail(tags::SLICE_STORE32, r(slice), r(index), r(src) as u16));
+            }
+        }
+    }
+
+    // Sentinel: maps past-the-end to current output length.
+    old_to_new.push(out.len());
+
+    // Fix up jump offsets: convert from old instruction-relative to new instruction-relative.
+    // In the original Opcode IR, a jump offset is relative to the NEXT instruction (old_idx + 1).
+    // In the Op16Instr stream, jumps carry trail values that the linker will convert to word offsets.
+    // We need the trail value to be an offset in Op16Instr units (new indices).
+    for i in 0..out.len() {
+        let tag = out[i].tag;
+        if matches!(tag, tags::JUMP | tags::JUMP_IF_ZERO | tags::JUMP_IF_NOT_ZERO
+            | tags::ILT_JUMP | tags::FLT_JUMP | tags::ILE_JUMP | tags::FLE_JUMP)
+        {
+            if let Some(trail) = out[i].trail {
+                // Find which old instruction this Op16Instr came from.
+                // Binary search: find the largest old_idx such that old_to_new[old_idx] <= i.
+                let old_idx = match old_to_new.binary_search(&i) {
+                    Ok(idx) => idx,
+                    Err(idx) => idx - 1,
+                };
+
+                let old_offset = trail as i16 as i32;
+                let old_target = (old_idx as i32 + 1) + old_offset; // +1 because offset is from next insn
+                let old_target = old_target.max(0).min(old_to_new.len() as i32 - 1) as usize;
+
+                let new_source = i + 1; // the Op16Instr after this jump (where ip would be after consuming the jump)
+                let new_target = old_to_new[old_target];
+                let new_offset = new_target as i32 - new_source as i32;
+
+                out[i].trail = Some(new_offset as u16);
             }
         }
     }

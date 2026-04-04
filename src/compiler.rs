@@ -1954,4 +1954,85 @@ mod tests {
             }
         "#);
     }
+
+    #[test]
+    fn test_vm16_function_call() {
+        run_vm16(r#"
+            fn add(a: i32, b: i32) -> i32 { a + b }
+            main {
+                var r = add(3, 4)
+                assert(r == 7)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_nested_calls() {
+        run_vm16(r#"
+            fn double(x: i32) -> i32 { x * 2 }
+            fn quad(x: i32) -> i32 { double(double(x)) }
+            main {
+                assert(quad(3) == 12)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_if_else() {
+        run_vm16(r#"
+            fn max(a: i32, b: i32) -> i32 {
+                if a > b { a } else { b }
+            }
+            main {
+                assert(max(3, 7) == 7)
+                assert(max(10, 2) == 10)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_struct() {
+        run_vm16(r#"
+            struct Point { x: i32, y: i32 }
+            main {
+                var p: Point
+                p.x = 3
+                p.y = 4
+                assert(p.x == 3)
+                assert(p.y == 4)
+                p.x = 10
+                assert(p.x == 10)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_array_simple() {
+        run_vm16(r#"
+            main {
+                var a: [i32; 3]
+                a[0] = 10
+                a[1] = 20
+                a[2] = 30
+                assert(a[0] == 10)
+                assert(a[1] == 20)
+                assert(a[2] == 30)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_array_loop() {
+        run_vm16(r#"
+            main {
+                var a: [i32; 5]
+                for i in 0 .. 5 {
+                    a[i] = i * i
+                }
+                assert(a[0] == 0)
+                assert(a[3] == 9)
+                assert(a[4] == 16)
+            }
+        "#);
+    }
 }
