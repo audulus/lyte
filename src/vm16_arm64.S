@@ -569,8 +569,112 @@ _vm16_handler_table:
 .endr
 .endr
 
-// --- Opcodes 0x23-0x3F: f64 ops, bitwise, comparisons — stub ---
-.rept (0x40 - 0x23) * 256
+// --- Opcodes 0x23-0x33: f64 ops, bitwise — stub ---
+.rept (0x34 - 0x23) * 256
+    b       _vm16_halt
+    .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0x34: IEQ ra, rb — rA = (rA == rB) ? 1 : 0 ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    cmp     w\ra, w\rb
+    cset    x\ra, eq
+    next16
+    .space HANDLER_STRIDE - 20
+.endr
+.endr
+
+// --- Opcode 0x35: INE ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    cmp     w\ra, w\rb
+    cset    x\ra, ne
+    next16
+    .space HANDLER_STRIDE - 20
+.endr
+.endr
+
+// --- Opcode 0x36: ILT ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    cmp     w\ra, w\rb
+    cset    x\ra, lt
+    next16
+    .space HANDLER_STRIDE - 20
+.endr
+.endr
+
+// --- Opcode 0x37: ILE ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    cmp     w\ra, w\rb
+    cset    x\ra, le
+    next16
+    .space HANDLER_STRIDE - 20
+.endr
+.endr
+
+// --- Opcode 0x38: ULT ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    cmp     w\ra, w\rb
+    cset    x\ra, lo
+    next16
+    .space HANDLER_STRIDE - 20
+.endr
+.endr
+
+// --- Opcode 0x39: FEQ ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    fmov    s0, w\ra
+    fmov    s1, w\rb
+    fcmp    s0, s1
+    cset    x\ra, eq
+    next16
+    .space HANDLER_STRIDE - 28
+.endr
+.endr
+
+// --- Opcode 0x3A: FNE ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    fmov    s0, w\ra
+    fmov    s1, w\rb
+    fcmp    s0, s1
+    cset    x\ra, ne
+    next16
+    .space HANDLER_STRIDE - 28
+.endr
+.endr
+
+// --- Opcode 0x3B: FLT ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    fmov    s0, w\ra
+    fmov    s1, w\rb
+    fcmp    s0, s1
+    cset    x\ra, mi
+    next16
+    .space HANDLER_STRIDE - 28
+.endr
+.endr
+
+// --- Opcode 0x3C: FLE ra, rb ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    fmov    s0, w\ra
+    fmov    s1, w\rb
+    fcmp    s0, s1
+    cset    x\ra, ls
+    next16
+    .space HANDLER_STRIDE - 28
+.endr
+.endr
+
+// --- Opcodes 0x3D-0x3F: DEQ, DLT, DLE — stub ---
+.rept (0x40 - 0x3D) * 256
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -597,10 +701,20 @@ _vm16_handler_table:
 .endr
 .endr
 
-// --- Opcodes 0x42-0x44: ILE_JUMP, FLE_JUMP, I32_TO_F32 — stub ---
-.rept (0x45 - 0x42) * 256
+// --- Opcodes 0x42-0x43: ILE_JUMP, FLE_JUMP — stub ---
+.rept (0x44 - 0x42) * 256
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
+.endr
+
+// --- Opcode 0x44: I32_TO_F32 ra ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    scvtf   s0, w\ra
+    fmov    w\ra, s0
+    next16
+    .space HANDLER_STRIDE - 20
+.endr
 .endr
 
 // --- Opcode 0x45: F32_TO_I32 ra ---
@@ -700,8 +814,24 @@ _vm16_handler_table:
     .space HANDLER_STRIDE - 16
 .endr
 
-// --- Opcodes 0x8B-0x8F: MEM_COPY, MEM_ZERO, SPILL, RELOAD — stub ---
-.rept (0x90 - 0x8B) * 256
+// --- Opcode 0x8B: MEM_COPY ra, rb (+trail size) ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    b       _vm16_memcopy_trampoline
+    .space HANDLER_STRIDE - 4
+.endr
+.endr
+
+// --- Opcode 0x8C: MEM_ZERO ra (+trail size) ---
+.irp ra, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+.irp rb, 3,4,5,6,7,8,9,10,11,12,13,14,15,27,28,25
+    b       _vm16_memzero_trampoline
+    .space HANDLER_STRIDE - 4
+.endr
+.endr
+
+// --- Opcodes 0x8D-0x8F: SPILL, RELOAD, reserved — stub ---
+.rept (0x90 - 0x8D) * 256
     b       _vm16_halt
     .space HANDLER_STRIDE - 4
 .endr
@@ -939,6 +1069,35 @@ _vm16_fnmuladd_trampoline:
     fmov    w0, s0
     add     x4, x1, x2, lsl #3
     str     x0, [x4]
+    load_vm16_regs
+    next16
+
+// --- MemZero trampoline: zero [ra] for trail bytes ---
+_vm16_memzero_trampoline:
+    save_vm16_regs
+    ldrh    w2, [x19], #2           // trail = size
+    ldrh    w1, [x19, #-4]          // reload instruction word
+    ubfx    w0, w1, #4, #4          // ra VM index
+    ldr     x1, [x23, #CTX_REGS]
+    ldr     x0, [x1, x0, lsl #3]   // ra value = destination pointer
+    mov     w1, #0                  // fill byte
+    // x0=dst, w1=0, w2=size. Call memset.
+    bl      _memset
+    load_vm16_regs
+    next16
+
+// --- MemCopy trampoline: copy trail bytes from [rb] to [ra] ---
+_vm16_memcopy_trampoline:
+    save_vm16_regs
+    ldrh    w2, [x19], #2           // trail = size
+    ldrh    w1, [x19, #-4]          // reload instruction word
+    ubfx    w3, w1, #4, #4          // ra VM index (dst)
+    and     w4, w1, #0xf            // rb VM index (src)
+    ldr     x1, [x23, #CTX_REGS]
+    ldr     x0, [x1, x3, lsl #3]   // dst pointer
+    ldr     x1, [x1, x4, lsl #3]   // src pointer
+    // x0=dst, x1=src, w2=size. Call memcpy.
+    bl      _memcpy
     load_vm16_regs
     next16
 
