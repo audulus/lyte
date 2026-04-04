@@ -789,6 +789,17 @@ impl Compiler {
         Ok(vm.run(&program))
     }
 
+    /// Run the code using the 16-bit VM interpreter.
+    pub fn run_vm16(&mut self) -> Result<i64, String> {
+        let program = self.compile_vm()?;
+        let func_idx = *program
+            .entry_points
+            .get(&Name::str("main"))
+            .ok_or("no main entry point")?;
+        let mut vm = crate::vm16::VM16::new();
+        Ok(vm.run(&program, func_idx, &[]))
+    }
+
     /// Compile to a backend-agnostic CompiledProgram.
     /// Auto-selects LLVM JIT (when available) or VM.
     pub fn compile_program(&self) -> Result<CompiledProgram, String> {
@@ -1872,5 +1883,75 @@ mod tests {
         }
 
         assert!(LLVM_SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+    }
+
+    // ---- VM16 integration tests ----
+
+    fn run_vm16(code: &str) {
+        let mut compiler = Compiler::new();
+        compiler.parse(code.into(), ".");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().unwrap();
+        compiler.run_vm16().expect("VM16 execution failed");
+    }
+
+    #[test]
+    fn test_vm16_basic() {
+        run_vm16(r#"
+            main {
+                var x = 42
+                assert(x == 42)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_arithmetic() {
+        run_vm16(r#"
+            main {
+                var a = 3
+                var b = 4
+                var c = a + b
+                assert(c == 7)
+                assert(a * b == 12)
+                assert(b - a == 1)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_loop() {
+        run_vm16(r#"
+            main {
+                var sum = 0
+                for i in 0 .. 10 {
+                    sum = sum + i
+                }
+                assert(sum == 45)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_float() {
+        // Simple float test without function calls.
+        run_vm16(r#"
+            main {
+                var x: f32 = 25.0
+                var y = sqrt(x)
+                // y should be 5.0, truncate to int
+                var z = y as i32
+                assert(z == 5)
+            }
+        "#);
+    }
+
+    #[test]
+    fn test_vm16_print() {
+        run_vm16(r#"
+            main {
+                print(123)
+            }
+        "#);
     }
 }

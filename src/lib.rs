@@ -69,3 +69,7 @@ pub mod vm_optimize;
 pub mod vm_codegen;
 
 pub mod ffi;
+pub mod vm16_opcode;
+pub mod vm16_lower;
+pub mod vm16_link;
+pub mod vm16;
