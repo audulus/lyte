@@ -142,8 +142,9 @@ fn run(args: Args) -> i32 {
     let run_llvm = should_run && backend == "llvm";
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
+    let run_vm16 = should_run && backend == "vm16";
 
-    if run_jit || run_vm || run_asm || run_llvm || args.bytecode || args.ir {
+    if run_jit || run_vm || run_asm || run_llvm || run_vm16 || args.bytecode || args.ir {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -207,6 +208,37 @@ fn run(args: Args) -> i32 {
                 {
                     let _ = compiler.jit();
                 }
+            }
+        }
+
+        if run_vm16 {
+            let vm_compile_start = Instant::now();
+            let program = match compiler.compile_vm() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("VM16 compilation error: {}", e);
+                    return 1;
+                }
+            };
+            let vm_compile_elapsed = vm_compile_start.elapsed();
+            if args.timing {
+                eprintln!(
+                    "compile: {:.0}µs (front {:.0}µs + vm16 codegen {:.0}µs)",
+                    compile_elapsed.as_micros() as f64 + vm_compile_elapsed.as_micros() as f64,
+                    compile_elapsed.as_micros(),
+                    vm_compile_elapsed.as_micros()
+                );
+            }
+            println!("compilation successful");
+            let start = Instant::now();
+            let func_idx = *program
+                .entry_points
+                .get(&lyte::Name::str("main"))
+                .expect("no main entry point");
+            let mut vm = lyte::vm16::VM16::new();
+            let _result = vm.run(&program, func_idx, &[]);
+            if args.timing {
+                eprintln!("vm16 exec: {:.3}s", start.elapsed().as_secs_f64());
             }
         }
 

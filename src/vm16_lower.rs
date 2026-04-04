@@ -323,9 +323,38 @@ fn register_allocation_16(
         }
     }
 
-    // Handle cross-call registers: spill any vreg that is live across a call.
-    // With 16 registers, these must be saved/restored explicitly.
-    // The SaveRegs/RestoreRegs instructions handle this at the call site.
+    // Assign any remaining unassigned but used registers.
+    // This can happen with cross-call registers or edge cases.
+    for r_idx in 0..n {
+        if is_used[r_idx] && mapping[r_idx] == UNASSIGNED {
+            // Expire all intervals that ended before the def point of this reg.
+            let start = def_point[r_idx];
+            active.retain(|&(active_end, _vr, pr)| {
+                if active_end < start {
+                    preg_free[pr as usize] = true;
+                    false
+                } else {
+                    true
+                }
+            });
+
+            let preg = if let Some(p) = preg_free.iter().position(|&free| free) {
+                p as u8
+            } else {
+                spill_furthest(
+                    &mut active,
+                    &mut preg_free,
+                    &mut mapping,
+                    &mut spill_slot,
+                    &mut next_spill_offset,
+                )
+            };
+            preg_free[preg as usize] = false;
+            mapping[r_idx] = preg as Reg;
+            let end = last_use[r_idx].max(def_point[r_idx]);
+            active.push((end, r_idx as Reg, preg));
+        }
+    }
 
     // Update locals_size to account for spill slots.
     *locals_size = next_spill_offset;
@@ -349,6 +378,28 @@ fn register_allocation_16(
                 }
             }
             _ => {}
+        }
+    }
+
+    // Ensure every vreg referenced in the code has a valid mapping.
+    for r_idx in 0..mapping.len() {
+        if mapping[r_idx] == UNASSIGNED {
+            mapping[r_idx] = 0;
+        }
+    }
+
+    // Verify no registers > 15 exist after mapping.
+    #[cfg(debug_assertions)]
+    {
+        let mut max_reg_in_code: Reg = 0;
+        for op in code.iter() {
+            if let Some(d) = op.get_dst() {
+                max_reg_in_code = max_reg_in_code.max(d);
+            }
+            op.for_each_src(|r| max_reg_in_code = max_reg_in_code.max(r));
+        }
+        if max_reg_in_code >= mapping.len() as Reg {
+            eprintln!("WARNING: code references vreg {} but mapping only covers 0..{}", max_reg_in_code, mapping.len());
         }
     }
 
@@ -441,7 +492,9 @@ fn is_commutative(op: &Opcode) -> bool {
 }
 
 fn r(reg: Reg) -> Reg16 {
-    debug_assert!(reg < 16, "vm16: register {} out of range (max 15)", reg);
+    if reg >= 16 {
+        panic!("vm16: register {} out of range (max 15). This likely means a virtual register was not allocated by the 16-reg allocator.", reg);
+    }
     reg as Reg16
 }
 

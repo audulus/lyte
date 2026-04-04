@@ -35,3 +35,8 @@ fn golden_tests_vm() -> goldentests::TestResult<()> {
 fn golden_tests_asm() -> goldentests::TestResult<()> {
     run_golden_tests("asm")
 }
+
+#[test]
+fn golden_tests_vm16() -> goldentests::TestResult<()> {
+    run_golden_tests("vm16")
+}
