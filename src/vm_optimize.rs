@@ -30,7 +30,7 @@ fn jump_targets(code: &[Opcode]) -> HashSet<usize> {
 }
 
 /// Find the number of virtual registers used in the code (max reg + 1).
-fn num_vregs(code: &[Opcode]) -> usize {
+pub fn num_vregs(code: &[Opcode]) -> usize {
     let mut max_r: Reg = 0;
     for op in code {
         if let Some(dst) = op.get_dst() {
@@ -49,6 +49,15 @@ pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>
     if code.is_empty() {
         return None;
     }
+    optimize_peephole(code);
+    // Register allocation: compact register numbering via linear scan
+    let (count, mapping) = register_allocation(code, param_count);
+    Some((count, mapping))
+}
+
+/// Run peephole optimization and instruction fusion passes without register allocation.
+/// Used by the 16-bit VM backend which has its own register allocator.
+pub fn optimize_peephole(code: &mut Vec<Opcode>) {
     // Run optimization passes iteratively until no more changes.
     for _ in 0..3 {
         move_forwarding(code);
@@ -64,9 +73,6 @@ pub fn optimize(code: &mut Vec<Opcode>, param_count: u8) -> Option<(u8, Vec<Reg>
     fuse_multiply_add(code);
     // Fuse compare+branch into single instructions
     fuse_compare_branch(code);
-    // Register allocation: compact register numbering via linear scan
-    let (count, mapping) = register_allocation(code, param_count);
-    Some((count, mapping))
 }
 
 /// Dead code elimination: NOP any instruction that writes to a register
@@ -652,7 +658,7 @@ fn fuse_compare_branch(code: &mut Vec<Opcode>) {
 
 /// Compute live ranges for all virtual registers.
 /// Returns (def_point, last_use, is_used) vectors indexed by register number.
-fn compute_live_ranges(code: &[Opcode]) -> (Vec<u32>, Vec<u32>, Vec<bool>) {
+pub fn compute_live_ranges(code: &[Opcode]) -> (Vec<u32>, Vec<u32>, Vec<bool>) {
     let n = num_vregs(code);
     let mut def_point = vec![u32::MAX; n];
     let mut last_use = vec![0u32; n];
@@ -731,7 +737,7 @@ fn compute_live_ranges(code: &[Opcode]) -> (Vec<u32>, Vec<u32>, Vec<bool>) {
 /// Copy coalescing: merge virtual registers connected by Move instructions
 /// when their live ranges don't interfere. This eliminates moves and reduces
 /// register pressure. Runs as a pre-pass before linear scan allocation.
-fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
+pub fn copy_coalesce(code: &mut [Opcode], param_count: u8) {
     let n = num_vregs(code);
     // Union-find for register coalescing.
     let mut parent: Vec<Reg> = (0..n as Reg).collect();

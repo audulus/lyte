@@ -91,3 +91,7 @@ pub mod stack_rebase_lm;
 pub mod stack_interp_bridge;
 
 pub mod ffi;
+pub mod vm16_opcode;
+pub mod vm16_lower;
+pub mod vm16_link;
+pub mod vm16;
