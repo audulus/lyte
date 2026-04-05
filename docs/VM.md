@@ -290,3 +290,41 @@ This is a representative DSP workload that exercises:
 ### Safety
 
 The VM uses `unsafe` for memory operations. This is intentional - Lyte's type system and array bounds checker ensure safety at compile time. The VM trusts the bytecode it executes.
+
+### ARM64 Backend
+
+The ARM64 assembly backend (`vm_arm64.S`) replaces the Rust `match` dispatch with hand-written assembly. Eight callee-saved registers are pinned to hot VM state (ops, regs, ip, locals_base, locals_ptr, globals_ptr, jump table, ctx), so the entire dispatch loop runs without touching the stack frame.
+
+Each handler ends with an inline `next` macro — a 5-instruction threaded dispatch sequence:
+
+```asm
+ldr     w16, [x19, x21, lsl #2]    // load ops[ip]
+add     x21, x21, #1               // ip++
+and     w17, w16, #0xff            // extract tag
+ldr     x17, [x25, x17, lsl #3]   // handler = jump_table[tag]
+br      x17                        // branch to handler
+```
+
+Because each handler has its own indirect branch instruction, the CPU's branch target buffer can learn per-handler patterns rather than thrashing a single shared dispatch point.
+
+### Failed Optimization: Next-Handler Preloading
+
+Silverfir-nano (a WebAssembly interpreter) achieves near-JIT performance partly through next-handler preloading: each handler receives the next handler's function pointer pre-loaded by the previous handler, eliminating the load-to-use stall between fetching the handler pointer and branching to it. See `INTERPRETER_DESIGN.md` for details.
+
+We attempted this for Lyte's ARM64 backend. The idea: dedicate x27 to hold a preloaded handler pointer. The `next` macro branches to the preloaded pointer immediately (no stall) while simultaneously preloading x27 for the handler after that. Non-linear handlers (jumps, calls, returns, multi-word instructions) use a `next_reload` variant that bootstraps the preload chain from scratch.
+
+The result was a consistent ~13% regression across all benchmarks:
+
+| Benchmark | Before | After | Change |
+|-----------|--------|-------|--------|
+| Biquad | 0.265s | 0.296s | +12% slower |
+| Sort | 0.123s | 0.139s | +13% slower |
+| FFT | 0.653s | 0.738s | +13% slower |
+
+**Why it failed:**
+
+1. **Dispatch grew from 5 to 7 instructions.** The preloading `next` macro adds a peek load and a register move, increasing per-dispatch overhead by 40%. Silverfir-nano's design amortizes this because its handlers have near-zero prologue/epilogue overhead (`preserve_none` + `musttail`), so the stall is a larger fraction of total cost. Lyte's register-machine handlers are bulkier (register file loads and stores), giving the CPU's out-of-order engine enough work to hide the stall naturally.
+
+2. **Apple M-series branch prediction is excellent.** Profiling shows >95% indirect branch prediction success with threaded dispatch. The CPU speculatively executes through the predicted target, overlapping the handler pointer load with useful work. The preload eliminates a stall that barely exists in practice.
+
+3. **Architectural mismatch.** The technique is designed for stack machines with tiny fused handlers (1-5 instructions of real work). In a register machine where each handler does 5-10 register file accesses, the load-to-use latency is already hidden by the handler body itself.
