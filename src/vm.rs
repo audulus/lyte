@@ -348,7 +348,7 @@ pub(crate) unsafe fn call_extern_fn(
 
     // Build the ffi_type pointer array on the stack: [context, params...]
     let mut arg_types: [*mut ffi_type; MAX_EXTERN_ARGS] = [std::ptr::null_mut(); MAX_EXTERN_ARGS];
-    arg_types[0] = &mut types::pointer;
+    arg_types[0] = &raw mut types::pointer;
     for (i, pt) in param_types.iter().enumerate() {
         arg_types[i + 1] = extern_type_to_ffi_ptr(*pt);
     }
@@ -990,6 +990,7 @@ pub enum ExternType {
 
 /// Descriptor for an extern function.
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct ExternFuncInfo {
     /// Byte offset of the {fn_ptr, context} pair in the globals buffer.
     pub globals_offset: i32,

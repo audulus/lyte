@@ -106,6 +106,7 @@ const _: () = {
 
 // ============ Assembly entry point ============
 
+#[allow(improper_ctypes)]
 extern "C" {
     /// ARM64 assembly dispatch loop. Returns the value in register 0 (i64).
     /// The context struct is read/written during execution.
@@ -158,7 +159,7 @@ unsafe extern "C" fn helper_grow_locals(ctx: *mut AsmContext, needed: u64) {
 
 /// Helper for CallExtern from assembly. Reads {fn_ptr, context} from globals,
 /// calls the extern function via libffi, and stores the result in register 0.
-unsafe extern "C" fn helper_call_extern(ctx: *mut AsmContext, args_start: u64, arg_count: u64, globals_offset: u64) {
+unsafe extern "C" fn helper_call_extern(ctx: *mut AsmContext, args_start: u64, _arg_count: u64, globals_offset: u64) {
     let regs = std::slice::from_raw_parts((*ctx).regs, 256);
     let globals_ptr = (*ctx).globals_ptr;
 
