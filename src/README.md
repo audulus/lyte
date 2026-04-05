@@ -66,3 +66,5 @@ We use a simple escape anlysis to prevent returning functions with closures (src
 [Designing type inference for high quality type errors](https://blog.polybdenum.com/2025/02/14/designing-type-inference-for-high-quality-type-errors.html)
 
 [Type Inference Zoo](https://zoo.cuichen.cc/)
+
+[A tail-call interpreter in (nightly) Rust](https://www.mattkeeter.com/blog/2026-04-05-tailcall/)
