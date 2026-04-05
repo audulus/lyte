@@ -21,6 +21,10 @@ struct Args {
     #[clap(long)]
     bytecode: bool,
 
+    /// Dump stack-based IR (for Silverfir-nano-style interpreters).
+    #[clap(long)]
+    stack_ir: bool,
+
     #[clap(long)]
     timing: bool,
 
@@ -124,7 +128,7 @@ fn run(args: Args) -> i32 {
     } else {
         args.backend.clone()
     };
-    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir;
+    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir && !args.stack_ir;
     #[cfg(feature = "cranelift")]
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     #[cfg(not(feature = "cranelift"))]
@@ -143,7 +147,7 @@ fn run(args: Args) -> i32 {
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
 
-    if run_jit || run_vm || run_asm || run_llvm || args.bytecode || args.ir {
+    if run_jit || run_vm || run_asm || run_llvm || args.bytecode || args.stack_ir || args.ir {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -164,6 +168,27 @@ fn run(args: Args) -> i32 {
                 }
                 Err(e) => {
                     eprintln!("VM compilation error: {}", e);
+                    return 1;
+                }
+            }
+        }
+
+        if args.stack_ir {
+            match compiler.compile_stack() {
+                Ok(program) => {
+                    for func in &program.functions {
+                        println!(
+                            "fn {} (params: {}, locals: {}, memory: {} bytes):",
+                            func.name, func.param_count, func.local_count, func.local_memory
+                        );
+                        for (i, op) in func.ops.iter().enumerate() {
+                            println!("  {:>4}: {}", i, op);
+                        }
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Stack IR compilation error: {}", e);
                     return 1;
                 }
             }

@@ -68,4 +68,8 @@ pub mod vm_optimize;
 
 pub mod vm_codegen;
 
+pub mod stack_ir;
+
+pub mod stack_codegen;
+
 pub mod ffi;

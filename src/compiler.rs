@@ -782,6 +782,16 @@ impl Compiler {
         codegen.compile_multi(&self.decls, &entry_points)
     }
 
+    /// Compile to stack-based IR (for Silverfir-nano-style interpreters).
+    pub fn compile_stack(&self) -> Result<crate::stack_ir::StackProgram, String> {
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let mut codegen = crate::stack_codegen::StackCodegen::new();
+        let entry_points = self.effective_entry_points();
+        codegen.compile_multi(&self.decls, &entry_points)
+    }
+
     /// Run the code using the VM interpreter.
     pub fn run_vm(&mut self) -> Result<i64, String> {
         let program = self.compile_vm()?;
