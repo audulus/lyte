@@ -19,6 +19,7 @@ struct CallFrame {
     saved_lm: *mut u8,
     saved_sp: *mut u64,
     func_idx: u32,
+    saved_lm_size: usize,
 }
 
 #[repr(C)]
@@ -406,6 +407,7 @@ pub fn run(program: &StackProgram) -> i64 {
             saved_lm: std::ptr::null_mut(),
             saved_sp: std::ptr::null_mut(),
             func_idx: 0,
+            saved_lm_size: 0,
         })
         .collect();
 

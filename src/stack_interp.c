@@ -29,14 +29,15 @@ static void enter_function(
         new_locals[i] = args[i];
     }
 
-    // Allocate local memory.
+    // Allocate local memory from a pre-allocated fixed buffer.
+    // We must NOT realloc because callers may hold raw pointers into this buffer
+    // (e.g., output pointers for struct returns pushed before the call).
     size_t lm_base = ctx->local_memory_size;
     size_t needed = lm_base + meta->local_memory;
     if (needed > ctx->local_memory_cap) {
-        size_t new_cap = needed * 2;
-        if (new_cap < 65536) new_cap = 65536;
-        ctx->local_memory = (uint8_t*)realloc(ctx->local_memory, new_cap);
-        ctx->local_memory_cap = new_cap;
+        fprintf(stderr, "stack_interp: local memory overflow (%zu bytes needed, %zu cap)\n",
+                needed, ctx->local_memory_cap);
+        exit(1);
     }
     memset(ctx->local_memory + lm_base, 0, meta->local_memory);
     ctx->local_memory_size = needed;
@@ -520,6 +521,7 @@ PRESERVE_NONE void op_call(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* lo
     frame->saved_lm = lm;
     frame->saved_sp = sp - nargs; // caller's sp before args were pushed
     frame->func_idx = (uint32_t)pc->imm[2]; // current function index (stored by linker)
+    frame->saved_lm_size = ctx->local_memory_size;
 
     // Pop args.
     uint64_t args[256];
@@ -548,6 +550,7 @@ PRESERVE_NONE void op_call_closure(Ctx* ctx, Instruction* pc, uint64_t* sp, uint
     frame->saved_lm = lm;
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
+    frame->saved_lm_size = ctx->local_memory_size;
 
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
@@ -572,6 +575,7 @@ PRESERVE_NONE void op_call_indirect(Ctx* ctx, Instruction* pc, uint64_t* sp, uin
     frame->saved_lm = lm;
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
+    frame->saved_lm_size = ctx->local_memory_size;
 
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
@@ -597,7 +601,7 @@ PRESERVE_NONE void op_return(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* 
     }
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
-    ctx->local_memory_size = (size_t)(frame->saved_lm - ctx->local_memory);
+    ctx->local_memory_size = frame->saved_lm_size;
     sp = frame->saved_sp;
     *sp++ = result; // Push return value onto caller's stack.
 
@@ -614,7 +618,7 @@ PRESERVE_NONE void op_return_void(Ctx* ctx, Instruction* pc, uint64_t* sp, uint6
     }
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
-    ctx->local_memory_size = (size_t)(frame->saved_lm - ctx->local_memory);
+    ctx->local_memory_size = frame->saved_lm_size;
     sp = frame->saved_sp;
 
     DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm);
@@ -728,8 +732,10 @@ PRESERVE_NONE void op_putc(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* lo
 PRESERVE_NONE void op_assert(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
     uint64_t val = *--sp;
     printf("assert(%s)\n", val != 0 ? "true" : "false");
+    fflush(stdout);
     if (val == 0) {
         fprintf(stderr, "Assertion failed\n");
+        fflush(stderr);
         exit(1);
     }
     NEXT(ctx, pc, sp, locals, lm);
@@ -756,6 +762,14 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->stack_base = stack;
     ctx->done = 0;
     ctx->result = 0;
+
+    // Pre-allocate local memory so it never needs realloc.
+    // Raw pointers into this buffer are held on the operand stack
+    // (e.g., output pointers for struct returns), so the buffer must not move.
+    if (ctx->local_memory == NULL) {
+        ctx->local_memory_cap = 4 * 1024 * 1024; // 4 MB
+        ctx->local_memory = (uint8_t*)calloc(1, ctx->local_memory_cap);
+    }
 
     // Enter entry function.
     uint64_t* locals;
