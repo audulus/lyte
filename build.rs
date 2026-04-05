@@ -2,6 +2,16 @@ use std::io::Write;
 use std::process::Command;
 
 fn main() {
+    // Compile the C stack interpreter with preserve_none + musttail.
+    cc::Build::new()
+        .file("src/stack_interp.c")
+        .include("src")
+        .opt_level(3)
+        .flag("-std=c11")
+        .flag("-Wno-unused-parameter")
+        .compile("stack_interp");
+    println!("cargo:rerun-if-changed=src/stack_interp.c");
+    println!("cargo:rerun-if-changed=src/stack_interp.h");
     // Determine sizeof(jmp_buf) on this platform by compiling and running a C snippet.
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let c_path = format!("{}/jmpbuf_size.c", out_dir);

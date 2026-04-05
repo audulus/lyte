@@ -146,8 +146,9 @@ fn run(args: Args) -> i32 {
     let run_llvm = should_run && backend == "llvm";
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
+    let run_stack = should_run && backend == "stack";
 
-    if run_jit || run_vm || run_asm || run_llvm || args.bytecode || args.stack_ir || args.ir {
+    if run_jit || run_vm || run_asm || run_llvm || run_stack || args.bytecode || args.stack_ir || args.ir {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -272,6 +273,33 @@ fn run(args: Args) -> i32 {
                 if args.timing {
                     eprintln!("vm exec: {:.3}s", start.elapsed().as_secs_f64());
                 }
+            }
+        }
+
+        if run_stack {
+            let stack_compile_start = Instant::now();
+            let program = match compiler.compile_stack() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Stack VM compilation error: {}", e);
+                    return 1;
+                }
+            };
+            let stack_compile_elapsed = stack_compile_start.elapsed();
+            if args.timing {
+                eprintln!(
+                    "compile: {:.0}µs (front {:.0}µs + stack codegen {:.0}µs)",
+                    compile_elapsed.as_micros() as f64 + stack_compile_elapsed.as_micros() as f64,
+                    compile_elapsed.as_micros(),
+                    stack_compile_elapsed.as_micros()
+                );
+            }
+
+            println!("compilation successful");
+            let start = Instant::now();
+            let _result = lyte::stack_interp_bridge::run(&program);
+            if args.timing {
+                eprintln!("stack exec: {:.3}s", start.elapsed().as_secs_f64());
             }
         }
     }

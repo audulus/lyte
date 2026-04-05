@@ -72,4 +72,8 @@ pub mod stack_ir;
 
 pub mod stack_codegen;
 
+pub mod stack_vm;
+
+pub mod stack_interp_bridge;
+
 pub mod ffi;

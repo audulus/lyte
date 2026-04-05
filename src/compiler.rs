@@ -792,6 +792,13 @@ impl Compiler {
         codegen.compile_multi(&self.decls, &entry_points)
     }
 
+    /// Run the code using the stack VM interpreter.
+    pub fn run_stack(&mut self) -> Result<i64, String> {
+        let program = self.compile_stack()?;
+        let mut vm = crate::stack_vm::StackVM::new();
+        Ok(vm.run(&program))
+    }
+
     /// Run the code using the VM interpreter.
     pub fn run_vm(&mut self) -> Result<i64, String> {
         let program = self.compile_vm()?;
