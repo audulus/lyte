@@ -318,6 +318,9 @@ struct FunctionTranslator<'a> {
 
     /// Memory slot indices for captured variables (stores pointer-to-storage).
     captured_slots: HashMap<Name, u16>,
+
+    /// True when the current expression's result will be discarded.
+    void_ctx: bool,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -346,6 +349,7 @@ impl<'a> FunctionTranslator<'a> {
             loop_stack: Vec::new(),
             captured_vars: HashSet::new(),
             captured_slots: HashMap::new(),
+            void_ctx: false,
         }
     }
 
@@ -494,7 +498,64 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an expression. Pushes exactly one value onto the stack
     /// (or an address for pointer types).
+    /// Translate an expression in void context (result will be discarded).
+    /// Only optimizes specific expression types known to be safe.
+    fn translate_void(&mut self, expr: ExprID, func: &mut StackFunction) {
+        match &self.decl.arena.exprs[expr].clone() {
+            // Var: the fusion pass already eliminates the i64.const 0 + drop pattern.
+            // Just translate normally and let the caller drop.
+            Expr::Var(..) => {
+                self.translate_expr(expr, func);
+                func.emit(StackOp::Drop);
+            }
+            // Let: translate then drop the result.
+            Expr::Let(..) => {
+                self.translate_expr(expr, func);
+                func.emit(StackOp::Drop);
+            }
+            // Assignment: could skip result push, but some code uses the
+            // assignment result (e.g. `phase = phase + freq` where the tee'd
+            // value is consumed). Fall through to default for now.
+            // TODO: determine when assignment result is truly unused.
+            // Block: recurse with void context for intermediate exprs.
+            Expr::Block(exprs) => {
+                let exprs = exprs.clone();
+                if exprs.is_empty() {
+                    // Nothing to do in void context.
+                } else {
+                    let saved_vars = self.variables.clone();
+                    for (i, &expr_id) in exprs.iter().enumerate() {
+                        if i < exprs.len() - 1 {
+                            self.translate_void(expr_id, func);
+                        } else {
+                            // Last expression: translate normally then drop
+                            // (safer than void-propagation for complex exprs).
+                            self.translate_expr(expr_id, func);
+                            func.emit(StackOp::Drop);
+                        }
+                    }
+                    self.variables = saved_vars;
+                }
+            }
+            // While/For: the body result is always discarded.
+            Expr::While(..) | Expr::For { .. } => {
+                self.translate_expr_inner(expr, func, true);
+            }
+            // Everything else: translate normally then drop.
+            _ => {
+                self.translate_expr(expr, func);
+                func.emit(StackOp::Drop);
+            }
+        }
+    }
+
     fn translate_expr(&mut self, expr: ExprID, func: &mut StackFunction) {
+        self.translate_expr_inner(expr, func, false);
+    }
+
+    fn translate_expr_inner(&mut self, expr: ExprID, func: &mut StackFunction, void_ctx: bool) {
+        let _old_void_ctx = self.void_ctx;
+        self.void_ctx = void_ctx;
         match &self.decl.arena.exprs[expr].clone() {
             Expr::Int(n) => {
                 func.emit(StackOp::I64Const(*n));
@@ -598,10 +659,14 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = self.expr_type(expr);
 
                 if !self.is_ptr_type(&ty) {
-                    // Scalar: translate init, store in local, keep on stack.
+                    // Scalar: translate init, store in local.
                     self.translate_expr(init, func);
                     let local = self.alloc_scalar();
-                    func.emit(StackOp::LocalTee(local));
+                    if self.void_ctx {
+                        func.emit(StackOp::LocalSet(local));
+                    } else {
+                        func.emit(StackOp::LocalTee(local));
+                    }
                     self.variables.insert(name, LocalKind::Scalar(local));
                 } else {
                     // Pointer type: translate init (pushes address), copy to memory local.
@@ -613,7 +678,9 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalAddr(mem_slot)); // push dst
                     func.emit(StackOp::LocalGet(tmp)); // push src
                     func.emit(StackOp::MemCopy(size));
-                    func.emit(StackOp::LocalAddr(mem_slot)); // push result addr
+                    if !self.void_ctx {
+                        func.emit(StackOp::LocalAddr(mem_slot)); // push result addr
+                    }
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                 }
             }
@@ -649,21 +716,30 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                 }
-                // Var expressions produce void; push 0.
-                func.emit(StackOp::I64Const(0));
+                // Var expressions produce void; push 0 only if result is needed.
+                if !self.void_ctx {
+                    func.emit(StackOp::I64Const(0));
+                }
             }
 
             Expr::Block(exprs) => {
                 let exprs = exprs.clone();
                 if exprs.is_empty() {
-                    func.emit(StackOp::I64Const(0));
+                    if !self.void_ctx {
+                        func.emit(StackOp::I64Const(0));
+                    }
                 } else {
                     let saved_vars = self.variables.clone();
                     for (i, &expr_id) in exprs.iter().enumerate() {
-                        self.translate_expr(expr_id, func);
-                        // Drop intermediate results except the last.
                         if i < exprs.len() - 1 {
-                            func.emit(StackOp::Drop);
+                            // Intermediate expressions: void context.
+                            self.translate_void(expr_id, func);
+                        } else if self.void_ctx {
+                            // Last expression in void block: also void.
+                            self.translate_void(expr_id, func);
+                        } else {
+                            // Last expression: result needed.
+                            self.translate_expr(expr_id, func);
                         }
                     }
                     self.variables = saved_vars;
@@ -676,6 +752,10 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::While(cond_id, body_id) => {
                 self.translate_while(*cond_id, *body_id, func);
+                // translate_while no longer pushes a result; push 0 if needed.
+                if !self.void_ctx {
+                    func.emit(StackOp::I64Const(0));
+                }
             }
 
             Expr::For {
@@ -685,6 +765,9 @@ impl<'a> FunctionTranslator<'a> {
                 body,
             } => {
                 self.translate_for(*var, *start, *end, *body, func);
+                if !self.void_ctx {
+                    func.emit(StackOp::I64Const(0));
+                }
             }
 
             Expr::Return(expr_id) => {
@@ -1110,7 +1193,9 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         self.emit_store_op(&lhs_ty, func);
-        func.emit(StackOp::LocalGet(val_local)); // result
+        if !self.void_ctx {
+            func.emit(StackOp::LocalGet(val_local)); // result
+        }
     }
 
     /// Translate an lvalue expression. Pushes the address onto the stack.
@@ -1660,9 +1745,8 @@ impl<'a> FunctionTranslator<'a> {
         let jump_to_end = func.pos();
         func.emit(StackOp::JumpIfZero(0));
 
-        // Execute body.
-        self.translate_expr(body_id, func);
-        func.emit(StackOp::Drop); // discard body result
+        // Execute body in void context.
+        self.translate_void(body_id, func);
 
         // Jump back to loop start.
         let pos = func.pos();
@@ -1677,8 +1761,7 @@ impl<'a> FunctionTranslator<'a> {
             func.patch_jump(bp);
         }
 
-        // While loops produce 0.
-        func.emit(StackOp::I64Const(0));
+        // Caller handles result push if needed.
     }
 
     /// Translate a for loop.
@@ -1718,9 +1801,8 @@ impl<'a> FunctionTranslator<'a> {
             break_patches: Vec::new(),
         });
 
-        // Execute body.
-        self.translate_expr(body_id, func);
-        func.emit(StackOp::Drop); // discard body result
+        // Execute body in void context.
+        self.translate_void(body_id, func);
 
         // Increment position (continue target).
         let increment_pos = func.pos();
@@ -1749,8 +1831,7 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
-        // For loops produce 0.
-        func.emit(StackOp::I64Const(0));
+        // Caller handles result push if needed.
     }
 
     /// Translate a field access.
