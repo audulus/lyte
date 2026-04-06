@@ -194,6 +194,29 @@ extern "C" {
     fn op_putc();
     fn op_assert();
     fn op_get_closure_ptr();
+    // Shallow variants (depth < 4)
+    fn op_i64_const_s(); fn op_f32_const_s(); fn op_f64_const_s();
+    fn op_local_get_s(); fn op_local_addr_s(); fn op_global_addr_s();
+    fn op_get_closure_ptr_s();
+    fn op_local_set_s(); fn op_drop_s();
+    fn op_jump_if_zero_s(); fn op_jump_if_not_zero_s();
+    fn op_iadd_s(); fn op_isub_s(); fn op_imul_s();
+    fn op_fadd_s(); fn op_fsub_s(); fn op_fmul_s(); fn op_fdiv_s();
+    fn op_dadd_s(); fn op_dsub_s(); fn op_dmul_s(); fn op_ddiv_s();
+    fn op_ieq_s(); fn op_ine_s(); fn op_ilt_s(); fn op_ile_s();
+    fn op_igt_s(); fn op_ige_s(); fn op_ult_s(); fn op_ugt_s();
+    fn op_feq_s(); fn op_fne_s(); fn op_flt_s(); fn op_fle_s();
+    fn op_fgt_s(); fn op_fge_s(); fn op_deq_s(); fn op_dlt_s(); fn op_dle_s();
+    fn op_and_s(); fn op_or_s(); fn op_xor_s();
+    fn op_shl_s(); fn op_shr_s(); fn op_ushr_s();
+    fn op_store8_s(); fn op_store32_s(); fn op_store64_s();
+    fn op_store8_off_s(); fn op_store32_off_s(); fn op_store64_off_s();
+    fn op_memcopy_s();
+    fn op_fused_get_get_fmul_s(); fn op_fused_get_get_fadd_s();
+    fn op_fused_get_get_fsub_s(); fn op_fused_get_get_iadd_s();
+    fn op_fused_get_get_ilt_s(); fn op_fused_addr_load32off_s();
+    fn op_fused_addr_get_sload32_s();
+    fn op_fused_fmul_fadd_s(); fn op_fused_fmul_fsub_s();
     fn op_fused_get_get_fmul();
     fn op_fused_get_get_fadd();
     fn op_fused_get_get_fsub();
@@ -215,7 +238,13 @@ extern "C" {
 }
 
 /// Get the C handler function pointer for a StackOp.
-fn handler_for(op: &StackOp) -> *const () {
+/// If `shallow` is true and a shallow variant exists, return it.
+fn handler_for(op: &StackOp, shallow: bool) -> *const () {
+    if shallow {
+        if let Some(h) = shallow_handler(op) {
+            return h;
+        }
+    }
     match op {
         StackOp::I64Const(_) => op_i64_const as *const (),
         StackOp::F32Const(_) => op_f32_const as *const (),
@@ -381,6 +410,80 @@ fn handler_for(op: &StackOp) -> *const () {
     }
 }
 
+/// Get the shallow handler variant for an op, if one exists.
+fn shallow_handler(op: &StackOp) -> Option<*const ()> {
+    Some(match op {
+        // Push ops
+        StackOp::I64Const(_) => op_i64_const_s as *const (),
+        StackOp::F32Const(_) => op_f32_const_s as *const (),
+        StackOp::F64Const(_) => op_f64_const_s as *const (),
+        StackOp::LocalGet(_) => op_local_get_s as *const (),
+        StackOp::LocalAddr(_) => op_local_addr_s as *const (),
+        StackOp::GlobalAddr(_) => op_global_addr_s as *const (),
+        StackOp::GetClosurePtr => op_get_closure_ptr_s as *const (),
+        // Pop ops
+        StackOp::LocalSet(_) => op_local_set_s as *const (),
+        StackOp::Drop => op_drop_s as *const (),
+        StackOp::JumpIfZero(_) => op_jump_if_zero_s as *const (),
+        StackOp::JumpIfNotZero(_) => op_jump_if_not_zero_s as *const (),
+        // Binary ops
+        StackOp::IAdd => op_iadd_s as *const (),
+        StackOp::ISub => op_isub_s as *const (),
+        StackOp::IMul => op_imul_s as *const (),
+        StackOp::FAdd => op_fadd_s as *const (),
+        StackOp::FSub => op_fsub_s as *const (),
+        StackOp::FMul => op_fmul_s as *const (),
+        StackOp::FDiv => op_fdiv_s as *const (),
+        StackOp::DAdd => op_dadd_s as *const (),
+        StackOp::DSub => op_dsub_s as *const (),
+        StackOp::DMul => op_dmul_s as *const (),
+        StackOp::DDiv => op_ddiv_s as *const (),
+        StackOp::IEq => op_ieq_s as *const (),
+        StackOp::INe => op_ine_s as *const (),
+        StackOp::ILt => op_ilt_s as *const (),
+        StackOp::ILe => op_ile_s as *const (),
+        StackOp::IGt => op_igt_s as *const (),
+        StackOp::IGe => op_ige_s as *const (),
+        StackOp::ULt => op_ult_s as *const (),
+        StackOp::UGt => op_ugt_s as *const (),
+        StackOp::FEq => op_feq_s as *const (),
+        StackOp::FNe => op_fne_s as *const (),
+        StackOp::FLt => op_flt_s as *const (),
+        StackOp::FLe => op_fle_s as *const (),
+        StackOp::FGt => op_fgt_s as *const (),
+        StackOp::FGe => op_fge_s as *const (),
+        StackOp::DEq => op_deq_s as *const (),
+        StackOp::DLt => op_dlt_s as *const (),
+        StackOp::DLe => op_dle_s as *const (),
+        StackOp::And => op_and_s as *const (),
+        StackOp::Or => op_or_s as *const (),
+        StackOp::Xor => op_xor_s as *const (),
+        StackOp::Shl => op_shl_s as *const (),
+        StackOp::Shr => op_shr_s as *const (),
+        StackOp::UShr => op_ushr_s as *const (),
+        // Store ops
+        StackOp::Store8 => op_store8_s as *const (),
+        StackOp::Store32 => op_store32_s as *const (),
+        StackOp::Store64 => op_store64_s as *const (),
+        StackOp::Store8Off(_) => op_store8_off_s as *const (),
+        StackOp::Store32Off(_) => op_store32_off_s as *const (),
+        StackOp::Store64Off(_) => op_store64_off_s as *const (),
+        StackOp::MemCopy(_) => op_memcopy_s as *const (),
+        // Fused push ops
+        StackOp::FusedGetGetFMul(_, _) => op_fused_get_get_fmul_s as *const (),
+        StackOp::FusedGetGetFAdd(_, _) => op_fused_get_get_fadd_s as *const (),
+        StackOp::FusedGetGetFSub(_, _) => op_fused_get_get_fsub_s as *const (),
+        StackOp::FusedGetGetIAdd(_, _) => op_fused_get_get_iadd_s as *const (),
+        StackOp::FusedGetGetILt(_, _) => op_fused_get_get_ilt_s as *const (),
+        StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off_s as *const (),
+        StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32_s as *const (),
+        // Fused FMA ops
+        StackOp::FusedFMulFAdd => op_fused_fmul_fadd_s as *const (),
+        StackOp::FusedFMulFSub => op_fused_fmul_fsub_s as *const (),
+        _ => return None,
+    })
+}
+
 /// Encode a StackOp's immediates into the instruction's imm slots.
 fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
     match op {
@@ -429,10 +532,12 @@ pub fn run(program: &StackProgram) -> i64 {
     let mut c_instructions: Vec<Vec<Instruction>> = Vec::new();
 
     for (fi, func) in program.functions.iter().enumerate() {
+        let depths = crate::stack_depth::compute_depths(func);
         let mut instrs: Vec<Instruction> = Vec::with_capacity(func.ops.len());
-        for op in &func.ops {
+        for (i, op) in func.ops.iter().enumerate() {
+            let shallow = (depths[i] as u32) < 4;
             instrs.push(Instruction {
-                handler: handler_for(op),
+                handler: handler_for(op, shallow),
                 imm: encode_imm(op, fi as u32),
             });
         }

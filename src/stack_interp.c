@@ -73,23 +73,29 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // TOS window macros (4-register window: t0=top, t3=deepest)
 // ============================================================================
 
-// Push a new value onto the TOS window, spilling t3 to memory.
+// Deep variants (depth >= 4): spill/fill through memory.
 #define PUSH(val) do { *sp++ = t3; t3 = t2; t2 = t1; t1 = t0; t0 = (val); } while(0)
-
-// Pop top value from TOS window, filling t3 from memory.
 #define POP(dst) do { (dst) = t0; t0 = t1; t1 = t2; t2 = t3; t3 = *--sp; } while(0)
-
-// Drop top value (same as POP but discard).
 #define DROP1() do { t0 = t1; t1 = t2; t2 = t3; t3 = *--sp; } while(0)
-
-// Shift after binary op (t0 already has result, old t0 and t1 consumed).
 #define BINOP_SHIFT() do { t1 = t2; t2 = t3; t3 = *--sp; } while(0)
+
+// Shallow variants (depth < 4): pure register, no memory access.
+#define PUSH_S(val) do { t3 = t2; t2 = t1; t1 = t0; t0 = (val); } while(0)
+#define POP_S(dst) do { (dst) = t0; t0 = t1; t1 = t2; t2 = t3; } while(0)
+#define DROP1_S() do { t0 = t1; t1 = t2; t2 = t3; } while(0)
+#define BINOP_SHIFT_S() do { t1 = t2; t2 = t3; } while(0)
 
 // Drop 2 values (t0 and t1 consumed, e.g. stores).
 #define DROP2() do { t0 = t2; t1 = t3; t2 = *--sp; t3 = *--sp; } while(0)
+#define DROP2_S() do { t0 = t2; t1 = t3; } while(0)
 
 // Drop 3 values (t0, t1, t2 consumed, e.g. slice_store32).
 #define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
+#define DROP3_S() do { t0 = t3; } while(0)
+
+// Convenience macros for shallow handlers (pass all 9 args).
+#define NEXT_ALL() NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
+#define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
 
 // Spill all 4 TOS registers to memory (for calls).
 #define SPILL_ALL() do { *sp++ = t3; *sp++ = t2; *sp++ = t1; *sp++ = t0; } while(0)
@@ -958,6 +964,220 @@ PRESERVE_NONE void op_halt(HANDLER_ARGS) {
 
 PRESERVE_NONE void op_nop(HANDLER_ARGS) {
     NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+}
+
+// ============================================================================
+// Entry point
+// ============================================================================
+
+// ============================================================================
+// Shallow handler variants (depth < 4: no memory spill/fill)
+//
+// These are selected at compile time based on static stack depth analysis.
+// The only difference from the deep variants is that TOS window shifts
+// skip the memory access (no *sp++ or *--sp).
+// ============================================================================
+
+// --- Push ops (shallow: no t3 spill) ---
+
+#define SHALLOW_PUSH_HANDLER(name, deep_name, val_expr) \
+PRESERVE_NONE void name(HANDLER_ARGS) { \
+    PUSH_S(val_expr); \
+    NEXT_ALL(); \
+}
+
+SHALLOW_PUSH_HANDLER(op_i64_const_s, op_i64_const, pc->imm[0])
+SHALLOW_PUSH_HANDLER(op_f32_const_s, op_f32_const, pc->imm[0])
+SHALLOW_PUSH_HANDLER(op_f64_const_s, op_f64_const, pc->imm[0])
+SHALLOW_PUSH_HANDLER(op_local_get_s, op_local_get, locals[pc->imm[0]])
+SHALLOW_PUSH_HANDLER(op_local_addr_s, op_local_addr, (uint64_t)(lm + pc->imm[0] * 8))
+SHALLOW_PUSH_HANDLER(op_global_addr_s, op_global_addr, (uint64_t)(ctx->globals + (int32_t)pc->imm[0]))
+SHALLOW_PUSH_HANDLER(op_get_closure_ptr_s, op_get_closure_ptr, ctx->closure_ptr)
+
+PRESERVE_NONE void op_fused_get_get_fmul_s(HANDLER_ARGS) {
+    PUSH_S(from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]])));
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_get_get_fadd_s(HANDLER_ARGS) {
+    PUSH_S(from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]])));
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_get_get_fsub_s(HANDLER_ARGS) {
+    PUSH_S(from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]])));
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_get_get_iadd_s(HANDLER_ARGS) {
+    PUSH_S((uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]));
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_get_get_ilt_s(HANDLER_ARGS) {
+    PUSH_S(((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0);
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_addr_load32off_s(HANDLER_ARGS) {
+    PUSH_S((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_addr_get_sload32_s(HANDLER_ARGS) {
+    uint8_t* fat = lm + pc->imm[0] * 8;
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    PUSH_S((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
+    NEXT_ALL();
+}
+
+// --- Pop ops (shallow: no t3 fill) ---
+
+PRESERVE_NONE void op_local_set_s(HANDLER_ARGS) {
+    uint64_t val; POP_S(val);
+    locals[pc->imm[0]] = val;
+    NEXT_ALL();
+}
+
+PRESERVE_NONE void op_drop_s(HANDLER_ARGS) {
+    DROP1_S();
+    NEXT_ALL();
+}
+
+PRESERVE_NONE void op_jump_if_zero_s(HANDLER_ARGS) {
+    uint64_t cond; POP_S(cond);
+    if (cond == 0) {
+        int64_t off = (int64_t)pc->imm[0];
+        pc = pc + 1 + off;
+        DISPATCH_ALL();
+    }
+    NEXT_ALL();
+}
+
+PRESERVE_NONE void op_jump_if_not_zero_s(HANDLER_ARGS) {
+    uint64_t cond; POP_S(cond);
+    if (cond != 0) {
+        int64_t off = (int64_t)pc->imm[0];
+        pc = pc + 1 + off;
+        DISPATCH_ALL();
+    }
+    NEXT_ALL();
+}
+
+// --- Binary ops (shallow: no t3 fill after shift) ---
+
+#define SHALLOW_BINOP_I(name, op) \
+PRESERVE_NONE void name(HANDLER_ARGS) { \
+    t0 = (uint64_t)((int64_t)t1 op (int64_t)t0); \
+    BINOP_SHIFT_S(); \
+    NEXT_ALL(); \
+}
+
+#define SHALLOW_BINOP_F32(name, op) \
+PRESERVE_NONE void name(HANDLER_ARGS) { \
+    t0 = from_f32(as_f32(t1) op as_f32(t0)); \
+    BINOP_SHIFT_S(); \
+    NEXT_ALL(); \
+}
+
+#define SHALLOW_BINOP_F64(name, op) \
+PRESERVE_NONE void name(HANDLER_ARGS) { \
+    t0 = from_f64(as_f64(t1) op as_f64(t0)); \
+    BINOP_SHIFT_S(); \
+    NEXT_ALL(); \
+}
+
+SHALLOW_BINOP_I(op_iadd_s, +)
+SHALLOW_BINOP_I(op_isub_s, -)
+SHALLOW_BINOP_I(op_imul_s, *)
+SHALLOW_BINOP_F32(op_fadd_s, +)
+SHALLOW_BINOP_F32(op_fsub_s, -)
+SHALLOW_BINOP_F32(op_fmul_s, *)
+SHALLOW_BINOP_F32(op_fdiv_s, /)
+SHALLOW_BINOP_F64(op_dadd_s, +)
+SHALLOW_BINOP_F64(op_dsub_s, -)
+SHALLOW_BINOP_F64(op_dmul_s, *)
+SHALLOW_BINOP_F64(op_ddiv_s, /)
+
+#define SHALLOW_CMP_OP(name, type, cast, op) \
+PRESERVE_NONE void name(HANDLER_ARGS) { \
+    type b = cast(t0); type a = cast(t1); \
+    t0 = (a op b) ? 1 : 0; \
+    BINOP_SHIFT_S(); \
+    NEXT_ALL(); \
+}
+
+SHALLOW_CMP_OP(op_ieq_s, int64_t, (int64_t), ==)
+SHALLOW_CMP_OP(op_ine_s, int64_t, (int64_t), !=)
+SHALLOW_CMP_OP(op_ilt_s, int64_t, (int64_t), <)
+SHALLOW_CMP_OP(op_ile_s, int64_t, (int64_t), <=)
+SHALLOW_CMP_OP(op_igt_s, int64_t, (int64_t), >)
+SHALLOW_CMP_OP(op_ige_s, int64_t, (int64_t), >=)
+SHALLOW_CMP_OP(op_ult_s, uint64_t, (uint64_t), <)
+SHALLOW_CMP_OP(op_ugt_s, uint64_t, (uint64_t), >)
+SHALLOW_CMP_OP(op_feq_s, float, as_f32, ==)
+SHALLOW_CMP_OP(op_fne_s, float, as_f32, !=)
+SHALLOW_CMP_OP(op_flt_s, float, as_f32, <)
+SHALLOW_CMP_OP(op_fle_s, float, as_f32, <=)
+SHALLOW_CMP_OP(op_fgt_s, float, as_f32, >)
+SHALLOW_CMP_OP(op_fge_s, float, as_f32, >=)
+SHALLOW_CMP_OP(op_deq_s, double, as_f64, ==)
+SHALLOW_CMP_OP(op_dlt_s, double, as_f64, <)
+SHALLOW_CMP_OP(op_dle_s, double, as_f64, <=)
+
+PRESERVE_NONE void op_and_s(HANDLER_ARGS) { t0 = t1 & t0; BINOP_SHIFT_S(); NEXT_ALL(); }
+PRESERVE_NONE void op_or_s(HANDLER_ARGS) { t0 = t1 | t0; BINOP_SHIFT_S(); NEXT_ALL(); }
+PRESERVE_NONE void op_xor_s(HANDLER_ARGS) { t0 = t1 ^ t0; BINOP_SHIFT_S(); NEXT_ALL(); }
+PRESERVE_NONE void op_shl_s(HANDLER_ARGS) { t0 = t1 << (t0 & 63); BINOP_SHIFT_S(); NEXT_ALL(); }
+PRESERVE_NONE void op_shr_s(HANDLER_ARGS) { t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT_S(); NEXT_ALL(); }
+PRESERVE_NONE void op_ushr_s(HANDLER_ARGS) { t0 = t1 >> (t0 & 63); BINOP_SHIFT_S(); NEXT_ALL(); }
+
+// --- Store ops (shallow: no fill after dropping 2) ---
+
+PRESERVE_NONE void op_store32_s(HANDLER_ARGS) {
+    *(int32_t*)t1 = (int32_t)t0;
+    DROP2_S();
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_store64_s(HANDLER_ARGS) {
+    *(uint64_t*)t1 = t0;
+    DROP2_S();
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_store8_s(HANDLER_ARGS) {
+    *(uint8_t*)t1 = (uint8_t)t0;
+    DROP2_S();
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_store32_off_s(HANDLER_ARGS) {
+    *(int32_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = (int32_t)t0;
+    DROP2_S();
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_store64_off_s(HANDLER_ARGS) {
+    *(uint64_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = t0;
+    DROP2_S();
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_store8_off_s(HANDLER_ARGS) {
+    *((uint8_t*)t1 + (int32_t)pc->imm[0]) = (uint8_t)t0;
+    DROP2_S();
+    NEXT_ALL();
+}
+
+// --- FusedFMulFAdd/FSub shallow (consumes t0,t1,t2 — no memory fill) ---
+
+PRESERVE_NONE void op_fused_fmul_fadd_s(HANDLER_ARGS) {
+    t0 = from_f32(as_f32(t2) + as_f32(t1) * as_f32(t0));
+    t1 = t3;
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_fused_fmul_fsub_s(HANDLER_ARGS) {
+    t0 = from_f32(as_f32(t2) - as_f32(t1) * as_f32(t0));
+    t1 = t3;
+    NEXT_ALL();
+}
+
+// --- MemCopy shallow (pop 2, no fill) ---
+PRESERVE_NONE void op_memcopy_s(HANDLER_ARGS) {
+    memmove((uint8_t*)t1, (uint8_t*)t0, (size_t)pc->imm[0]);
+    DROP2_S();
+    NEXT_ALL();
 }
 
 // ============================================================================

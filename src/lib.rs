@@ -74,6 +74,8 @@ pub mod stack_codegen;
 
 pub mod stack_optimize;
 
+pub mod stack_depth;
+
 pub mod stack_vm;
 
 pub mod stack_interp_bridge;
