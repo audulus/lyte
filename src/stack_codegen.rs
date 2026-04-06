@@ -454,6 +454,8 @@ impl<'a> FunctionTranslator<'a> {
                 // Save for later access.
                 self.captured_vars.insert(cv.name);
                 self.captured_slots.insert(cv.name, addr_local);
+                // Also register in variables so nested closures can find this capture.
+                self.variables.insert(cv.name, LocalKind::Scalar(addr_local));
             }
         }
 
@@ -1353,6 +1355,8 @@ impl<'a> FunctionTranslator<'a> {
                 ("abs$f32", StackOp::AbsF32),
                 ("floor$f32", StackOp::FloorF32),
                 ("ceil$f32", StackOp::CeilF32),
+                ("isnan$f32", StackOp::IsnanF32),
+                ("isinf$f32", StackOp::IsinfF32),
             ];
             let unary_math_f64: &[(&str, StackOp)] = &[
                 ("sin$f64", StackOp::SinF64),
@@ -1376,6 +1380,8 @@ impl<'a> FunctionTranslator<'a> {
                 ("abs$f64", StackOp::AbsF64),
                 ("floor$f64", StackOp::FloorF64),
                 ("ceil$f64", StackOp::CeilF64),
+                ("isnan$f64", StackOp::IsnanF64),
+                ("isinf$f64", StackOp::IsinfF64),
             ];
             for (n, op) in unary_math_f32.iter().chain(unary_math_f64.iter()) {
                 if *name == *n {

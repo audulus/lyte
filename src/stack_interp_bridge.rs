@@ -183,6 +183,10 @@ extern "C" {
     fn op_abs_f64();
     fn op_floor_f64();
     fn op_ceil_f64();
+    fn op_isnan_f32();
+    fn op_isnan_f64();
+    fn op_isinf_f32();
+    fn op_isinf_f64();
     fn op_atan2_f32();
     fn op_atan2_f64();
     fn op_print_i32();
@@ -329,6 +333,10 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::AbsF64 => op_abs_f64 as *const (),
         StackOp::FloorF64 => op_floor_f64 as *const (),
         StackOp::CeilF64 => op_ceil_f64 as *const (),
+        StackOp::IsnanF32 => op_isnan_f32 as *const (),
+        StackOp::IsnanF64 => op_isnan_f64 as *const (),
+        StackOp::IsinfF32 => op_isinf_f32 as *const (),
+        StackOp::IsinfF64 => op_isinf_f64 as *const (),
         StackOp::Atan2F32 => op_atan2_f32 as *const (),
         StackOp::Atan2F64 => op_atan2_f64 as *const (),
         StackOp::PrintI32 => op_print_i32 as *const (),

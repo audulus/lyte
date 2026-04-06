@@ -693,6 +693,23 @@ F64_UNARY(op_ceil_f64,  ceil)
 
 // Binary math
 
+PRESERVE_NONE void op_isnan_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = isnan(as_f32(sp[-1])) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm);
+}
+PRESERVE_NONE void op_isnan_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = isnan(as_f64(sp[-1])) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm);
+}
+PRESERVE_NONE void op_isinf_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = isinf(as_f32(sp[-1])) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm);
+}
+PRESERVE_NONE void op_isinf_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = isinf(as_f64(sp[-1])) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
 PRESERVE_NONE void op_atan2_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
     float b = as_f32(*--sp); float a = as_f32(*--sp);
     *sp++ = from_f32(atan2f(a, b));

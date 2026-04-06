@@ -748,6 +748,23 @@ impl StackVM {
                 StackOp::FloorF64 => { self.f64_unary(f64::floor); }
                 StackOp::CeilF64 => { self.f64_unary(f64::ceil); }
 
+                StackOp::IsnanF32 => {
+                    let v = f32::from_bits(self.pop() as u32);
+                    self.push(if v.is_nan() { 1 } else { 0 });
+                }
+                StackOp::IsnanF64 => {
+                    let v = f64::from_bits(self.pop());
+                    self.push(if v.is_nan() { 1 } else { 0 });
+                }
+                StackOp::IsinfF32 => {
+                    let v = f32::from_bits(self.pop() as u32);
+                    self.push(if v.is_infinite() { 1 } else { 0 });
+                }
+                StackOp::IsinfF64 => {
+                    let v = f64::from_bits(self.pop());
+                    self.push(if v.is_infinite() { 1 } else { 0 });
+                }
+
                 // === Math builtins: binary ===
                 StackOp::Atan2F32 => {
                     let b = f32::from_bits(self.pop() as u32);

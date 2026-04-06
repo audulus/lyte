@@ -212,6 +212,12 @@ pub enum StackOp {
     AbsF64,
     FloorF64,
     CeilF64,
+    /// Pop 1, push i64 (1 if NaN, 0 otherwise).
+    IsnanF32,
+    IsnanF64,
+    /// Pop 1, push i64 (1 if infinite, 0 otherwise).
+    IsinfF32,
+    IsinfF64,
     /// Pop 2, push 1.
     Atan2F32,
     Atan2F64,
@@ -444,6 +450,10 @@ impl fmt::Display for StackOp {
             StackOp::AbsF64 => write!(f, "f64.abs"),
             StackOp::FloorF64 => write!(f, "f64.floor"),
             StackOp::CeilF64 => write!(f, "f64.ceil"),
+            StackOp::IsnanF32 => write!(f, "f32.isnan"),
+            StackOp::IsnanF64 => write!(f, "f64.isnan"),
+            StackOp::IsinfF32 => write!(f, "f32.isinf"),
+            StackOp::IsinfF64 => write!(f, "f64.isinf"),
             StackOp::Atan2F32 => write!(f, "f32.atan2"),
             StackOp::Atan2F64 => write!(f, "f64.atan2"),
             StackOp::PrintI32 => write!(f, "debug.print_i32"),
