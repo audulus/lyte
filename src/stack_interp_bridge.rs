@@ -219,6 +219,8 @@ extern "C" {
     fn op_print_i32_s(); fn op_print_f32_s(); fn op_putc_s(); fn op_assert_s();
     fn op_memzero_s();
     fn op_fused_fmul_fadd_s(); fn op_fused_fmul_fsub_s();
+    fn op_fused_f32const_fgt_jiz();
+    fn op_fused_f32const_fgt_jiz_s();
     fn op_fused_addr_get_sstore32();
     fn op_fused_addr_get_sstore32_s();
     fn op_fused_get_set();
@@ -400,6 +402,7 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
+        StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
         StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
@@ -499,6 +502,7 @@ fn shallow_handler(op: &StackOp) -> Option<*const ()> {
         StackOp::FusedGetGetILt(_, _) => op_fused_get_get_ilt_s as *const (),
         StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off_s as *const (),
         StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32_s as *const (),
+        StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz_s as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32_s as *const (),
         // Fused FMA ops
         StackOp::FusedFMulFAdd => op_fused_fmul_fadd_s as *const (),
@@ -591,6 +595,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedAddrImmGetStore32(s, o, src) => [*s as u64, *o as i64 as u64, *src as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
+        StackOp::FusedF32ConstFGtJumpIfZero(v, off) => [f32::to_bits(*v) as u64, *off as i64 as u64, 0],
         StackOp::FusedConstSet(v, n) => [*v as u64, *n as u64, 0],
         StackOp::FusedF32ConstSet(v, n) => [f32::to_bits(*v) as u64, *n as u64, 0],
         _ => [0, 0, 0],

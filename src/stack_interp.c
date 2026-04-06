@@ -1207,6 +1207,31 @@ HANDLER(op_fused_fmul_fsub_s) {
     NEXT_ALL();
 }
 
+// --- Fused f32.const + f32.gt + jump_if_zero: if !(t0 > const) jump. Pop 1. ---
+HANDLER(op_fused_f32const_fgt_jiz) {
+    float val = as_f32(t0);
+    float limit = as_f32(pc->imm[0]);
+    DROP1();
+    if (!(val > limit)) {
+        int64_t off = (int64_t)pc->imm[1];
+        pc = pc + 1 + off;
+        DISPATCH_ALL();
+    }
+    NEXT_ALL();
+}
+
+HANDLER(op_fused_f32const_fgt_jiz_s) {
+    float val = as_f32(t0);
+    float limit = as_f32(pc->imm[0]);
+    DROP1_S();
+    if (!(val > limit)) {
+        int64_t off = (int64_t)pc->imm[1];
+        pc = pc + 1 + off;
+        DISPATCH_ALL();
+    }
+    NEXT_ALL();
+}
+
 // --- Slice store with fused address: *(data + locals[idx]*4) = t0. Pop 1. ---
 HANDLER(op_fused_addr_get_sstore32) {
     uint8_t* fat = lm + pc->imm[0] * 8;

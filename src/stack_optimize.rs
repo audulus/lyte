@@ -193,6 +193,21 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        // f32.const v + f32.gt + jump_if_zero off → FusedF32ConstFGtJumpIfZero
+        if i + 2 < len && !spans_target(i, 3) {
+            if let (StackOp::F32Const(v), StackOp::FGt, StackOp::JumpIfZero(off)) =
+                (&ops[i], &ops[i+1], &ops[i+2])
+            {
+                let v = *v;
+                let new_off = *off + 2; // adjust: original jump at i+2, fused at i
+                ops[i] = StackOp::FusedF32ConstFGtJumpIfZero(v, new_off);
+                ops[i+1] = StackOp::Nop;
+                ops[i+2] = StackOp::Nop;
+                i += 3;
+                continue;
+            }
+        }
+
         // local.get src + i64.add_imm v + local.set dst → FusedGetAddImmSet
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGet(src), StackOp::IAddImm(v), StackOp::LocalSet(dst)) =
@@ -440,6 +455,12 @@ fn strip_nops(func: &mut StackFunction) {
                 let target_new = new_idx[target_old];
                 let new_off = target_new as i32 - new_idx[old] as i32 - 1;
                 StackOp::FusedGetGetILtJumpIfZero(*a, *b, new_off)
+            }
+            StackOp::FusedF32ConstFGtJumpIfZero(v, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedF32ConstFGtJumpIfZero(*v, new_off)
             }
             other => other.clone(),
         };

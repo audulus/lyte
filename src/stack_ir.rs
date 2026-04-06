@@ -288,6 +288,8 @@ pub enum StackOp {
     FusedAddrLoad32OffSet(u16, i32, u16),
     /// *(i32*)(lm + slot*8 + off) = locals[src]. Pop 0, push 0.
     FusedAddrImmGetStore32(u16, i32, u16),
+    /// if !(TOS > f32_const) jump. Pop 1, push 0.
+    FusedF32ConstFGtJumpIfZero(f32, i32),
 
     Halt,
     Nop,
@@ -537,6 +539,7 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetAddrFMulFSub(a, s, o) => write!(f, "fused.get_addr_fmul_fsub {} {} {}", a, s, o),
             StackOp::FusedAddrLoad32OffSet(s, o, d) => write!(f, "fused.addr_load32off_set {} {} {}", s, o, d),
             StackOp::FusedAddrImmGetStore32(s, o, src) => write!(f, "fused.addr_imm_get_store32 {} {} {}", s, o, src),
+            StackOp::FusedF32ConstFGtJumpIfZero(v, o) => write!(f, "fused.f32const_fgt_jiz {} {}", v, o),
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
         }

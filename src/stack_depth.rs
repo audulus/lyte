@@ -16,6 +16,7 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
         let off = match op {
             StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => Some(*off),
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
+            StackOp::FusedF32ConstFGtJumpIfZero(_, off) => Some(*off),
             _ => None,
         };
         if let Some(off) = off {
@@ -108,6 +109,7 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::MemCopy(_) => -2,
 
         // SliceStore32 (pop 3) = net -3
+        StackOp::FusedF32ConstFGtJumpIfZero(_, _) => -1, // pop TOS, conditionally jump
         StackOp::SliceStore32 => -3,
         StackOp::FusedAddrGetSliceStore32(_, _) => -1, // pop value from TOS
 
