@@ -1077,20 +1077,11 @@ impl<'a> FunctionTranslator<'a> {
                 _ => func.emit(StackOp::ILt),
             },
             Binop::Greater => {
-                // a > b == b < a. The operands are already on stack as [a, b].
-                // We need to swap them for the less-than comparison.
-                // Simplest approach: pop into locals, push in reversed order.
-                let tmp_b = self.alloc_scalar();
-                let tmp_a = self.alloc_scalar();
-                func.emit(StackOp::LocalSet(tmp_b));
-                func.emit(StackOp::LocalSet(tmp_a));
-                func.emit(StackOp::LocalGet(tmp_b));
-                func.emit(StackOp::LocalGet(tmp_a));
                 match &*ty {
-                    Type::Float32 => func.emit(StackOp::FLt),
-                    Type::Float64 => func.emit(StackOp::DLt),
-                    Type::UInt32 | Type::UInt8 => func.emit(StackOp::ULt),
-                    _ => func.emit(StackOp::ILt),
+                    Type::Float32 => func.emit(StackOp::FGt),
+                    Type::Float64 => func.emit(StackOp::IGt), // TODO: DGt
+                    Type::UInt32 | Type::UInt8 => func.emit(StackOp::UGt),
+                    _ => func.emit(StackOp::IGt),
                 }
             }
             Binop::Leq => match &*ty {
@@ -1099,17 +1090,11 @@ impl<'a> FunctionTranslator<'a> {
                 _ => func.emit(StackOp::ILe),
             },
             Binop::Geq => {
-                // a >= b == b <= a.
-                let tmp_b = self.alloc_scalar();
-                let tmp_a = self.alloc_scalar();
-                func.emit(StackOp::LocalSet(tmp_b));
-                func.emit(StackOp::LocalSet(tmp_a));
-                func.emit(StackOp::LocalGet(tmp_b));
-                func.emit(StackOp::LocalGet(tmp_a));
                 match &*ty {
-                    Type::Float32 => func.emit(StackOp::FLe),
-                    Type::Float64 => func.emit(StackOp::DLe),
-                    _ => func.emit(StackOp::ILe),
+                    Type::Float32 => func.emit(StackOp::FGe),
+                    Type::Float64 => func.emit(StackOp::IGe), // TODO: DGe
+                    Type::UInt32 | Type::UInt8 => func.emit(StackOp::IGe), // unsigned uses signed
+                    _ => func.emit(StackOp::IGe),
                 }
             }
             Binop::And => func.emit(StackOp::And),
