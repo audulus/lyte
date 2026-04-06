@@ -80,7 +80,7 @@ run_benchmark() {
     echo "--- $NAME: $DESC ---"
     echo ""
 
-    local C_O2_TIME C_O3_TIME LYTE_JIT LYTE_VM LYTE_ASM LYTE_LLVM LUA LUAJIT_JIT LUAJIT_INT
+    local C_O2_TIME C_O3_TIME LYTE_JIT LYTE_VM LYTE_ASM LYTE_STACK LYTE_LLVM LUA LUAJIT_JIT LUAJIT_INT
 
     echo "Running benchmarks..."
     C_O2_TIME=$(avg "$C_O2")
@@ -92,6 +92,7 @@ run_benchmark() {
     else
         LYTE_ASM=""
     fi
+    LYTE_STACK=$(avg "$LYTE --backend stack $LYTE_FILE --timing 2>&1 | grep 'stack exec:'")
     if [ "$HAS_LLVM" = "1" ]; then
         LYTE_LLVM=$(avg "$LYTE --backend llvm $LYTE_FILE --timing 2>&1 | grep 'llvm exec:'")
     else
@@ -107,6 +108,7 @@ run_benchmark() {
     row "Lua 5.5"           "$LUA"        "$LUA"
     row "LuaJIT (interp)"   "$LUAJIT_INT" "$LUA"
     row "Lyte VM"           "$LYTE_VM"    "$LUA"
+    row "Lyte Stack VM"     "$LYTE_STACK" "$LUA"
     row "Lyte VM (ARM64)"   "$LYTE_ASM"   "$LUA"
     row "LuaJIT (JIT)"      "$LUAJIT_JIT" "$LUA"
     row "Lyte JIT"          "$LYTE_JIT"   "$LUA"
