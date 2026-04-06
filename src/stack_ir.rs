@@ -226,6 +226,9 @@ pub enum StackOp {
     /// Pop, panic if zero.
     Assert,
 
+    /// Push the closure pointer set by the most recent CallClosure.
+    GetClosurePtr,
+
     Halt,
     Nop,
 }
@@ -447,6 +450,7 @@ impl fmt::Display for StackOp {
             StackOp::PrintF32 => write!(f, "debug.print_f32"),
             StackOp::Putc => write!(f, "debug.putc"),
             StackOp::Assert => write!(f, "debug.assert"),
+            StackOp::GetClosurePtr => write!(f, "get_closure_ptr"),
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
         }

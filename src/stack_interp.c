@@ -741,6 +741,11 @@ PRESERVE_NONE void op_assert(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* 
     NEXT(ctx, pc, sp, locals, lm);
 }
 
+PRESERVE_NONE void op_get_closure_ptr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    *sp++ = ctx->closure_ptr;
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
 PRESERVE_NONE void op_halt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
     ctx->result = (sp > ctx->stack_base) ? (int64_t)sp[-1] : 0;
     ctx->done = 1;

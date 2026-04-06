@@ -788,6 +788,10 @@ impl StackVM {
                     }
                 }
 
+                StackOp::GetClosurePtr => {
+                    self.push(self.closure_ptr);
+                }
+
                 StackOp::Halt => {
                     if self.operand_stack.is_empty() {
                         return 0;

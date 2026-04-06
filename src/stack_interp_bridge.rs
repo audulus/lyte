@@ -189,6 +189,7 @@ extern "C" {
     fn op_print_f32();
     fn op_putc();
     fn op_assert();
+    fn op_get_closure_ptr();
     fn op_halt();
     fn op_nop();
 }
@@ -334,6 +335,7 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::PrintF32 => op_print_f32 as *const (),
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
+        StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
         StackOp::Halt => op_halt as *const (),
         StackOp::Nop => op_nop as *const (),
     }

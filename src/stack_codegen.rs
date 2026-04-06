@@ -435,29 +435,25 @@ impl<'a> FunctionTranslator<'a> {
 
         // Set up captured closure variables.
         if !self.decl.closure_vars.is_empty() {
-            // The closure pointer is passed implicitly. In a stack VM,
-            // we access it through a dedicated mechanism. For simplicity,
-            // we allocate a scalar local for the closure ptr.
+            // Get the closure pointer (set by CallClosure before entering this function).
             let closure_local = self.alloc_scalar();
-            // Emit GetClosurePtr equivalent: we'll push 0 as a placeholder.
-            // The VM must set local `closure_local` to the closure pointer before entry.
-            // For now, this is handled by the CallClosure instruction semantics.
+            func.emit(StackOp::GetClosurePtr);
+            func.emit(StackOp::LocalSet(closure_local));
 
             for (i, cv) in self.decl.closure_vars.iter().enumerate() {
                 // Load address of captured variable from closure_struct[i].
-                let mem_slot = self.alloc_memory(8);
+                let _mem_slot = self.alloc_memory(8);
                 // Push closure_local, load the address at offset i*8.
                 func.emit(StackOp::LocalGet(closure_local));
                 func.emit(StackOp::I64Const((i * 8) as i64));
                 func.emit(StackOp::IAdd);
                 func.emit(StackOp::Load64);
-                // Store the captured variable address in the memory slot.
+                // Store the captured variable address in a scalar local.
                 let addr_local = self.alloc_scalar();
                 func.emit(StackOp::LocalSet(addr_local));
                 // Save for later access.
                 self.captured_vars.insert(cv.name);
                 self.captured_slots.insert(cv.name, addr_local);
-                let _ = mem_slot; // Memory slot reserved but we use addr_local for indirection.
             }
         }
 
@@ -1076,12 +1072,14 @@ impl<'a> FunctionTranslator<'a> {
             if let Type::Slice(elem_ty) = &*arr_ty {
                 let elem_size = elem_ty.size(self.decls);
                 if !self.is_ptr_type(elem_ty) && elem_size == 4 {
-                    // Stack order for SliceStore32: [value, index, slice_fat_ptr]
+                    // SliceStore32 pops: value, index, fat_ptr (TOS first).
+                    // So stack must be [fat_ptr, index, value] bottom-to-top.
                     self.translate_expr(rhs_id, func);
                     let val_local = self.alloc_scalar();
-                    func.emit(StackOp::LocalTee(val_local));
-                    self.translate_expr(arr_id, func);
-                    self.translate_expr(idx_id, func);
+                    func.emit(StackOp::LocalSet(val_local));
+                    self.translate_expr(arr_id, func); // push fat_ptr
+                    self.translate_expr(idx_id, func); // push index
+                    func.emit(StackOp::LocalGet(val_local)); // push value
                     func.emit(StackOp::SliceStore32);
                     func.emit(StackOp::LocalGet(val_local)); // result
                     return;
@@ -1092,7 +1090,7 @@ impl<'a> FunctionTranslator<'a> {
         // General assignment: compute rhs, compute lvalue address, store.
         self.translate_expr(rhs_id, func);
         let val_local = self.alloc_scalar();
-        func.emit(StackOp::LocalTee(val_local));
+        func.emit(StackOp::LocalSet(val_local));
 
         let lhs_ty = self.expr_type(lhs_id);
         self.translate_lvalue(lhs_id, func); // pushes address
