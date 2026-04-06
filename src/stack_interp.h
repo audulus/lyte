@@ -85,6 +85,8 @@ typedef struct Ctx {
 // the entire handler chain — zero memory traffic for values in the window.
 #define PRESERVE_NONE __attribute__((preserve_none))
 
+// Handler type uses void* for the nh parameter since C can't have
+// self-referential function pointer typedefs.
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
@@ -94,16 +96,27 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t      t0,
     uint64_t      t1,
     uint64_t      t2,
-    uint64_t      t3
+    uint64_t      t3,
+    void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 
-// Dispatch to next instruction.
-#define DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
-    __attribute__((musttail)) return ((Handler)(pc)->handler)(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
-
-// Dispatch to next sequential instruction.
+// Linear dispatch: branch to preloaded nh, preload handler for instruction after next.
+// nh is available as a macro in the handler (cast from _nh_raw).
 #define NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
-    do { Instruction* _next = (pc) + 1; DISPATCH(ctx, _next, sp, locals, lm, t0, t1, t2, t3); } while(0)
+    do { \
+        Instruction* _next = (pc) + 1; \
+        void* _new_nh = (_next + 1)->handler; \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, lm, t0, t1, t2, t3, _new_nh); \
+    } while(0)
+
+// Non-linear dispatch: reload handler from target, preload the one after.
+// Used by jumps, calls, returns.
+#define DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
+    do { \
+        Handler _target_h = (Handler)(pc)->handler; \
+        void* _new_nh = ((pc) + 1)->handler; \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, lm, t0, t1, t2, t3, _new_nh); \
+    } while(0)
 
 // Entry point: called from Rust via FFI.
 int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func);

@@ -94,6 +94,7 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define DROP3_S() do { t0 = t3; } while(0)
 
 // Convenience macros for shallow handlers (pass all 9 args).
+// Note: NEXT uses preloaded nh. DISPATCH reloads from target.
 #define NEXT_ALL() NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
 #define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
 
@@ -107,7 +108,9 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define FILL_BELOW() do { t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 
 // Handler signature shorthand.
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+// Cast nh from void* for use in NEXT macro.
+#define nh ((Handler)_nh_raw)
 
 // ============================================================================
 // Handlers
@@ -1263,8 +1266,10 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     enter_function(ctx, entry_func, NULL, 0, &locals, &lm);
 
     // Start dispatch with all 4 TOS registers zeroed.
+    // Preload the handler for the second instruction as nh.
     Instruction* pc = ctx->functions[entry_func].code;
-    ((Handler)pc->handler)(ctx, pc, stack, locals, lm, 0, 0, 0, 0);
+    Handler initial_nh = (Handler)(pc + 1)->handler;
+    ((Handler)pc->handler)(ctx, pc, stack, locals, lm, 0, 0, 0, 0, initial_nh);
 
     free(stack);
     return ctx->result;
