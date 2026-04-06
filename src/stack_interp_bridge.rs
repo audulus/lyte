@@ -216,7 +216,11 @@ extern "C" {
     fn op_fused_get_get_fsub_s(); fn op_fused_get_get_iadd_s();
     fn op_fused_get_get_ilt_s(); fn op_fused_addr_load32off_s();
     fn op_fused_addr_get_sload32_s();
+    fn op_print_i32_s(); fn op_print_f32_s(); fn op_putc_s(); fn op_assert_s();
+    fn op_memzero_s();
     fn op_fused_fmul_fadd_s(); fn op_fused_fmul_fsub_s();
+    fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
+    fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
     fn op_fused_get_get_fmul();
     fn op_fused_get_get_fadd();
     fn op_fused_get_get_fsub();
@@ -240,10 +244,14 @@ extern "C" {
 /// Get the C handler function pointer for a StackOp.
 /// If `shallow` is true and a shallow variant exists, return it.
 fn handler_for(op: &StackOp, shallow: bool) -> *const () {
-    if shallow {
+    if shallow && needs_shallow(op) {
         if let Some(h) = shallow_handler(op) {
             return h;
         }
+        // Op needs a shallow variant but doesn't have one: fall through to deep.
+        // This can underflow sp! Caller should only set shallow=true for ops
+        // where a shallow variant exists. For safety, panic in debug builds.
+        debug_assert!(false, "op {:?} at depth < 4 but no shallow variant", op);
     }
     match op {
         StackOp::I64Const(_) => op_i64_const as *const (),
@@ -389,6 +397,10 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
+        StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
+        StackOp::FusedGetAddrFMulFSub(_, _, _) => op_fused_get_addr_fmul_fsub as *const (),
+        StackOp::FusedAddrLoad32OffSet(_, _, _) => op_fused_addr_load32off_set as *const (),
+        StackOp::FusedAddrImmGetStore32(_, _, _) => op_fused_addr_imm_get_store32 as *const (),
         StackOp::FusedGetGetFMul(_, _) => op_fused_get_get_fmul as *const (),
         StackOp::FusedGetGetFAdd(_, _) => op_fused_get_get_fadd as *const (),
         StackOp::FusedGetGetFSub(_, _) => op_fused_get_get_fsub as *const (),
@@ -424,6 +436,11 @@ fn shallow_handler(op: &StackOp) -> Option<*const ()> {
         // Pop ops
         StackOp::LocalSet(_) => op_local_set_s as *const (),
         StackOp::Drop => op_drop_s as *const (),
+        StackOp::PrintI32 => op_print_i32_s as *const (),
+        StackOp::PrintF32 => op_print_f32_s as *const (),
+        StackOp::Putc => op_putc_s as *const (),
+        StackOp::Assert => op_assert_s as *const (),
+        StackOp::MemZero(_) => op_memzero_s as *const (),
         StackOp::JumpIfZero(_) => op_jump_if_zero_s as *const (),
         StackOp::JumpIfNotZero(_) => op_jump_if_not_zero_s as *const (),
         // Binary ops
@@ -484,6 +501,46 @@ fn shallow_handler(op: &StackOp) -> Option<*const ()> {
     })
 }
 
+/// Check if an op accesses sp (needs a shallow variant at depth < 4).
+/// Unary ops, jumps, and no-stack-change ops are safe at any depth.
+fn needs_shallow(op: &StackOp) -> bool {
+    // Ops that don't touch sp in their handler:
+    matches!(shallow_handler(op), Some(_)) || matches!(op,
+        // Unary (pure t0 transform, no sp access):
+        StackOp::INeg | StackOp::FNeg | StackOp::DNeg | StackOp::Not |
+        StackOp::IAddImm(_) |
+        StackOp::I32ToF32 | StackOp::F32ToI32 | StackOp::I32ToF64 | StackOp::F64ToI32 |
+        StackOp::F32ToF64 | StackOp::F64ToF32 | StackOp::I32ToI8 | StackOp::I8ToI32 |
+        StackOp::I64ToU32 |
+        StackOp::Load8 | StackOp::Load32 | StackOp::Load64 |
+        StackOp::Load32Off(_) | StackOp::Load64Off(_) |
+        StackOp::SinF32 | StackOp::CosF32 | StackOp::TanF32 |
+        StackOp::AsinF32 | StackOp::AcosF32 | StackOp::AtanF32 |
+        StackOp::SinhF32 | StackOp::CoshF32 | StackOp::TanhF32 |
+        StackOp::AsinhF32 | StackOp::AcoshF32 | StackOp::AtanhF32 |
+        StackOp::LnF32 | StackOp::ExpF32 | StackOp::Exp2F32 |
+        StackOp::Log10F32 | StackOp::Log2F32 | StackOp::SqrtF32 |
+        StackOp::AbsF32 | StackOp::FloorF32 | StackOp::CeilF32 |
+        StackOp::SinF64 | StackOp::CosF64 | StackOp::TanF64 |
+        StackOp::AsinF64 | StackOp::AcosF64 | StackOp::AtanF64 |
+        StackOp::SinhF64 | StackOp::CoshF64 | StackOp::TanhF64 |
+        StackOp::AsinhF64 | StackOp::AcoshF64 | StackOp::AtanhF64 |
+        StackOp::LnF64 | StackOp::ExpF64 | StackOp::Exp2F64 |
+        StackOp::Log10F64 | StackOp::Log2F64 | StackOp::SqrtF64 |
+        StackOp::AbsF64 | StackOp::FloorF64 | StackOp::CeilF64 |
+        StackOp::IsnanF32 | StackOp::IsnanF64 | StackOp::IsinfF32 | StackOp::IsinfF64 |
+        StackOp::FusedGetFMul(_) | StackOp::FusedGetFAdd(_) | StackOp::FusedGetFSub(_) |
+        // No stack change:
+        StackOp::LocalTee(_) | StackOp::Jump(_) | StackOp::Nop | StackOp::Halt |
+        StackOp::Return | StackOp::ReturnVoid |
+        StackOp::FusedConstSet(_, _) | StackOp::FusedF32ConstSet(_, _) |
+        StackOp::FusedGetAddImmSet(_, _, _) | StackOp::FusedGetGetILtJumpIfZero(_, _, _) |
+        StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _) |
+        StackOp::FusedAddrLoad32OffSet(_, _, _) | StackOp::FusedAddrImmGetStore32(_, _, _) |
+        StackOp::Call { .. } | StackOp::CallIndirect { .. } | StackOp::CallClosure { .. }
+    )
+}
+
 /// Encode a StackOp's immediates into the instruction's imm slots.
 fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
     match op {
@@ -518,6 +575,11 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
             [*a as u64, 0, 0]
         }
         StackOp::FusedAddrLoad32Off(s, o) => [*s as u64, *o as i64 as u64, 0],
+        StackOp::FusedGetAddrFMulFAdd(a, s, o) | StackOp::FusedGetAddrFMulFSub(a, s, o) => {
+            [*a as u64, *s as u64, *o as i64 as u64]
+        }
+        StackOp::FusedAddrLoad32OffSet(s, o, d) => [*s as u64, *o as i64 as u64, *d as u64],
+        StackOp::FusedAddrImmGetStore32(s, o, src) => [*s as u64, *o as i64 as u64, *src as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
         StackOp::FusedConstSet(v, n) => [*v as u64, *n as u64, 0],
@@ -535,7 +597,7 @@ pub fn run(program: &StackProgram) -> i64 {
         let depths = crate::stack_depth::compute_depths(func);
         let mut instrs: Vec<Instruction> = Vec::with_capacity(func.ops.len());
         for (i, op) in func.ops.iter().enumerate() {
-            let shallow = (depths[i] as u32) < 4;
+            let shallow = (depths[i] as u32) < 4 && needs_shallow(op);
             instrs.push(Instruction {
                 handler: handler_for(op, shallow),
                 imm: encode_imm(op, fi as u32),

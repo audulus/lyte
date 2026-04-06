@@ -1059,6 +1059,36 @@ PRESERVE_NONE void op_jump_if_not_zero_s(HANDLER_ARGS) {
     NEXT_ALL();
 }
 
+PRESERVE_NONE void op_print_i32_s(HANDLER_ARGS) {
+    uint64_t val; POP_S(val);
+    printf("%d\n", (int32_t)val);
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_print_f32_s(HANDLER_ARGS) {
+    uint64_t val; POP_S(val);
+    float f = as_f32(val);
+    if (f == floorf(f) && fabsf(f) < 1e15f) { printf("%.1f\n", f); }
+    else { printf("%g\n", f); }
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_putc_s(HANDLER_ARGS) {
+    uint64_t val; POP_S(val);
+    putchar((char)(int32_t)val);
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_assert_s(HANDLER_ARGS) {
+    uint64_t val; POP_S(val);
+    printf("assert(%s)\n", val != 0 ? "true" : "false");
+    fflush(stdout);
+    if (val == 0) { fprintf(stderr, "Assertion failed\n"); fflush(stderr); exit(1); }
+    NEXT_ALL();
+}
+PRESERVE_NONE void op_memzero_s(HANDLER_ARGS) {
+    uint8_t* dst = (uint8_t*)t0; DROP1_S();
+    memset(dst, 0, (size_t)pc->imm[0]);
+    NEXT_ALL();
+}
+
 // --- Binary ops (shallow: no t3 fill after shift) ---
 
 #define SHALLOW_BINOP_I(name, op) \
@@ -1171,6 +1201,34 @@ PRESERVE_NONE void op_fused_fmul_fsub_s(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t2) - as_f32(t1) * as_f32(t0));
     t1 = t3;
     NEXT_ALL();
+}
+
+// --- FMA term: accum += locals[a] * load(slot,off). Pure register on t0. ---
+PRESERVE_NONE void op_fused_get_addr_fmul_fadd(HANDLER_ARGS) {
+    float coeff = as_f32(locals[pc->imm[0]]);
+    float state = as_f32((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
+    t0 = from_f32(as_f32(t0) + coeff * state);
+    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+}
+
+// --- FMA term: accum -= locals[a] * load(slot,off). ---
+PRESERVE_NONE void op_fused_get_addr_fmul_fsub(HANDLER_ARGS) {
+    float coeff = as_f32(locals[pc->imm[0]]);
+    float state = as_f32((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
+    t0 = from_f32(as_f32(t0) - coeff * state);
+    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+}
+
+// --- Load struct field into local: locals[dst] = load(slot,off). No stack change. ---
+PRESERVE_NONE void op_fused_addr_load32off_set(HANDLER_ARGS) {
+    locals[pc->imm[2]] = (uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
+    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+}
+
+// --- Store local into struct field: *(i32*)(lm + slot*8 + off) = locals[src]. No stack change. ---
+PRESERVE_NONE void op_fused_addr_imm_get_store32(HANDLER_ARGS) {
+    *(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)locals[pc->imm[2]];
+    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
 }
 
 // --- MemCopy shallow (pop 2, no fill) ---

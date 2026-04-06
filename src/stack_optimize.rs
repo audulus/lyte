@@ -92,6 +92,21 @@ fn fuse(func: &mut StackFunction) {
 
         // === 4-instruction fusions ===
 
+        // local.addr s + i64.add_imm off + local.get src + i32.store → FusedAddrImmGetStore32
+        if i + 3 < len && !spans_target(i, 4) {
+            if let (StackOp::LocalAddr(s), StackOp::IAddImm(off), StackOp::LocalGet(src), StackOp::Store32) =
+                (&ops[i], &ops[i+1], &ops[i+2], &ops[i+3])
+            {
+                let s = *s; let off = *off; let src = *src;
+                ops[i] = StackOp::FusedAddrImmGetStore32(s, off, src);
+                ops[i+1] = StackOp::Nop;
+                ops[i+2] = StackOp::Nop;
+                ops[i+3] = StackOp::Nop;
+                i += 4;
+                continue;
+            }
+        }
+
         // local.get a + local.get b + i64.lt_s + jump_if_zero off → FusedGetGetILtJumpIfZero
         if i + 3 < len && !spans_target(i, 4) {
             if let (StackOp::LocalGet(a), StackOp::LocalGet(b), StackOp::ILt, StackOp::JumpIfZero(off)) =
@@ -106,6 +121,47 @@ fn fuse(func: &mut StackFunction) {
                 ops[i+2] = StackOp::Nop;
                 ops[i+3] = StackOp::Nop;
                 i += 4;
+                continue;
+            }
+        }
+
+        // local.get a + fused.addr_load32off s o + fused.fmul_fadd → FusedGetAddrFMulFAdd
+        if i + 2 < len && !spans_target(i, 3) {
+            if let (StackOp::LocalGet(a), StackOp::FusedAddrLoad32Off(s, o), StackOp::FusedFMulFAdd) =
+                (&ops[i], &ops[i+1], &ops[i+2])
+            {
+                let a = *a; let s = *s; let o = *o;
+                ops[i] = StackOp::FusedGetAddrFMulFAdd(a, s, o);
+                ops[i+1] = StackOp::Nop;
+                ops[i+2] = StackOp::Nop;
+                i += 3;
+                continue;
+            }
+        }
+
+        // local.get a + fused.addr_load32off s o + fused.fmul_fsub → FusedGetAddrFMulFSub
+        if i + 2 < len && !spans_target(i, 3) {
+            if let (StackOp::LocalGet(a), StackOp::FusedAddrLoad32Off(s, o), StackOp::FusedFMulFSub) =
+                (&ops[i], &ops[i+1], &ops[i+2])
+            {
+                let a = *a; let s = *s; let o = *o;
+                ops[i] = StackOp::FusedGetAddrFMulFSub(a, s, o);
+                ops[i+1] = StackOp::Nop;
+                ops[i+2] = StackOp::Nop;
+                i += 3;
+                continue;
+            }
+        }
+
+        // fused.addr_load32off s o + local.set dst → FusedAddrLoad32OffSet
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::FusedAddrLoad32Off(s, o), StackOp::LocalSet(dst)) =
+                (&ops[i], &ops[i+1])
+            {
+                let s = *s; let o = *o; let dst = *dst;
+                ops[i] = StackOp::FusedAddrLoad32OffSet(s, o, dst);
+                ops[i+1] = StackOp::Nop;
+                i += 2;
                 continue;
             }
         }
