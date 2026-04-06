@@ -818,6 +818,9 @@ impl StackVM {
                 }
 
                 StackOp::Nop => {}
+
+                // Fused superinstructions — not executed by the Rust VM.
+                _ => unimplemented!("fused op {:?} not supported in Rust stack VM", op),
             }
         }
 

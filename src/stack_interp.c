@@ -763,6 +763,122 @@ PRESERVE_NONE void op_get_closure_ptr(Ctx* ctx, Instruction* pc, uint64_t* sp, u
     NEXT(ctx, pc, sp, locals, lm);
 }
 
+// ============================================================================
+// Fused superinstructions
+// ============================================================================
+
+// locals[a] * locals[b] (f32)
+PRESERVE_NONE void op_fused_get_get_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    *sp++ = from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]]));
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[a] + locals[b] (f32)
+PRESERVE_NONE void op_fused_get_get_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    *sp++ = from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]]));
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[a] - locals[b] (f32)
+PRESERVE_NONE void op_fused_get_get_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    *sp++ = from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]]));
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[a] + locals[b] (i64)
+PRESERVE_NONE void op_fused_get_get_iadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    *sp++ = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]);
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[a] < locals[b] (i64 signed)
+PRESERVE_NONE void op_fused_get_get_ilt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    *sp++ = ((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// TOS * locals[a] (f32)
+PRESERVE_NONE void op_fused_get_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = from_f32(as_f32(sp[-1]) * as_f32(locals[pc->imm[0]]));
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// TOS + locals[a] (f32)
+PRESERVE_NONE void op_fused_get_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = from_f32(as_f32(sp[-1]) + as_f32(locals[pc->imm[0]]));
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// TOS - locals[a] (f32). Result = old_TOS - locals[a].
+// Wait: in the unfused version, the stack is [accum], then local.get pushes locals[a],
+// then f32.sub pops b=locals[a], a=accum, pushes a-b = accum - locals[a].
+PRESERVE_NONE void op_fused_get_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    sp[-1] = from_f32(as_f32(sp[-1]) - as_f32(locals[pc->imm[0]]));
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// Fused multiply-accumulate: pop b, pop a, pop c, push c + a*b (f32)
+PRESERVE_NONE void op_fused_fmul_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    float b = as_f32(*--sp);
+    float a = as_f32(*--sp);
+    float c = as_f32(sp[-1]);
+    sp[-1] = from_f32(c + a * b);
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// Fused multiply-subtract: pop b, pop a, pop c, push c - a*b (f32)
+PRESERVE_NONE void op_fused_fmul_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    float b = as_f32(*--sp);
+    float a = as_f32(*--sp);
+    float c = as_f32(sp[-1]);
+    sp[-1] = from_f32(c - a * b);
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// Load i32 from lm + slot*8 + offset
+PRESERVE_NONE void op_fused_addr_load32off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    uint8_t* base = lm + pc->imm[0] * 8;
+    *sp++ = (uint64_t)(int64_t)*(int32_t*)(base + (int32_t)pc->imm[1]);
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[dst] = locals[src] + imm
+PRESERVE_NONE void op_fused_get_addimm_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)pc->imm[1]);
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// if !(locals[a] < locals[b]) jump
+PRESERVE_NONE void op_fused_get_get_ilt_jiz(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    if ((int64_t)locals[pc->imm[0]] >= (int64_t)locals[pc->imm[1]]) {
+        int64_t off = (int64_t)pc->imm[2];
+        pc = pc + 1 + off;
+        DISPATCH(ctx, pc, sp, locals, lm);
+    }
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[n] = i64 constant
+PRESERVE_NONE void op_fused_const_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    locals[pc->imm[1]] = pc->imm[0];
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// locals[n] = f32 constant (bits in imm[0])
+PRESERVE_NONE void op_fused_f32const_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    locals[pc->imm[1]] = pc->imm[0];
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
+// Push slice_data[locals[idx_local] * 4] from slice at lm + slot*8
+PRESERVE_NONE void op_fused_addr_get_sload32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+    uint8_t* fat = lm + pc->imm[0] * 8;
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    *sp++ = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
+    NEXT(ctx, pc, sp, locals, lm);
+}
+
 PRESERVE_NONE void op_halt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
     ctx->result = (sp > ctx->stack_base) ? (int64_t)sp[-1] : 0;
     ctx->done = 1;

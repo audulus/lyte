@@ -194,6 +194,22 @@ extern "C" {
     fn op_putc();
     fn op_assert();
     fn op_get_closure_ptr();
+    fn op_fused_get_get_fmul();
+    fn op_fused_get_get_fadd();
+    fn op_fused_get_get_fsub();
+    fn op_fused_get_get_iadd();
+    fn op_fused_get_get_ilt();
+    fn op_fused_get_fmul();
+    fn op_fused_get_fadd();
+    fn op_fused_get_fsub();
+    fn op_fused_fmul_fadd();
+    fn op_fused_fmul_fsub();
+    fn op_fused_addr_load32off();
+    fn op_fused_get_addimm_set();
+    fn op_fused_get_get_ilt_jiz();
+    fn op_fused_const_set();
+    fn op_fused_f32const_set();
+    fn op_fused_addr_get_sload32();
     fn op_halt();
     fn op_nop();
 }
@@ -344,6 +360,22 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
+        StackOp::FusedGetGetFMul(_, _) => op_fused_get_get_fmul as *const (),
+        StackOp::FusedGetGetFAdd(_, _) => op_fused_get_get_fadd as *const (),
+        StackOp::FusedGetGetFSub(_, _) => op_fused_get_get_fsub as *const (),
+        StackOp::FusedGetGetIAdd(_, _) => op_fused_get_get_iadd as *const (),
+        StackOp::FusedGetGetILt(_, _) => op_fused_get_get_ilt as *const (),
+        StackOp::FusedGetFMul(_) => op_fused_get_fmul as *const (),
+        StackOp::FusedGetFAdd(_) => op_fused_get_fadd as *const (),
+        StackOp::FusedGetFSub(_) => op_fused_get_fsub as *const (),
+        StackOp::FusedFMulFAdd => op_fused_fmul_fadd as *const (),
+        StackOp::FusedFMulFSub => op_fused_fmul_fsub as *const (),
+        StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off as *const (),
+        StackOp::FusedGetAddImmSet(_, _, _) => op_fused_get_addimm_set as *const (),
+        StackOp::FusedGetGetILtJumpIfZero(_, _, _) => op_fused_get_get_ilt_jiz as *const (),
+        StackOp::FusedConstSet(_, _) => op_fused_const_set as *const (),
+        StackOp::FusedF32ConstSet(_, _) => op_fused_f32const_set as *const (),
+        StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32 as *const (),
         StackOp::Halt => op_halt as *const (),
         StackOp::Nop => op_nop as *const (),
     }
@@ -373,6 +405,20 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::Call { func, args } => [*func as u64, *args as u64, func_idx as u64],
         StackOp::CallIndirect { args } => [*args as u64, func_idx as u64, 0],
         StackOp::CallClosure { args } => [*args as u64, func_idx as u64, 0],
+        // Fused instructions
+        StackOp::FusedGetGetFMul(a, b) | StackOp::FusedGetGetFAdd(a, b)
+        | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
+        | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b) => {
+            [*a as u64, *b as u64, 0]
+        }
+        StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
+            [*a as u64, 0, 0]
+        }
+        StackOp::FusedAddrLoad32Off(s, o) => [*s as u64, *o as i64 as u64, 0],
+        StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
+        StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
+        StackOp::FusedConstSet(v, n) => [*v as u64, *n as u64, 0],
+        StackOp::FusedF32ConstSet(v, n) => [f32::to_bits(*v) as u64, *n as u64, 0],
         _ => [0, 0, 0],
     }
 }

@@ -789,7 +789,12 @@ impl Compiler {
         }
         let mut codegen = crate::stack_codegen::StackCodegen::new();
         let entry_points = self.effective_entry_points();
-        codegen.compile_multi(&self.decls, &entry_points)
+        let mut program = codegen.compile_multi(&self.decls, &entry_points)?;
+        // Fuse common instruction sequences into superinstructions.
+        for func in &mut program.functions {
+            crate::stack_optimize::optimize(func);
+        }
+        Ok(program)
     }
 
     /// Run the code using the stack VM interpreter.
