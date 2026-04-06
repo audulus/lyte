@@ -1157,8 +1157,25 @@ impl<'a> FunctionTranslator<'a> {
             if let Type::Slice(elem_ty) = &*arr_ty {
                 let elem_size = elem_ty.size(self.decls);
                 if !self.is_ptr_type(elem_ty) && elem_size == 4 {
-                    // SliceStore32 pops: value, index, fat_ptr (TOS first).
-                    // So stack must be [fat_ptr, index, value] bottom-to-top.
+                    // Try fused version if arr and idx are simple locals.
+                    if let (Some(arr_slot), Some(idx_local)) = (
+                        self.get_memory_slot(arr_id),
+                        self.get_scalar_local(idx_id),
+                    ) {
+                        // FusedAddrGetSliceStore32: *(data + idx*4) = value
+                        // value is on TOS from translate_expr(rhs).
+                        self.translate_expr(rhs_id, func);
+                        if !self.void_ctx {
+                            let val_local = self.alloc_scalar();
+                            func.emit(StackOp::LocalTee(val_local));
+                            func.emit(StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local));
+                            func.emit(StackOp::LocalGet(val_local));
+                        } else {
+                            func.emit(StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local));
+                        }
+                        return;
+                    }
+                    // Fallback: generic slice store.
                     self.translate_expr(rhs_id, func);
                     let val_local = self.alloc_scalar();
                     func.emit(StackOp::LocalSet(val_local));
@@ -1166,7 +1183,9 @@ impl<'a> FunctionTranslator<'a> {
                     self.translate_expr(idx_id, func); // push index
                     func.emit(StackOp::LocalGet(val_local)); // push value
                     func.emit(StackOp::SliceStore32);
-                    func.emit(StackOp::LocalGet(val_local)); // result
+                    if !self.void_ctx {
+                        func.emit(StackOp::LocalGet(val_local)); // result
+                    }
                     return;
                 }
             }
@@ -1196,6 +1215,26 @@ impl<'a> FunctionTranslator<'a> {
         if !self.void_ctx {
             func.emit(StackOp::LocalGet(val_local)); // result
         }
+    }
+
+    /// If this expr is an Id that resolves to a memory-backed local, return the slot index.
+    fn get_memory_slot(&self, expr: ExprID) -> Option<u16> {
+        if let Expr::Id(name) = &self.decl.arena.exprs[expr] {
+            if let Some(LocalKind::Memory(slot)) = self.variables.get(name) {
+                return Some(*slot);
+            }
+        }
+        None
+    }
+
+    /// If this expr is an Id that resolves to a scalar local, return the local index.
+    fn get_scalar_local(&self, expr: ExprID) -> Option<u16> {
+        if let Expr::Id(name) = &self.decl.arena.exprs[expr] {
+            if let Some(LocalKind::Scalar(local)) = self.variables.get(name) {
+                return Some(*local);
+            }
+        }
+        None
     }
 
     /// Translate an lvalue expression. Pushes the address onto the stack.
@@ -1968,7 +2007,15 @@ impl<'a> FunctionTranslator<'a> {
         if is_slice {
             let elem_size = elem_ty.size(self.decls);
             if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
-                // SliceLoad32: pop index, pop slice_fat_ptr, push i32 value.
+                // Try to emit fused instruction directly if arr and idx are simple locals.
+                if let (Some(arr_slot), Some(idx_local)) = (
+                    self.get_memory_slot(arr_id),
+                    self.get_scalar_local(idx_id),
+                ) {
+                    func.emit(StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local));
+                    return;
+                }
+                // Fallback: generic slice load.
                 self.translate_expr(arr_id, func);
                 self.translate_expr(idx_id, func);
                 func.emit(StackOp::SliceLoad32);

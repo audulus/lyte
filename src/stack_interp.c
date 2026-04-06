@@ -1207,6 +1207,25 @@ HANDLER(op_fused_fmul_fsub_s) {
     NEXT_ALL();
 }
 
+// --- Slice store with fused address: *(data + locals[idx]*4) = t0. Pop 1. ---
+HANDLER(op_fused_addr_get_sstore32) {
+    uint8_t* fat = lm + pc->imm[0] * 8;
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    DROP1();
+    NEXT_ALL();
+}
+
+HANDLER(op_fused_addr_get_sstore32_s) {
+    uint8_t* fat = lm + pc->imm[0] * 8;
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    DROP1_S();
+    NEXT_ALL();
+}
+
 // --- Variable move: locals[b] = locals[a]. No stack change. ---
 HANDLER(op_fused_get_set) {
     locals[pc->imm[1]] = locals[pc->imm[0]];

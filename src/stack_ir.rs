@@ -274,6 +274,8 @@ pub enum StackOp {
     FusedF32ConstSet(f32, u16),
     /// Push slice_data[locals[idx] * 4] from slice at lm+slot*8. Pop 0, push 1.
     FusedAddrGetSliceLoad32(u16, u16),
+    /// *(i32*)(slice_data + locals[idx]*4) = TOS. Pop 1, push 0.
+    FusedAddrGetSliceStore32(u16, u16),
 
     /// locals[b] = locals[a]. Pop 0, push 0.
     FusedGetSet(u16, u16),
@@ -529,6 +531,7 @@ impl fmt::Display for StackOp {
             StackOp::FusedConstSet(v, n) => write!(f, "fused.const_set {} {}", v, n),
             StackOp::FusedF32ConstSet(v, n) => write!(f, "fused.f32const_set {} {}", v, n),
             StackOp::FusedAddrGetSliceLoad32(s, i) => write!(f, "fused.addr_get_sload32 {} {}", s, i),
+            StackOp::FusedAddrGetSliceStore32(s, i) => write!(f, "fused.addr_get_sstore32 {} {}", s, i),
             StackOp::FusedGetSet(a, b) => write!(f, "fused.get_set {} {}", a, b),
             StackOp::FusedGetAddrFMulFAdd(a, s, o) => write!(f, "fused.get_addr_fmul_fadd {} {} {}", a, s, o),
             StackOp::FusedGetAddrFMulFSub(a, s, o) => write!(f, "fused.get_addr_fmul_fsub {} {} {}", a, s, o),

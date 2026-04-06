@@ -219,6 +219,8 @@ extern "C" {
     fn op_print_i32_s(); fn op_print_f32_s(); fn op_putc_s(); fn op_assert_s();
     fn op_memzero_s();
     fn op_fused_fmul_fadd_s(); fn op_fused_fmul_fsub_s();
+    fn op_fused_addr_get_sstore32();
+    fn op_fused_addr_get_sstore32_s();
     fn op_fused_get_set();
     fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
     fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
@@ -398,6 +400,7 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
+        StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
         StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
         StackOp::FusedGetAddrFMulFSub(_, _, _) => op_fused_get_addr_fmul_fsub as *const (),
@@ -496,6 +499,7 @@ fn shallow_handler(op: &StackOp) -> Option<*const ()> {
         StackOp::FusedGetGetILt(_, _) => op_fused_get_get_ilt_s as *const (),
         StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off_s as *const (),
         StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32_s as *const (),
+        StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32_s as *const (),
         // Fused FMA ops
         StackOp::FusedFMulFAdd => op_fused_fmul_fadd_s as *const (),
         StackOp::FusedFMulFSub => op_fused_fmul_fsub_s as *const (),
@@ -571,7 +575,8 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         // Fused instructions
         StackOp::FusedGetGetFMul(a, b) | StackOp::FusedGetGetFAdd(a, b)
         | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
-        | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b) => {
+        | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b)
+        | StackOp::FusedAddrGetSliceStore32(a, b) => {
             [*a as u64, *b as u64, 0]
         }
         StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
