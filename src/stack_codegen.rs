@@ -537,6 +537,34 @@ impl<'a> FunctionTranslator<'a> {
                     self.variables = saved_vars;
                 }
             }
+            // If in void context: no need to produce a value on both branches.
+            Expr::If(cond_id, then_id, else_id) => {
+                let cond_id = *cond_id;
+                let then_id = *then_id;
+                let else_id = *else_id;
+                let saved_has_returned = self.has_returned;
+                self.translate_expr(cond_id, func);
+                let jump_to_else = func.pos();
+                func.emit(StackOp::JumpIfZero(0));
+                self.translate_void(then_id, func);
+                let then_returned = self.has_returned;
+                if let Some(else_expr_id) = else_id {
+                    let jump_to_end = func.pos();
+                    func.emit(StackOp::Jump(0));
+                    func.patch_jump(jump_to_else);
+                    self.has_returned = saved_has_returned;
+                    self.translate_void(else_expr_id, func);
+                    let else_returned = self.has_returned;
+                    func.patch_jump(jump_to_end);
+                    // Only mark as returned if BOTH branches returned.
+                    self.has_returned = then_returned && else_returned;
+                } else {
+                    // No else: just patch the jump. No dead value needed.
+                    func.patch_jump(jump_to_else);
+                    // Single-branch if can't guarantee a return.
+                    self.has_returned = saved_has_returned;
+                }
+            }
             // While/For: the body result is always discarded.
             Expr::While(..) | Expr::For { .. } => {
                 self.translate_expr_inner(expr, func, true);
