@@ -73,187 +73,201 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // Handlers
 // ============================================================================
 
-// --- Constants ---
+// --- Constants (push: spill t0, load new value) ---
 
-PRESERVE_NONE void op_i64_const(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = pc->imm[0];
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_i64_const(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = pc->imm[0];
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_f32_const(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = pc->imm[0]; // already encoded as f32 bits in u64
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_f32_const(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = pc->imm[0]; // already encoded as f32 bits in u64
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_f64_const(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = pc->imm[0];
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_f64_const(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = pc->imm[0];
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Local variables ---
 
-PRESERVE_NONE void op_local_get(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = locals[pc->imm[0]];
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_local_get(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = locals[pc->imm[0]];
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_local_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    locals[pc->imm[0]] = *--sp;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_local_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    locals[pc->imm[0]] = t0;
+    t0 = *--sp;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_local_tee(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    locals[pc->imm[0]] = sp[-1]; // peek, don't pop
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_local_tee(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    locals[pc->imm[0]] = t0; // peek, don't pop
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_local_addr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = (uint64_t)(lm + pc->imm[0] * 8);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_local_addr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = (uint64_t)(lm + pc->imm[0] * 8);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Global variables ---
 
-PRESERVE_NONE void op_global_addr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = (uint64_t)(ctx->globals + (int32_t)pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_global_addr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = (uint64_t)(ctx->globals + (int32_t)pc->imm[0]);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Integer arithmetic ---
+// --- Integer arithmetic (binary: pop 2, push 1) ---
 
-PRESERVE_NONE void op_iadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; uint64_t a = *--sp;
-    *sp++ = (uint64_t)((int64_t)a + (int64_t)b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_iadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0;
+    t0 = (uint64_t)((int64_t)*--sp + (int64_t)b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_isub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; uint64_t a = *--sp;
-    *sp++ = (uint64_t)((int64_t)a - (int64_t)b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_isub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0;
+    t0 = (uint64_t)((int64_t)*--sp - (int64_t)b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_imul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; uint64_t a = *--sp;
-    *sp++ = (uint64_t)((int64_t)a * (int64_t)b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_imul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0;
+    t0 = (uint64_t)((int64_t)*--sp * (int64_t)b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_idiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int64_t b = (int64_t)*--sp; int64_t a = (int64_t)*--sp;
-    *sp++ = (uint64_t)(b != 0 ? a / b : 0);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_idiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    int64_t b = (int64_t)t0;
+    int64_t a = (int64_t)*--sp;
+    t0 = (uint64_t)(b != 0 ? a / b : 0);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_udiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; uint64_t a = *--sp;
-    *sp++ = b != 0 ? a / b : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_udiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0;
+    uint64_t a = *--sp;
+    t0 = b != 0 ? a / b : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_irem(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int64_t b = (int64_t)*--sp; int64_t a = (int64_t)*--sp;
-    *sp++ = (uint64_t)(b != 0 ? a % b : 0);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_irem(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    int64_t b = (int64_t)t0;
+    int64_t a = (int64_t)*--sp;
+    t0 = (uint64_t)(b != 0 ? a % b : 0);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_ipow(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint32_t exp = (uint32_t)*--sp; int64_t base = (int64_t)*--sp;
-    *sp++ = (uint64_t)ipow(base, exp);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_ipow(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint32_t exp = (uint32_t)t0;
+    int64_t base = (int64_t)*--sp;
+    t0 = (uint64_t)ipow(base, exp);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_ineg(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = (uint64_t)(-(int64_t)sp[-1]);
-    NEXT(ctx, pc, sp, locals, lm);
+// Unary integer ops
+PRESERVE_NONE void op_ineg(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(-(int64_t)t0);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_iadd_imm(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = (uint64_t)((int64_t)sp[-1] + (int64_t)pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_iadd_imm(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)((int64_t)t0 + (int64_t)pc->imm[0]);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Float32 arithmetic ---
+// --- Float32 arithmetic (binary: pop 2, push 1) ---
 
-PRESERVE_NONE void op_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp); float a = as_f32(*--sp);
-    *sp++ = from_f32(a + b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
+    t0 = from_f32(as_f32(*--sp) + b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp); float a = as_f32(*--sp);
-    *sp++ = from_f32(a - b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
+    t0 = from_f32(as_f32(*--sp) - b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp); float a = as_f32(*--sp);
-    *sp++ = from_f32(a * b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
+    t0 = from_f32(as_f32(*--sp) * b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_fdiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp); float a = as_f32(*--sp);
-    *sp++ = from_f32(a / b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_fdiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
+    t0 = from_f32(as_f32(*--sp) / b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_fpow(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp); float a = as_f32(*--sp);
-    *sp++ = from_f32(powf(a, b));
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_fpow(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
+    t0 = from_f32(powf(as_f32(*--sp), b));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_fneg(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f32(-as_f32(sp[-1]));
-    NEXT(ctx, pc, sp, locals, lm);
+// Unary f32
+PRESERVE_NONE void op_fneg(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f32(-as_f32(t0));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Float64 arithmetic ---
+// --- Float64 arithmetic (binary: pop 2, push 1) ---
 
-PRESERVE_NONE void op_dadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    double b = as_f64(*--sp); double a = as_f64(*--sp);
-    *sp++ = from_f64(a + b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_dadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    double b = as_f64(t0);
+    t0 = from_f64(as_f64(*--sp) + b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_dsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    double b = as_f64(*--sp); double a = as_f64(*--sp);
-    *sp++ = from_f64(a - b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_dsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    double b = as_f64(t0);
+    t0 = from_f64(as_f64(*--sp) - b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_dmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    double b = as_f64(*--sp); double a = as_f64(*--sp);
-    *sp++ = from_f64(a * b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_dmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    double b = as_f64(t0);
+    t0 = from_f64(as_f64(*--sp) * b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_ddiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    double b = as_f64(*--sp); double a = as_f64(*--sp);
-    *sp++ = from_f64(a / b);
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_ddiv(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    double b = as_f64(t0);
+    t0 = from_f64(as_f64(*--sp) / b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_dpow(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    double b = as_f64(*--sp); double a = as_f64(*--sp);
-    *sp++ = from_f64(pow(a, b));
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_dpow(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    double b = as_f64(t0);
+    t0 = from_f64(pow(as_f64(*--sp), b));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_dneg(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f64(-as_f64(sp[-1]));
-    NEXT(ctx, pc, sp, locals, lm);
+// Unary f64
+PRESERVE_NONE void op_dneg(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f64(-as_f64(t0));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Comparisons ---
+// --- Comparisons (binary: pop 2, push 1) ---
 
 #define CMP_OP(name, type, cast, op) \
-PRESERVE_NONE void name(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) { \
-    type b = cast(*--sp); type a = cast(*--sp); \
-    *sp++ = (a op b) ? 1 : 0; \
-    NEXT(ctx, pc, sp, locals, lm); \
+PRESERVE_NONE void name(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) { \
+    type b = cast(t0); type a = cast(*--sp); \
+    t0 = (a op b) ? 1 : 0; \
+    NEXT(ctx, pc, sp, locals, lm, t0); \
 }
 
 CMP_OP(op_ieq, int64_t, (int64_t), ==)
@@ -274,243 +288,254 @@ CMP_OP(op_deq, double, as_f64, ==)
 CMP_OP(op_dlt, double, as_f64, <)
 CMP_OP(op_dle, double, as_f64, <=)
 
-// --- Bitwise ---
+// --- Bitwise (binary: pop 2, push 1) ---
 
-PRESERVE_NONE void op_and(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; sp[-1] &= b; NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_and(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0; t0 = *--sp & b; NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_or(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; sp[-1] |= b; NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_or(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0; t0 = *--sp | b; NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_xor(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; sp[-1] ^= b; NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_xor(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0; t0 = *--sp ^ b; NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_not(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = ~sp[-1]; NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_not(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = ~t0; NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_shl(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; sp[-1] <<= (b & 63); NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_shl(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0; t0 = *--sp << (b & 63); NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_shr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; sp[-1] = (uint64_t)((int64_t)sp[-1] >> (b & 63)); NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_shr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0; t0 = (uint64_t)((int64_t)*--sp >> (b & 63)); NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_ushr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t b = *--sp; sp[-1] >>= (b & 63); NEXT(ctx, pc, sp, locals, lm);
-}
-
-// --- Type conversions ---
-
-PRESERVE_NONE void op_i32_to_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f32((float)(int32_t)sp[-1]); NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_f32_to_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = (uint64_t)(int64_t)(int32_t)as_f32(sp[-1]); NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_i32_to_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f64((double)(int32_t)sp[-1]); NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_f64_to_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = (uint64_t)(int64_t)(int32_t)as_f64(sp[-1]); NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_f32_to_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f64((double)as_f32(sp[-1])); NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_f64_to_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f32((float)as_f64(sp[-1])); NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_i32_to_i8(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = (uint64_t)(int64_t)(int8_t)(int32_t)sp[-1]; NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_i8_to_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = (uint64_t)(int64_t)(int32_t)(int8_t)sp[-1]; NEXT(ctx, pc, sp, locals, lm);
-}
-PRESERVE_NONE void op_i64_to_u32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = sp[-1] & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_ushr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t b = t0; t0 = *--sp >> (b & 63); NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Memory loads ---
+// --- Type conversions (unary: pop 1, push 1) ---
 
-PRESERVE_NONE void op_load8(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* addr = (uint8_t*)sp[-1];
-    sp[-1] = (uint64_t)(int64_t)(int8_t)*addr;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_i32_to_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f32((float)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_f32_to_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_i32_to_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f64((double)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_f64_to_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_f32_to_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f64((double)as_f32(t0)); NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_f64_to_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f32((float)as_f64(t0)); NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_i32_to_i8(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_i8_to_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT(ctx, pc, sp, locals, lm, t0);
+}
+PRESERVE_NONE void op_i64_to_u32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = t0 & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_load32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int32_t* addr = (int32_t*)sp[-1];
-    sp[-1] = (uint64_t)(int64_t)*addr;
-    NEXT(ctx, pc, sp, locals, lm);
+// --- Memory loads (unary: pop 1 addr, push 1 value) ---
+
+PRESERVE_NONE void op_load8(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(int64_t)(int8_t)*(uint8_t*)t0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_load64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t* addr = (uint64_t*)sp[-1];
-    sp[-1] = *addr;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_load32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = (uint64_t)(int64_t)*(int32_t*)t0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_load32_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* base = (uint8_t*)sp[-1];
+PRESERVE_NONE void op_load64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = *(uint64_t*)t0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
+}
+
+PRESERVE_NONE void op_load32_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* base = (uint8_t*)t0;
     int32_t off = (int32_t)pc->imm[0];
-    sp[-1] = (uint64_t)(int64_t)*(int32_t*)(base + off);
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = (uint64_t)(int64_t)*(int32_t*)(base + off);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_load64_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* base = (uint8_t*)sp[-1];
+PRESERVE_NONE void op_load64_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* base = (uint8_t*)t0;
     int32_t off = (int32_t)pc->imm[0];
-    sp[-1] = *(uint64_t*)(base + off);
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = *(uint64_t*)(base + off);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Memory stores ---
+// --- Memory stores (pop 2, push 0) ---
 
-PRESERVE_NONE void op_store8(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t val = (uint8_t)*--sp;
-    uint8_t* addr = (uint8_t*)*--sp;
-    *addr = val;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_store8(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    uint64_t addr_v = *--sp;
+    t0 = *--sp;
+    *(uint8_t*)addr_v = (uint8_t)val;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_store32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int32_t val = (int32_t)*--sp;
-    int32_t* addr = (int32_t*)*--sp;
-    *addr = val;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_store32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    uint64_t addr_v = *--sp;
+    t0 = *--sp;
+    *(int32_t*)addr_v = (int32_t)val;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_store64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t val = *--sp;
-    uint64_t* addr = (uint64_t*)*--sp;
-    *addr = val;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_store64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    uint64_t addr_v = *--sp;
+    t0 = *--sp;
+    *(uint64_t*)addr_v = val;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_store8_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t val = (uint8_t)*--sp;
-    uint8_t* base = (uint8_t*)*--sp;
-    *(base + (int32_t)pc->imm[0]) = val;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_store8_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    uint64_t base = *--sp;
+    t0 = *--sp;
+    *((uint8_t*)base + (int32_t)pc->imm[0]) = (uint8_t)val;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_store32_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int32_t val = (int32_t)*--sp;
-    uint8_t* base = (uint8_t*)*--sp;
-    *(int32_t*)(base + (int32_t)pc->imm[0]) = val;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_store32_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    uint64_t base = *--sp;
+    t0 = *--sp;
+    *(int32_t*)((uint8_t*)base + (int32_t)pc->imm[0]) = (int32_t)val;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_store64_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t val = *--sp;
-    uint8_t* base = (uint8_t*)*--sp;
-    *(uint64_t*)(base + (int32_t)pc->imm[0]) = val;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_store64_off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    uint64_t base = *--sp;
+    t0 = *--sp;
+    *(uint64_t*)((uint8_t*)base + (int32_t)pc->imm[0]) = val;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Bulk memory ---
 
-PRESERVE_NONE void op_memcopy(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* src = (uint8_t*)*--sp;
+PRESERVE_NONE void op_memcopy(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* src = (uint8_t*)t0;
     uint8_t* dst = (uint8_t*)*--sp;
+    t0 = *--sp;
     memmove(dst, src, (size_t)pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_memzero(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* dst = (uint8_t*)*--sp;
+PRESERVE_NONE void op_memzero(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* dst = (uint8_t*)t0;
+    t0 = *--sp;
     memset(dst, 0, (size_t)pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_memeq(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* b = (uint8_t*)*--sp;
+PRESERVE_NONE void op_memeq(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* b = (uint8_t*)t0;
     uint8_t* a = (uint8_t*)*--sp;
-    *sp++ = memcmp(a, b, (size_t)pc->imm[0]) == 0 ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = memcmp(a, b, (size_t)pc->imm[0]) == 0 ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_memne(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* b = (uint8_t*)*--sp;
+PRESERVE_NONE void op_memne(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* b = (uint8_t*)t0;
     uint8_t* a = (uint8_t*)*--sp;
-    *sp++ = memcmp(a, b, (size_t)pc->imm[0]) != 0 ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = memcmp(a, b, (size_t)pc->imm[0]) != 0 ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Slice operations ---
 
-PRESERVE_NONE void op_slice_eq(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* fat_b = (uint8_t*)*--sp;
+PRESERVE_NONE void op_slice_eq(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* fat_b = (uint8_t*)t0;
     uint8_t* fat_a = (uint8_t*)*--sp;
     uint32_t elem_size = (uint32_t)pc->imm[0];
     uint32_t len_a = *(uint32_t*)(fat_a + 8);
     uint32_t len_b = *(uint32_t*)(fat_b + 8);
-    if (len_a != len_b) { *sp++ = 0; NEXT(ctx, pc, sp, locals, lm); }
+    if (len_a != len_b) { t0 = 0; NEXT(ctx, pc, sp, locals, lm, t0); }
     uint8_t* data_a = *(uint8_t**)fat_a;
     uint8_t* data_b = *(uint8_t**)fat_b;
-    *sp++ = memcmp(data_a, data_b, (size_t)len_a * elem_size) == 0 ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = memcmp(data_a, data_b, (size_t)len_a * elem_size) == 0 ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_slice_ne(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* fat_b = (uint8_t*)*--sp;
+PRESERVE_NONE void op_slice_ne(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint8_t* fat_b = (uint8_t*)t0;
     uint8_t* fat_a = (uint8_t*)*--sp;
     uint32_t elem_size = (uint32_t)pc->imm[0];
     uint32_t len_a = *(uint32_t*)(fat_a + 8);
     uint32_t len_b = *(uint32_t*)(fat_b + 8);
-    if (len_a != len_b) { *sp++ = 1; NEXT(ctx, pc, sp, locals, lm); }
+    if (len_a != len_b) { t0 = 1; NEXT(ctx, pc, sp, locals, lm, t0); }
     uint8_t* data_a = *(uint8_t**)fat_a;
     uint8_t* data_b = *(uint8_t**)fat_b;
-    *sp++ = memcmp(data_a, data_b, (size_t)len_a * elem_size) != 0 ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = memcmp(data_a, data_b, (size_t)len_a * elem_size) != 0 ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_slice_load32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int64_t idx = (int64_t)*--sp;
+PRESERVE_NONE void op_slice_load32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    int64_t idx = (int64_t)t0;
     uint8_t* fat = (uint8_t*)*--sp;
     uint8_t* data = *(uint8_t**)fat;
-    *sp++ = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_slice_store32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int32_t val = (int32_t)*--sp;
+PRESERVE_NONE void op_slice_store32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    int32_t val = (int32_t)t0;
     int64_t idx = (int64_t)*--sp;
     uint8_t* fat = (uint8_t*)*--sp;
+    t0 = *--sp;
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = val;
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Control flow ---
 
-PRESERVE_NONE void op_jump(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+PRESERVE_NONE void op_jump(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
     int64_t off = (int64_t)pc->imm[0];
     pc = pc + 1 + off;
-    DISPATCH(ctx, pc, sp, locals, lm);
+    DISPATCH(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_jump_if_zero(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t cond = *--sp;
+PRESERVE_NONE void op_jump_if_zero(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t cond = t0;
+    t0 = *--sp;
     if (cond == 0) {
         int64_t off = (int64_t)pc->imm[0];
         pc = pc + 1 + off;
-        DISPATCH(ctx, pc, sp, locals, lm);
+        DISPATCH(ctx, pc, sp, locals, lm, t0);
     }
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_jump_if_not_zero(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t cond = *--sp;
+PRESERVE_NONE void op_jump_if_not_zero(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t cond = t0;
+    t0 = *--sp;
     if (cond != 0) {
         int64_t off = (int64_t)pc->imm[0];
         pc = pc + 1 + off;
-        DISPATCH(ctx, pc, sp, locals, lm);
+        DISPATCH(ctx, pc, sp, locals, lm, t0);
     }
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Function calls ---
 
-PRESERVE_NONE void op_call(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+PRESERVE_NONE void op_call(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    // Spill t0 to make all values in memory
+    *sp++ = t0;
+
     uint32_t target = (uint32_t)pc->imm[0];
     uint32_t nargs = (uint32_t)pc->imm[1];
 
@@ -519,11 +544,11 @@ PRESERVE_NONE void op_call(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* lo
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
     frame->saved_lm = lm;
-    frame->saved_sp = sp - nargs; // caller's sp before args were pushed
+    frame->saved_sp = sp - nargs; // caller's sp after args removed (but with spilled t0)
     frame->func_idx = (uint32_t)pc->imm[2]; // current function index (stored by linker)
     frame->saved_lm_size = ctx->local_memory_size;
 
-    // Pop args.
+    // Pop args from memory.
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
         args[nargs - 1 - i] = *--sp;
@@ -535,15 +560,19 @@ PRESERVE_NONE void op_call(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* lo
     enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, 0); // t0=0 (callee starts with empty TOS)
 }
 
-PRESERVE_NONE void op_call_closure(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint8_t* fat_ptr = (uint8_t*)*--sp;
+PRESERVE_NONE void op_call_closure(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    // t0 is the fat_ptr address (last thing pushed before call_closure)
+    uint8_t* fat_ptr = (uint8_t*)t0;
     uint32_t target = (uint32_t)*(int64_t*)fat_ptr;
     ctx->closure_ptr = *(uint64_t*)(fat_ptr + 8);
     uint32_t nargs = (uint32_t)pc->imm[0];
 
+    // DON'T spill t0 (it was the fat_ptr, which is consumed, not an arg)
+    // The args are in memory at sp[-nargs..sp]
+
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
@@ -562,13 +591,14 @@ PRESERVE_NONE void op_call_closure(Ctx* ctx, Instruction* pc, uint64_t* sp, uint
     enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, 0);
 }
 
-PRESERVE_NONE void op_call_indirect(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint32_t target = (uint32_t)(int64_t)*--sp;
+PRESERVE_NONE void op_call_indirect(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint32_t target = (uint32_t)(int64_t)t0; // t0 is the func_idx
     uint32_t nargs = (uint32_t)pc->imm[0];
 
+    // Args are in memory
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
@@ -587,11 +617,12 @@ PRESERVE_NONE void op_call_indirect(Ctx* ctx, Instruction* pc, uint64_t* sp, uin
     enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, 0);
 }
 
-PRESERVE_NONE void op_return(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t result = *--sp;
+PRESERVE_NONE void op_return(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    // t0 has the return value
+    uint64_t result = t0;
     free(locals);
 
     if (ctx->call_depth == 0) {
@@ -603,12 +634,11 @@ PRESERVE_NONE void op_return(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->local_memory_size = frame->saved_lm_size;
     sp = frame->saved_sp;
-    *sp++ = result; // Push return value onto caller's stack.
-
-    DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm);
+    // Return value becomes the new t0
+    DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm, result);
 }
 
-PRESERVE_NONE void op_return_void(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+PRESERVE_NONE void op_return_void(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
     free(locals);
 
     if (ctx->call_depth == 0) {
@@ -620,23 +650,24 @@ PRESERVE_NONE void op_return_void(Ctx* ctx, Instruction* pc, uint64_t* sp, uint6
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->local_memory_size = frame->saved_lm_size;
     sp = frame->saved_sp;
-
-    DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm);
+    // Reload caller's t0 from memory (it was spilled before the call)
+    t0 = *--sp;
+    DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm, t0);
 }
 
 // --- Stack manipulation ---
 
-PRESERVE_NONE void op_drop(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    --sp;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_drop(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = *--sp;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // --- Math builtins (f32) ---
 
 #define F32_UNARY(name, func) \
-PRESERVE_NONE void name(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) { \
-    sp[-1] = from_f32(func(as_f32(sp[-1]))); \
-    NEXT(ctx, pc, sp, locals, lm); \
+PRESERVE_NONE void name(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) { \
+    t0 = from_f32(func(as_f32(t0))); \
+    NEXT(ctx, pc, sp, locals, lm, t0); \
 }
 
 F32_UNARY(op_sin_f32,   sinf)
@@ -664,9 +695,9 @@ F32_UNARY(op_ceil_f32,  ceilf)
 // --- Math builtins (f64) ---
 
 #define F64_UNARY(name, func) \
-PRESERVE_NONE void name(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) { \
-    sp[-1] = from_f64(func(as_f64(sp[-1]))); \
-    NEXT(ctx, pc, sp, locals, lm); \
+PRESERVE_NONE void name(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) { \
+    t0 = from_f64(func(as_f64(t0))); \
+    NEXT(ctx, pc, sp, locals, lm, t0); \
 }
 
 F64_UNARY(op_sin_f64,   sin)
@@ -691,63 +722,69 @@ F64_UNARY(op_abs_f64,   fabs)
 F64_UNARY(op_floor_f64, floor)
 F64_UNARY(op_ceil_f64,  ceil)
 
-// Binary math
+// Binary math (unary predicates)
 
-PRESERVE_NONE void op_isnan_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = isnan(as_f32(sp[-1])) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_isnan_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = isnan(as_f32(t0)) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_isnan_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = isnan(as_f64(sp[-1])) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_isnan_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = isnan(as_f64(t0)) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_isinf_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = isinf(as_f32(sp[-1])) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_isinf_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = isinf(as_f32(t0)) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
-PRESERVE_NONE void op_isinf_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = isinf(as_f64(sp[-1])) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
-}
-
-PRESERVE_NONE void op_atan2_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp); float a = as_f32(*--sp);
-    *sp++ = from_f32(atan2f(a, b));
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_isinf_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = isinf(as_f64(t0)) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_atan2_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    double b = as_f64(*--sp); double a = as_f64(*--sp);
-    *sp++ = from_f64(atan2(a, b));
-    NEXT(ctx, pc, sp, locals, lm);
+// Binary math (atan2)
+
+PRESERVE_NONE void op_atan2_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
+    t0 = from_f32(atan2f(as_f32(*--sp), b));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// --- Debug/IO ---
+PRESERVE_NONE void op_atan2_f64(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    double b = as_f64(t0);
+    t0 = from_f64(atan2(as_f64(*--sp), b));
+    NEXT(ctx, pc, sp, locals, lm, t0);
+}
 
-PRESERVE_NONE void op_print_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    int32_t val = (int32_t)*--sp;
+// --- Debug/IO (pop 1, push 0) ---
+
+PRESERVE_NONE void op_print_i32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    int32_t val = (int32_t)t0;
+    t0 = *--sp;
     printf("%d\n", val);
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_print_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float val = as_f32(*--sp);
+PRESERVE_NONE void op_print_f32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float val = as_f32(t0);
+    t0 = *--sp;
     if (val == floorf(val) && fabsf(val) < 1e15f) {
         printf("%.1f\n", val);
     } else {
         printf("%g\n", val);
     }
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_putc(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    char c = (char)(int32_t)*--sp;
+PRESERVE_NONE void op_putc(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    char c = (char)(int32_t)t0;
+    t0 = *--sp;
     putchar(c);
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_assert(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    uint64_t val = *--sp;
+PRESERVE_NONE void op_assert(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    uint64_t val = t0;
+    t0 = *--sp;
     printf("assert(%s)\n", val != 0 ? "true" : "false");
     fflush(stdout);
     if (val == 0) {
@@ -755,139 +792,145 @@ PRESERVE_NONE void op_assert(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* 
         fflush(stderr);
         exit(1);
     }
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_get_closure_ptr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = ctx->closure_ptr;
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_get_closure_ptr(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = ctx->closure_ptr;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // ============================================================================
 // Fused superinstructions
 // ============================================================================
 
-// locals[a] * locals[b] (f32)
-PRESERVE_NONE void op_fused_get_get_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]]));
-    NEXT(ctx, pc, sp, locals, lm);
+// locals[a] * locals[b] (f32) -- push
+PRESERVE_NONE void op_fused_get_get_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]]));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[a] + locals[b] (f32)
-PRESERVE_NONE void op_fused_get_get_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]]));
-    NEXT(ctx, pc, sp, locals, lm);
+// locals[a] + locals[b] (f32) -- push
+PRESERVE_NONE void op_fused_get_get_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]]));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[a] - locals[b] (f32)
-PRESERVE_NONE void op_fused_get_get_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]]));
-    NEXT(ctx, pc, sp, locals, lm);
+// locals[a] - locals[b] (f32) -- push
+PRESERVE_NONE void op_fused_get_get_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]]));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[a] + locals[b] (i64)
-PRESERVE_NONE void op_fused_get_get_iadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]);
-    NEXT(ctx, pc, sp, locals, lm);
+// locals[a] + locals[b] (i64) -- push
+PRESERVE_NONE void op_fused_get_get_iadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[a] < locals[b] (i64 signed)
-PRESERVE_NONE void op_fused_get_get_ilt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    *sp++ = ((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm);
+// locals[a] < locals[b] (i64 signed) -- push
+PRESERVE_NONE void op_fused_get_get_ilt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
+    t0 = ((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0;
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// TOS * locals[a] (f32)
-PRESERVE_NONE void op_fused_get_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f32(as_f32(sp[-1]) * as_f32(locals[pc->imm[0]]));
-    NEXT(ctx, pc, sp, locals, lm);
+// TOS * locals[a] (f32) -- unary (replaces TOS)
+PRESERVE_NONE void op_fused_get_fmul(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f32(as_f32(t0) * as_f32(locals[pc->imm[0]]));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// TOS + locals[a] (f32)
-PRESERVE_NONE void op_fused_get_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f32(as_f32(sp[-1]) + as_f32(locals[pc->imm[0]]));
-    NEXT(ctx, pc, sp, locals, lm);
+// TOS + locals[a] (f32) -- unary (replaces TOS)
+PRESERVE_NONE void op_fused_get_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f32(as_f32(t0) + as_f32(locals[pc->imm[0]]));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// TOS - locals[a] (f32). Result = old_TOS - locals[a].
-// Wait: in the unfused version, the stack is [accum], then local.get pushes locals[a],
-// then f32.sub pops b=locals[a], a=accum, pushes a-b = accum - locals[a].
-PRESERVE_NONE void op_fused_get_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    sp[-1] = from_f32(as_f32(sp[-1]) - as_f32(locals[pc->imm[0]]));
-    NEXT(ctx, pc, sp, locals, lm);
+// TOS - locals[a] (f32) -- unary (replaces TOS)
+PRESERVE_NONE void op_fused_get_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    t0 = from_f32(as_f32(t0) - as_f32(locals[pc->imm[0]]));
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// Fused multiply-accumulate: pop b, pop a, pop c, push c + a*b (f32)
-PRESERVE_NONE void op_fused_fmul_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp);
+// Fused multiply-accumulate: t0=b, pop a, pop c, push c + a*b (f32)
+PRESERVE_NONE void op_fused_fmul_fadd(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
     float a = as_f32(*--sp);
-    float c = as_f32(sp[-1]);
-    sp[-1] = from_f32(c + a * b);
-    NEXT(ctx, pc, sp, locals, lm);
+    float c = as_f32(*--sp);
+    t0 = from_f32(c + a * b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// Fused multiply-subtract: pop b, pop a, pop c, push c - a*b (f32)
-PRESERVE_NONE void op_fused_fmul_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    float b = as_f32(*--sp);
+// Fused multiply-subtract: t0=b, pop a, pop c, push c - a*b (f32)
+PRESERVE_NONE void op_fused_fmul_fsub(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    float b = as_f32(t0);
     float a = as_f32(*--sp);
-    float c = as_f32(sp[-1]);
-    sp[-1] = from_f32(c - a * b);
-    NEXT(ctx, pc, sp, locals, lm);
+    float c = as_f32(*--sp);
+    t0 = from_f32(c - a * b);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// Load i32 from lm + slot*8 + offset
-PRESERVE_NONE void op_fused_addr_load32off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+// Load i32 from lm + slot*8 + offset -- push
+PRESERVE_NONE void op_fused_addr_load32off(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
     uint8_t* base = lm + pc->imm[0] * 8;
-    *sp++ = (uint64_t)(int64_t)*(int32_t*)(base + (int32_t)pc->imm[1]);
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = (uint64_t)(int64_t)*(int32_t*)(base + (int32_t)pc->imm[1]);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[dst] = locals[src] + imm
-PRESERVE_NONE void op_fused_get_addimm_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+// locals[dst] = locals[src] + imm -- pass t0 through
+PRESERVE_NONE void op_fused_get_addimm_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
     locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)pc->imm[1]);
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// if !(locals[a] < locals[b]) jump
-PRESERVE_NONE void op_fused_get_get_ilt_jiz(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+// if !(locals[a] < locals[b]) jump -- pass t0 through
+PRESERVE_NONE void op_fused_get_get_ilt_jiz(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
     if ((int64_t)locals[pc->imm[0]] >= (int64_t)locals[pc->imm[1]]) {
         int64_t off = (int64_t)pc->imm[2];
         pc = pc + 1 + off;
-        DISPATCH(ctx, pc, sp, locals, lm);
+        DISPATCH(ctx, pc, sp, locals, lm, t0);
     }
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[n] = i64 constant
-PRESERVE_NONE void op_fused_const_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+// locals[n] = i64 constant -- pass t0 through
+PRESERVE_NONE void op_fused_const_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
     locals[pc->imm[1]] = pc->imm[0];
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// locals[n] = f32 constant (bits in imm[0])
-PRESERVE_NONE void op_fused_f32const_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+// locals[n] = f32 constant (bits in imm[0]) -- pass t0 through
+PRESERVE_NONE void op_fused_f32const_set(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
     locals[pc->imm[1]] = pc->imm[0];
-    NEXT(ctx, pc, sp, locals, lm);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-// Push slice_data[locals[idx_local] * 4] from slice at lm + slot*8
-PRESERVE_NONE void op_fused_addr_get_sload32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
+// Push slice_data[locals[idx_local] * 4] from slice at lm + slot*8 -- push
+PRESERVE_NONE void op_fused_addr_get_sload32(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    *sp++ = t0;
     uint8_t* fat = lm + pc->imm[0] * 8;
     int64_t idx = (int64_t)locals[pc->imm[1]];
     uint8_t* data = *(uint8_t**)fat;
-    *sp++ = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
-    NEXT(ctx, pc, sp, locals, lm);
+    t0 = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
-PRESERVE_NONE void op_halt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    ctx->result = (sp > ctx->stack_base) ? (int64_t)sp[-1] : 0;
+PRESERVE_NONE void op_halt(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    ctx->result = (int64_t)t0;
     ctx->done = 1;
     free(locals);
     return;
 }
 
-PRESERVE_NONE void op_nop(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm) {
-    NEXT(ctx, pc, sp, locals, lm);
+PRESERVE_NONE void op_nop(Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0) {
+    NEXT(ctx, pc, sp, locals, lm, t0);
 }
 
 // ============================================================================
@@ -916,7 +959,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
 
     // Start dispatch.
     Instruction* pc = ctx->functions[entry_func].code;
-    ((Handler)pc->handler)(ctx, pc, stack, locals, lm);
+    ((Handler)pc->handler)(ctx, pc, stack, locals, lm, 0); // t0=0 initial
 
     free(stack);
     return ctx->result;
