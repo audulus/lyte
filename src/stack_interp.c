@@ -120,47 +120,47 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 
 PRESERVE_NONE void op_i64_const(HANDLER_ARGS) {
     PUSH(pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_f32_const(HANDLER_ARGS) {
     PUSH(pc->imm[0]); // already encoded as f32 bits in u64
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_f64_const(HANDLER_ARGS) {
     PUSH(pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Local variables ---
 
 PRESERVE_NONE void op_local_get(HANDLER_ARGS) {
     PUSH(locals[pc->imm[0]]);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_local_set(HANDLER_ARGS) {
     uint64_t val; POP(val);
     locals[pc->imm[0]] = val;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_local_tee(HANDLER_ARGS) {
     locals[pc->imm[0]] = t0; // peek, don't pop
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_local_addr(HANDLER_ARGS) {
     PUSH((uint64_t)(lm + pc->imm[0] * 8));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Global variables ---
 
 PRESERVE_NONE void op_global_addr(HANDLER_ARGS) {
     PUSH((uint64_t)(ctx->globals + (int32_t)pc->imm[0]));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Integer arithmetic (binary: consume t0 and t1, push result) ---
@@ -168,19 +168,19 @@ PRESERVE_NONE void op_global_addr(HANDLER_ARGS) {
 PRESERVE_NONE void op_iadd(HANDLER_ARGS) {
     t0 = (uint64_t)((int64_t)t1 + (int64_t)t0);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_isub(HANDLER_ARGS) {
     t0 = (uint64_t)((int64_t)t1 - (int64_t)t0);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_imul(HANDLER_ARGS) {
     t0 = (uint64_t)((int64_t)t1 * (int64_t)t0);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_idiv(HANDLER_ARGS) {
@@ -188,7 +188,7 @@ PRESERVE_NONE void op_idiv(HANDLER_ARGS) {
     int64_t a = (int64_t)t1;
     t0 = (uint64_t)(b != 0 ? a / b : 0);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_udiv(HANDLER_ARGS) {
@@ -196,7 +196,7 @@ PRESERVE_NONE void op_udiv(HANDLER_ARGS) {
     uint64_t a = t1;
     t0 = b != 0 ? a / b : 0;
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_irem(HANDLER_ARGS) {
@@ -204,7 +204,7 @@ PRESERVE_NONE void op_irem(HANDLER_ARGS) {
     int64_t a = (int64_t)t1;
     t0 = (uint64_t)(b != 0 ? a % b : 0);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_ipow(HANDLER_ARGS) {
@@ -212,18 +212,18 @@ PRESERVE_NONE void op_ipow(HANDLER_ARGS) {
     int64_t base = (int64_t)t1;
     t0 = (uint64_t)ipow(base, exp);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Unary integer ops
 PRESERVE_NONE void op_ineg(HANDLER_ARGS) {
     t0 = (uint64_t)(-(int64_t)t0);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_iadd_imm(HANDLER_ARGS) {
     t0 = (uint64_t)((int64_t)t0 + (int64_t)pc->imm[0]);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Float32 arithmetic (binary) ---
@@ -231,37 +231,37 @@ PRESERVE_NONE void op_iadd_imm(HANDLER_ARGS) {
 PRESERVE_NONE void op_fadd(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t1) + as_f32(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_fsub(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t1) - as_f32(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_fmul(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t1) * as_f32(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_fdiv(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t1) / as_f32(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_fpow(HANDLER_ARGS) {
     t0 = from_f32(powf(as_f32(t1), as_f32(t0)));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Unary f32
 PRESERVE_NONE void op_fneg(HANDLER_ARGS) {
     t0 = from_f32(-as_f32(t0));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Float64 arithmetic (binary) ---
@@ -269,37 +269,37 @@ PRESERVE_NONE void op_fneg(HANDLER_ARGS) {
 PRESERVE_NONE void op_dadd(HANDLER_ARGS) {
     t0 = from_f64(as_f64(t1) + as_f64(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_dsub(HANDLER_ARGS) {
     t0 = from_f64(as_f64(t1) - as_f64(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_dmul(HANDLER_ARGS) {
     t0 = from_f64(as_f64(t1) * as_f64(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_ddiv(HANDLER_ARGS) {
     t0 = from_f64(as_f64(t1) / as_f64(t0));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_dpow(HANDLER_ARGS) {
     t0 = from_f64(pow(as_f64(t1), as_f64(t0)));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Unary f64
 PRESERVE_NONE void op_dneg(HANDLER_ARGS) {
     t0 = from_f64(-as_f64(t0));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Comparisons (binary: consume t0 and t1, push result) ---
@@ -309,7 +309,7 @@ PRESERVE_NONE void name(HANDLER_ARGS) { \
     type b = cast(t0); type a = cast(t1); \
     t0 = (a op b) ? 1 : 0; \
     BINOP_SHIFT(); \
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3); \
+    NEXT_ALL(); \
 }
 
 CMP_OP(op_ieq, int64_t, (int64_t), ==)
@@ -388,31 +388,31 @@ PRESERVE_NONE void op_i64_to_u32(HANDLER_ARGS) {
 
 PRESERVE_NONE void op_load8(HANDLER_ARGS) {
     t0 = (uint64_t)(int64_t)(int8_t)*(uint8_t*)t0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_load32(HANDLER_ARGS) {
     t0 = (uint64_t)(int64_t)*(int32_t*)t0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_load64(HANDLER_ARGS) {
     t0 = *(uint64_t*)t0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_load32_off(HANDLER_ARGS) {
     uint8_t* base = (uint8_t*)t0;
     int32_t off = (int32_t)pc->imm[0];
     t0 = (uint64_t)(int64_t)*(int32_t*)(base + off);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_load64_off(HANDLER_ARGS) {
     uint8_t* base = (uint8_t*)t0;
     int32_t off = (int32_t)pc->imm[0];
     t0 = *(uint64_t*)(base + off);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Memory stores (pop 2: val=t0, addr=t1) ---
@@ -420,37 +420,37 @@ PRESERVE_NONE void op_load64_off(HANDLER_ARGS) {
 PRESERVE_NONE void op_store8(HANDLER_ARGS) {
     *(uint8_t*)t1 = (uint8_t)t0;
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_store32(HANDLER_ARGS) {
     *(int32_t*)t1 = (int32_t)t0;
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_store64(HANDLER_ARGS) {
     *(uint64_t*)t1 = t0;
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_store8_off(HANDLER_ARGS) {
     *((uint8_t*)t1 + (int32_t)pc->imm[0]) = (uint8_t)t0;
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_store32_off(HANDLER_ARGS) {
     *(int32_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = (int32_t)t0;
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_store64_off(HANDLER_ARGS) {
     *(uint64_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = t0;
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Bulk memory ---
@@ -459,14 +459,14 @@ PRESERVE_NONE void op_memcopy(HANDLER_ARGS) {
     // pop src=t0, pop dst=t1
     memmove((uint8_t*)t1, (uint8_t*)t0, (size_t)pc->imm[0]);
     DROP2();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_memzero(HANDLER_ARGS) {
     // pop dst=t0
     memset((uint8_t*)t0, 0, (size_t)pc->imm[0]);
     DROP1();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_memeq(HANDLER_ARGS) {
@@ -475,7 +475,7 @@ PRESERVE_NONE void op_memeq(HANDLER_ARGS) {
     uint8_t* a = (uint8_t*)t1;
     t0 = memcmp(a, b, (size_t)pc->imm[0]) == 0 ? 1 : 0;
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_memne(HANDLER_ARGS) {
@@ -483,7 +483,7 @@ PRESERVE_NONE void op_memne(HANDLER_ARGS) {
     uint8_t* a = (uint8_t*)t1;
     t0 = memcmp(a, b, (size_t)pc->imm[0]) != 0 ? 1 : 0;
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Slice operations ---
@@ -498,13 +498,13 @@ PRESERVE_NONE void op_slice_eq(HANDLER_ARGS) {
     if (len_a != len_b) {
         t0 = 0;
         BINOP_SHIFT();
-        NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+        NEXT_ALL();
     }
     uint8_t* data_a = *(uint8_t**)fat_a;
     uint8_t* data_b = *(uint8_t**)fat_b;
     t0 = memcmp(data_a, data_b, (size_t)len_a * elem_size) == 0 ? 1 : 0;
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_slice_ne(HANDLER_ARGS) {
@@ -516,13 +516,13 @@ PRESERVE_NONE void op_slice_ne(HANDLER_ARGS) {
     if (len_a != len_b) {
         t0 = 1;
         BINOP_SHIFT();
-        NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+        NEXT_ALL();
     }
     uint8_t* data_a = *(uint8_t**)fat_a;
     uint8_t* data_b = *(uint8_t**)fat_b;
     t0 = memcmp(data_a, data_b, (size_t)len_a * elem_size) != 0 ? 1 : 0;
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_slice_load32(HANDLER_ARGS) {
@@ -532,7 +532,7 @@ PRESERVE_NONE void op_slice_load32(HANDLER_ARGS) {
     uint8_t* data = *(uint8_t**)fat;
     t0 = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_slice_store32(HANDLER_ARGS) {
@@ -543,7 +543,7 @@ PRESERVE_NONE void op_slice_store32(HANDLER_ARGS) {
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = val;
     DROP3();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Control flow ---
@@ -551,7 +551,7 @@ PRESERVE_NONE void op_slice_store32(HANDLER_ARGS) {
 PRESERVE_NONE void op_jump(HANDLER_ARGS) {
     int64_t off = (int64_t)pc->imm[0];
     pc = pc + 1 + off;
-    DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    DISPATCH_ALL();
 }
 
 PRESERVE_NONE void op_jump_if_zero(HANDLER_ARGS) {
@@ -560,9 +560,9 @@ PRESERVE_NONE void op_jump_if_zero(HANDLER_ARGS) {
     if (cond == 0) {
         int64_t off = (int64_t)pc->imm[0];
         pc = pc + 1 + off;
-        DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+        DISPATCH_ALL();
     }
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_jump_if_not_zero(HANDLER_ARGS) {
@@ -571,9 +571,9 @@ PRESERVE_NONE void op_jump_if_not_zero(HANDLER_ARGS) {
     if (cond != 0) {
         int64_t off = (int64_t)pc->imm[0];
         pc = pc + 1 + off;
-        DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+        DISPATCH_ALL();
     }
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Function calls ---
@@ -706,7 +706,7 @@ PRESERVE_NONE void op_return_void(HANDLER_ARGS) {
 
 PRESERVE_NONE void op_drop(HANDLER_ARGS) {
     DROP1();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Math builtins (f32) ---
@@ -714,7 +714,7 @@ PRESERVE_NONE void op_drop(HANDLER_ARGS) {
 #define F32_UNARY(name, func) \
 PRESERVE_NONE void name(HANDLER_ARGS) { \
     t0 = from_f32(func(as_f32(t0))); \
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3); \
+    NEXT_ALL(); \
 }
 
 F32_UNARY(op_sin_f32,   sinf)
@@ -744,7 +744,7 @@ F32_UNARY(op_ceil_f32,  ceilf)
 #define F64_UNARY(name, func) \
 PRESERVE_NONE void name(HANDLER_ARGS) { \
     t0 = from_f64(func(as_f64(t0))); \
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3); \
+    NEXT_ALL(); \
 }
 
 F64_UNARY(op_sin_f64,   sin)
@@ -773,19 +773,19 @@ F64_UNARY(op_ceil_f64,  ceil)
 
 PRESERVE_NONE void op_isnan_f32(HANDLER_ARGS) {
     t0 = isnan(as_f32(t0)) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 PRESERVE_NONE void op_isnan_f64(HANDLER_ARGS) {
     t0 = isnan(as_f64(t0)) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 PRESERVE_NONE void op_isinf_f32(HANDLER_ARGS) {
     t0 = isinf(as_f32(t0)) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 PRESERVE_NONE void op_isinf_f64(HANDLER_ARGS) {
     t0 = isinf(as_f64(t0)) ? 1 : 0;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Binary math (atan2)
@@ -793,13 +793,13 @@ PRESERVE_NONE void op_isinf_f64(HANDLER_ARGS) {
 PRESERVE_NONE void op_atan2_f32(HANDLER_ARGS) {
     t0 = from_f32(atan2f(as_f32(t1), as_f32(t0)));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_atan2_f64(HANDLER_ARGS) {
     t0 = from_f64(atan2(as_f64(t1), as_f64(t0)));
     BINOP_SHIFT();
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Debug/IO (pop 1) ---
@@ -808,7 +808,7 @@ PRESERVE_NONE void op_print_i32(HANDLER_ARGS) {
     int32_t val = (int32_t)t0;
     DROP1();
     printf("%d\n", val);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_print_f32(HANDLER_ARGS) {
@@ -819,14 +819,14 @@ PRESERVE_NONE void op_print_f32(HANDLER_ARGS) {
     } else {
         printf("%g\n", val);
     }
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_putc(HANDLER_ARGS) {
     char c = (char)(int32_t)t0;
     DROP1();
     putchar(c);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_assert(HANDLER_ARGS) {
@@ -839,12 +839,12 @@ PRESERVE_NONE void op_assert(HANDLER_ARGS) {
         fflush(stderr);
         exit(1);
     }
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_get_closure_ptr(HANDLER_ARGS) {
     PUSH(ctx->closure_ptr);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // ============================================================================
@@ -854,49 +854,49 @@ PRESERVE_NONE void op_get_closure_ptr(HANDLER_ARGS) {
 // locals[a] * locals[b] (f32) -- push
 PRESERVE_NONE void op_fused_get_get_fmul(HANDLER_ARGS) {
     PUSH(from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]])));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[a] + locals[b] (f32) -- push
 PRESERVE_NONE void op_fused_get_get_fadd(HANDLER_ARGS) {
     PUSH(from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]])));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[a] - locals[b] (f32) -- push
 PRESERVE_NONE void op_fused_get_get_fsub(HANDLER_ARGS) {
     PUSH(from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]])));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[a] + locals[b] (i64) -- push
 PRESERVE_NONE void op_fused_get_get_iadd(HANDLER_ARGS) {
     PUSH((uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[a] < locals[b] (i64 signed) -- push
 PRESERVE_NONE void op_fused_get_get_ilt(HANDLER_ARGS) {
     PUSH(((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // TOS * locals[a] (f32) -- unary (replaces TOS)
 PRESERVE_NONE void op_fused_get_fmul(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t0) * as_f32(locals[pc->imm[0]]));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // TOS + locals[a] (f32) -- unary (replaces TOS)
 PRESERVE_NONE void op_fused_get_fadd(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t0) + as_f32(locals[pc->imm[0]]));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // TOS - locals[a] (f32) -- unary (replaces TOS)
 PRESERVE_NONE void op_fused_get_fsub(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t0) - as_f32(locals[pc->imm[0]]));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Fused multiply-accumulate: t0=b, t1=a, t2=c, push c + a*b (f32)
@@ -905,26 +905,26 @@ PRESERVE_NONE void op_fused_fmul_fadd(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t2) + as_f32(t1) * as_f32(t0));
     // consumed t0, t1, t2
     t1 = t3; t2 = *--sp; t3 = *--sp;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Fused multiply-subtract: t0=b, t1=a, t2=c, push c - a*b (f32)
 PRESERVE_NONE void op_fused_fmul_fsub(HANDLER_ARGS) {
     t0 = from_f32(as_f32(t2) - as_f32(t1) * as_f32(t0));
     t1 = t3; t2 = *--sp; t3 = *--sp;
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Load i32 from lm + slot*8 + offset -- push
 PRESERVE_NONE void op_fused_addr_load32off(HANDLER_ARGS) {
     PUSH((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[dst] = locals[src] + imm -- no stack change
 PRESERVE_NONE void op_fused_get_addimm_set(HANDLER_ARGS) {
     locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)pc->imm[1]);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // if !(locals[a] < locals[b]) jump -- no stack change
@@ -932,21 +932,21 @@ PRESERVE_NONE void op_fused_get_get_ilt_jiz(HANDLER_ARGS) {
     if ((int64_t)locals[pc->imm[0]] >= (int64_t)locals[pc->imm[1]]) {
         int64_t off = (int64_t)pc->imm[2];
         pc = pc + 1 + off;
-        DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+        DISPATCH_ALL();
     }
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[n] = i64 constant -- no stack change
 PRESERVE_NONE void op_fused_const_set(HANDLER_ARGS) {
     locals[pc->imm[1]] = pc->imm[0];
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // locals[n] = f32 constant (bits in imm[0]) -- no stack change
 PRESERVE_NONE void op_fused_f32const_set(HANDLER_ARGS) {
     locals[pc->imm[1]] = pc->imm[0];
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // Push slice_data[locals[idx_local] * 4] from slice at lm + slot*8 -- push
@@ -955,7 +955,7 @@ PRESERVE_NONE void op_fused_addr_get_sload32(HANDLER_ARGS) {
     int64_t idx = (int64_t)locals[pc->imm[1]];
     uint8_t* data = *(uint8_t**)fat;
     PUSH((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 PRESERVE_NONE void op_halt(HANDLER_ARGS) {
@@ -966,7 +966,7 @@ PRESERVE_NONE void op_halt(HANDLER_ARGS) {
 }
 
 PRESERVE_NONE void op_nop(HANDLER_ARGS) {
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // ============================================================================
@@ -1211,7 +1211,7 @@ PRESERVE_NONE void op_fused_get_addr_fmul_fadd(HANDLER_ARGS) {
     float coeff = as_f32(locals[pc->imm[0]]);
     float state = as_f32((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
     t0 = from_f32(as_f32(t0) + coeff * state);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- FMA term: accum -= locals[a] * load(slot,off). ---
@@ -1219,19 +1219,19 @@ PRESERVE_NONE void op_fused_get_addr_fmul_fsub(HANDLER_ARGS) {
     float coeff = as_f32(locals[pc->imm[0]]);
     float state = as_f32((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
     t0 = from_f32(as_f32(t0) - coeff * state);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Load struct field into local: locals[dst] = load(slot,off). No stack change. ---
 PRESERVE_NONE void op_fused_addr_load32off_set(HANDLER_ARGS) {
     locals[pc->imm[2]] = (uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- Store local into struct field: *(i32*)(lm + slot*8 + off) = locals[src]. No stack change. ---
 PRESERVE_NONE void op_fused_addr_imm_get_store32(HANDLER_ARGS) {
     *(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)locals[pc->imm[2]];
-    NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    NEXT_ALL();
 }
 
 // --- MemCopy shallow (pop 2, no fill) ---
