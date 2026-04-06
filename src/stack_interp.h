@@ -76,10 +76,13 @@ typedef struct Ctx {
 // Hot state is passed as arguments so it stays in registers:
 //   ctx     - execution context (cold state)
 //   pc      - current instruction pointer
-//   sp      - operand stack pointer (grows upward, points BELOW t0)
+//   sp      - operand stack pointer (grows upward, points BELOW TOS window)
 //   locals  - current frame's scalar locals array
 //   lm      - current frame's local memory base pointer
-//   t0      - top-of-stack register (avoids memory traffic for TOS value)
+//   t0-t3   - TOS register window (t0 = top, t3 = deepest in window)
+//
+// With preserve_none, all arguments stay in hardware registers across
+// the entire handler chain — zero memory traffic for values in the window.
 #define PRESERVE_NONE __attribute__((preserve_none))
 
 typedef PRESERVE_NONE void (*Handler)(
@@ -88,16 +91,19 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t*     sp,
     uint64_t*     locals,
     uint8_t*      lm,
-    uint64_t      t0
+    uint64_t      t0,
+    uint64_t      t1,
+    uint64_t      t2,
+    uint64_t      t3
 );
 
 // Dispatch to next instruction.
-#define DISPATCH(ctx, pc, sp, locals, lm, t0) \
-    __attribute__((musttail)) return ((Handler)(pc)->handler)(ctx, pc, sp, locals, lm, t0)
+#define DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
+    __attribute__((musttail)) return ((Handler)(pc)->handler)(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
 
 // Dispatch to next sequential instruction.
-#define NEXT(ctx, pc, sp, locals, lm, t0) \
-    do { Instruction* _next = (pc) + 1; DISPATCH(ctx, _next, sp, locals, lm, t0); } while(0)
+#define NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
+    do { Instruction* _next = (pc) + 1; DISPATCH(ctx, _next, sp, locals, lm, t0, t1, t2, t3); } while(0)
 
 // Entry point: called from Rust via FFI.
 int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func);
