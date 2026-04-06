@@ -1207,6 +1207,12 @@ HANDLER(op_fused_fmul_fsub_s) {
     NEXT_ALL();
 }
 
+// --- Variable move: locals[b] = locals[a]. No stack change. ---
+HANDLER(op_fused_get_set) {
+    locals[pc->imm[1]] = locals[pc->imm[0]];
+    NEXT_ALL();
+}
+
 // --- FMA term: accum += locals[a] * load(slot,off). Pure register on t0. ---
 HANDLER(op_fused_get_addr_fmul_fadd) {
     float coeff = as_f32(locals[pc->imm[0]]);

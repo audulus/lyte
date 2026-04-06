@@ -219,6 +219,7 @@ extern "C" {
     fn op_print_i32_s(); fn op_print_f32_s(); fn op_putc_s(); fn op_assert_s();
     fn op_memzero_s();
     fn op_fused_fmul_fadd_s(); fn op_fused_fmul_fsub_s();
+    fn op_fused_get_set();
     fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
     fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
     fn op_fused_get_get_fmul();
@@ -397,6 +398,7 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
+        StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
         StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
         StackOp::FusedGetAddrFMulFSub(_, _, _) => op_fused_get_addr_fmul_fsub as *const (),
         StackOp::FusedAddrLoad32OffSet(_, _, _) => op_fused_addr_load32off_set as *const (),
@@ -535,6 +537,7 @@ fn needs_shallow(op: &StackOp) -> bool {
         StackOp::Return | StackOp::ReturnVoid |
         StackOp::FusedConstSet(_, _) | StackOp::FusedF32ConstSet(_, _) |
         StackOp::FusedGetAddImmSet(_, _, _) | StackOp::FusedGetGetILtJumpIfZero(_, _, _) |
+        StackOp::FusedGetSet(_, _) |
         StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _) |
         StackOp::FusedAddrLoad32OffSet(_, _, _) | StackOp::FusedAddrImmGetStore32(_, _, _) |
         StackOp::Call { .. } | StackOp::CallIndirect { .. } | StackOp::CallClosure { .. }
@@ -574,6 +577,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
             [*a as u64, 0, 0]
         }
+        StackOp::FusedGetSet(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedAddrLoad32Off(s, o) => [*s as u64, *o as i64 as u64, 0],
         StackOp::FusedGetAddrFMulFAdd(a, s, o) | StackOp::FusedGetAddrFMulFSub(a, s, o) => {
             [*a as u64, *s as u64, *o as i64 as u64]

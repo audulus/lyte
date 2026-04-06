@@ -90,6 +90,33 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        // local.set + i64.const + drop → local.set (dead Var init result)
+        if i + 2 < len && !spans_target(i, 3) {
+            if let (StackOp::LocalSet(_), StackOp::I64Const(_), StackOp::Drop) =
+                (&ops[i], &ops[i+1], &ops[i+2])
+            {
+                // Keep the LocalSet, nop out the dead const+drop
+                ops[i+1] = StackOp::Nop;
+                ops[i+2] = StackOp::Nop;
+                i += 3;
+                continue;
+            }
+        }
+
+        // local.get a + local.set b → FusedGetSet (variable move)
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalGet(a), StackOp::LocalSet(b)) = (&ops[i], &ops[i+1]) {
+                let a = *a; let b = *b;
+                ops[i] = StackOp::FusedGetSet(a, b);
+                ops[i+1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
+        // local.addr s + local.get idx + slice.load32 + local.set dst → FusedAddrGetSliceLoad32Set
+        // (already have FusedAddrGetSliceLoad32, but this adds the local.set)
+
         // === 4-instruction fusions ===
 
         // local.addr s + i64.add_imm off + local.get src + i32.store → FusedAddrImmGetStore32

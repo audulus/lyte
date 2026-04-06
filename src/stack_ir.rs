@@ -275,6 +275,8 @@ pub enum StackOp {
     /// Push slice_data[locals[idx] * 4] from slice at lm+slot*8. Pop 0, push 1.
     FusedAddrGetSliceLoad32(u16, u16),
 
+    /// locals[b] = locals[a]. Pop 0, push 0.
+    FusedGetSet(u16, u16),
     /// accum += locals[a] * *(i32*)(lm + slot*8 + off). Pop 0, push 0.
     /// Transforms t0 in place: t0 = t0 + locals[a] * load(slot,off).
     FusedGetAddrFMulFAdd(u16, u16, i32),
@@ -527,6 +529,7 @@ impl fmt::Display for StackOp {
             StackOp::FusedConstSet(v, n) => write!(f, "fused.const_set {} {}", v, n),
             StackOp::FusedF32ConstSet(v, n) => write!(f, "fused.f32const_set {} {}", v, n),
             StackOp::FusedAddrGetSliceLoad32(s, i) => write!(f, "fused.addr_get_sload32 {} {}", s, i),
+            StackOp::FusedGetSet(a, b) => write!(f, "fused.get_set {} {}", a, b),
             StackOp::FusedGetAddrFMulFAdd(a, s, o) => write!(f, "fused.get_addr_fmul_fadd {} {} {}", a, s, o),
             StackOp::FusedGetAddrFMulFSub(a, s, o) => write!(f, "fused.get_addr_fmul_fsub {} {} {}", a, s, o),
             StackOp::FusedAddrLoad32OffSet(s, o, d) => write!(f, "fused.addr_load32off_set {} {} {}", s, o, d),
