@@ -219,6 +219,8 @@ extern "C" {
     fn op_print_i32_s(); fn op_print_f32_s(); fn op_putc_s(); fn op_assert_s();
     fn op_memzero_s();
     fn op_fused_fmul_fadd_s(); fn op_fused_fmul_fsub_s();
+    fn op_fused_get_get_fadd_set();
+    fn op_fused_field_copy32();
     fn op_fused_f32const_fgt_jiz();
     fn op_fused_f32const_fgt_jiz_s();
     fn op_fused_addr_get_sstore32();
@@ -402,6 +404,8 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
+        StackOp::FusedGetGetFAddSet(_, _, _) => op_fused_get_get_fadd_set as *const (),
+        StackOp::FusedFieldCopy32(_, _, _) => op_fused_field_copy32 as *const (),
         StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
@@ -545,7 +549,8 @@ fn needs_shallow(op: &StackOp) -> bool {
         StackOp::Return | StackOp::ReturnVoid |
         StackOp::FusedConstSet(_, _) | StackOp::FusedF32ConstSet(_, _) |
         StackOp::FusedGetAddImmSet(_, _, _) | StackOp::FusedGetGetILtJumpIfZero(_, _, _) |
-        StackOp::FusedGetSet(_, _) |
+        StackOp::FusedGetSet(_, _) | StackOp::FusedGetGetFAddSet(_, _, _) |
+        StackOp::FusedFieldCopy32(_, _, _) |
         StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _) |
         StackOp::FusedAddrLoad32OffSet(_, _, _) | StackOp::FusedAddrImmGetStore32(_, _, _) |
         StackOp::Call { .. } | StackOp::CallIndirect { .. } | StackOp::CallClosure { .. }
@@ -593,6 +598,8 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         }
         StackOp::FusedAddrLoad32OffSet(s, o, d) => [*s as u64, *o as i64 as u64, *d as u64],
         StackOp::FusedAddrImmGetStore32(s, o, src) => [*s as u64, *o as i64 as u64, *src as u64],
+        StackOp::FusedGetGetFAddSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
+        StackOp::FusedFieldCopy32(s, src, dst) => [*s as u64, *src as i64 as u64, *dst as i64 as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
         StackOp::FusedF32ConstFGtJumpIfZero(v, off) => [f32::to_bits(*v) as u64, *off as i64 as u64, 0],

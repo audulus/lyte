@@ -208,6 +208,35 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        // fused.get_get_fadd a b + local.set dst → FusedGetGetFAddSet
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::FusedGetGetFAdd(a, b), StackOp::LocalSet(dst)) =
+                (&ops[i], &ops[i+1])
+            {
+                let a = *a; let b = *b; let dst = *dst;
+                ops[i] = StackOp::FusedGetGetFAddSet(a, b, dst);
+                ops[i+1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
+        // fused.addr_load32off_set s src_off tmp + fused.addr_imm_get_store32 s dst_off tmp → FusedFieldCopy32
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::FusedAddrLoad32OffSet(s1, src_off, tmp1),
+                    StackOp::FusedAddrImmGetStore32(s2, dst_off, tmp2)) =
+                (&ops[i], &ops[i+1])
+            {
+                if s1 == s2 && tmp1 == tmp2 {
+                    let s = *s1; let src_off = *src_off; let dst_off = *dst_off;
+                    ops[i] = StackOp::FusedFieldCopy32(s, src_off, dst_off);
+                    ops[i+1] = StackOp::Nop;
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
         // local.get src + i64.add_imm v + local.set dst → FusedGetAddImmSet
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGet(src), StackOp::IAddImm(v), StackOp::LocalSet(dst)) =

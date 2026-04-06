@@ -1232,6 +1232,21 @@ HANDLER(op_fused_f32const_fgt_jiz_s) {
     NEXT_ALL();
 }
 
+// --- locals[dst] = locals[a] + locals[b] (f32). No stack change. ---
+HANDLER(op_fused_get_get_fadd_set) {
+    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]]));
+    NEXT_ALL();
+}
+
+// --- Copy struct field: dst_field = src_field. No stack change. ---
+HANDLER(op_fused_field_copy32) {
+    int32_t src_off = (int32_t)pc->imm[1];
+    int32_t dst_off = (int32_t)pc->imm[2];
+    uint8_t* base = lm + pc->imm[0] * 8;
+    *(int32_t*)(base + dst_off) = *(int32_t*)(base + src_off);
+    NEXT_ALL();
+}
+
 // --- Slice store with fused address: *(data + locals[idx]*4) = t0. Pop 1. ---
 HANDLER(op_fused_addr_get_sstore32) {
     uint8_t* fat = lm + pc->imm[0] * 8;

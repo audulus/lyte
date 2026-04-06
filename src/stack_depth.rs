@@ -117,7 +117,8 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::FusedFMulFAdd | StackOp::FusedFMulFSub => -2,
 
         // No stack change
-        StackOp::FusedGetSet(_, _) |
+        StackOp::FusedGetSet(_, _) | StackOp::FusedGetGetFAddSet(_, _, _) |
+        StackOp::FusedFieldCopy32(_, _, _) |
         StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _) |
         StackOp::FusedAddrLoad32OffSet(_, _, _) | StackOp::FusedAddrImmGetStore32(_, _, _) |
         StackOp::Jump(_) | StackOp::Nop | StackOp::Halt |

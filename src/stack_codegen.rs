@@ -1205,9 +1205,16 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // General assignment: compute rhs, compute lvalue address, store.
-        self.translate_expr(rhs_id, func);
-        let val_local = self.alloc_scalar();
-        func.emit(StackOp::LocalSet(val_local));
+        // Optimization: if RHS is a simple local variable, reuse it directly
+        // instead of creating a temp (avoids get_set + get pattern).
+        let val_local = if let Some(rhs_local) = self.get_scalar_local(rhs_id) {
+            rhs_local
+        } else {
+            self.translate_expr(rhs_id, func);
+            let tmp = self.alloc_scalar();
+            func.emit(StackOp::LocalSet(tmp));
+            tmp
+        };
 
         let lhs_ty = self.expr_type(lhs_id);
         self.translate_lvalue(lhs_id, func); // pushes address

@@ -290,6 +290,10 @@ pub enum StackOp {
     FusedAddrImmGetStore32(u16, i32, u16),
     /// if !(TOS > f32_const) jump. Pop 1, push 0.
     FusedF32ConstFGtJumpIfZero(f32, i32),
+    /// locals[dst] = locals[a] + locals[b] (f32). Pop 0, push 0.
+    FusedGetGetFAddSet(u16, u16, u16),
+    /// Copy struct field: *(i32*)(lm+s*8+dst_off) = *(i32*)(lm+s*8+src_off). Pop 0, push 0.
+    FusedFieldCopy32(u16, i32, i32),
 
     Halt,
     Nop,
@@ -540,6 +544,8 @@ impl fmt::Display for StackOp {
             StackOp::FusedAddrLoad32OffSet(s, o, d) => write!(f, "fused.addr_load32off_set {} {} {}", s, o, d),
             StackOp::FusedAddrImmGetStore32(s, o, src) => write!(f, "fused.addr_imm_get_store32 {} {} {}", s, o, src),
             StackOp::FusedF32ConstFGtJumpIfZero(v, o) => write!(f, "fused.f32const_fgt_jiz {} {}", v, o),
+            StackOp::FusedGetGetFAddSet(a, b, d) => write!(f, "fused.get_get_fadd_set {} {} {}", a, b, d),
+            StackOp::FusedFieldCopy32(s, src, dst) => write!(f, "fused.field_copy32 {} {} {}", s, src, dst),
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
         }
