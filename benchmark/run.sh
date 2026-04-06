@@ -92,7 +92,11 @@ run_benchmark() {
     else
         LYTE_ASM=""
     fi
-    LYTE_STACK=$(avg "$LYTE --backend stack $LYTE_FILE --timing 2>&1 | grep 'stack exec:'")
+    if $LYTE --backend stack /dev/null 2>&1 | grep -q "requires Clang"; then
+        LYTE_STACK=""
+    else
+        LYTE_STACK=$(avg "$LYTE --backend stack $LYTE_FILE --timing 2>&1 | grep 'stack exec:'")
+    fi
     if [ "$HAS_LLVM" = "1" ]; then
         LYTE_LLVM=$(avg "$LYTE --backend llvm $LYTE_FILE --timing 2>&1 | grep 'llvm exec:'")
     else
