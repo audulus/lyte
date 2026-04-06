@@ -25,6 +25,10 @@ struct Args {
     #[clap(long)]
     stack_ir: bool,
 
+    /// Discover fusion patterns in the stack IR.
+    #[clap(long)]
+    discover_fusion: bool,
+
     #[clap(long)]
     timing: bool,
 
@@ -128,7 +132,7 @@ fn run(args: Args) -> i32 {
     } else {
         args.backend.clone()
     };
-    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir && !args.stack_ir;
+    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir && !args.stack_ir && !args.discover_fusion;
     #[cfg(feature = "cranelift")]
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     #[cfg(not(feature = "cranelift"))]
@@ -148,7 +152,7 @@ fn run(args: Args) -> i32 {
     let run_llvm = false;
     let run_stack = should_run && backend == "stack";
 
-    if run_jit || run_vm || run_asm || run_llvm || run_stack || args.bytecode || args.stack_ir || args.ir {
+    if run_jit || run_vm || run_asm || run_llvm || run_stack || args.bytecode || args.stack_ir || args.discover_fusion || args.ir {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -187,6 +191,19 @@ fn run(args: Args) -> i32 {
                         }
                         println!();
                     }
+                }
+                Err(e) => {
+                    eprintln!("Stack IR compilation error: {}", e);
+                    return 1;
+                }
+            }
+        }
+
+        if args.discover_fusion {
+            // Compile WITHOUT the optimizer to see unfused patterns.
+            match compiler.compile_stack_unfused() {
+                Ok(program) => {
+                    lyte::stack_discover::print_report(&[&program]);
                 }
                 Err(e) => {
                     eprintln!("Stack IR compilation error: {}", e);

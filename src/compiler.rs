@@ -797,6 +797,16 @@ impl Compiler {
         Ok(program)
     }
 
+    /// Compile to stack IR WITHOUT the fusion optimizer (for profiling).
+    pub fn compile_stack_unfused(&self) -> Result<crate::stack_ir::StackProgram, String> {
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let mut codegen = crate::stack_codegen::StackCodegen::new();
+        let entry_points = self.effective_entry_points();
+        codegen.compile_multi(&self.decls, &entry_points)
+    }
+
     /// Run the code using the stack VM interpreter.
     pub fn run_stack(&mut self) -> Result<i64, String> {
         let program = self.compile_stack()?;
