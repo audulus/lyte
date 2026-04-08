@@ -790,6 +790,9 @@ impl Compiler {
         let mut codegen = crate::stack_codegen::StackCodegen::new();
         let entry_points = self.effective_entry_points();
         let mut program = codegen.compile_multi(&self.decls, &entry_points)?;
+        // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
+        // call sites become the raw ops and can participate in fusion.
+        crate::stack_inline::inline_trivial(&mut program);
         // Hot local analysis: remap hottest locals to indices 0/1/2.
         // Hot local analysis: remap hottest locals to indices 0/1/2.
         for func in &mut program.functions {

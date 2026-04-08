@@ -32,14 +32,20 @@ static void enter_function(
         exit(1);
     }
     uint64_t* new_locals = ctx->locals_stack + ls_base;
-    // Zero-initialize (required: callers expect fresh locals, and hot local
-    // fill reads uninitialized locals[0..2] on entry for functions with few locals).
-    memset(new_locals, 0, alloc_count * sizeof(uint64_t));
     ctx->locals_stack_size = ls_needed;
 
     // Copy arguments into locals 0..arg_count-1.
     for (uint32_t i = 0; i < arg_count && i < meta->param_count; i++) {
         new_locals[i] = args[i];
+    }
+
+    // Zero non-param locals that the function declares. Slots beyond
+    // local_count (the hot-local padding) are not touched by any instruction
+    // when the function has no hot-local ops, so we don't need to clear them.
+    // Param slots are overwritten by the arg copy above.
+    if (meta->local_count > meta->param_count) {
+        memset(new_locals + meta->param_count, 0,
+               (meta->local_count - meta->param_count) * sizeof(uint64_t));
     }
 
     // Allocate local memory from a pre-allocated fixed buffer.

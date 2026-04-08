@@ -82,6 +82,8 @@ pub mod stack_vm;
 
 pub mod stack_hot_locals;
 
+pub mod stack_inline;
+
 #[cfg(has_stack_interp)]
 pub mod stack_interp_bridge;
 
