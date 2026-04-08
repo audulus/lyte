@@ -309,7 +309,7 @@ Because each handler has its own indirect branch instruction, the CPU's branch t
 
 ### Failed Optimization: Next-Handler Preloading
 
-Silverfir-nano (a WebAssembly interpreter) achieves near-JIT performance partly through next-handler preloading: each handler receives the next handler's function pointer pre-loaded by the previous handler, eliminating the load-to-use stall between fetching the handler pointer and branching to it. See `INTERPRETER_DESIGN.md` for details.
+Silverfir-nano (a WebAssembly interpreter) achieves near-JIT performance partly through next-handler preloading: each handler receives the next handler's function pointer pre-loaded by the previous handler, eliminating the load-to-use stall between fetching the handler pointer and branching to it. See `INTERPRETER_DESIGN.md` in their repo for details.
 
 We attempted this for Lyte's ARM64 backend. The idea: dedicate x27 to hold a preloaded handler pointer. The `next` macro branches to the preloaded pointer immediately (no stall) while simultaneously preloading x27 for the handler after that. Non-linear handlers (jumps, calls, returns, multi-word instructions) use a `next_reload` variant that bootstraps the preload chain from scratch.
 
