@@ -244,6 +244,11 @@ extern "C" {
     fn op_fused_const_set();
     fn op_fused_f32const_set();
     fn op_fused_addr_get_sload32();
+    // Hot local register handlers
+    fn op_local_get_l0(); fn op_local_get_l1(); fn op_local_get_l2();
+    fn op_local_set_l0(); fn op_local_set_l1(); fn op_local_set_l2();
+    fn op_local_get_l0_s(); fn op_local_get_l1_s(); fn op_local_get_l2_s();
+    fn op_local_set_l0_s(); fn op_local_set_l1_s(); fn op_local_set_l2_s();
     fn op_halt();
     fn op_nop();
 }
@@ -429,6 +434,12 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::FusedConstSet(_, _) => op_fused_const_set as *const (),
         StackOp::FusedF32ConstSet(_, _) => op_fused_f32const_set as *const (),
         StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32 as *const (),
+        StackOp::LocalGetL0 => op_local_get_l0 as *const (),
+        StackOp::LocalGetL1 => op_local_get_l1 as *const (),
+        StackOp::LocalGetL2 => op_local_get_l2 as *const (),
+        StackOp::LocalSetL0 => op_local_set_l0 as *const (),
+        StackOp::LocalSetL1 => op_local_set_l1 as *const (),
+        StackOp::LocalSetL2 => op_local_set_l2 as *const (),
         StackOp::Halt => op_halt as *const (),
         StackOp::Nop => op_nop as *const (),
     }
@@ -445,8 +456,15 @@ fn shallow_handler(op: &StackOp) -> Option<*const ()> {
         StackOp::LocalAddr(_) => op_local_addr_s as *const (),
         StackOp::GlobalAddr(_) => op_global_addr_s as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr_s as *const (),
+        // Hot local push ops
+        StackOp::LocalGetL0 => op_local_get_l0_s as *const (),
+        StackOp::LocalGetL1 => op_local_get_l1_s as *const (),
+        StackOp::LocalGetL2 => op_local_get_l2_s as *const (),
         // Pop ops
         StackOp::LocalSet(_) => op_local_set_s as *const (),
+        StackOp::LocalSetL0 => op_local_set_l0_s as *const (),
+        StackOp::LocalSetL1 => op_local_set_l1_s as *const (),
+        StackOp::LocalSetL2 => op_local_set_l2_s as *const (),
         StackOp::Drop => op_drop_s as *const (),
         StackOp::PrintI32 => op_print_i32_s as *const (),
         StackOp::PrintF32 => op_print_f32_s as *const (),

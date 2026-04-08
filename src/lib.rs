@@ -80,6 +80,8 @@ pub mod stack_discover;
 
 pub mod stack_vm;
 
+pub mod stack_hot_locals;
+
 #[cfg(has_stack_interp)]
 pub mod stack_interp_bridge;
 

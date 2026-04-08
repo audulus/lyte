@@ -93,6 +93,9 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t*     sp,
     uint64_t*     locals,
     uint8_t*      lm,
+    uint64_t      l0,     // hot local register 0
+    uint64_t      l1,     // hot local register 1
+    uint64_t      l2,     // hot local register 2
     uint64_t      t0,
     uint64_t      t1,
     uint64_t      t2,
@@ -102,20 +105,20 @@ typedef PRESERVE_NONE void (*Handler)(
 
 // Linear dispatch: branch to preloaded nh, preload handler for instruction after next.
 // nh is available as a macro in the handler (cast from _nh_raw).
-#define NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
+#define NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3) \
     do { \
         Instruction* _next = (pc) + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, lm, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
 // Non-linear dispatch: reload handler from target, preload the one after.
 // Used by jumps, calls, returns.
-#define DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3) \
+#define DISPATCH(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3) \
     do { \
         Handler _target_h = (Handler)(pc)->handler; \
         void* _new_nh = ((pc) + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, lm, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
 // Entry point: called from Rust via FFI.

@@ -50,13 +50,16 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::I64Const(_) | StackOp::F32Const(_) | StackOp::F64Const(_) |
         StackOp::LocalGet(_) | StackOp::LocalAddr(_) | StackOp::GlobalAddr(_) |
         StackOp::GetClosurePtr |
+        StackOp::LocalGetL0 | StackOp::LocalGetL1 | StackOp::LocalGetL2 |
         StackOp::FusedGetGetFMul(_, _) | StackOp::FusedGetGetFAdd(_, _) |
         StackOp::FusedGetGetFSub(_, _) | StackOp::FusedGetGetIAdd(_, _) |
         StackOp::FusedGetGetILt(_, _) | StackOp::FusedAddrLoad32Off(_, _) |
         StackOp::FusedAddrGetSliceLoad32(_, _) => 1,
 
         // Pop 1
-        StackOp::LocalSet(_) | StackOp::Drop |
+        StackOp::LocalSet(_) |
+        StackOp::LocalSetL0 | StackOp::LocalSetL1 | StackOp::LocalSetL2 |
+        StackOp::Drop |
         StackOp::PrintI32 | StackOp::PrintF32 | StackOp::Putc | StackOp::Assert |
         StackOp::MemZero(_) |
         StackOp::JumpIfZero(_) | StackOp::JumpIfNotZero(_) => -1,

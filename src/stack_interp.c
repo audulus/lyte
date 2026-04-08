@@ -22,7 +22,9 @@ static void enter_function(
     FuncMeta* meta = &ctx->functions[func_idx];
 
     // Allocate scalar locals (calloc for zero-init).
-    uint64_t* new_locals = (uint64_t*)calloc(meta->local_count, sizeof(uint64_t));
+    // Always allocate at least 3 for hot local register spill/fill.
+    uint32_t alloc_count = meta->local_count < 3 ? 3 : meta->local_count;
+    uint64_t* new_locals = (uint64_t*)calloc(alloc_count, sizeof(uint64_t));
 
     // Copy arguments into locals 0..arg_count-1.
     for (uint32_t i = 0; i < arg_count && i < meta->param_count; i++) {
@@ -93,10 +95,10 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 #define DROP3_S() do { t0 = t3; } while(0)
 
-// Convenience macros for shallow handlers (pass all 9 args).
+// Convenience macros for handlers (pass all 12 args).
 // Note: NEXT uses preloaded nh. DISPATCH reloads from target.
-#define NEXT_ALL() NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
-#define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, lm, t0, t1, t2, t3)
+#define NEXT_ALL() NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3)
+#define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3)
 
 // Spill all 4 TOS registers to memory (for calls).
 #define SPILL_ALL() do { *sp++ = t3; *sp++ = t2; *sp++ = t1; *sp++ = t0; } while(0)
@@ -108,7 +110,7 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define FILL_BELOW() do { t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 
 // Handler signature shorthand.
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
 #define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
 // Cast nh from void* for use in NEXT macro.
 #define nh ((Handler)_nh_raw)
@@ -156,6 +158,29 @@ HANDLER(op_local_addr) {
     PUSH((uint64_t)(lm + pc->imm[0] * 8));
     NEXT_ALL();
 }
+
+// --- Hot local registers (l0/l1/l2) ---
+
+// Get handlers reload from locals[] to stay in sync with fused ops that
+// write to locals[0/1/2] via memory. The reload also refreshes the register
+// for subsequent accesses.
+HANDLER(op_local_get_l0) { l0 = locals[0]; PUSH(l0); NEXT_ALL(); }
+HANDLER(op_local_get_l1) { l1 = locals[1]; PUSH(l1); NEXT_ALL(); }
+HANDLER(op_local_get_l2) { l2 = locals[2]; PUSH(l2); NEXT_ALL(); }
+// Set handlers write to both register and locals[] to keep them in sync.
+// Fused ops that write to locals[0/1/2] via memory still work correctly
+// because the next LocalGetL0 will read from the register, which is also updated.
+HANDLER(op_local_set_l0) { POP(l0); locals[0] = l0; NEXT_ALL(); }
+HANDLER(op_local_set_l1) { POP(l1); locals[1] = l1; NEXT_ALL(); }
+HANDLER(op_local_set_l2) { POP(l2); locals[2] = l2; NEXT_ALL(); }
+
+// Shallow variants (depth < 4).
+HANDLER(op_local_get_l0_s) { l0 = locals[0]; PUSH_S(l0); NEXT_ALL(); }
+HANDLER(op_local_get_l1_s) { l1 = locals[1]; PUSH_S(l1); NEXT_ALL(); }
+HANDLER(op_local_get_l2_s) { l2 = locals[2]; PUSH_S(l2); NEXT_ALL(); }
+HANDLER(op_local_set_l0_s) { POP_S(l0); locals[0] = l0; NEXT_ALL(); }
+HANDLER(op_local_set_l1_s) { POP_S(l1); locals[1] = l1; NEXT_ALL(); }
+HANDLER(op_local_set_l2_s) { POP_S(l2); locals[2] = l2; NEXT_ALL(); }
 
 // --- Global variables ---
 
@@ -334,55 +359,55 @@ CMP_OP(op_dle, double, as_f64, <=)
 // --- Bitwise (binary) ---
 
 HANDLER(op_and) {
-    t0 = t1 & t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = t1 & t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_or) {
-    t0 = t1 | t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = t1 | t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_xor) {
-    t0 = t1 ^ t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = t1 ^ t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_not) {
-    t0 = ~t0; NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = ~t0; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_shl) {
-    t0 = t1 << (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = t1 << (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_shr) {
-    t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_ushr) {
-    t0 = t1 >> (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = t1 >> (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 
 // --- Type conversions (unary) ---
 
 HANDLER(op_i32_to_f32) {
-    t0 = from_f32((float)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = from_f32((float)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f32_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i32_to_f64) {
-    t0 = from_f64((double)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = from_f64((double)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f64_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f32_to_f64) {
-    t0 = from_f64((double)as_f32(t0)); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = from_f64((double)as_f32(t0)); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f64_to_f32) {
-    t0 = from_f32((float)as_f64(t0)); NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = from_f32((float)as_f64(t0)); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i32_to_i8) {
-    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i8_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i64_to_u32) {
-    t0 = t0 & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, lm, t0, t1, t2, t3);
+    t0 = t0 & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
 }
 
 // --- Memory loads (unary: transform t0) ---
@@ -582,6 +607,10 @@ HANDLER(op_jump_if_not_zero) {
 HANDLER(op_call) {
     // Spill entire TOS window to memory.
     SPILL_ALL();
+    // Note: do NOT spill l0/l1/l2 here. locals[0/1/2] are already up-to-date
+    // because LocalSetL* writes both register and memory, and fused ops write
+    // to memory directly. Spilling would overwrite correct values with stale
+    // register contents when fused ops have written to locals[0/1/2].
 
     uint32_t target = (uint32_t)pc->imm[0];
     uint32_t nargs = (uint32_t)pc->imm[1];
@@ -607,7 +636,8 @@ HANDLER(op_call) {
     enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, 0, 0, 0, 0);
+    // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2].
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_call_closure) {
@@ -638,7 +668,7 @@ HANDLER(op_call_closure) {
     enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, 0, 0, 0, 0);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_call_indirect) {
@@ -666,7 +696,7 @@ HANDLER(op_call_indirect) {
     enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, 0, 0, 0, 0);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_return) {
@@ -682,9 +712,12 @@ HANDLER(op_return) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->local_memory_size = frame->saved_lm_size;
     sp = frame->saved_sp;
+    locals = frame->saved_locals;
+    // Fill hot locals from restored caller's locals.
+    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     t0 = result;
     FILL_BELOW();
-    DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm, t0, t1, t2, t3);
+    DISPATCH(ctx, frame->return_pc, sp, locals, frame->saved_lm, l0, l1, l2, t0, t1, t2, t3);
 }
 
 HANDLER(op_return_void) {
@@ -699,8 +732,11 @@ HANDLER(op_return_void) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->local_memory_size = frame->saved_lm_size;
     sp = frame->saved_sp;
+    locals = frame->saved_locals;
+    // Fill hot locals from restored caller's locals.
+    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     FILL_ALL();
-    DISPATCH(ctx, frame->return_pc, sp, frame->saved_locals, frame->saved_lm, t0, t1, t2, t3);
+    DISPATCH(ctx, frame->return_pc, sp, locals, frame->saved_lm, l0, l1, l2, t0, t1, t2, t3);
 }
 
 // --- Stack manipulation ---
@@ -1331,11 +1367,11 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     uint8_t* lm;
     enter_function(ctx, entry_func, NULL, 0, &locals, &lm);
 
-    // Start dispatch with all 4 TOS registers zeroed.
+    // Start dispatch with hot locals loaded and TOS registers zeroed.
     // Preload the handler for the second instruction as nh.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
-    ((Handler)pc->handler)(ctx, pc, stack, locals, lm, 0, 0, 0, 0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, stack, locals, lm, locals[0], locals[1], locals[2], 0, 0, 0, 0, initial_nh);
 
     free(stack);
     return ctx->result;
