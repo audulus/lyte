@@ -29,7 +29,8 @@ typedef struct CallFrame {
     uint8_t*     saved_lm;    // caller's local memory base
     uint64_t*    saved_sp;    // caller's stack pointer (for truncating on return)
     uint32_t     func_idx;    // caller's function index (for looking up metadata)
-    size_t       saved_lm_size; // local_memory_size to restore on return
+    size_t       saved_lm_size;     // local_memory_size to restore on return
+    size_t       saved_locals_size; // locals_stack_size to restore on return
 } CallFrame;
 
 // Per-function metadata (set up by Rust, read by C).
@@ -58,6 +59,12 @@ typedef struct Ctx {
     uint8_t*     local_memory;
     size_t       local_memory_size;
     size_t       local_memory_cap;
+
+    // Scalar locals stack (bump-allocated, one buffer for all frames).
+    // Each call allocates `max(local_count, 3)` slots from the top.
+    uint64_t*    locals_stack;
+    size_t       locals_stack_size;  // current top (in u64 slots)
+    size_t       locals_stack_cap;
 
     // Operand stack base (for bounds checking if needed)
     uint64_t*    stack_base;

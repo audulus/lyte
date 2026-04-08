@@ -21,10 +21,21 @@ static void enter_function(
 ) {
     FuncMeta* meta = &ctx->functions[func_idx];
 
-    // Allocate scalar locals (calloc for zero-init).
+    // Bump-allocate scalar locals from the pre-allocated locals stack.
     // Always allocate at least 3 for hot local register spill/fill.
     uint32_t alloc_count = meta->local_count < 3 ? 3 : meta->local_count;
-    uint64_t* new_locals = (uint64_t*)calloc(alloc_count, sizeof(uint64_t));
+    size_t ls_base = ctx->locals_stack_size;
+    size_t ls_needed = ls_base + alloc_count;
+    if (ls_needed > ctx->locals_stack_cap) {
+        fprintf(stderr, "stack_interp: locals stack overflow (%zu slots needed, %zu cap)\n",
+                ls_needed, ctx->locals_stack_cap);
+        exit(1);
+    }
+    uint64_t* new_locals = ctx->locals_stack + ls_base;
+    // Zero-initialize (required: callers expect fresh locals, and hot local
+    // fill reads uninitialized locals[0..2] on entry for functions with few locals).
+    memset(new_locals, 0, alloc_count * sizeof(uint64_t));
+    ctx->locals_stack_size = ls_needed;
 
     // Copy arguments into locals 0..arg_count-1.
     for (uint32_t i = 0; i < arg_count && i < meta->param_count; i++) {
@@ -623,6 +634,7 @@ HANDLER(op_call) {
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[2];
     frame->saved_lm_size = ctx->local_memory_size;
+    frame->saved_locals_size = ctx->locals_stack_size;
 
     // Pop args from memory.
     uint64_t args[256];
@@ -657,6 +669,7 @@ HANDLER(op_call_closure) {
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_lm_size = ctx->local_memory_size;
+    frame->saved_locals_size = ctx->locals_stack_size;
 
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
@@ -685,6 +698,7 @@ HANDLER(op_call_indirect) {
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_lm_size = ctx->local_memory_size;
+    frame->saved_locals_size = ctx->locals_stack_size;
 
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
@@ -701,7 +715,6 @@ HANDLER(op_call_indirect) {
 
 HANDLER(op_return) {
     uint64_t result = t0;
-    free(locals);
 
     if (ctx->call_depth == 0) {
         ctx->result = (int64_t)result;
@@ -711,6 +724,7 @@ HANDLER(op_return) {
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->local_memory_size = frame->saved_lm_size;
+    ctx->locals_stack_size = frame->saved_locals_size;
     sp = frame->saved_sp;
     locals = frame->saved_locals;
     // Fill hot locals from restored caller's locals.
@@ -721,8 +735,6 @@ HANDLER(op_return) {
 }
 
 HANDLER(op_return_void) {
-    free(locals);
-
     if (ctx->call_depth == 0) {
         ctx->result = 0;
         ctx->done = 1;
@@ -731,6 +743,7 @@ HANDLER(op_return_void) {
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->local_memory_size = frame->saved_lm_size;
+    ctx->locals_stack_size = frame->saved_locals_size;
     sp = frame->saved_sp;
     locals = frame->saved_locals;
     // Fill hot locals from restored caller's locals.
@@ -1360,6 +1373,15 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     if (ctx->local_memory == NULL) {
         ctx->local_memory_cap = 4 * 1024 * 1024; // 4 MB
         ctx->local_memory = (uint8_t*)calloc(1, ctx->local_memory_cap);
+    }
+
+    // Pre-allocate scalar locals stack (bump allocator).
+    // Each call allocates max(local_count, 3) u64 slots; returns pop them.
+    // Sized for deep recursion with moderate local counts.
+    if (ctx->locals_stack == NULL) {
+        ctx->locals_stack_cap = 256 * 1024; // 2 MB worth of u64 slots
+        ctx->locals_stack = (uint64_t*)calloc(ctx->locals_stack_cap, sizeof(uint64_t));
+        ctx->locals_stack_size = 0;
     }
 
     // Enter entry function.
