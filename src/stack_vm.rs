@@ -591,7 +591,7 @@ impl StackVM {
                 }
 
                 // === Function calls ===
-                StackOp::Call { func, args } => {
+                StackOp::Call { func, args, .. } => {
                     let n = args as usize;
                     let stack_len = self.operand_stack.len();
                     let arg_values: Vec<u64> =

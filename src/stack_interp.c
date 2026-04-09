@@ -615,37 +615,125 @@ HANDLER(op_jump_if_not_zero) {
 // --- Function calls ---
 
 HANDLER(op_call) {
-    // Spill entire TOS window to memory.
-    SPILL_ALL();
-    // Note: do NOT spill l0/l1/l2 here. locals[0/1/2] are already up-to-date
-    // because LocalSetL* writes both register and memory, and fused ops write
-    // to memory directly. Spilling would overwrite correct values with stale
-    // register contents when fused ops have written to locals[0/1/2].
+    // Fixed-ABI call: args are passed directly through the TOS register
+    // window, not via a memory round-trip. At op_call entry the top
+    // `nargs` TOS values are the args (packed into t0..t(nargs-1) with
+    // t0 = last pushed = arg(nargs-1)), and the next `preserve` values
+    // below that are the caller's non-arg live values which need to be
+    // spilled to memory so they survive the call. Anything deeper is
+    // already in memory from earlier deep pushes.
+    //
+    // Note: do NOT spill l0/l1/l2 here. locals[0/1/2] are already
+    // up-to-date because LocalSetL* writes both register and memory, and
+    // fused ops write to memory directly.
 
-    uint32_t target = (uint32_t)pc->imm[0];
-    uint32_t nargs = (uint32_t)pc->imm[1];
+    uint32_t target   = (uint32_t)pc->imm[0];
+    uint32_t nargs    = (uint32_t)(pc->imm[1] & 0xFF);
+    uint32_t preserve = (uint32_t)((pc->imm[1] >> 8) & 0xFF);
 
-    // Save call frame.
+    // Partial spill: write `preserve` non-arg TOS values to memory. The
+    // non-args occupy positions t(nargs)..t(nargs+preserve-1) in the TOS
+    // window (below the args, which are at t0..t(nargs-1)). We spill
+    // from deepest (highest-indexed) to shallowest so that FILL_BELOW /
+    // FILL_ALL on the return side reads them back in the right order:
+    // memory[saved_sp - 1] = topmost non-arg → goes into t1 (just below
+    // the return value in t0).
+    //
+    // The arg values at t0..t(nargs-1) stay in the registers unchanged
+    // so they can be transferred directly into the callee's local slots
+    // below — no memory round-trip.
+    //
+    // Switch on (nargs << 4) | preserve to get a flat table. Only valid
+    // combinations appear; others fall through to no-op.
+    switch ((nargs << 4) | preserve) {
+        // nargs = 0: full TOS is non-arg (void call with live caller state)
+        case 0x04: *sp++ = t3; *sp++ = t2; *sp++ = t1; *sp++ = t0; break;
+        case 0x03: *sp++ = t2; *sp++ = t1; *sp++ = t0; break;
+        case 0x02: *sp++ = t1; *sp++ = t0; break;
+        case 0x01: *sp++ = t0; break;
+        // nargs = 1: args at t0, non-args at t1..t(preserve)
+        case 0x13: *sp++ = t3; *sp++ = t2; *sp++ = t1; break;
+        case 0x12: *sp++ = t2; *sp++ = t1; break;
+        case 0x11: *sp++ = t1; break;
+        // nargs = 2: args at t0..t1, non-args at t2..t(1+preserve)
+        case 0x22: *sp++ = t3; *sp++ = t2; break;
+        case 0x21: *sp++ = t2; break;
+        // nargs = 3: args at t0..t2, non-arg at t3 (if preserve=1)
+        case 0x31: *sp++ = t3; break;
+        // nargs = 4: no non-arg space in TOS
+        // All zero-preserve cases (incl. 0x00, 0x10, 0x20, 0x30, 0x40): no-op
+        default: break;
+    }
+
+    // Save call frame. saved_sp is the post-spill sp — op_return's
+    // FILL_BELOW / FILL_ALL will read the preserved values back out from
+    // here.
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_sp = sp - nargs;
+    frame->saved_sp = sp;
     frame->func_idx = (uint32_t)pc->imm[2];
     frame->saved_frame_size = ctx->frame_stack_size;
 
-    // Pop args from memory.
-    uint64_t args[256];
-    for (uint32_t i = 0; i < nargs; i++) {
-        args[nargs - 1 - i] = *--sp;
-    }
-
-    // Enter callee.
+    // Enter callee. Pass args=NULL / arg_count=0 so enter_function only
+    // allocates and zeros non-param slots; we fill the param slots from
+    // the TOS window ourselves immediately below.
     uint64_t* new_locals;
-    enter_function(ctx, target, args, nargs, &new_locals);
+    enter_function(ctx, target, NULL, 0, &new_locals);
+
+    // Transfer args from TOS directly into the callee's param slots.
+    // Layout: t0=arg(nargs-1), t1=arg(nargs-2), ..., t(nargs-1)=arg0.
+    // For nargs > 4, args beyond the window are in memory at positions
+    // just below callee_fp (from earlier deep pushes); we read them via
+    // sp. We reload memory-resident args from (sp - (nargs - 4) - preserve)
+    // because preserve values were just written above them — no they
+    // weren't, preserve is always 0 when nargs > 4 (since TOS is full of
+    // args, there's no room for non-args in the window). Safe to read
+    // memory args at [sp - (nargs - 4) .. sp - 1] where sp is the
+    // post-spill sp (with preserve=0, unchanged from entry).
+    switch (nargs) {
+        case 0:
+            break;
+        case 1:
+            new_locals[0] = t0;
+            break;
+        case 2:
+            new_locals[0] = t1;
+            new_locals[1] = t0;
+            break;
+        case 3:
+            new_locals[0] = t2;
+            new_locals[1] = t1;
+            new_locals[2] = t0;
+            break;
+        case 4:
+            new_locals[0] = t3;
+            new_locals[1] = t2;
+            new_locals[2] = t1;
+            new_locals[3] = t0;
+            break;
+        default: {
+            // nargs > 4: top 4 in TOS, earlier args in memory just below sp.
+            // preserve is 0 here so sp was not advanced by the partial spill.
+            uint32_t mem_args = nargs - 4;
+            uint64_t* src = sp - mem_args;
+            for (uint32_t i = 0; i < mem_args; i++) {
+                new_locals[i] = src[i];
+            }
+            new_locals[mem_args + 0] = t3;
+            new_locals[mem_args + 1] = t2;
+            new_locals[mem_args + 2] = t1;
+            new_locals[mem_args + 3] = t0;
+            // Decrement sp to consume the memory-resident args.
+            sp -= mem_args;
+            frame->saved_sp = sp;
+            break;
+        }
+    }
 
     Instruction* entry = ctx->functions[target].code;
     // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2].
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    DISPATCH(ctx, entry, sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_call_closure) {

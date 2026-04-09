@@ -598,8 +598,11 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => {
             [*off as i64 as u64, 0, 0]
         }
-        // Call: imm[0]=func_idx, imm[1]=arg_count, imm[2]=current_func_idx (for call frame)
-        StackOp::Call { func, args } => [*func as u64, *args as u64, func_idx as u64],
+        // Call: imm[0]=func_idx, imm[1]=(nargs | preserve<<8), imm[2]=current_func_idx
+        StackOp::Call { func, args, preserve } => {
+            let packed = (*args as u64) | ((*preserve as u64) << 8);
+            [*func as u64, packed, func_idx as u64]
+        }
         StackOp::CallIndirect { args } => [*args as u64, func_idx as u64, 0],
         StackOp::CallClosure { args } => [*args as u64, func_idx as u64, 0],
         // Fused instructions

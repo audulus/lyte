@@ -1625,6 +1625,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::Call {
                             func: 0,
                             args: arg_ids.len() as u8,
+                            preserve: 0, // patched post-codegen from static depth
                         });
                         self.calls_to_patch.push(CallToPatch {
                             instr_idx,
@@ -1683,6 +1684,7 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(StackOp::Call {
                 func: 0,
                 args: arg_count,
+                preserve: 0, // patched post-codegen from static depth
             });
             self.calls_to_patch.push(CallToPatch {
                 instr_idx,

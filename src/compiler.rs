@@ -818,6 +818,11 @@ impl Compiler {
                 crate::stack_hot_locals::lower(func);
             }
         }
+        // Fill in Call.preserve from static stack depth. Must run AFTER
+        // fusion since fusion can change op positions and stack_delta values.
+        for func in &mut program.functions {
+            crate::stack_rebase_lm::patch_call_preserve(func);
+        }
         Ok(program)
     }
 

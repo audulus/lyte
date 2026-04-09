@@ -12,6 +12,28 @@
 
 use crate::stack_ir::{StackFunction, StackOp};
 
+/// Fill in the `preserve` field of every Call with the number of
+/// non-argument TOS values that are live at the call site. At op_call
+/// entry the caller's stack depth is D (known statically); the top nargs
+/// values are the arguments and the remaining `min(D, 4) - nargs` values
+/// below them live in the TOS window and must be written to memory so
+/// they survive across the call. Anything deeper than that is already in
+/// memory (from earlier deep pushes) and needs no further action.
+///
+/// At jump targets stack depth is not known (`compute_depths` returns
+/// 255); fall back to the conservative `4 - nargs` which is always safe.
+pub fn patch_call_preserve(func: &mut StackFunction) {
+    let depths = crate::stack_depth::compute_depths(func);
+    for (i, op) in func.ops.iter_mut().enumerate() {
+        if let StackOp::Call { args, preserve, .. } = op {
+            let d = depths[i] as u32;
+            let d_clamped = if d >= 4 { 4 } else { d };
+            let tos_above_args = d_clamped.saturating_sub(*args as u32);
+            *preserve = tos_above_args.min(4) as u8;
+        }
+    }
+}
+
 /// Shift every memory-slot immediate by `local_count` so the slot becomes
 /// a u64 slot index relative to the start of the frame (fp).
 pub fn rebase(func: &mut StackFunction) {

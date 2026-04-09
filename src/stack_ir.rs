@@ -155,7 +155,11 @@ pub enum StackOp {
 
     // === Function calls ===
     /// Pop N args (first arg deepest), call function, push result.
-    Call { func: u32, args: u8 },
+    /// `preserve` is the number of caller TOS values below the args that
+    /// must be spilled to memory before the call (non-arg live TOS values,
+    /// 0..=4 - args). Filled in by a post-codegen pass from static stack
+    /// depth; codegen emits 0 as a placeholder.
+    Call { func: u32, args: u8, preserve: u8 },
     /// Pop func_idx, pop N args, call, push result.
     CallIndirect { args: u8 },
     /// Pop fat_ptr_addr, pop N args, call closure, push result.
@@ -485,7 +489,9 @@ impl fmt::Display for StackOp {
             StackOp::Jump(off) => write!(f, "jump {}", off),
             StackOp::JumpIfZero(off) => write!(f, "jump_if_zero {}", off),
             StackOp::JumpIfNotZero(off) => write!(f, "jump_if_not_zero {}", off),
-            StackOp::Call { func, args } => write!(f, "call func={} args={}", func, args),
+            StackOp::Call { func, args, preserve } => {
+                write!(f, "call func={} args={} preserve={}", func, args, preserve)
+            }
             StackOp::CallIndirect { args } => write!(f, "call_indirect args={}", args),
             StackOp::CallClosure { args } => write!(f, "call_closure args={}", args),
             StackOp::Return => write!(f, "return"),
