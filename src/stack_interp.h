@@ -80,8 +80,9 @@ typedef struct Ctx {
 //   ctx     - execution context (cold state)
 //   pc      - current instruction pointer
 //   sp      - operand stack pointer (grows upward, points BELOW TOS window)
-//   locals  - current frame's scalar locals array
-//   lm      - current frame's local memory base pointer
+//   locals  - frame pointer: scalar locals start here, local memory follows
+//             at locals + local_count (single contiguous per-call frame)
+//   l0-l2   - hot local register cache (top 3 locals by access weight)
 //   t0-t3   - TOS register window (t0 = top, t3 = deepest in window)
 //
 // With preserve_none, all arguments stay in hardware registers across
@@ -94,7 +95,7 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    uint64_t*     locals, // fp: scalar locals start here; lm follows at locals+local_count
+    uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2
