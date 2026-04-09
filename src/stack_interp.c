@@ -42,16 +42,12 @@ static void enter_function(
         new_locals[i] = args[i];
     }
 
-    // Zero non-param scalar locals and all local memory.
-    // Param slots are overwritten by the arg copy above. Local memory needs
-    // zero-init for safety (struct fields not explicitly initialized).
-    if (scalar_slots > meta->param_count) {
-        memset(new_locals + meta->param_count, 0,
-               (scalar_slots - meta->param_count) * sizeof(uint64_t));
-    }
-    if (mem_slots > 0) {
-        memset(new_locals + scalar_slots, 0, mem_slots * sizeof(uint64_t));
-    }
+    // No zero-init of non-param scalars or local memory. The codegen emits
+    // explicit init for `var` declarations without an initializer (as a
+    // LocalSet(I64Const(0)) for scalars, MemZero(size) for memory-backed
+    // types), so the frame does not need to be zeroed here. Re-using the
+    // bump buffer's stale contents is safe as long as every local is
+    // written before it is read — which the codegen guarantees.
 
     *out_locals = new_locals;
 }
