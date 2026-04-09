@@ -16,11 +16,9 @@ struct Instruction {
 struct CallFrame {
     return_pc: *mut Instruction,
     saved_locals: *mut u64,
-    saved_lm: *mut u8,
     saved_sp: *mut u64,
     func_idx: u32,
-    saved_lm_size: usize,
-    saved_locals_size: usize,
+    saved_frame_size: usize,
 }
 
 #[repr(C)]
@@ -39,12 +37,9 @@ struct Ctx {
     functions: *mut FuncMeta,
     func_count: u32,
     globals: *mut u8,
-    local_memory: *mut u8,
-    local_memory_size: usize,
-    local_memory_cap: usize,
-    locals_stack: *mut u64,
-    locals_stack_size: usize,
-    locals_stack_cap: usize,
+    frame_stack: *mut u64,
+    frame_stack_size: usize,
+    frame_stack_cap: usize,
     stack_base: *mut u64,
     closure_ptr: u64,
     result: i64,
@@ -675,11 +670,9 @@ pub fn run(program: &StackProgram) -> i64 {
         .map(|_| CallFrame {
             return_pc: std::ptr::null_mut(),
             saved_locals: std::ptr::null_mut(),
-            saved_lm: std::ptr::null_mut(),
             saved_sp: std::ptr::null_mut(),
             func_idx: 0,
-            saved_lm_size: 0,
-            saved_locals_size: 0,
+            saved_frame_size: 0,
         })
         .collect();
 
@@ -694,12 +687,9 @@ pub fn run(program: &StackProgram) -> i64 {
         functions: func_metas.as_mut_ptr(),
         func_count: func_metas.len() as u32,
         globals: globals.as_mut_ptr(),
-        local_memory: std::ptr::null_mut(),
-        local_memory_size: 0,
-        local_memory_cap: 0,
-        locals_stack: std::ptr::null_mut(),
-        locals_stack_size: 0,
-        locals_stack_cap: 0,
+        frame_stack: std::ptr::null_mut(),
+        frame_stack_size: 0,
+        frame_stack_cap: 0,
         stack_base: std::ptr::null_mut(),
         closure_ptr: 0,
         result: 0,
@@ -709,11 +699,8 @@ pub fn run(program: &StackProgram) -> i64 {
     let result = unsafe { stack_interp_run(&mut ctx, program.entry) };
 
     // Clean up buffers allocated by C.
-    if !ctx.local_memory.is_null() {
-        unsafe { libc::free(ctx.local_memory as *mut libc::c_void) };
-    }
-    if !ctx.locals_stack.is_null() {
-        unsafe { libc::free(ctx.locals_stack as *mut libc::c_void) };
+    if !ctx.frame_stack.is_null() {
+        unsafe { libc::free(ctx.frame_stack as *mut libc::c_void) };
     }
 
     result

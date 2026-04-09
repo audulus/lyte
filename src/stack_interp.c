@@ -16,53 +16,44 @@ static void enter_function(
     uint32_t func_idx,
     uint64_t* args,
     uint32_t arg_count,
-    uint64_t** out_locals,
-    uint8_t** out_lm
+    uint64_t** out_locals
 ) {
     FuncMeta* meta = &ctx->functions[func_idx];
 
-    // Bump-allocate scalar locals from the pre-allocated locals stack.
-    // Always allocate at least 3 for hot local register spill/fill.
-    uint32_t alloc_count = meta->local_count < 3 ? 3 : meta->local_count;
-    size_t ls_base = ctx->locals_stack_size;
-    size_t ls_needed = ls_base + alloc_count;
-    if (ls_needed > ctx->locals_stack_cap) {
-        fprintf(stderr, "stack_interp: locals stack overflow (%zu slots needed, %zu cap)\n",
-                ls_needed, ctx->locals_stack_cap);
+    // Bump-allocate one contiguous frame from the frame stack:
+    //   [scalar locals (local_count u64 slots, min 3)] [local memory (ceil/8 u64 slots)]
+    // fp = locals, and lm = (uint8_t*)(locals + local_count).
+    uint32_t scalar_slots = meta->local_count < 3 ? 3 : meta->local_count;
+    uint32_t mem_slots = (meta->local_memory + 7) / 8;
+    uint32_t total_slots = scalar_slots + mem_slots;
+
+    size_t fs_base = ctx->frame_stack_size;
+    size_t fs_needed = fs_base + total_slots;
+    if (fs_needed > ctx->frame_stack_cap) {
+        fprintf(stderr, "stack_interp: frame stack overflow (%zu slots needed, %zu cap)\n",
+                fs_needed, ctx->frame_stack_cap);
         exit(1);
     }
-    uint64_t* new_locals = ctx->locals_stack + ls_base;
-    ctx->locals_stack_size = ls_needed;
+    uint64_t* new_locals = ctx->frame_stack + fs_base;
+    ctx->frame_stack_size = fs_needed;
 
     // Copy arguments into locals 0..arg_count-1.
     for (uint32_t i = 0; i < arg_count && i < meta->param_count; i++) {
         new_locals[i] = args[i];
     }
 
-    // Zero non-param locals that the function declares. Slots beyond
-    // local_count (the hot-local padding) are not touched by any instruction
-    // when the function has no hot-local ops, so we don't need to clear them.
-    // Param slots are overwritten by the arg copy above.
-    if (meta->local_count > meta->param_count) {
+    // Zero non-param scalar locals and all local memory.
+    // Param slots are overwritten by the arg copy above. Local memory needs
+    // zero-init for safety (struct fields not explicitly initialized).
+    if (scalar_slots > meta->param_count) {
         memset(new_locals + meta->param_count, 0,
-               (meta->local_count - meta->param_count) * sizeof(uint64_t));
+               (scalar_slots - meta->param_count) * sizeof(uint64_t));
     }
-
-    // Allocate local memory from a pre-allocated fixed buffer.
-    // We must NOT realloc because callers may hold raw pointers into this buffer
-    // (e.g., output pointers for struct returns pushed before the call).
-    size_t lm_base = ctx->local_memory_size;
-    size_t needed = lm_base + meta->local_memory;
-    if (needed > ctx->local_memory_cap) {
-        fprintf(stderr, "stack_interp: local memory overflow (%zu bytes needed, %zu cap)\n",
-                needed, ctx->local_memory_cap);
-        exit(1);
+    if (mem_slots > 0) {
+        memset(new_locals + scalar_slots, 0, mem_slots * sizeof(uint64_t));
     }
-    memset(ctx->local_memory + lm_base, 0, meta->local_memory);
-    ctx->local_memory_size = needed;
 
     *out_locals = new_locals;
-    *out_lm = ctx->local_memory + lm_base;
 }
 
 // ============================================================================
@@ -112,10 +103,10 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 #define DROP3_S() do { t0 = t3; } while(0)
 
-// Convenience macros for handlers (pass all 12 args).
+// Convenience macros for handlers.
 // Note: NEXT uses preloaded nh. DISPATCH reloads from target.
-#define NEXT_ALL() NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3)
-#define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3)
+#define NEXT_ALL() NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3)
+#define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3)
 
 // Spill all 4 TOS registers to memory (for calls).
 #define SPILL_ALL() do { *sp++ = t3; *sp++ = t2; *sp++ = t1; *sp++ = t0; } while(0)
@@ -127,7 +118,7 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define FILL_BELOW() do { t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 
 // Handler signature shorthand.
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint8_t* lm, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
 #define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
 // Cast nh from void* for use in NEXT macro.
 #define nh ((Handler)_nh_raw)
@@ -172,7 +163,9 @@ HANDLER(op_local_tee) {
 }
 
 HANDLER(op_local_addr) {
-    PUSH((uint64_t)(lm + pc->imm[0] * 8));
+    // imm[0] is a u64-slot index into the frame. After the rebase pass,
+    // memory slots start at local_count, so this skips the scalar locals.
+    PUSH((uint64_t)(locals + pc->imm[0]));
     NEXT_ALL();
 }
 
@@ -376,55 +369,55 @@ CMP_OP(op_dle, double, as_f64, <=)
 // --- Bitwise (binary) ---
 
 HANDLER(op_and) {
-    t0 = t1 & t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 & t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_or) {
-    t0 = t1 | t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 | t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_xor) {
-    t0 = t1 ^ t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 ^ t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_not) {
-    t0 = ~t0; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = ~t0; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_shl) {
-    t0 = t1 << (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 << (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_shr) {
-    t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_ushr) {
-    t0 = t1 >> (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 >> (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 
 // --- Type conversions (unary) ---
 
 HANDLER(op_i32_to_f32) {
-    t0 = from_f32((float)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f32((float)(int32_t)t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f32_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i32_to_f64) {
-    t0 = from_f64((double)(int32_t)t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f64((double)(int32_t)t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f64_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f32_to_f64) {
-    t0 = from_f64((double)as_f32(t0)); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f64((double)as_f32(t0)); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_f64_to_f32) {
-    t0 = from_f32((float)as_f64(t0)); NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f32((float)as_f64(t0)); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i32_to_i8) {
-    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i8_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 HANDLER(op_i64_to_u32) {
-    t0 = t0 & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t0 & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 
 // --- Memory loads (unary: transform t0) ---
@@ -636,11 +629,9 @@ HANDLER(op_call) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_lm = lm;
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[2];
-    frame->saved_lm_size = ctx->local_memory_size;
-    frame->saved_locals_size = ctx->locals_stack_size;
+    frame->saved_frame_size = ctx->frame_stack_size;
 
     // Pop args from memory.
     uint64_t args[256];
@@ -650,12 +641,11 @@ HANDLER(op_call) {
 
     // Enter callee.
     uint64_t* new_locals;
-    uint8_t* new_lm;
-    enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
+    enter_function(ctx, target, args, nargs, &new_locals);
 
     Instruction* entry = ctx->functions[target].code;
     // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2].
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_call_closure) {
@@ -671,11 +661,9 @@ HANDLER(op_call_closure) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_lm = lm;
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
-    frame->saved_lm_size = ctx->local_memory_size;
-    frame->saved_locals_size = ctx->locals_stack_size;
+    frame->saved_frame_size = ctx->frame_stack_size;
 
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
@@ -683,11 +671,10 @@ HANDLER(op_call_closure) {
     }
 
     uint64_t* new_locals;
-    uint8_t* new_lm;
-    enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
+    enter_function(ctx, target, args, nargs, &new_locals);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_call_indirect) {
@@ -700,11 +687,9 @@ HANDLER(op_call_indirect) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_lm = lm;
     frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
-    frame->saved_lm_size = ctx->local_memory_size;
-    frame->saved_locals_size = ctx->locals_stack_size;
+    frame->saved_frame_size = ctx->frame_stack_size;
 
     uint64_t args[256];
     for (uint32_t i = 0; i < nargs; i++) {
@@ -712,11 +697,10 @@ HANDLER(op_call_indirect) {
     }
 
     uint64_t* new_locals;
-    uint8_t* new_lm;
-    enter_function(ctx, target, args, nargs, &new_locals, &new_lm);
+    enter_function(ctx, target, args, nargs, &new_locals);
 
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_lm, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
 }
 
 HANDLER(op_return) {
@@ -729,15 +713,14 @@ HANDLER(op_return) {
     }
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
-    ctx->local_memory_size = frame->saved_lm_size;
-    ctx->locals_stack_size = frame->saved_locals_size;
+    ctx->frame_stack_size = frame->saved_frame_size;
     sp = frame->saved_sp;
     locals = frame->saved_locals;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     t0 = result;
     FILL_BELOW();
-    DISPATCH(ctx, frame->return_pc, sp, locals, frame->saved_lm, l0, l1, l2, t0, t1, t2, t3);
+    DISPATCH(ctx, frame->return_pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 
 HANDLER(op_return_void) {
@@ -748,14 +731,13 @@ HANDLER(op_return_void) {
     }
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
-    ctx->local_memory_size = frame->saved_lm_size;
-    ctx->locals_stack_size = frame->saved_locals_size;
+    ctx->frame_stack_size = frame->saved_frame_size;
     sp = frame->saved_sp;
     locals = frame->saved_locals;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     FILL_ALL();
-    DISPATCH(ctx, frame->return_pc, sp, locals, frame->saved_lm, l0, l1, l2, t0, t1, t2, t3);
+    DISPATCH(ctx, frame->return_pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 
 // --- Stack manipulation ---
@@ -971,9 +953,9 @@ HANDLER(op_fused_fmul_fsub) {
     NEXT_ALL();
 }
 
-// Load i32 from lm + slot*8 + offset -- push
+// Load i32 from frame slot*8 + offset -- push
 HANDLER(op_fused_addr_load32off) {
-    PUSH((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
+    PUSH((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
     NEXT_ALL();
 }
 
@@ -1005,9 +987,9 @@ HANDLER(op_fused_f32const_set) {
     NEXT_ALL();
 }
 
-// Push slice_data[locals[idx_local] * 4] from slice at lm + slot*8 -- push
+// Push slice_data[locals[idx_local] * 4] from slice at frame slot -- push
 HANDLER(op_fused_addr_get_sload32) {
-    uint8_t* fat = lm + pc->imm[0] * 8;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
     uint8_t* data = *(uint8_t**)fat;
     PUSH((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
@@ -1017,7 +999,6 @@ HANDLER(op_fused_addr_get_sload32) {
 HANDLER(op_halt) {
     ctx->result = (int64_t)t0;
     ctx->done = 1;
-    free(locals);
     return;
 }
 
@@ -1049,7 +1030,7 @@ SHALLOW_PUSH_HANDLER(op_i64_const_s, op_i64_const, pc->imm[0])
 SHALLOW_PUSH_HANDLER(op_f32_const_s, op_f32_const, pc->imm[0])
 SHALLOW_PUSH_HANDLER(op_f64_const_s, op_f64_const, pc->imm[0])
 SHALLOW_PUSH_HANDLER(op_local_get_s, op_local_get, locals[pc->imm[0]])
-SHALLOW_PUSH_HANDLER(op_local_addr_s, op_local_addr, (uint64_t)(lm + pc->imm[0] * 8))
+SHALLOW_PUSH_HANDLER(op_local_addr_s, op_local_addr, (uint64_t)(locals + pc->imm[0]))
 SHALLOW_PUSH_HANDLER(op_global_addr_s, op_global_addr, (uint64_t)(ctx->globals + (int32_t)pc->imm[0]))
 SHALLOW_PUSH_HANDLER(op_get_closure_ptr_s, op_get_closure_ptr, ctx->closure_ptr)
 
@@ -1074,11 +1055,11 @@ HANDLER(op_fused_get_get_ilt_s) {
     NEXT_ALL();
 }
 HANDLER(op_fused_addr_load32off_s) {
-    PUSH_S((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
+    PUSH_S((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
     NEXT_ALL();
 }
 HANDLER(op_fused_addr_get_sload32_s) {
-    uint8_t* fat = lm + pc->imm[0] * 8;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
     uint8_t* data = *(uint8_t**)fat;
     PUSH_S((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
@@ -1297,14 +1278,14 @@ HANDLER(op_fused_get_get_fadd_set) {
 HANDLER(op_fused_field_copy32) {
     int32_t src_off = (int32_t)pc->imm[1];
     int32_t dst_off = (int32_t)pc->imm[2];
-    uint8_t* base = lm + pc->imm[0] * 8;
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
     *(int32_t*)(base + dst_off) = *(int32_t*)(base + src_off);
     NEXT_ALL();
 }
 
 // --- Slice store with fused address: *(data + locals[idx]*4) = t0. Pop 1. ---
 HANDLER(op_fused_addr_get_sstore32) {
-    uint8_t* fat = lm + pc->imm[0] * 8;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
@@ -1313,7 +1294,7 @@ HANDLER(op_fused_addr_get_sstore32) {
 }
 
 HANDLER(op_fused_addr_get_sstore32_s) {
-    uint8_t* fat = lm + pc->imm[0] * 8;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
@@ -1324,7 +1305,7 @@ HANDLER(op_fused_addr_get_sstore32_s) {
 // --- Tee + slice store: locals[n] = TOS; slice[locals[idx]*4] = TOS; pop. ---
 HANDLER(op_fused_tee_sstore32) {
     locals[pc->imm[0]] = t0;
-    uint8_t* fat = lm + pc->imm[1] * 8;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
     int64_t idx = (int64_t)locals[pc->imm[2]];
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
@@ -1334,7 +1315,7 @@ HANDLER(op_fused_tee_sstore32) {
 
 HANDLER(op_fused_tee_sstore32_s) {
     locals[pc->imm[0]] = t0;
-    uint8_t* fat = lm + pc->imm[1] * 8;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
     int64_t idx = (int64_t)locals[pc->imm[2]];
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
@@ -1351,7 +1332,7 @@ HANDLER(op_fused_get_set) {
 // --- FMA term: accum += locals[a] * load(slot,off). Pure register on t0. ---
 HANDLER(op_fused_get_addr_fmul_fadd) {
     float coeff = as_f32(locals[pc->imm[0]]);
-    float state = as_f32((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
+    float state = as_f32((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
     t0 = from_f32(as_f32(t0) + coeff * state);
     NEXT_ALL();
 }
@@ -1359,20 +1340,20 @@ HANDLER(op_fused_get_addr_fmul_fadd) {
 // --- FMA term: accum -= locals[a] * load(slot,off). ---
 HANDLER(op_fused_get_addr_fmul_fsub) {
     float coeff = as_f32(locals[pc->imm[0]]);
-    float state = as_f32((uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
+    float state = as_f32((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
     t0 = from_f32(as_f32(t0) - coeff * state);
     NEXT_ALL();
 }
 
 // --- Load struct field into local: locals[dst] = load(slot,off). No stack change. ---
 HANDLER(op_fused_addr_load32off_set) {
-    locals[pc->imm[2]] = (uint64_t)(int64_t)*(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
+    locals[pc->imm[2]] = (uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
     NEXT_ALL();
 }
 
-// --- Store local into struct field: *(i32*)(lm + slot*8 + off) = locals[src]. No stack change. ---
+// --- Store local into struct field: *(i32*)(fp + slot*8 + off) = locals[src]. No stack change. ---
 HANDLER(op_fused_addr_imm_get_store32) {
-    *(int32_t*)(lm + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)locals[pc->imm[2]];
+    *(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)locals[pc->imm[2]];
     NEXT_ALL();
 }
 
@@ -1394,33 +1375,25 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->done = 0;
     ctx->result = 0;
 
-    // Pre-allocate local memory so it never needs realloc.
-    // Raw pointers into this buffer are held on the operand stack
-    // (e.g., output pointers for struct returns), so the buffer must not move.
-    if (ctx->local_memory == NULL) {
-        ctx->local_memory_cap = 4 * 1024 * 1024; // 4 MB
-        ctx->local_memory = (uint8_t*)calloc(1, ctx->local_memory_cap);
-    }
-
-    // Pre-allocate scalar locals stack (bump allocator).
-    // Each call allocates max(local_count, 3) u64 slots; returns pop them.
-    // Sized for deep recursion with moderate local counts.
-    if (ctx->locals_stack == NULL) {
-        ctx->locals_stack_cap = 256 * 1024; // 2 MB worth of u64 slots
-        ctx->locals_stack = (uint64_t*)calloc(ctx->locals_stack_cap, sizeof(uint64_t));
-        ctx->locals_stack_size = 0;
+    // Pre-allocate unified frame stack (bump allocator) holding both scalar
+    // locals and local memory contiguously per call. Raw pointers into this
+    // buffer are held on the operand stack (e.g., output pointers for struct
+    // returns), so the buffer must not move.
+    if (ctx->frame_stack == NULL) {
+        ctx->frame_stack_cap = 512 * 1024; // 4 MB worth of u64 slots
+        ctx->frame_stack = (uint64_t*)calloc(ctx->frame_stack_cap, sizeof(uint64_t));
+        ctx->frame_stack_size = 0;
     }
 
     // Enter entry function.
     uint64_t* locals;
-    uint8_t* lm;
-    enter_function(ctx, entry_func, NULL, 0, &locals, &lm);
+    enter_function(ctx, entry_func, NULL, 0, &locals);
 
     // Start dispatch with hot locals loaded and TOS registers zeroed.
     // Preload the handler for the second instruction as nh.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
-    ((Handler)pc->handler)(ctx, pc, stack, locals, lm, locals[0], locals[1], locals[2], 0, 0, 0, 0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, stack, locals, locals[0], locals[1], locals[2], 0, 0, 0, 0, initial_nh);
 
     free(stack);
     return ctx->result;

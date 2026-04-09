@@ -793,6 +793,12 @@ impl Compiler {
         // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
         // call sites become the raw ops and can participate in fusion.
         crate::stack_inline::inline_trivial(&mut program);
+        // Rebase memory-slot references so they are relative to fp instead
+        // of a separate lm pointer. After this, lm is no longer needed —
+        // the C interpreter allocates locals+local_memory contiguously.
+        for func in &mut program.functions {
+            crate::stack_rebase_lm::rebase(func);
+        }
         // Hot local analysis: remap hottest locals to indices 0/1/2.
         // Hot local analysis: remap hottest locals to indices 0/1/2.
         for func in &mut program.functions {

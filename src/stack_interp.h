@@ -25,19 +25,17 @@ typedef struct Instruction {
 // Call frame saved on the call stack.
 typedef struct CallFrame {
     Instruction* return_pc;    // instruction to resume at after return
-    uint64_t*    saved_locals; // caller's locals pointer
-    uint8_t*     saved_lm;    // caller's local memory base
+    uint64_t*    saved_locals; // caller's locals pointer (= caller's fp)
     uint64_t*    saved_sp;    // caller's stack pointer (for truncating on return)
     uint32_t     func_idx;    // caller's function index (for looking up metadata)
-    size_t       saved_lm_size;     // local_memory_size to restore on return
-    size_t       saved_locals_size; // locals_stack_size to restore on return
+    size_t       saved_frame_size; // frame_stack_size to restore on return
 } CallFrame;
 
 // Per-function metadata (set up by Rust, read by C).
 typedef struct FuncMeta {
     Instruction* code;         // instruction array for this function
     uint32_t     local_count;  // number of scalar locals (includes params)
-    uint32_t     local_memory; // bytes of memory-backed locals
+    uint32_t     local_memory; // bytes of memory-backed locals (after scalars in frame)
     uint32_t     param_count;  // number of parameters
 } FuncMeta;
 
@@ -55,16 +53,14 @@ typedef struct Ctx {
     // Global variables
     uint8_t*     globals;
 
-    // Local memory pool (all frames share one growable buffer)
-    uint8_t*     local_memory;
-    size_t       local_memory_size;
-    size_t       local_memory_cap;
-
-    // Scalar locals stack (bump-allocated, one buffer for all frames).
-    // Each call allocates `max(local_count, 3)` slots from the top.
-    uint64_t*    locals_stack;
-    size_t       locals_stack_size;  // current top (in u64 slots)
-    size_t       locals_stack_cap;
+    // Unified frame stack (bump-allocated, one buffer for all frames).
+    // Each call allocates: max(local_count, 3) u64 slots for scalar
+    // locals, followed by ceil(local_memory/8) u64 slots for memory
+    // locals (structs/arrays accessed by byte offset). fp points at the
+    // start of the scalar locals, and lm = (uint8_t*)(fp + local_count).
+    uint64_t*    frame_stack;
+    size_t       frame_stack_size;  // current top (in u64 slots)
+    size_t       frame_stack_cap;
 
     // Operand stack base (for bounds checking if needed)
     uint64_t*    stack_base;
@@ -98,8 +94,7 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    uint64_t*     locals,
-    uint8_t*      lm,
+    uint64_t*     locals, // fp: scalar locals start here; lm follows at locals+local_count
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2
@@ -112,20 +107,20 @@ typedef PRESERVE_NONE void (*Handler)(
 
 // Linear dispatch: branch to preloaded nh, preload handler for instruction after next.
 // nh is available as a macro in the handler (cast from _nh_raw).
-#define NEXT(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3) \
+#define NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3) \
     do { \
         Instruction* _next = (pc) + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
 // Non-linear dispatch: reload handler from target, preload the one after.
 // Used by jumps, calls, returns.
-#define DISPATCH(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3) \
+#define DISPATCH(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3) \
     do { \
         Handler _target_h = (Handler)(pc)->handler; \
         void* _new_nh = ((pc) + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, lm, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
 // Entry point: called from Rust via FFI.

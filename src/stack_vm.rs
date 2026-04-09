@@ -130,8 +130,13 @@ impl StackVM {
                     locals[n as usize] = self.peek();
                 }
                 StackOp::LocalAddr(slot) => {
+                    // After the rebase pass, slot is shifted by local_count,
+                    // so (slot - local_count) is the original memory slot index
+                    // into the separate local_memory buffer.
+                    let local_count = func.local_count as usize;
+                    let mem_slot = (slot as usize).saturating_sub(local_count);
                     let addr =
-                        self.local_memory[lm_base + slot as usize * 8..].as_ptr() as u64;
+                        self.local_memory[lm_base + mem_slot * 8..].as_ptr() as u64;
                     self.push(addr);
                 }
 

@@ -84,6 +84,8 @@ pub mod stack_hot_locals;
 
 pub mod stack_inline;
 
+pub mod stack_rebase_lm;
+
 #[cfg(has_stack_interp)]
 pub mod stack_interp_bridge;
 
