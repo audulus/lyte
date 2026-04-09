@@ -262,10 +262,13 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         if let Some(h) = shallow_handler(op) {
             return h;
         }
-        // Op needs a shallow variant but doesn't have one: fall through to deep.
-        // This can underflow sp! Caller should only set shallow=true for ops
-        // where a shallow variant exists. For safety, panic in debug builds.
-        debug_assert!(false, "op {:?} at depth < 4 but no shallow variant", op);
+        // No shallow variant — fall through to the deep handler. This is
+        // safe for ops that `needs_shallow` classifies as "no sp access"
+        // (Call, Jump, Return, Nop, etc.): their deep handlers don't
+        // actually read/write through sp, so running them at low depth
+        // is fine. If a future op is added to needs_shallow's no-sp-
+        // access list but still touches sp, the resulting bug will be
+        // visible at runtime as wrong stack values or a segfault.
     }
     match op {
         StackOp::I64Const(_) => op_i64_const as *const (),

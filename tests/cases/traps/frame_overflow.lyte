@@ -1,0 +1,23 @@
+// Stack overflow via deep recursion with large per-frame memory.
+// Each call allocates a big local array on the frame stack; repeated
+// recursive calls exhaust the bump-allocator's frame buffer.
+//
+// skip-backend: jit
+// skip-backend: llvm
+// skip-backend: asm
+// skip-backend: vm
+//
+// expected stdout:
+// compilation successful
+//
+// expected stderr:
+// stack VM trap: stack overflow
+
+fn recurse(n: i32) {
+    var buf: [i32; 512]
+    recurse(n)
+}
+
+main {
+    recurse(1)
+}

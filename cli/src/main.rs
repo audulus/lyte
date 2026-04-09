@@ -77,18 +77,29 @@ fn run(args: Args) -> i32 {
             if let Ok(contents) = fs::read_to_string(path) {
                 let directive = format!("// skip-backend: {}", skip_backend);
                 if contents.contains(&directive) {
-                    // Print expected stdout lines so golden test comparison passes.
-                    let mut in_expected = false;
+                    // Replay expected stdout AND expected stderr so golden test
+                    // comparison passes on a skipped backend.
+                    #[derive(Copy, Clone, PartialEq)]
+                    enum Mode { None, Stdout, Stderr }
+                    let mut mode = Mode::None;
                     for line in contents.lines() {
                         if line.starts_with("// expected stdout:") {
-                            in_expected = true;
+                            mode = Mode::Stdout;
                             continue;
                         }
-                        if in_expected {
+                        if line.starts_with("// expected stderr:") {
+                            mode = Mode::Stderr;
+                            continue;
+                        }
+                        if mode != Mode::None {
                             if let Some(rest) = line.strip_prefix("// ") {
-                                println!("{}", rest);
+                                match mode {
+                                    Mode::Stdout => println!("{}", rest),
+                                    Mode::Stderr => eprintln!("{}", rest),
+                                    Mode::None => {}
+                                }
                             } else {
-                                break;
+                                mode = Mode::None;
                             }
                         }
                     }

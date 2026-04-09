@@ -1,0 +1,26 @@
+// Infinite recursion should be caught as a trap and reported through
+// the interpreter's error channel without killing the host process.
+//
+// Only the stack VM traps gracefully today. The other backends either
+// crash (jit/llvm: machine stack overflow → abort) or panic the Rust
+// host (vm/asm). Once they propagate traps properly, remove the
+// corresponding skip-backend lines.
+//
+// skip-backend: jit
+// skip-backend: llvm
+// skip-backend: asm
+// skip-backend: vm
+//
+// expected stdout:
+// compilation successful
+//
+// expected stderr:
+// stack VM trap: call stack overflow
+
+fn recurse(n: i32) -> i32 {
+    recurse(n) + 1
+}
+
+main {
+    print(recurse(1))
+}
