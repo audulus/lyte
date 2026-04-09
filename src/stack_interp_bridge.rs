@@ -229,6 +229,8 @@ extern "C" {
     fn op_fused_f32const_fgt_jiz_s();
     fn op_fused_addr_get_sstore32();
     fn op_fused_addr_get_sstore32_s();
+    fn op_fused_tee_sstore32();
+    fn op_fused_tee_sstore32_s();
     fn op_fused_get_set();
     fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
     fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
@@ -417,6 +419,7 @@ fn handler_for(op: &StackOp, shallow: bool) -> *const () {
         StackOp::FusedFieldCopy32(_, _, _) => op_fused_field_copy32 as *const (),
         StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
+        StackOp::FusedTeeSliceStore32(_, _, _) => op_fused_tee_sstore32 as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
         StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
         StackOp::FusedGetAddrFMulFSub(_, _, _) => op_fused_get_addr_fmul_fsub as *const (),
@@ -530,6 +533,7 @@ fn shallow_handler(op: &StackOp) -> Option<*const ()> {
         StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32_s as *const (),
         StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz_s as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32_s as *const (),
+        StackOp::FusedTeeSliceStore32(_, _, _) => op_fused_tee_sstore32_s as *const (),
         // Fused FMA ops
         StackOp::FusedFMulFAdd => op_fused_fmul_fadd_s as *const (),
         StackOp::FusedFMulFSub => op_fused_fmul_fsub_s as *const (),
@@ -622,6 +626,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedAddrImmGetStore32(s, o, src) => [*s as u64, *o as i64 as u64, *src as u64],
         StackOp::FusedGetGetFAddSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
         StackOp::FusedFieldCopy32(s, src, dst) => [*s as u64, *src as i64 as u64, *dst as i64 as u64],
+        StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
         StackOp::FusedF32ConstFGtJumpIfZero(v, off) => [f32::to_bits(*v) as u64, *off as i64 as u64, 0],

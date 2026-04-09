@@ -80,6 +80,20 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        // local.tee N + fused.addr_get_sstore32 s idx → FusedTeeSliceStore32
+        // (butterfly store pattern in FFT hot loop)
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalTee(n), StackOp::FusedAddrGetSliceStore32(s, idx)) =
+                (&ops[i], &ops[i + 1])
+            {
+                let n = *n; let s = *s; let idx = *idx;
+                ops[i] = StackOp::FusedTeeSliceStore32(n, s, idx);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
         // local.get + drop → nop (dead variable read)
         if i + 1 < len && !spans_target(i, 2) {
             if matches!(ops[i], StackOp::LocalGet(_)) && matches!(ops[i + 1], StackOp::Drop) {
