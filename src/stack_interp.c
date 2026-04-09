@@ -11,7 +11,9 @@
 // Helper: enter a function (allocate locals + local memory)
 // ============================================================================
 
-static void enter_function(
+// Returns 1 on success, 0 on overflow (ctx->error is set and ctx->done is
+// raised so the caller can break out of the tail-call chain).
+static int enter_function(
     Ctx* ctx,
     uint32_t func_idx,
     uint64_t* args,
@@ -30,9 +32,10 @@ static void enter_function(
     size_t fs_base = ctx->frame_stack_size;
     size_t fs_needed = fs_base + total_slots;
     if (fs_needed > ctx->frame_stack_cap) {
-        fprintf(stderr, "stack_interp: frame stack overflow (%zu slots needed, %zu cap)\n",
-                fs_needed, ctx->frame_stack_cap);
-        exit(1);
+        ctx->error = "stack overflow";
+        ctx->done = 1;
+        *out_locals = NULL;
+        return 0;
     }
     uint64_t* new_locals = ctx->frame_stack + fs_base;
     ctx->frame_stack_size = fs_needed;
@@ -50,6 +53,7 @@ static void enter_function(
     // written before it is read — which the codegen guarantees.
 
     *out_locals = new_locals;
+    return 1;
 }
 
 // ============================================================================
@@ -661,6 +665,12 @@ HANDLER(op_call) {
         default: break;
     }
 
+    // Bounds-check the call stack before pushing a new frame.
+    if (ctx->call_depth >= ctx->call_stack_cap) {
+        ctx->error = "call stack overflow";
+        ctx->done = 1;
+        return;
+    }
     // Save call frame. saved_sp is the post-spill sp — op_return's
     // FILL_BELOW / FILL_ALL will read the preserved values back out from
     // here.
@@ -672,10 +682,12 @@ HANDLER(op_call) {
     frame->saved_frame_size = ctx->frame_stack_size;
 
     // Enter callee. Pass args=NULL / arg_count=0 so enter_function only
-    // allocates and zeros non-param slots; we fill the param slots from
-    // the TOS window ourselves immediately below.
+    // allocates the frame; we fill the param slots from the TOS window
+    // ourselves immediately below.
     uint64_t* new_locals;
-    enter_function(ctx, target, NULL, 0, &new_locals);
+    if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
+        return; // Stack overflow: ctx->error / ctx->done already set.
+    }
 
     // Transfer args from TOS directly into the callee's param slots.
     // Layout: t0=arg(nargs-1), t1=arg(nargs-2), ..., t(nargs-1)=arg0.
@@ -742,6 +754,11 @@ HANDLER(op_call_closure) {
     // Spill remaining TOS (t1, t2, t3) -- t0 was consumed as fat_ptr
     *sp++ = t3; *sp++ = t2; *sp++ = t1;
 
+    if (ctx->call_depth >= ctx->call_stack_cap) {
+        ctx->error = "call stack overflow";
+        ctx->done = 1;
+        return;
+    }
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
@@ -755,7 +772,9 @@ HANDLER(op_call_closure) {
     }
 
     uint64_t* new_locals;
-    enter_function(ctx, target, args, nargs, &new_locals);
+    if (!enter_function(ctx, target, args, nargs, &new_locals)) {
+        return; // Stack overflow.
+    }
 
     Instruction* entry = ctx->functions[target].code;
     DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
@@ -768,6 +787,11 @@ HANDLER(op_call_indirect) {
     // Spill remaining TOS (t1, t2, t3) -- t0 was consumed
     *sp++ = t3; *sp++ = t2; *sp++ = t1;
 
+    if (ctx->call_depth >= ctx->call_stack_cap) {
+        ctx->error = "call stack overflow";
+        ctx->done = 1;
+        return;
+    }
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
@@ -781,7 +805,9 @@ HANDLER(op_call_indirect) {
     }
 
     uint64_t* new_locals;
-    enter_function(ctx, target, args, nargs, &new_locals);
+    if (!enter_function(ctx, target, args, nargs, &new_locals)) {
+        return; // Stack overflow.
+    }
 
     Instruction* entry = ctx->functions[target].code;
     DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
@@ -957,9 +983,9 @@ HANDLER(op_assert) {
     printf("assert(%s)\n", val != 0 ? "true" : "false");
     fflush(stdout);
     if (val == 0) {
-        fprintf(stderr, "Assertion failed\n");
-        fflush(stderr);
-        exit(1);
+        ctx->error = "assertion failed";
+        ctx->done = 1;
+        return; // Break the tail-call chain back to stack_interp_run.
     }
     NEXT_ALL();
 }
@@ -1204,7 +1230,11 @@ HANDLER(op_assert_s) {
     uint64_t val; POP_S(val);
     printf("assert(%s)\n", val != 0 ? "true" : "false");
     fflush(stdout);
-    if (val == 0) { fprintf(stderr, "Assertion failed\n"); fflush(stderr); exit(1); }
+    if (val == 0) {
+        ctx->error = "assertion failed";
+        ctx->done = 1;
+        return;
+    }
     NEXT_ALL();
 }
 HANDLER(op_memzero_s) {
@@ -1458,6 +1488,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->stack_base = stack;
     ctx->done = 0;
     ctx->result = 0;
+    ctx->error = NULL;
 
     // Pre-allocate unified frame stack (bump allocator) holding both scalar
     // locals and local memory contiguously per call. Raw pointers into this
@@ -1471,7 +1502,10 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
 
     // Enter entry function.
     uint64_t* locals;
-    enter_function(ctx, entry_func, NULL, 0, &locals);
+    if (!enter_function(ctx, entry_func, NULL, 0, &locals)) {
+        free(stack);
+        return ctx->result; // ctx->error already set.
+    }
 
     // Start dispatch with hot locals loaded and TOS registers zeroed.
     // Preload the handler for the second instruction as nh.

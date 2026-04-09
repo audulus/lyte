@@ -44,6 +44,7 @@ struct Ctx {
     closure_ptr: u64,
     result: i64,
     done: i32,
+    error: *const std::os::raw::c_char,
 }
 
 extern "C" {
@@ -697,9 +698,19 @@ pub fn run(program: &StackProgram) -> i64 {
         closure_ptr: 0,
         result: 0,
         done: 0,
+        error: std::ptr::null(),
     };
 
     let result = unsafe { stack_interp_run(&mut ctx, program.entry) };
+
+    // Surface traps (stack overflow, assertion failed, etc.) to stderr.
+    // The C interpreter sets ctx.error to a static string and flips done;
+    // it never calls exit() so the embedding host can recover.
+    if !ctx.error.is_null() {
+        let msg = unsafe { std::ffi::CStr::from_ptr(ctx.error) }
+            .to_string_lossy();
+        eprintln!("stack VM trap: {}", msg);
+    }
 
     // Clean up buffers allocated by C.
     if !ctx.frame_stack.is_null() {

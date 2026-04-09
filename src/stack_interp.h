@@ -73,6 +73,12 @@ typedef struct Ctx {
 
     // Flag: set when we should exit the interpreter
     int          done;
+
+    // Error message set by handlers on a trap (stack overflow, assertion
+    // failed, etc.). NULL means "no error" — a normal exit through
+    // op_return/op_halt leaves this unchanged. Statically-allocated string
+    // pointer; not owned by the context.
+    const char*  error;
 } Ctx;
 
 // Handler function signature.
