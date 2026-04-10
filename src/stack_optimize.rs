@@ -19,6 +19,77 @@ pub fn optimize(func: &mut StackFunction) {
     }
 }
 
+/// Post-fusion pass that detects float expression chains whose
+/// intermediate values currently flow through the integer TOS window
+/// (`t0`) and rewrites them to use the float TOS window (`f0`) instead.
+///
+/// Pattern matched: a chain starting with `FusedGetGetFMul` that feeds
+/// into one or more `FusedGetAddrFMulFAdd` / `FusedGetAddrFMulFSub`
+/// handlers and terminates in a `LocalSetL0/1/2` on the same accumulator.
+/// Biquad's inner loop is exactly this shape.
+///
+/// The rewrite replaces each op with its `*_FW` counterpart so the
+/// float accumulator stays in an FP/SIMD register across the entire
+/// chain, eliminating all of the GPR↔FP crossings on the hot path.
+pub fn float_window_rewrite(func: &mut StackFunction) {
+    let ops = &mut func.ops;
+    let len = ops.len();
+    let is_target = compute_jump_targets(ops);
+    let mut i = 0;
+    while i < len {
+        // Only start at a FusedGetGetFMul. The start can be a jump
+        // target (e.g. biquad's filter starts right after the phase-wrap
+        // branch) — the rewrite only needs the internal chain to be
+        // straight-line.
+        if !matches!(ops[i], StackOp::FusedGetGetFMul(_, _)) {
+            i += 1;
+            continue;
+        }
+        // Find the end of the chain: consecutive
+        // FusedGetAddrFMulFAdd/FSub ops, terminating in LocalSetL0/1/2.
+        // No jump targets allowed inside the chain.
+        let mut j = i + 1;
+        while j < len && !is_target[j] && matches!(
+            ops[j],
+            StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _)
+        ) {
+            j += 1;
+        }
+        let terminates = j > i + 1 && j < len && !is_target[j] && matches!(
+            ops[j],
+            StackOp::LocalSetL0 | StackOp::LocalSetL1 | StackOp::LocalSetL2
+        );
+        if !terminates {
+            i += 1;
+            continue;
+        }
+        // Rewrite ops[i..=j] to their float-window variants.
+        if let StackOp::FusedGetGetFMul(a, b) = ops[i] {
+            ops[i] = StackOp::FusedGetGetFMulFW(a, b);
+        }
+        for k in (i + 1)..j {
+            let new_op = match &ops[k] {
+                StackOp::FusedGetAddrFMulFAdd(a, s, o) => Some(StackOp::FusedGetAddrFMulFAddFW(*a, *s, *o)),
+                StackOp::FusedGetAddrFMulFSub(a, s, o) => Some(StackOp::FusedGetAddrFMulFSubFW(*a, *s, *o)),
+                _ => None,
+            };
+            if let Some(new_op) = new_op {
+                ops[k] = new_op;
+            }
+        }
+        let new_term = match &ops[j] {
+            StackOp::LocalSetL0 => Some(StackOp::LocalSetL0FW),
+            StackOp::LocalSetL1 => Some(StackOp::LocalSetL1FW),
+            StackOp::LocalSetL2 => Some(StackOp::LocalSetL2FW),
+            _ => None,
+        };
+        if let Some(new_op) = new_term {
+            ops[j] = new_op;
+        }
+        i = j + 1;
+    }
+}
+
 /// Compute the set of instruction indices that are jump targets.
 fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
     let len = ops.len();

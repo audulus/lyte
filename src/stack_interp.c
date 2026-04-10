@@ -92,10 +92,17 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // x86-64). Handler bodies read/write `locals` the same way on both
 // paths: on aarch64 it's a parameter; on x86-64 it's a macro that
 // expands to (ctx->current_locals).
+//
+// The float TOS window (f0..f3) is a separate 4-slot register window
+// living in FP/SIMD registers, independent of the integer window
+// (t0..t3) in GPRs. Float ops read/write f0..f3 directly and never
+// cross between GPR and FP register files, dodging the ~3-cycle
+// fmov/movq penalty that the old "f32 bit-pattern in u64" design
+// paid on every float arithmetic op.
 #if defined(__aarch64__)
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, double f0, double f1, double f2, double f3, void* _nh_raw
 #else
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, double f0, double f1, double f2, double f3, void* _nh_raw
 // Reads expand to a load of ctx->current_locals; writes (locals = X)
 // store back to the same field. LLVM's TBAA rules out aliasing with
 // stores through sp, so the field read is CSEd per handler.
@@ -107,8 +114,9 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define nh ((Handler)_nh_raw)
 
 // Dispatch macros. Parameterless — they reference the handler's in-scope
-// ctx/pc/sp/l0-l2/t0-t3/_nh_raw arguments directly (plus the `locals`
-// parameter on aarch64) and must only be used inside a HANDLER() body.
+// ctx/pc/sp/l0-l2/t0-t3/f0-f3/_nh_raw arguments directly (plus the
+// `locals` parameter on aarch64) and must only be used inside a
+// HANDLER() body.
 //
 // NEXT: linear fall-through. Branch to the preloaded nh and preload the
 // handler for the instruction after next.
@@ -117,30 +125,46 @@ static int64_t ipow(int64_t base, uint32_t exp) {
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #else
 #define NEXT() \
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #endif
+
+// Float TOS window push/pop. Spills/refills through ctx->float_stack
+// indexed by ctx->float_sp_off. The float stack is a separate buffer
+// from the integer operand stack so int and float spills don't
+// interleave — each window has its own depth.
+#define FPUSH(val) do { \
+    ctx->float_stack[ctx->float_sp_off++] = f3; \
+    f3 = f2; f2 = f1; f1 = f0; f0 = (val); \
+} while(0)
+
+#define FPOP(dst) do { \
+    (dst) = f0; f0 = f1; f1 = f2; f2 = f3; f3 = ctx->float_stack[--ctx->float_sp_off]; \
+} while(0)
+
+#define FDROP1() do { f0 = f1; f1 = f2; f2 = f3; f3 = ctx->float_stack[--ctx->float_sp_off]; } while(0)
+#define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = ctx->float_stack[--ctx->float_sp_off]; } while(0)
 
 // ============================================================================
 // Handlers
@@ -1082,9 +1106,21 @@ HANDLER(op_get_closure_ptr) {
 // Fused superinstructions
 // ============================================================================
 
-// locals[a] * locals[b] (f32) -- push
+// locals[a] * locals[b] (f32) -- push (int TOS window, legacy)
 HANDLER(op_fused_get_get_fmul) {
     PUSH(from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]])));
+    NEXT();
+}
+
+// locals[a] * locals[b] (f32) -- push to FLOAT TOS window.
+// Loads both operands directly into FP registers (ldr s0, [x]) and the
+// result goes into f0 without crossing through a GPR. Used to start a
+// float expression chain that will feed subsequent float ops in the
+// f-window.
+HANDLER(op_fused_get_get_fmul_fw) {
+    float a = as_f32(locals[pc->imm[0]]);
+    float b = as_f32(locals[pc->imm[1]]);
+    FPUSH((double)(a * b));
     NEXT();
 }
 
@@ -1334,6 +1370,48 @@ HANDLER(op_fused_get_addr_fmul_fsub) {
     NEXT();
 }
 
+// --- FMA term: f0 += locals[a] * load(slot,off). Operates in float
+// --- TOS window — f0 stays in an FP register throughout, no GPR
+// --- crossing. ---
+HANDLER(op_fused_get_addr_fmul_fadd_fw) {
+    float coeff = as_f32(locals[pc->imm[0]]);
+    float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
+    f0 = (double)((float)f0 + coeff * state);
+    NEXT();
+}
+
+HANDLER(op_fused_get_addr_fmul_fsub_fw) {
+    float coeff = as_f32(locals[pc->imm[0]]);
+    float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
+    f0 = (double)((float)f0 - coeff * state);
+    NEXT();
+}
+
+// --- Pop f0 (via one-time FP→GPR crossing) and store into hot local
+// --- register l0 as the f32 bit pattern. Terminates a float chain
+// --- whose result flows back into the integer TOS / hot-local cache. ---
+HANDLER(op_local_set_l0_fw) {
+    float v = (float)f0;
+    l0 = (uint64_t)from_f32(v);
+    locals[0] = l0;
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_local_set_l1_fw) {
+    float v = (float)f0;
+    l1 = (uint64_t)from_f32(v);
+    locals[1] = l1;
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_local_set_l2_fw) {
+    float v = (float)f0;
+    l2 = (uint64_t)from_f32(v);
+    locals[2] = l2;
+    FDROP1();
+    NEXT();
+}
+
 // --- Load struct field into local: locals[dst] = load(slot,off). No stack change. ---
 HANDLER(op_fused_addr_load32off_set) {
     locals[pc->imm[2]] = (uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
@@ -1362,6 +1440,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->error = NULL;
     ctx->frame_stack_size = 0;
     ctx->call_depth = 0;
+    ctx->float_sp_off = 0;
 
     // Enter entry function. enter_function writes the new frame pointer
     // into ctx->current_locals via the out-parameter.
@@ -1370,14 +1449,14 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     }
     uint64_t* entry_locals = ctx->current_locals;
 
-    // Start dispatch with hot locals loaded and TOS registers zeroed.
+    // Start dispatch with hot locals loaded and both TOS windows zeroed.
     // Preload the handler for the second instruction as nh.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
 #if defined(__aarch64__)
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, initial_nh);
 #else
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, initial_nh);
 #endif
 
     return ctx->result;

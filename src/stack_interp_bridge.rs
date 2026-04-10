@@ -41,6 +41,9 @@ struct Ctx {
     frame_stack_size: usize,
     frame_stack_cap: usize,
     stack_base: *mut u64,
+    float_stack: *mut f64,
+    float_sp_off: usize,
+    float_stack_cap: usize,
     current_locals: *mut u64,
     closure_ptr: u64,
     result: i64,
@@ -213,6 +216,12 @@ extern "C" {
     fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
     fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
     fn op_fused_get_get_fmul();
+    fn op_fused_get_get_fmul_fw();
+    fn op_fused_get_addr_fmul_fadd_fw();
+    fn op_fused_get_addr_fmul_fsub_fw();
+    fn op_local_set_l0_fw();
+    fn op_local_set_l1_fw();
+    fn op_local_set_l2_fw();
     fn op_fused_get_get_fadd();
     fn op_fused_get_get_fsub();
     fn op_fused_get_get_iadd();
@@ -401,6 +410,12 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedAddrLoad32OffSet(_, _, _) => op_fused_addr_load32off_set as *const (),
         StackOp::FusedAddrImmGetStore32(_, _, _) => op_fused_addr_imm_get_store32 as *const (),
         StackOp::FusedGetGetFMul(_, _) => op_fused_get_get_fmul as *const (),
+        StackOp::FusedGetGetFMulFW(_, _) => op_fused_get_get_fmul_fw as *const (),
+        StackOp::FusedGetAddrFMulFAddFW(_, _, _) => op_fused_get_addr_fmul_fadd_fw as *const (),
+        StackOp::FusedGetAddrFMulFSubFW(_, _, _) => op_fused_get_addr_fmul_fsub_fw as *const (),
+        StackOp::LocalSetL0FW => op_local_set_l0_fw as *const (),
+        StackOp::LocalSetL1FW => op_local_set_l1_fw as *const (),
+        StackOp::LocalSetL2FW => op_local_set_l2_fw as *const (),
         StackOp::FusedGetGetFAdd(_, _) => op_fused_get_get_fadd as *const (),
         StackOp::FusedGetGetFSub(_, _) => op_fused_get_get_fsub as *const (),
         StackOp::FusedGetGetIAdd(_, _) => op_fused_get_get_iadd as *const (),
@@ -459,8 +474,13 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
         | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b)
         | StackOp::FusedAddrGetSliceStore32(a, b)
-        | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b) => {
+        | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b)
+        | StackOp::FusedGetGetFMulFW(a, b) => {
             [*a as u64, *b as u64, 0]
+        }
+        StackOp::FusedGetAddrFMulFAddFW(a, s, o)
+        | StackOp::FusedGetAddrFMulFSubFW(a, s, o) => {
+            [*a as u64, *s as u64, *o as i64 as u64]
         }
         StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
             [*a as u64, 0, 0]
@@ -538,6 +558,8 @@ pub fn run(program: &StackProgram) -> i64 {
     let mut operand_stack: Vec<u64> = vec![0u64; 64 * 1024];
     let frame_stack_cap: usize = 512 * 1024; // 4 MB worth of u64 slots
     let mut frame_stack: Vec<u64> = vec![0u64; frame_stack_cap];
+    let float_stack_cap: usize = 64 * 1024;
+    let mut float_stack: Vec<f64> = vec![0.0f64; float_stack_cap];
     let mut globals: Vec<u8> = vec![0u8; program.globals_size];
 
     // Build context.
@@ -552,6 +574,9 @@ pub fn run(program: &StackProgram) -> i64 {
         frame_stack_size: 0,
         frame_stack_cap,
         stack_base: operand_stack.as_mut_ptr(),
+        float_stack: float_stack.as_mut_ptr(),
+        float_sp_off: 0,
+        float_stack_cap,
         current_locals: std::ptr::null_mut(),
         closure_ptr: 0,
         result: 0,

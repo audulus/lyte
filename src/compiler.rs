@@ -818,6 +818,13 @@ impl Compiler {
                 crate::stack_hot_locals::lower(func);
             }
         }
+        // Post-lower: rewrite float expression chains to use the float
+        // TOS window so accumulators stay in FP registers and dodge
+        // GPR↔FP crossings. Must run AFTER lower() because it matches
+        // against LocalSetL0/1/2, not LocalSet(0/1/2).
+        for func in &mut program.functions {
+            crate::stack_optimize::float_window_rewrite(func);
+        }
         // Fill in Call.preserve from static stack depth. Must run AFTER
         // fusion since fusion can change op positions and stack_delta values.
         for func in &mut program.functions {

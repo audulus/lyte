@@ -54,11 +54,13 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::FusedGetGetFMul(_, _) | StackOp::FusedGetGetFAdd(_, _) |
         StackOp::FusedGetGetFSub(_, _) | StackOp::FusedGetGetIAdd(_, _) |
         StackOp::FusedGetGetILt(_, _) | StackOp::FusedAddrLoad32Off(_, _) |
-        StackOp::FusedAddrGetSliceLoad32(_, _) => 1,
+        StackOp::FusedAddrGetSliceLoad32(_, _) |
+        StackOp::FusedGetGetFMulFW(_, _) => 1,
 
         // Pop 1
         StackOp::LocalSet(_) |
         StackOp::LocalSetL0 | StackOp::LocalSetL1 | StackOp::LocalSetL2 |
+        StackOp::LocalSetL0FW | StackOp::LocalSetL1FW | StackOp::LocalSetL2FW |
         StackOp::Drop |
         StackOp::PrintI32 | StackOp::PrintF32 | StackOp::Putc | StackOp::Assert |
         StackOp::MemZero(_) |
@@ -130,6 +132,7 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::FusedGetGetISubSet(_, _, _) | StackOp::FusedGetGetIMulSet(_, _, _) |
         StackOp::FusedFieldCopy32(_, _, _) |
         StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _) |
+        StackOp::FusedGetAddrFMulFAddFW(_, _, _) | StackOp::FusedGetAddrFMulFSubFW(_, _, _) |
         StackOp::FusedAddrLoad32OffSet(_, _, _) | StackOp::FusedAddrImmGetStore32(_, _, _) |
         StackOp::Jump(_) | StackOp::Nop | StackOp::Halt |
         StackOp::Return | StackOp::ReturnVoid |

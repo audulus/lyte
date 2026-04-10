@@ -59,6 +59,8 @@ pub fn rebase(func: &mut StackFunction) {
             StackOp::FusedTeeSliceStore32(_, s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFAdd(_, s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFSub(_, s, _) => *s += lc,
+            StackOp::FusedGetAddrFMulFAddFW(_, s, _) => *s += lc,
+            StackOp::FusedGetAddrFMulFSubFW(_, s, _) => *s += lc,
             StackOp::FusedFieldCopy32(s, _, _) => *s += lc,
             _ => {}
         }

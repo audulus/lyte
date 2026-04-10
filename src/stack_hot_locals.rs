@@ -206,6 +206,7 @@ fn rewrite_local_indices(op: &mut StackOp, remap: &[u16]) {
     match op {
         StackOp::LocalGet(n) | StackOp::LocalSet(n) | StackOp::LocalTee(n) => r(n, remap),
         StackOp::FusedGetGetFMul(a, b)
+        | StackOp::FusedGetGetFMulFW(a, b)
         | StackOp::FusedGetGetFAdd(a, b)
         | StackOp::FusedGetGetFSub(a, b)
         | StackOp::FusedGetGetIAdd(a, b)
@@ -244,7 +245,8 @@ fn rewrite_local_indices(op: &mut StackOp, remap: &[u16]) {
         | StackOp::FusedLocalArrayLoad32(_, i) | StackOp::FusedLocalArrayStore32(_, i) => {
             r(i, remap);
         }
-        StackOp::FusedGetAddrFMulFAdd(a, _, _) | StackOp::FusedGetAddrFMulFSub(a, _, _) => {
+        StackOp::FusedGetAddrFMulFAdd(a, _, _) | StackOp::FusedGetAddrFMulFSub(a, _, _)
+        | StackOp::FusedGetAddrFMulFAddFW(a, _, _) | StackOp::FusedGetAddrFMulFSubFW(a, _, _) => {
             r(a, remap);
         }
         StackOp::FusedAddrLoad32OffSet(_, _, d) => r(d, remap),

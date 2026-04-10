@@ -65,6 +65,14 @@ typedef struct Ctx {
     // Operand stack base (for bounds checking if needed)
     uint64_t*    stack_base;
 
+    // Float spill stack: backing store for the float TOS window when
+    // its depth exceeds 4. Each slot is a double. Grows upward via
+    // float_sp_off (index in doubles). Separate from stack_base so int
+    // and float spills don't interleave.
+    double*      float_stack;
+    size_t       float_sp_off;
+    size_t       float_stack_cap;
+
     // Current frame pointer: scalar locals start here, local memory follows.
     // Stored in the context (rather than passed through the handler chain)
     // to keep the handler argument count within preserve_none's register
@@ -110,6 +118,15 @@ typedef struct Ctx {
 
 // Handler type uses void* for the nh parameter since C can't have
 // self-referential function pointer typedefs.
+//
+// The f0..f3 parameters form a parallel "float TOS window" living in
+// FP/SIMD registers (v0-v3 on aarch64, xmm0-xmm3 on x86-64). Float
+// handlers read/write these directly, avoiding the GPR↔FP crossings
+// that the u64 TOS window would force (3+ cycles each way). Int and
+// float values coexist on the logical stack; static types at each
+// position tell the codegen which window to use. The float window
+// uses `double` precision so it holds both f32 (widened) and f64
+// values without bit-casts.
 #if defined(__aarch64__)
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
@@ -119,10 +136,14 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2
-    uint64_t      t0,
+    uint64_t      t0,     // int TOS window (GPRs)
     uint64_t      t1,
     uint64_t      t2,
     uint64_t      t3,
+    double        f0,     // float TOS window (FP regs)
+    double        f1,
+    double        f2,
+    double        f3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 #else
@@ -133,10 +154,14 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2
-    uint64_t      t0,
+    uint64_t      t0,     // int TOS window (GPRs)
     uint64_t      t1,
     uint64_t      t2,
     uint64_t      t3,
+    double        f0,     // float TOS window (xmm regs)
+    double        f1,
+    double        f2,
+    double        f3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 #endif
