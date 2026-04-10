@@ -13,18 +13,20 @@
 
 // Returns 1 on success, 0 on overflow (ctx->error is set and ctx->done is
 // raised so the caller can break out of the tail-call chain).
-static int enter_function(
-    Ctx* ctx,
-    uint32_t func_idx,
-    uint64_t* args,
-    uint32_t arg_count,
-    uint64_t** out_locals
-) {
+// Bump-allocate one contiguous frame from the frame stack for `func_idx`.
+// Layout:
+//   [scalar locals (local_count u64 slots, min 3)] [local memory (ceil/8 u64 slots)]
+// fp = locals, and lm = (uint8_t*)(locals + local_count).
+//
+// Arguments are NOT copied here — callers (op_call et al.) pop them
+// straight from the TOS window into new_locals[0..nargs]. stack_interp_run
+// enters the entry function with no arguments. Non-param scalars and
+// local memory are left uninitialized: the codegen emits explicit
+// LocalSet(I64Const(0)) / MemZero for `var` declarations without
+// initializers, so the frame does not need to be zeroed here.
+static int enter_function(Ctx* ctx, uint32_t func_idx, uint64_t** out_locals) {
     FuncMeta* meta = &ctx->functions[func_idx];
 
-    // Bump-allocate one contiguous frame from the frame stack:
-    //   [scalar locals (local_count u64 slots, min 3)] [local memory (ceil/8 u64 slots)]
-    // fp = locals, and lm = (uint8_t*)(locals + local_count).
     uint32_t scalar_slots = meta->local_count < 3 ? 3 : meta->local_count;
     uint32_t mem_slots = (meta->local_memory + 7) / 8;
     uint32_t total_slots = scalar_slots + mem_slots;
@@ -37,22 +39,8 @@ static int enter_function(
         *out_locals = NULL;
         return 0;
     }
-    uint64_t* new_locals = ctx->frame_stack + fs_base;
+    *out_locals = ctx->frame_stack + fs_base;
     ctx->frame_stack_size = fs_needed;
-
-    // Copy arguments into locals 0..arg_count-1.
-    for (uint32_t i = 0; i < arg_count && i < meta->param_count; i++) {
-        new_locals[i] = args[i];
-    }
-
-    // No zero-init of non-param scalars or local memory. The codegen emits
-    // explicit init for `var` declarations without an initializer (as a
-    // LocalSet(I64Const(0)) for scalars, MemZero(size) for memory-backed
-    // types), so the frame does not need to be zeroed here. Re-using the
-    // bump buffer's stale contents is safe as long as every local is
-    // written before it is read — which the codegen guarantees.
-
-    *out_locals = new_locals;
     return 1;
 }
 
@@ -618,7 +606,7 @@ HANDLER(op_call) {
     frame->saved_frame_size = ctx->frame_stack_size;
 
     uint64_t* new_locals;
-    if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
+    if (!enter_function(ctx, target, &new_locals)) {
         return; // Stack overflow: ctx->error / ctx->done already set.
     }
 
@@ -720,7 +708,7 @@ HANDLER(op_call_closure) {
     frame->saved_frame_size = ctx->frame_stack_size;
 
     uint64_t* new_locals;
-    if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
+    if (!enter_function(ctx, target, &new_locals)) {
         return; // Stack overflow.
     }
 
@@ -798,7 +786,7 @@ HANDLER(op_call_indirect) {
     frame->saved_frame_size = ctx->frame_stack_size;
 
     uint64_t* new_locals;
-    if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
+    if (!enter_function(ctx, target, &new_locals)) {
         return; // Stack overflow.
     }
 
@@ -1263,7 +1251,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
 
     // Enter entry function.
     uint64_t* locals;
-    if (!enter_function(ctx, entry_func, NULL, 0, &locals)) {
+    if (!enter_function(ctx, entry_func, &locals)) {
         return ctx->result; // ctx->error already set.
     }
 
