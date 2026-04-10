@@ -615,114 +615,73 @@ HANDLER(op_jump_if_not_zero) {
 // --- Function calls ---
 
 HANDLER(op_call) {
-    // Fixed-ABI call: args are passed directly through the TOS register
-    // window, not via a memory round-trip. At op_call entry the top
-    // `nargs` TOS values are the args (packed into t0..t(nargs-1) with
-    // t0 = last pushed = arg(nargs-1)), and the next `preserve` values
-    // below that are the caller's non-arg live values which need to be
-    // spilled to memory so they survive the call. Anything deeper is
-    // already in memory from earlier deep pushes.
+    // No-spill call: the caller's non-arg t1..t3 values get round-tripped
+    // through memory naturally by the callee's deep PUSH/POP ops as its
+    // own depth grows and shrinks. We don't spill anything here; we just
+    // copy the args into the callee's locals and pop them off the TOS
+    // window. The caller's t0..t3 (post-pop) is handed to the callee
+    // through DISPATCH.
     //
-    // Note: do NOT spill l0/l1/l2 here. locals[0/1/2] are already
-    // up-to-date because LocalSetL* writes both register and memory, and
-    // fused ops write to memory directly.
+    // Note: do NOT spill l0/l1/l2. locals[0/1/2] are kept in sync with
+    // the hot-local registers by LocalSetL* and fused ops.
 
-    uint32_t target   = (uint32_t)pc->imm[0];
-    uint32_t nargs    = (uint32_t)(pc->imm[1] & 0xFF);
-    uint32_t preserve = (uint32_t)((pc->imm[1] >> 8) & 0xFF);
+    uint32_t target = (uint32_t)pc->imm[0];
+    uint32_t nargs  = (uint32_t)(pc->imm[1] & 0xFF);
 
-    // Partial spill: write `preserve` non-arg TOS values to memory. The
-    // non-args occupy positions t(nargs)..t(nargs+preserve-1) in the TOS
-    // window (below the args, which are at t0..t(nargs-1)). We spill
-    // from deepest (highest-indexed) to shallowest so that FILL_BELOW /
-    // FILL_ALL on the return side reads them back in the right order:
-    // memory[saved_sp - 1] = topmost non-arg → goes into t1 (just below
-    // the return value in t0).
-    //
-    // The arg values at t0..t(nargs-1) stay in the registers unchanged
-    // so they can be transferred directly into the callee's local slots
-    // below — no memory round-trip.
-    //
-    // Switch on (nargs << 4) | preserve to get a flat table. Only valid
-    // combinations appear; others fall through to no-op.
-    switch ((nargs << 4) | preserve) {
-        // nargs = 0: full TOS is non-arg (void call with live caller state)
-        case 0x04: *sp++ = t3; *sp++ = t2; *sp++ = t1; *sp++ = t0; break;
-        case 0x03: *sp++ = t2; *sp++ = t1; *sp++ = t0; break;
-        case 0x02: *sp++ = t1; *sp++ = t0; break;
-        case 0x01: *sp++ = t0; break;
-        // nargs = 1: args at t0, non-args at t1..t(preserve)
-        case 0x13: *sp++ = t3; *sp++ = t2; *sp++ = t1; break;
-        case 0x12: *sp++ = t2; *sp++ = t1; break;
-        case 0x11: *sp++ = t1; break;
-        // nargs = 2: args at t0..t1, non-args at t2..t(1+preserve)
-        case 0x22: *sp++ = t3; *sp++ = t2; break;
-        case 0x21: *sp++ = t2; break;
-        // nargs = 3: args at t0..t2, non-arg at t3 (if preserve=1)
-        case 0x31: *sp++ = t3; break;
-        // nargs = 4: no non-arg space in TOS
-        // All zero-preserve cases (incl. 0x00, 0x10, 0x20, 0x30, 0x40): no-op
-        default: break;
-    }
-
-    // Bounds-check the call stack before pushing a new frame.
     if (ctx->call_depth >= ctx->call_stack_cap) {
         ctx->error = "call stack overflow";
         ctx->done = 1;
         return;
     }
-    // Save call frame. saved_sp is the post-spill sp — op_return's
-    // FILL_BELOW / FILL_ALL will read the preserved values back out from
-    // here.
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_sp = sp;
     frame->func_idx = (uint32_t)pc->imm[2];
     frame->saved_frame_size = ctx->frame_stack_size;
 
-    // Enter callee. Pass args=NULL / arg_count=0 so enter_function only
-    // allocates the frame; we fill the param slots from the TOS window
-    // ourselves immediately below.
     uint64_t* new_locals;
     if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
         return; // Stack overflow: ctx->error / ctx->done already set.
     }
 
-    // Transfer args from TOS directly into the callee's param slots.
-    // Layout: t0=arg(nargs-1), t1=arg(nargs-2), ..., t(nargs-1)=arg0.
-    // For nargs > 4, args beyond the window are in memory at positions
-    // just below callee_fp (from earlier deep pushes); we read them via
-    // sp. We reload memory-resident args from (sp - (nargs - 4) - preserve)
-    // because preserve values were just written above them — no they
-    // weren't, preserve is always 0 when nargs > 4 (since TOS is full of
-    // args, there's no room for non-args in the window). Safe to read
-    // memory args at [sp - (nargs - 4) .. sp - 1] where sp is the
-    // post-spill sp (with preserve=0, unchanged from entry).
+    // Transfer args from the TOS window into the callee's param slots,
+    // and simultaneously pop them from the caller's window. After the
+    // pops, t0..t3 holds the caller's stack state minus the args, with
+    // any deeper values pulled in from memory by the deep-pop refill.
+    //
+    // Layout: t0 = arg(nargs-1) (last pushed), t1 = arg(nargs-2), ...,
+    // t(nargs-1) = arg0 (first pushed). For nargs > 4 the bottom args
+    // sit in memory just below sp (placed there by earlier deep pushes
+    // displacing them out of the window).
     switch (nargs) {
         case 0:
             break;
         case 1:
             new_locals[0] = t0;
+            t0 = t1; t1 = t2; t2 = t3; t3 = *--sp;
             break;
         case 2:
             new_locals[0] = t1;
             new_locals[1] = t0;
+            t0 = t2; t1 = t3; t2 = *--sp; t3 = *--sp;
             break;
         case 3:
             new_locals[0] = t2;
             new_locals[1] = t1;
             new_locals[2] = t0;
+            t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp;
             break;
         case 4:
             new_locals[0] = t3;
             new_locals[1] = t2;
             new_locals[2] = t1;
             new_locals[3] = t0;
+            t0 = *--sp; t1 = *--sp; t2 = *--sp; t3 = *--sp;
             break;
         default: {
-            // nargs > 4: top 4 in TOS, earlier args in memory just below sp.
-            // preserve is 0 here so sp was not advanced by the partial spill.
+            // nargs > 4: 4 args in registers, (nargs - 4) in memory just
+            // below sp. Read memory args first (before sp moves), then
+            // register args, then refill the window from below.
             uint32_t mem_args = nargs - 4;
             uint64_t* src = sp - mem_args;
             for (uint32_t i = 0; i < mem_args; i++) {
@@ -732,18 +691,38 @@ HANDLER(op_call) {
             new_locals[mem_args + 1] = t2;
             new_locals[mem_args + 2] = t1;
             new_locals[mem_args + 3] = t0;
-            // Decrement sp to consume the memory-resident args.
-            sp -= mem_args;
-            frame->saved_sp = sp;
+            // Pop nargs values total: sp drops by nargs, and t0..t3 are
+            // refilled from the four memory slots just below the new sp.
+            sp -= nargs;
+            t0 = sp[-1];
+            t1 = sp[-2];
+            t2 = sp[-3];
+            t3 = sp[-4];
             break;
         }
     }
 
+    frame->saved_sp = sp;
+
     Instruction* entry = ctx->functions[target].code;
-    // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2].
-    DISPATCH(ctx, entry, sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2] and
+    // inherits the caller's TOS window (post-pop). The window holds
+    // garbage at depths < 4 — that's fine because well-formed callee
+    // code never reads t-registers it hasn't pushed first.
+    DISPATCH(ctx, entry, sp, new_locals, new_locals[0], new_locals[1], new_locals[2], t0, t1, t2, t3);
 }
 
+// Shared body for op_call_closure and op_call_indirect: consume t0 (the
+// fat_ptr or func_idx), then consume nargs args. The call site differs
+// only in how `target` is computed before this runs.
+//
+// The TOS layout at entry is: t0 = fat_ptr / func_idx (consumed),
+// t1 = arg(nargs-1), t2 = arg(nargs-2), t3 = arg(nargs-3), and any
+// further args in memory just below sp.
+//
+// We do (nargs + 1) deep pops total: 1 for the consumed t0, then nargs
+// more for the args. After this, t0..t3 holds the caller's stack state
+// minus the consumed values.
 HANDLER(op_call_closure) {
     // t0 is the fat_ptr address (last thing pushed before call_closure)
     uint8_t* fat_ptr = (uint8_t*)t0;
@@ -751,9 +730,6 @@ HANDLER(op_call_closure) {
     ctx->closure_ptr = *(uint64_t*)(fat_ptr + 8);
     uint32_t nargs = (uint32_t)pc->imm[0];
 
-    // Spill remaining TOS (t1, t2, t3) -- t0 was consumed as fat_ptr
-    *sp++ = t3; *sp++ = t2; *sp++ = t1;
-
     if (ctx->call_depth >= ctx->call_stack_cap) {
         ctx->error = "call stack overflow";
         ctx->done = 1;
@@ -762,31 +738,76 @@ HANDLER(op_call_closure) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
 
-    uint64_t args[256];
-    for (uint32_t i = 0; i < nargs; i++) {
-        args[nargs - 1 - i] = *--sp;
-    }
-
     uint64_t* new_locals;
-    if (!enter_function(ctx, target, args, nargs, &new_locals)) {
+    if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
         return; // Stack overflow.
     }
 
+    // Args are below the consumed fat_ptr in t0:
+    //   t1 = arg(nargs-1), t2 = arg(nargs-2), t3 = arg(nargs-3),
+    //   memory just below sp = arg(nargs-4), ..., arg0 deepest.
+    // Copy args to new_locals, then pop (nargs + 1) values total.
+    switch (nargs) {
+        case 0:
+            // Only the fat_ptr is consumed. Pop 1.
+            t0 = t1; t1 = t2; t2 = t3; t3 = *--sp;
+            break;
+        case 1:
+            new_locals[0] = t1;
+            // Pop 2 (fat_ptr + 1 arg).
+            t0 = t2; t1 = t3; t2 = *--sp; t3 = *--sp;
+            break;
+        case 2:
+            new_locals[0] = t2;
+            new_locals[1] = t1;
+            // Pop 3.
+            t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp;
+            break;
+        case 3:
+            new_locals[0] = t3;
+            new_locals[1] = t2;
+            new_locals[2] = t1;
+            // Pop 4.
+            t0 = *--sp; t1 = *--sp; t2 = *--sp; t3 = *--sp;
+            break;
+        default: {
+            // nargs >= 4: 3 args in registers (t1..t3), the rest in memory
+            // just below sp. arg0 is deepest, arg(nargs-1) is just below
+            // the fat_ptr in t1.
+            uint32_t mem_args = nargs - 3;
+            uint64_t* src = sp - mem_args;
+            for (uint32_t i = 0; i < mem_args; i++) {
+                new_locals[i] = src[i];
+            }
+            new_locals[mem_args + 0] = t3;
+            new_locals[mem_args + 1] = t2;
+            new_locals[mem_args + 2] = t1;
+            // Total pops = nargs + 1 (args + fat_ptr). Drop sp by mem_args
+            // (the memory part) plus 1 more for the fat_ptr's "shadow"
+            // memory slot, then refill the window from the four slots
+            // just below the new sp.
+            sp -= mem_args + 1;
+            t0 = sp[-1];
+            t1 = sp[-2];
+            t2 = sp[-3];
+            t3 = sp[-4];
+            break;
+        }
+    }
+
+    frame->saved_sp = sp;
+
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    DISPATCH(ctx, entry, sp, new_locals, new_locals[0], new_locals[1], new_locals[2], t0, t1, t2, t3);
 }
 
 HANDLER(op_call_indirect) {
     uint32_t target = (uint32_t)(int64_t)t0; // t0 consumed as func_idx
     uint32_t nargs = (uint32_t)pc->imm[0];
 
-    // Spill remaining TOS (t1, t2, t3) -- t0 was consumed
-    *sp++ = t3; *sp++ = t2; *sp++ = t1;
-
     if (ctx->call_depth >= ctx->call_stack_cap) {
         ctx->error = "call stack overflow";
         ctx->done = 1;
@@ -795,45 +816,89 @@ HANDLER(op_call_indirect) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_sp = sp - nargs;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
 
-    uint64_t args[256];
-    for (uint32_t i = 0; i < nargs; i++) {
-        args[nargs - 1 - i] = *--sp;
-    }
-
     uint64_t* new_locals;
-    if (!enter_function(ctx, target, args, nargs, &new_locals)) {
+    if (!enter_function(ctx, target, NULL, 0, &new_locals)) {
         return; // Stack overflow.
     }
 
+    // Same shape as op_call_closure: t0 was consumed (as func_idx), so
+    // args are at t1..t3 + memory below sp. Pop (nargs + 1) total.
+    switch (nargs) {
+        case 0:
+            t0 = t1; t1 = t2; t2 = t3; t3 = *--sp;
+            break;
+        case 1:
+            new_locals[0] = t1;
+            t0 = t2; t1 = t3; t2 = *--sp; t3 = *--sp;
+            break;
+        case 2:
+            new_locals[0] = t2;
+            new_locals[1] = t1;
+            t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp;
+            break;
+        case 3:
+            new_locals[0] = t3;
+            new_locals[1] = t2;
+            new_locals[2] = t1;
+            t0 = *--sp; t1 = *--sp; t2 = *--sp; t3 = *--sp;
+            break;
+        default: {
+            uint32_t mem_args = nargs - 3;
+            uint64_t* src = sp - mem_args;
+            for (uint32_t i = 0; i < mem_args; i++) {
+                new_locals[i] = src[i];
+            }
+            new_locals[mem_args + 0] = t3;
+            new_locals[mem_args + 1] = t2;
+            new_locals[mem_args + 2] = t1;
+            sp -= mem_args + 1;
+            t0 = sp[-1];
+            t1 = sp[-2];
+            t2 = sp[-3];
+            t3 = sp[-4];
+            break;
+        }
+    }
+
+    frame->saved_sp = sp;
+
     Instruction* entry = ctx->functions[target].code;
-    DISPATCH(ctx, entry, frame->saved_sp, new_locals, new_locals[0], new_locals[1], new_locals[2], 0, 0, 0, 0);
+    DISPATCH(ctx, entry, sp, new_locals, new_locals[0], new_locals[1], new_locals[2], t0, t1, t2, t3);
 }
 
 HANDLER(op_return) {
-    uint64_t result = t0;
-
+    // The callee leaves its return value in t0 with t1..t3 already
+    // restored by its own balanced deep PUSH/POP traffic — no FILL_BELOW
+    // needed. The deep pops at the call site (in op_call) and throughout
+    // the callee body have already round-tripped the caller's t1..t3
+    // through memory and back into the registers.
+    //
+    // We do NOT rewind sp to saved_sp here. Under the all-deep-ops
+    // invariant, sp = stack_base + depth, so the callee's sp at return
+    // time is already `saved_sp + arity` — exactly the value the caller
+    // needs to see for its own depth bookkeeping. Rewinding to saved_sp
+    // would drop the slot corresponding to the return value.
     if (ctx->call_depth == 0) {
-        ctx->result = (int64_t)result;
+        ctx->result = (int64_t)t0;
         ctx->done = 1;
         return; // Exit interpreter.
     }
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
-    sp = frame->saved_sp;
     locals = frame->saved_locals;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
-    t0 = result;
-    FILL_BELOW();
     DISPATCH(ctx, frame->return_pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 
 HANDLER(op_return_void) {
+    // arity = 0: sp should already equal saved_sp (callee's final depth
+    // is 0). Still don't rewind — just use the current sp, which is the
+    // authoritative "empty-stack-for-this-frame" value.
     if (ctx->call_depth == 0) {
         ctx->result = 0;
         ctx->done = 1;
@@ -842,11 +907,9 @@ HANDLER(op_return_void) {
 
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
-    sp = frame->saved_sp;
     locals = frame->saved_locals;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
-    FILL_ALL();
     DISPATCH(ctx, frame->return_pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
 }
 

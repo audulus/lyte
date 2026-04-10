@@ -582,8 +582,22 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn translate_expr_inner(&mut self, expr: ExprID, func: &mut StackFunction, void_ctx: bool) {
-        let _old_void_ctx = self.void_ctx;
+        // Save/restore void_ctx so it reflects the current caller's
+        // context at each translate_expr_inner entry. Without the restore,
+        // a nested translate_expr call would clobber the flag and the
+        // outer While/For handler would wrongly believe its result was
+        // needed, emitting a spurious I64Const(0). That used to be
+        // harmless because op_return_void did FILL_ALL and forcibly
+        // restored the caller's TOS window from memory, but with the
+        // no-spill op_call/op_return design any trailing value leaves
+        // the callee's final depth unbalanced and leaks into the caller.
+        let old_void_ctx = self.void_ctx;
         self.void_ctx = void_ctx;
+        self.translate_expr_inner_body(expr, func);
+        self.void_ctx = old_void_ctx;
+    }
+
+    fn translate_expr_inner_body(&mut self, expr: ExprID, func: &mut StackFunction) {
         match &self.decl.arena.exprs[expr].clone() {
             Expr::Int(n) => {
                 func.emit(StackOp::I64Const(*n));

@@ -644,12 +644,14 @@ pub fn run(program: &StackProgram) -> i64 {
     let mut c_instructions: Vec<Vec<Instruction>> = Vec::new();
 
     for (fi, func) in program.functions.iter().enumerate() {
-        let depths = crate::stack_depth::compute_depths(func);
+        // Shallow ops disabled: every op now uses the deep variant. The
+        // op_call partial spill and op_return FILL_BELOW go away because
+        // deep PUSH/POP naturally round-trips caller t0..t3 through
+        // memory across a balanced call.
         let mut instrs: Vec<Instruction> = Vec::with_capacity(func.ops.len());
-        for (i, op) in func.ops.iter().enumerate() {
-            let shallow = (depths[i] as u32) < 4 && needs_shallow(op);
+        for op in func.ops.iter() {
             instrs.push(Instruction {
-                handler: handler_for(op, shallow),
+                handler: handler_for(op, false),
                 imm: encode_imm(op, fi as u32),
             });
         }
