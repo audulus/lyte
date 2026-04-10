@@ -112,21 +112,23 @@ typedef PRESERVE_NONE void (*Handler)(
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 
-// Linear dispatch: branch to preloaded nh, preload handler for instruction after next.
-// nh is available as a macro in the handler (cast from _nh_raw).
-#define NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3) \
+// Linear dispatch: branch to preloaded nh, preload handler for instruction
+// after next. These macros are parameterless and reference the handler's
+// in-scope ctx/pc/sp/locals/l0-l2/t0-t3/_nh_raw arguments directly. They
+// must only be used inside a HANDLER() body.
+#define NEXT() \
     do { \
-        Instruction* _next = (pc) + 1; \
+        Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
         __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
 // Non-linear dispatch: reload handler from target, preload the one after.
 // Used by jumps, calls, returns.
-#define DISPATCH(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3) \
+#define DISPATCH() \
     do { \
-        Handler _target_h = (Handler)(pc)->handler; \
-        void* _new_nh = ((pc) + 1)->handler; \
+        Handler _target_h = (Handler)pc->handler; \
+        void* _new_nh = (pc + 1)->handler; \
         __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
