@@ -116,6 +116,7 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::SliceStore32 => -3,
         StackOp::FusedAddrGetSliceStore32(_, _) => -1, // pop value from TOS
         StackOp::FusedTeeSliceStore32(_, _, _) => -1, // pop value from TOS
+        StackOp::FusedTeeSinCosSet(_, _, _) => -1,    // pop theta from TOS
 
         // FusedFMulFAdd/FSub: pop 3, push 1 = net -2
         StackOp::FusedFMulFAdd | StackOp::FusedFMulFSub => -2,

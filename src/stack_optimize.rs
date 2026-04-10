@@ -128,8 +128,58 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        // local.set N + local.get N → local.tee N
+        // The codegen emits `var x = expr; use(x)` as set+get; the tee
+        // form keeps the value on the stack and writes to the local in
+        // one op. Saves 1 op per var declaration that is immediately
+        // read — significant in the FFT inner loop's theta/wr/wi chain.
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalSet(a), StackOp::LocalGet(b)) = (&ops[i], &ops[i+1]) {
+                if *a == *b {
+                    let n = *a;
+                    ops[i] = StackOp::LocalTee(n);
+                    ops[i+1] = StackOp::Nop;
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
         // local.addr s + local.get idx + slice.load32 + local.set dst → FusedAddrGetSliceLoad32Set
         // (already have FusedAddrGetSliceLoad32, but this adds the local.set)
+
+        // === 6-instruction fusions ===
+
+        // FFT twiddle-factor sequence:
+        //   local.tee T; f32.cos; local.set C; local.get T; f32.sin; local.set S
+        // → FusedTeeSinCosSet(T, C, S)
+        //
+        // Matches only when the LocalGet reads the same slot as the
+        // LocalTee (i.e. the var is theta and is consumed by both cos
+        // and sin). The single handler calls sincosf once instead of
+        // cosf + sinf separately.
+        if i + 5 < len && !spans_target(i, 6) {
+            if let (
+                StackOp::LocalTee(t),
+                StackOp::CosF32,
+                StackOp::LocalSet(c),
+                StackOp::LocalGet(t2),
+                StackOp::SinF32,
+                StackOp::LocalSet(s),
+            ) = (&ops[i], &ops[i+1], &ops[i+2], &ops[i+3], &ops[i+4], &ops[i+5]) {
+                if *t == *t2 {
+                    let t = *t; let c = *c; let s = *s;
+                    ops[i] = StackOp::FusedTeeSinCosSet(t, c, s);
+                    ops[i+1] = StackOp::Nop;
+                    ops[i+2] = StackOp::Nop;
+                    ops[i+3] = StackOp::Nop;
+                    ops[i+4] = StackOp::Nop;
+                    ops[i+5] = StackOp::Nop;
+                    i += 6;
+                    continue;
+                }
+            }
+        }
 
         // === 4-instruction fusions ===
 

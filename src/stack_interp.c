@@ -1252,6 +1252,20 @@ HANDLER(op_fused_tee_sstore32) {
     NEXT();
 }
 
+// --- Tee + sincos + two sets: locals[t] = theta; sincosf(theta) →
+// --- locals[c]=cos, locals[s]=sin; pop. Replaces the 6-op twiddle-
+// --- factor sequence in FFT's butterfly inner loop. ---
+HANDLER(op_fused_tee_sincos_set) {
+    float theta = as_f32(t0);
+    locals[pc->imm[0]] = t0;
+    float c, s;
+    __sincosf(theta, &s, &c);
+    locals[pc->imm[1]] = from_f32(c);
+    locals[pc->imm[2]] = from_f32(s);
+    DROP1();
+    NEXT();
+}
+
 // --- Variable move: locals[b] = locals[a]. No stack change. ---
 HANDLER(op_fused_get_set) {
     locals[pc->imm[1]] = locals[pc->imm[0]];

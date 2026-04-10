@@ -517,22 +517,19 @@ impl<'a> FunctionTranslator<'a> {
             // assignment result (e.g. `phase = phase + freq` where the tee'd
             // value is consumed). Fall through to default for now.
             // TODO: determine when assignment result is truly unused.
-            // Block: recurse with void context for intermediate exprs.
+            // Block: recurse with void context for every expression,
+            // including the last. Using translate_void for the last
+            // expression lets value-producing constructs (If, For, While,
+            // calls to void functions) avoid emitting their placeholder
+            // result + matching drop — important for the FFT inner loop
+            // where an if-without-else previously cost 4 wasted ops per
+            // iteration.
             Expr::Block(exprs) => {
                 let exprs = exprs.clone();
-                if exprs.is_empty() {
-                    // Nothing to do in void context.
-                } else {
+                if !exprs.is_empty() {
                     let saved_vars = self.variables.clone();
-                    for (i, &expr_id) in exprs.iter().enumerate() {
-                        if i < exprs.len() - 1 {
-                            self.translate_void(expr_id, func);
-                        } else {
-                            // Last expression: translate normally then drop
-                            // (safer than void-propagation for complex exprs).
-                            self.translate_expr(expr_id, func);
-                            func.emit(StackOp::Drop);
-                        }
+                    for &expr_id in exprs.iter() {
+                        self.translate_void(expr_id, func);
                     }
                     self.variables = saved_vars;
                 }

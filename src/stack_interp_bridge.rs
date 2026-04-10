@@ -200,6 +200,7 @@ extern "C" {
     fn op_fused_f32const_fgt_jiz();
     fn op_fused_addr_get_sstore32();
     fn op_fused_tee_sstore32();
+    fn op_fused_tee_sincos_set();
     fn op_fused_get_set();
     fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
     fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
@@ -377,6 +378,7 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
         StackOp::FusedTeeSliceStore32(_, _, _) => op_fused_tee_sstore32 as *const (),
+        StackOp::FusedTeeSinCosSet(_, _, _) => op_fused_tee_sincos_set as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
         StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
         StackOp::FusedGetAddrFMulFSub(_, _, _) => op_fused_get_addr_fmul_fsub as *const (),
@@ -456,6 +458,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetGetFAddSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
         StackOp::FusedFieldCopy32(s, src, dst) => [*s as u64, *src as i64 as u64, *dst as i64 as u64],
         StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
+        StackOp::FusedTeeSinCosSet(t, c, s) => [*t as u64, *c as u64, *s as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
         StackOp::FusedF32ConstFGtJumpIfZero(v, off) => [f32::to_bits(*v) as u64, *off as i64 as u64, 0],
