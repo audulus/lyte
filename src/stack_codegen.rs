@@ -732,8 +732,10 @@ impl<'a> FunctionTranslator<'a> {
                 if !self.is_ptr_type(&ty) {
                     let local = self.alloc_scalar();
                     if let Some(init_id) = init {
-                        self.translate_expr(init_id, func);
-                        func.emit(StackOp::LocalSet(local));
+                        if !self.try_emit_binop_set(local, init_id, func) {
+                            self.translate_expr(init_id, func);
+                            func.emit(StackOp::LocalSet(local));
+                        }
                     } else {
                         func.emit(StackOp::I64Const(0));
                         func.emit(StackOp::LocalSet(local));
@@ -1167,6 +1169,12 @@ impl<'a> FunctionTranslator<'a> {
         if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
             let name = *name;
             if let Some(&LocalKind::Scalar(slot)) = self.variables.get(&name) {
+                // Try to emit a register-form `locals[slot] = a OP b` op
+                // directly. Skips the stack trip through LocalGet+LocalGet+
+                // <op>+LocalTee for common arithmetic patterns.
+                if self.void_ctx && self.try_emit_binop_set(slot, rhs_id, func) {
+                    return;
+                }
                 self.translate_expr(rhs_id, func);
                 func.emit(StackOp::LocalTee(slot));
                 return;
@@ -1266,6 +1274,41 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
         None
+    }
+
+    /// Try to emit `locals[dst_slot] = <binop>` as a single register-form
+    /// op when the binop's operands are both simple scalar locals. Covers
+    /// Plus/Minus/Mult/Div for f32 and Plus/Minus/Mult for i32. Returns
+    /// true on success; the caller is responsible for emitting the naive
+    /// `translate_expr(rhs_id) + LocalSet(dst_slot)` sequence otherwise.
+    fn try_emit_binop_set(
+        &mut self,
+        dst_slot: u16,
+        rhs_id: ExprID,
+        func: &mut StackFunction,
+    ) -> bool {
+        let (op, lhs, rhs) = match &self.decl.arena.exprs[rhs_id] {
+            Expr::Binop(op, lhs, rhs) => (*op, *lhs, *rhs),
+            _ => return false,
+        };
+        let Some(a_slot) = self.get_scalar_local(lhs) else { return false; };
+        let Some(b_slot) = self.get_scalar_local(rhs) else { return false; };
+        let ty = self.expr_type(rhs_id);
+        let fused = match (op, &*ty) {
+            (Binop::Plus,  Type::Float32) => StackOp::FusedGetGetFAddSet(a_slot, b_slot, dst_slot),
+            (Binop::Minus, Type::Float32) => StackOp::FusedGetGetFSubSet(a_slot, b_slot, dst_slot),
+            (Binop::Mult,  Type::Float32) => StackOp::FusedGetGetFMulSet(a_slot, b_slot, dst_slot),
+            (Binop::Div,   Type::Float32) => StackOp::FusedGetGetFDivSet(a_slot, b_slot, dst_slot),
+            (Binop::Plus,  _) if !matches!(&*ty, Type::Float64) =>
+                StackOp::FusedGetGetIAddSet(a_slot, b_slot, dst_slot),
+            (Binop::Minus, _) if !matches!(&*ty, Type::Float64) =>
+                StackOp::FusedGetGetISubSet(a_slot, b_slot, dst_slot),
+            (Binop::Mult,  _) if !matches!(&*ty, Type::Float64) =>
+                StackOp::FusedGetGetIMulSet(a_slot, b_slot, dst_slot),
+            _ => return false,
+        };
+        func.emit(fused);
+        true
     }
 
     /// Translate an lvalue expression. Pushes the address onto the stack.

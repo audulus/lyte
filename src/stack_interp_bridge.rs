@@ -196,6 +196,12 @@ extern "C" {
     fn op_assert();
     fn op_get_closure_ptr();
     fn op_fused_get_get_fadd_set();
+    fn op_fused_get_get_fsub_set();
+    fn op_fused_get_get_fmul_set();
+    fn op_fused_get_get_fdiv_set();
+    fn op_fused_get_get_iadd_set();
+    fn op_fused_get_get_isub_set();
+    fn op_fused_get_get_imul_set();
     fn op_fused_field_copy32();
     fn op_fused_f32const_fgt_jiz();
     fn op_fused_addr_get_sstore32();
@@ -374,6 +380,12 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
         StackOp::FusedGetGetFAddSet(_, _, _) => op_fused_get_get_fadd_set as *const (),
+        StackOp::FusedGetGetFSubSet(_, _, _) => op_fused_get_get_fsub_set as *const (),
+        StackOp::FusedGetGetFMulSet(_, _, _) => op_fused_get_get_fmul_set as *const (),
+        StackOp::FusedGetGetFDivSet(_, _, _) => op_fused_get_get_fdiv_set as *const (),
+        StackOp::FusedGetGetIAddSet(_, _, _) => op_fused_get_get_iadd_set as *const (),
+        StackOp::FusedGetGetISubSet(_, _, _) => op_fused_get_get_isub_set as *const (),
+        StackOp::FusedGetGetIMulSet(_, _, _) => op_fused_get_get_imul_set as *const (),
         StackOp::FusedFieldCopy32(_, _, _) => op_fused_field_copy32 as *const (),
         StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
@@ -455,7 +467,13 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         }
         StackOp::FusedAddrLoad32OffSet(s, o, d) => [*s as u64, *o as i64 as u64, *d as u64],
         StackOp::FusedAddrImmGetStore32(s, o, src) => [*s as u64, *o as i64 as u64, *src as u64],
-        StackOp::FusedGetGetFAddSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
+        StackOp::FusedGetGetFAddSet(a, b, d)
+        | StackOp::FusedGetGetFSubSet(a, b, d)
+        | StackOp::FusedGetGetFMulSet(a, b, d)
+        | StackOp::FusedGetGetFDivSet(a, b, d)
+        | StackOp::FusedGetGetIAddSet(a, b, d)
+        | StackOp::FusedGetGetISubSet(a, b, d)
+        | StackOp::FusedGetGetIMulSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
         StackOp::FusedFieldCopy32(s, src, dst) => [*s as u64, *src as i64 as u64, *dst as i64 as u64],
         StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
         StackOp::FusedTeeSinCosSet(t, c, s) => [*t as u64, *c as u64, *s as u64],

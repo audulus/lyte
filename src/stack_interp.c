@@ -1216,9 +1216,36 @@ HANDLER(op_fused_f32const_fgt_jiz) {
     NEXT();
 }
 
-// --- locals[dst] = locals[a] + locals[b] (f32). No stack change. ---
+// --- 3-address register-form arithmetic. locals[dst] = locals[a] <op> locals[b]. ---
+// No stack change; these replace LocalGet+LocalGet+<op>+LocalSet sequences
+// emitted directly by codegen for `x = a OP b` patterns when x, a, b are
+// simple scalar locals.
 HANDLER(op_fused_get_get_fadd_set) {
     locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]]));
+    NEXT();
+}
+HANDLER(op_fused_get_get_fsub_set) {
+    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]]));
+    NEXT();
+}
+HANDLER(op_fused_get_get_fmul_set) {
+    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]]));
+    NEXT();
+}
+HANDLER(op_fused_get_get_fdiv_set) {
+    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) / as_f32(locals[pc->imm[1]]));
+    NEXT();
+}
+HANDLER(op_fused_get_get_iadd_set) {
+    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]);
+    NEXT();
+}
+HANDLER(op_fused_get_get_isub_set) {
+    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] - (int64_t)locals[pc->imm[1]]);
+    NEXT();
+}
+HANDLER(op_fused_get_get_imul_set) {
+    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] * (int64_t)locals[pc->imm[1]]);
     NEXT();
 }
 

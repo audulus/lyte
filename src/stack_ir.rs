@@ -296,6 +296,18 @@ pub enum StackOp {
     FusedF32ConstFGtJumpIfZero(f32, i32),
     /// locals[dst] = locals[a] + locals[b] (f32). Pop 0, push 0.
     FusedGetGetFAddSet(u16, u16, u16),
+    /// locals[dst] = locals[a] - locals[b] (f32). Pop 0, push 0.
+    FusedGetGetFSubSet(u16, u16, u16),
+    /// locals[dst] = locals[a] * locals[b] (f32). Pop 0, push 0.
+    FusedGetGetFMulSet(u16, u16, u16),
+    /// locals[dst] = locals[a] / locals[b] (f32). Pop 0, push 0.
+    FusedGetGetFDivSet(u16, u16, u16),
+    /// locals[dst] = locals[a] + locals[b] (i64). Pop 0, push 0.
+    FusedGetGetIAddSet(u16, u16, u16),
+    /// locals[dst] = locals[a] - locals[b] (i64). Pop 0, push 0.
+    FusedGetGetISubSet(u16, u16, u16),
+    /// locals[dst] = locals[a] * locals[b] (i64). Pop 0, push 0.
+    FusedGetGetIMulSet(u16, u16, u16),
     /// Copy struct field: *(i32*)(lm+s*8+dst_off) = *(i32*)(lm+s*8+src_off). Pop 0, push 0.
     FusedFieldCopy32(u16, i32, i32),
     /// locals[n] = TOS; slice[locals[idx]*4] = TOS; pop. Combines local.tee + slice store.
@@ -580,6 +592,12 @@ impl fmt::Display for StackOp {
             StackOp::FusedAddrImmGetStore32(s, o, src) => write!(f, "fused.addr_imm_get_store32 {} {} {}", s, o, src),
             StackOp::FusedF32ConstFGtJumpIfZero(v, o) => write!(f, "fused.f32const_fgt_jiz {} {}", v, o),
             StackOp::FusedGetGetFAddSet(a, b, d) => write!(f, "fused.get_get_fadd_set {} {} {}", a, b, d),
+            StackOp::FusedGetGetFSubSet(a, b, d) => write!(f, "fused.get_get_fsub_set {} {} {}", a, b, d),
+            StackOp::FusedGetGetFMulSet(a, b, d) => write!(f, "fused.get_get_fmul_set {} {} {}", a, b, d),
+            StackOp::FusedGetGetFDivSet(a, b, d) => write!(f, "fused.get_get_fdiv_set {} {} {}", a, b, d),
+            StackOp::FusedGetGetIAddSet(a, b, d) => write!(f, "fused.get_get_iadd_set {} {} {}", a, b, d),
+            StackOp::FusedGetGetISubSet(a, b, d) => write!(f, "fused.get_get_isub_set {} {} {}", a, b, d),
+            StackOp::FusedGetGetIMulSet(a, b, d) => write!(f, "fused.get_get_imul_set {} {} {}", a, b, d),
             StackOp::FusedFieldCopy32(s, src, dst) => write!(f, "fused.field_copy32 {} {} {}", s, src, dst),
             StackOp::FusedTeeSliceStore32(n, s, idx) => write!(f, "fused.tee_sstore32 {} {} {}", n, s, idx),
             StackOp::FusedTeeSinCosSet(t, c, s) => write!(f, "fused.tee_sincos_set {} {} {}", t, c, s),

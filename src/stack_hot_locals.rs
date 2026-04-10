@@ -229,7 +229,13 @@ fn rewrite_local_indices(op: &mut StackOp, remap: &[u16]) {
             r(a, remap);
             r(b, remap);
         }
-        StackOp::FusedGetGetFAddSet(a, b, d) => {
+        StackOp::FusedGetGetFAddSet(a, b, d)
+        | StackOp::FusedGetGetFSubSet(a, b, d)
+        | StackOp::FusedGetGetFMulSet(a, b, d)
+        | StackOp::FusedGetGetFDivSet(a, b, d)
+        | StackOp::FusedGetGetIAddSet(a, b, d)
+        | StackOp::FusedGetGetISubSet(a, b, d)
+        | StackOp::FusedGetGetIMulSet(a, b, d) => {
             r(a, remap);
             r(b, remap);
             r(d, remap);
