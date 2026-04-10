@@ -335,55 +335,55 @@ CMP_OP(op_dle, double, as_f64, <=)
 // --- Bitwise (binary) ---
 
 HANDLER(op_and) {
-    t0 = t1 & t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 & t0; BINOP_SHIFT(); NEXT_ALL();
 }
 HANDLER(op_or) {
-    t0 = t1 | t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 | t0; BINOP_SHIFT(); NEXT_ALL();
 }
 HANDLER(op_xor) {
-    t0 = t1 ^ t0; BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 ^ t0; BINOP_SHIFT(); NEXT_ALL();
 }
 HANDLER(op_not) {
-    t0 = ~t0; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = ~t0; NEXT_ALL();
 }
 HANDLER(op_shl) {
-    t0 = t1 << (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 << (t0 & 63); BINOP_SHIFT(); NEXT_ALL();
 }
 HANDLER(op_shr) {
-    t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT(); NEXT_ALL();
 }
 HANDLER(op_ushr) {
-    t0 = t1 >> (t0 & 63); BINOP_SHIFT(); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t1 >> (t0 & 63); BINOP_SHIFT(); NEXT_ALL();
 }
 
 // --- Type conversions (unary) ---
 
 HANDLER(op_i32_to_f32) {
-    t0 = from_f32((float)(int32_t)t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f32((float)(int32_t)t0); NEXT_ALL();
 }
 HANDLER(op_f32_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)as_f32(t0); NEXT_ALL();
 }
 HANDLER(op_i32_to_f64) {
-    t0 = from_f64((double)(int32_t)t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f64((double)(int32_t)t0); NEXT_ALL();
 }
 HANDLER(op_f64_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT_ALL();
 }
 HANDLER(op_f32_to_f64) {
-    t0 = from_f64((double)as_f32(t0)); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f64((double)as_f32(t0)); NEXT_ALL();
 }
 HANDLER(op_f64_to_f32) {
-    t0 = from_f32((float)as_f64(t0)); NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = from_f32((float)as_f64(t0)); NEXT_ALL();
 }
 HANDLER(op_i32_to_i8) {
-    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT_ALL();
 }
 HANDLER(op_i8_to_i32) {
-    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = (uint64_t)(int64_t)(int32_t)(int8_t)t0; NEXT_ALL();
 }
 HANDLER(op_i64_to_u32) {
-    t0 = t0 & 0xFFFFFFFF; NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3);
+    t0 = t0 & 0xFFFFFFFF; NEXT_ALL();
 }
 
 // --- Memory loads (unary: transform t0) ---
