@@ -131,6 +131,13 @@ typedef PRESERVE_NONE void (*Handler)(
     } while(0)
 
 // Entry point: called from Rust via FFI.
+//
+// This function performs no heap allocation and is safe to call from
+// a realtime audio thread. The caller must pre-populate all runtime
+// buffers on the context before the first call: call_stack /
+// call_stack_cap, frame_stack / frame_stack_cap, and stack_base.
+// A single context can be reused across invocations — done, result,
+// error, frame_stack_size, and call_depth are reset on entry.
 int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func);
 
 #endif // STACK_INTERP_H

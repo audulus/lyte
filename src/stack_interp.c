@@ -1248,28 +1248,22 @@ HANDLER(op_fused_addr_imm_get_store32) {
 // Entry point
 // ============================================================================
 
+// Realtime-safe entry point: performs no allocation. The caller must
+// pre-populate ctx->stack_base (operand stack), ctx->frame_stack /
+// frame_stack_cap (unified locals+local-memory bump buffer), and
+// ctx->call_stack / call_stack_cap before calling. The frame stack
+// size is reset here; done/result/error are cleared so a single ctx
+// can be reused across invocations.
 int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
-    // Allocate operand stack.
-    uint64_t* stack = (uint64_t*)calloc(64 * 1024, sizeof(uint64_t));
-    ctx->stack_base = stack;
     ctx->done = 0;
     ctx->result = 0;
     ctx->error = NULL;
-
-    // Pre-allocate unified frame stack (bump allocator) holding both scalar
-    // locals and local memory contiguously per call. Raw pointers into this
-    // buffer are held on the operand stack (e.g., output pointers for struct
-    // returns), so the buffer must not move.
-    if (ctx->frame_stack == NULL) {
-        ctx->frame_stack_cap = 512 * 1024; // 4 MB worth of u64 slots
-        ctx->frame_stack = (uint64_t*)calloc(ctx->frame_stack_cap, sizeof(uint64_t));
-        ctx->frame_stack_size = 0;
-    }
+    ctx->frame_stack_size = 0;
+    ctx->call_depth = 0;
 
     // Enter entry function.
     uint64_t* locals;
     if (!enter_function(ctx, entry_func, NULL, 0, &locals)) {
-        free(stack);
         return ctx->result; // ctx->error already set.
     }
 
@@ -1277,8 +1271,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     // Preload the handler for the second instruction as nh.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
-    ((Handler)pc->handler)(ctx, pc, stack, locals, locals[0], locals[1], locals[2], 0, 0, 0, 0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, locals, locals[0], locals[1], locals[2], 0, 0, 0, 0, initial_nh);
 
-    free(stack);
     return ctx->result;
 }

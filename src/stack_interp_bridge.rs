@@ -496,7 +496,9 @@ pub fn run(program: &StackProgram) -> i64 {
         });
     }
 
-    // Allocate call stack.
+    // Allocate all runtime buffers up front so stack_interp_run does not
+    // touch the heap. Realtime embeddings (audio threads) can mirror this
+    // setup once and then call stack_interp_run repeatedly.
     let mut call_stack: Vec<CallFrame> = (0..4096)
         .map(|_| CallFrame {
             return_pc: std::ptr::null_mut(),
@@ -506,8 +508,9 @@ pub fn run(program: &StackProgram) -> i64 {
             saved_frame_size: 0,
         })
         .collect();
-
-    // Allocate globals.
+    let mut operand_stack: Vec<u64> = vec![0u64; 64 * 1024];
+    let frame_stack_cap: usize = 512 * 1024; // 4 MB worth of u64 slots
+    let mut frame_stack: Vec<u64> = vec![0u64; frame_stack_cap];
     let mut globals: Vec<u8> = vec![0u8; program.globals_size];
 
     // Build context.
@@ -518,10 +521,10 @@ pub fn run(program: &StackProgram) -> i64 {
         functions: func_metas.as_mut_ptr(),
         func_count: func_metas.len() as u32,
         globals: globals.as_mut_ptr(),
-        frame_stack: std::ptr::null_mut(),
+        frame_stack: frame_stack.as_mut_ptr(),
         frame_stack_size: 0,
-        frame_stack_cap: 0,
-        stack_base: std::ptr::null_mut(),
+        frame_stack_cap,
+        stack_base: operand_stack.as_mut_ptr(),
         closure_ptr: 0,
         result: 0,
         done: 0,
@@ -537,11 +540,6 @@ pub fn run(program: &StackProgram) -> i64 {
         let msg = unsafe { std::ffi::CStr::from_ptr(ctx.error) }
             .to_string_lossy();
         eprintln!("trap: {}", msg);
-    }
-
-    // Clean up buffers allocated by C.
-    if !ctx.frame_stack.is_null() {
-        unsafe { libc::free(ctx.frame_stack as *mut libc::c_void) };
     }
 
     result
