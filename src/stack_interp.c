@@ -692,7 +692,9 @@ HANDLER(op_call) {
         default: {
             // nargs > 4: 4 args in registers, (nargs - 4) in memory just
             // below sp. Read memory args first (before sp moves), then
-            // register args, then refill the window from below.
+            // register args, then pop: drop sp by (nargs - 4) to skip
+            // the memory args, then four *--sp pops refill the window
+            // with the caller's spilled t0..t3.
             uint32_t mem_args = nargs - 4;
             uint64_t* src = sp - mem_args;
             for (uint32_t i = 0; i < mem_args; i++) {
@@ -702,13 +704,11 @@ HANDLER(op_call) {
             new_locals[mem_args + 1] = t2;
             new_locals[mem_args + 2] = t1;
             new_locals[mem_args + 3] = t0;
-            // Pop nargs values total: sp drops by nargs, and t0..t3 are
-            // refilled from the four memory slots just below the new sp.
-            sp -= nargs;
-            t0 = sp[-1];
-            t1 = sp[-2];
-            t2 = sp[-3];
-            t3 = sp[-4];
+            sp -= mem_args;
+            t0 = *--sp;
+            t1 = *--sp;
+            t2 = *--sp;
+            t3 = *--sp;
             break;
         }
     }
@@ -789,7 +789,9 @@ HANDLER(op_call_closure) {
         default: {
             // nargs >= 4: 3 args in registers (t1..t3), the rest in memory
             // just below sp. arg0 is deepest, arg(nargs-1) is just below
-            // the fat_ptr in t1.
+            // the fat_ptr in t1. Pop (nargs + 1) values total: skip the
+            // mem_args memory args plus the shadow slot holding the
+            // first-pushed value, then four *--sp pops refill the window.
             uint32_t mem_args = nargs - 3;
             uint64_t* src = sp - mem_args;
             for (uint32_t i = 0; i < mem_args; i++) {
@@ -798,15 +800,11 @@ HANDLER(op_call_closure) {
             new_locals[mem_args + 0] = t3;
             new_locals[mem_args + 1] = t2;
             new_locals[mem_args + 2] = t1;
-            // Total pops = nargs + 1 (args + fat_ptr). Drop sp by mem_args
-            // (the memory part) plus 1 more for the fat_ptr's "shadow"
-            // memory slot, then refill the window from the four slots
-            // just below the new sp.
-            sp -= mem_args + 1;
-            t0 = sp[-1];
-            t1 = sp[-2];
-            t2 = sp[-3];
-            t3 = sp[-4];
+            sp -= mem_args;
+            t0 = *--sp;
+            t1 = *--sp;
+            t2 = *--sp;
+            t3 = *--sp;
             break;
         }
     }
@@ -861,6 +859,9 @@ HANDLER(op_call_indirect) {
             t0 = *--sp; t1 = *--sp; t2 = *--sp; t3 = *--sp;
             break;
         default: {
+            // nargs >= 4: same shape as op_call_closure. Pop (nargs + 1)
+            // total; mem_args of those are already-copied memory args,
+            // the remaining 4 *--sp pops refill the caller's window.
             uint32_t mem_args = nargs - 3;
             uint64_t* src = sp - mem_args;
             for (uint32_t i = 0; i < mem_args; i++) {
@@ -869,11 +870,11 @@ HANDLER(op_call_indirect) {
             new_locals[mem_args + 0] = t3;
             new_locals[mem_args + 1] = t2;
             new_locals[mem_args + 2] = t1;
-            sp -= mem_args + 1;
-            t0 = sp[-1];
-            t1 = sp[-2];
-            t2 = sp[-3];
-            t3 = sp[-4];
+            sp -= mem_args;
+            t0 = *--sp;
+            t1 = *--sp;
+            t2 = *--sp;
+            t3 = *--sp;
             break;
         }
     }

@@ -1425,6 +1425,12 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(StackOp::CallClosure {
                 args: arg_ids.len() as u8,
             });
+            // Closure over a void function leaves no return value on the
+            // stack; push a placeholder so translate_call's +1 invariant
+            // holds.
+            if matches!(&*self.expr_type(call_expr), Type::Void) {
+                func.emit(StackOp::I64Const(0));
+            }
             return;
         }
 
@@ -1645,6 +1651,11 @@ impl<'a> FunctionTranslator<'a> {
                             instr_idx,
                             callee: callee_name,
                         });
+                        // Extern void functions: push a placeholder so
+                        // translate_call's +1 invariant holds.
+                        if matches!(&*self.expr_type(call_expr), Type::Void) {
+                            func.emit(StackOp::I64Const(0));
+                        }
                         return;
                     }
                 }
@@ -1653,6 +1664,7 @@ impl<'a> FunctionTranslator<'a> {
             // Regular function call.
             let ret_ty = self.expr_type(call_expr);
             let returns_ptr = returns_via_pointer(ret_ty);
+            let returns_void = matches!(&*ret_ty, Type::Void);
 
             // If returning a pointer type, allocate output storage.
             let output_slot = if returns_ptr {
@@ -1708,6 +1720,12 @@ impl<'a> FunctionTranslator<'a> {
             // If sret, push the output address as the result.
             if let Some(slot) = output_slot {
                 func.emit(StackOp::LocalAddr(slot));
+            } else if returns_void {
+                // Void calls leave no return value on the operand stack,
+                // but translate_call must push exactly one value (Block and
+                // other wrappers expect it). Push a placeholder zero; void
+                // contexts drop it via translate_void's normal Drop path.
+                func.emit(StackOp::I64Const(0));
             }
             // Otherwise the call already pushed its return value.
 
@@ -1722,6 +1740,9 @@ impl<'a> FunctionTranslator<'a> {
         func.emit(StackOp::CallClosure {
             args: arg_ids.len() as u8,
         });
+        if matches!(&*self.expr_type(call_expr), Type::Void) {
+            func.emit(StackOp::I64Const(0));
+        }
     }
 
     /// Translate an if expression.

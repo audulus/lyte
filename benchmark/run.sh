@@ -46,12 +46,26 @@ extract_exec() {
     grep -oE '[0-9]+\.[0-9]+s' | head -1 | sed 's/s$//'
 }
 
-# Run a command $RUNS times, extract exec time, return the average
+# Tracks whether any runtime failed (missing output, crash, etc.) so the
+# script can exit non-zero and break CI instead of silently printing N/A.
+FAIL=0
+
+# Run a command $RUNS times, extract exec time, return the average.
+# First arg is a human-readable label used in error reporting.
+# If any run produces no timing output, mark FAIL and return empty so the
+# row renders as N/A.
 avg() {
+    local label=$1
+    shift
     local sum=0
     for ((r = 0; r < RUNS; r++)); do
         local t
         t=$(eval "$@" 2>&1 | extract_exec)
+        if [ -z "$t" ]; then
+            echo "  !! $label failed on run $r" >&2
+            FAIL=1
+            return
+        fi
         sum=$(awk -v s="$sum" -v t="$t" 'BEGIN { printf "%.6f", s + t }')
     done
     awk -v s="$sum" -v n="$RUNS" 'BEGIN { printf "%.3f", s / n }'
@@ -83,28 +97,28 @@ run_benchmark() {
     local C_O2_TIME C_O3_TIME LYTE_JIT LYTE_VM LYTE_ASM LYTE_STACK LYTE_LLVM LUA LUAJIT_JIT LUAJIT_INT
 
     echo "Running benchmarks..."
-    C_O2_TIME=$(avg "$C_O2")
-    C_O3_TIME=$(avg "$C_O3")
-    LYTE_JIT=$(avg "$LYTE --backend jit $LYTE_FILE --timing 2>&1 | grep 'jit exec:'")
-    LYTE_VM=$(avg "$LYTE --backend vm $LYTE_FILE --timing 2>&1 | grep 'vm exec:'")
+    C_O2_TIME=$(avg "C -O2 ($NAME)" "$C_O2")
+    C_O3_TIME=$(avg "C -O3 ($NAME)" "$C_O3")
+    LYTE_JIT=$(avg "Lyte JIT ($NAME)" "$LYTE --backend jit $LYTE_FILE --timing 2>&1 | grep 'jit exec:'")
+    LYTE_VM=$(avg "Lyte VM ($NAME)" "$LYTE --backend vm $LYTE_FILE --timing 2>&1 | grep 'vm exec:'")
     if [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ]; then
-        LYTE_ASM=$(avg "$LYTE --backend asm $LYTE_FILE --timing 2>&1 | grep 'asm exec:'")
+        LYTE_ASM=$(avg "Lyte ASM ($NAME)" "$LYTE --backend asm $LYTE_FILE --timing 2>&1 | grep 'asm exec:'")
     else
         LYTE_ASM=""
     fi
     if $LYTE --backend stack /dev/null 2>&1 | grep -q "requires Clang"; then
         LYTE_STACK=""
     else
-        LYTE_STACK=$(avg "$LYTE --backend stack $LYTE_FILE --timing 2>&1 | grep 'stack exec:'")
+        LYTE_STACK=$(avg "Lyte Stack VM ($NAME)" "$LYTE --backend stack $LYTE_FILE --timing 2>&1 | grep 'stack exec:'")
     fi
     if [ "$HAS_LLVM" = "1" ]; then
-        LYTE_LLVM=$(avg "$LYTE --backend llvm $LYTE_FILE --timing 2>&1 | grep 'llvm exec:'")
+        LYTE_LLVM=$(avg "Lyte LLVM ($NAME)" "$LYTE --backend llvm $LYTE_FILE --timing 2>&1 | grep 'llvm exec:'")
     else
         LYTE_LLVM=""
     fi
-    LUA=$(avg lua "$LUA_FILE")
-    LUAJIT_JIT=$(avg luajit "$LUA_FILE")
-    LUAJIT_INT=$(avg luajit -joff "$LUA_FILE")
+    LUA=$(avg "Lua 5.5 ($NAME)" lua "$LUA_FILE")
+    LUAJIT_JIT=$(avg "LuaJIT JIT ($NAME)" luajit "$LUA_FILE")
+    LUAJIT_INT=$(avg "LuaJIT interp ($NAME)" luajit -joff "$LUA_FILE")
 
     printf "%-24s %10s %8s\n" "Runtime" "Time (s)" "vs Lua"
     printf "%-24s %10s %8s\n" "------------------------" "--------" "------"
@@ -141,3 +155,9 @@ run_benchmark "FFT" \
     "benchmark/fft_c_o3" \
     "benchmark/fft.lua" \
     "1024-point FFT x 2000 iterations"
+
+if [ "$FAIL" = "1" ]; then
+    echo ""
+    echo "!! One or more benchmarks failed — see errors above" >&2
+    exit 1
+fi
