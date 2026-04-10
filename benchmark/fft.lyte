@@ -34,20 +34,34 @@ fft(re: [f32], im: [f32]) {
 
     bit_reverse_permute(re, im)
 
+    // Twiddle-factor tables, precomputed once per stage. (wr, wi) only
+    // depend on k and the stage size, not on which group within the
+    // stage we're processing, so hoisting the cos/sin out of the group
+    // loop turns an O(stages * n/2) computation per stage into O(n/2).
+    // Max half = n/2 = 512 for n=1024.
+    var wr_tbl: [f32; 512]
+    var wi_tbl: [f32; 512]
+
     // Butterfly stages: size = 2, 4, 8, ..., n
     var size = 2
     while size <= n {
         var half = size / 2
         var angle = 0.0 - 2.0 * pi / (size as f32)
 
+        // Precompute twiddles for this stage.
+        for k in 0 .. half {
+            var theta = angle * (k as f32)
+            wr_tbl[k] = cos(theta)
+            wi_tbl[k] = sin(theta)
+        }
+
         // Process each group of 'size' elements
         var group = 0
         while group < n {
             // Butterflies within this group
             for k in 0 .. half {
-                var theta = angle * (k as f32)
-                var wr = cos(theta)
-                var wi = sin(theta)
+                var wr = wr_tbl[k]
+                var wi = wi_tbl[k]
 
                 var i = group + k
                 var j = i + half

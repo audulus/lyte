@@ -54,6 +54,8 @@ pub fn rebase(func: &mut StackFunction) {
             StackOp::FusedAddrImmGetStore32(s, _, _) => *s += lc,
             StackOp::FusedAddrGetSliceLoad32(s, _) => *s += lc,
             StackOp::FusedAddrGetSliceStore32(s, _) => *s += lc,
+            StackOp::FusedLocalArrayLoad32(s, _) => *s += lc,
+            StackOp::FusedLocalArrayStore32(s, _) => *s += lc,
             StackOp::FusedTeeSliceStore32(_, s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFAdd(_, s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFSub(_, s, _) => *s += lc,

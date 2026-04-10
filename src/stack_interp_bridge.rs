@@ -205,6 +205,8 @@ extern "C" {
     fn op_fused_field_copy32();
     fn op_fused_f32const_fgt_jiz();
     fn op_fused_addr_get_sstore32();
+    fn op_fused_local_array_load32();
+    fn op_fused_local_array_store32();
     fn op_fused_tee_sstore32();
     fn op_fused_tee_sincos_set();
     fn op_fused_get_set();
@@ -389,6 +391,8 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedFieldCopy32(_, _, _) => op_fused_field_copy32 as *const (),
         StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
+        StackOp::FusedLocalArrayLoad32(_, _) => op_fused_local_array_load32 as *const (),
+        StackOp::FusedLocalArrayStore32(_, _) => op_fused_local_array_store32 as *const (),
         StackOp::FusedTeeSliceStore32(_, _, _) => op_fused_tee_sstore32 as *const (),
         StackOp::FusedTeeSinCosSet(_, _, _) => op_fused_tee_sincos_set as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
@@ -454,7 +458,8 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetGetFMul(a, b) | StackOp::FusedGetGetFAdd(a, b)
         | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
         | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b)
-        | StackOp::FusedAddrGetSliceStore32(a, b) => {
+        | StackOp::FusedAddrGetSliceStore32(a, b)
+        | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b) => {
             [*a as u64, *b as u64, 0]
         }
         StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {

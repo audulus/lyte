@@ -280,6 +280,12 @@ pub enum StackOp {
     FusedAddrGetSliceLoad32(u16, u16),
     /// *(i32*)(slice_data + locals[idx]*4) = TOS. Pop 1, push 0.
     FusedAddrGetSliceStore32(u16, u16),
+    /// Push *(i32*)((uint8_t*)(locals + slot) + locals[idx]*4). Pop 0, push 1.
+    /// Fast load from an inline local fixed-size array (no fat-pointer
+    /// indirection like the slice variant — the data is inline in the frame).
+    FusedLocalArrayLoad32(u16, u16),
+    /// *(i32*)((uint8_t*)(locals + slot) + locals[idx]*4) = TOS. Pop 1, push 0.
+    FusedLocalArrayStore32(u16, u16),
 
     /// locals[b] = locals[a]. Pop 0, push 0.
     FusedGetSet(u16, u16),
@@ -585,6 +591,8 @@ impl fmt::Display for StackOp {
             StackOp::FusedF32ConstSet(v, n) => write!(f, "fused.f32const_set {} {}", v, n),
             StackOp::FusedAddrGetSliceLoad32(s, i) => write!(f, "fused.addr_get_sload32 {} {}", s, i),
             StackOp::FusedAddrGetSliceStore32(s, i) => write!(f, "fused.addr_get_sstore32 {} {}", s, i),
+            StackOp::FusedLocalArrayLoad32(s, i) => write!(f, "fused.local_array_load32 {} {}", s, i),
+            StackOp::FusedLocalArrayStore32(s, i) => write!(f, "fused.local_array_store32 {} {}", s, i),
             StackOp::FusedGetSet(a, b) => write!(f, "fused.get_set {} {}", a, b),
             StackOp::FusedGetAddrFMulFAdd(a, s, o) => write!(f, "fused.get_addr_fmul_fadd {} {} {}", a, s, o),
             StackOp::FusedGetAddrFMulFSub(a, s, o) => write!(f, "fused.get_addr_fmul_fsub {} {} {}", a, s, o),

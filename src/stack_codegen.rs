@@ -1186,39 +1186,50 @@ impl<'a> FunctionTranslator<'a> {
             let arr_id = *arr_id;
             let idx_id = *idx_id;
             let arr_ty = self.expr_type(arr_id);
-            if let Type::Slice(elem_ty) = &*arr_ty {
+            let (elem_ty, is_slice) = match &*arr_ty {
+                Type::Slice(elem) => (Some(*elem), true),
+                Type::Array(elem, _) => (Some(*elem), false),
+                _ => (None, false),
+            };
+            if let Some(elem_ty) = elem_ty {
                 let elem_size = elem_ty.size(self.decls);
-                if !self.is_ptr_type(elem_ty) && elem_size == 4 {
+                if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
                     // Try fused version if arr and idx are simple locals.
                     if let (Some(arr_slot), Some(idx_local)) = (
                         self.get_memory_slot(arr_id),
                         self.get_scalar_local(idx_id),
                     ) {
-                        // FusedAddrGetSliceStore32: *(data + idx*4) = value
-                        // value is on TOS from translate_expr(rhs).
+                        // Fused store: value is on TOS from translate_expr(rhs).
+                        let store_op = if is_slice {
+                            StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local)
+                        } else {
+                            StackOp::FusedLocalArrayStore32(arr_slot, idx_local)
+                        };
                         self.translate_expr(rhs_id, func);
                         if !self.void_ctx {
                             let val_local = self.alloc_scalar();
                             func.emit(StackOp::LocalTee(val_local));
-                            func.emit(StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local));
+                            func.emit(store_op);
                             func.emit(StackOp::LocalGet(val_local));
                         } else {
-                            func.emit(StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local));
+                            func.emit(store_op);
                         }
                         return;
                     }
-                    // Fallback: generic slice store.
-                    self.translate_expr(rhs_id, func);
-                    let val_local = self.alloc_scalar();
-                    func.emit(StackOp::LocalSet(val_local));
-                    self.translate_expr(arr_id, func); // push fat_ptr
-                    self.translate_expr(idx_id, func); // push index
-                    func.emit(StackOp::LocalGet(val_local)); // push value
-                    func.emit(StackOp::SliceStore32);
-                    if !self.void_ctx {
-                        func.emit(StackOp::LocalGet(val_local)); // result
+                    if is_slice {
+                        // Fallback: generic slice store.
+                        self.translate_expr(rhs_id, func);
+                        let val_local = self.alloc_scalar();
+                        func.emit(StackOp::LocalSet(val_local));
+                        self.translate_expr(arr_id, func); // push fat_ptr
+                        self.translate_expr(idx_id, func); // push index
+                        func.emit(StackOp::LocalGet(val_local)); // push value
+                        func.emit(StackOp::SliceStore32);
+                        if !self.void_ctx {
+                            func.emit(StackOp::LocalGet(val_local)); // result
+                        }
+                        return;
                     }
-                    return;
                 }
             }
         }
@@ -2100,18 +2111,21 @@ impl<'a> FunctionTranslator<'a> {
             }
         };
 
-        // Slice superinstruction for 32-bit scalar elements.
-        if is_slice {
-            let elem_size = elem_ty.size(self.decls);
-            if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
-                // Try to emit fused instruction directly if arr and idx are simple locals.
-                if let (Some(arr_slot), Some(idx_local)) = (
-                    self.get_memory_slot(arr_id),
-                    self.get_scalar_local(idx_id),
-                ) {
+        // Fused 32-bit scalar load for slices and inline local arrays.
+        let elem_size = elem_ty.size(self.decls);
+        if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
+            if let (Some(arr_slot), Some(idx_local)) = (
+                self.get_memory_slot(arr_id),
+                self.get_scalar_local(idx_id),
+            ) {
+                if is_slice {
                     func.emit(StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local));
-                    return;
+                } else {
+                    func.emit(StackOp::FusedLocalArrayLoad32(arr_slot, idx_local));
                 }
+                return;
+            }
+            if is_slice {
                 // Fallback: generic slice load.
                 self.translate_expr(arr_id, func);
                 self.translate_expr(idx_id, func);

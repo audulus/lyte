@@ -240,7 +240,8 @@ fn rewrite_local_indices(op: &mut StackOp, remap: &[u16]) {
             r(b, remap);
             r(d, remap);
         }
-        StackOp::FusedAddrGetSliceLoad32(_, i) | StackOp::FusedAddrGetSliceStore32(_, i) => {
+        StackOp::FusedAddrGetSliceLoad32(_, i) | StackOp::FusedAddrGetSliceStore32(_, i)
+        | StackOp::FusedLocalArrayLoad32(_, i) | StackOp::FusedLocalArrayStore32(_, i) => {
             r(i, remap);
         }
         StackOp::FusedGetAddrFMulFAdd(a, _, _) | StackOp::FusedGetAddrFMulFSub(a, _, _) => {

@@ -1258,6 +1258,25 @@ HANDLER(op_fused_field_copy32) {
     NEXT();
 }
 
+// --- Local fixed-size array load: push *(i32*)((u8*)(locals + slot) + locals[idx]*4). ---
+// Used for `arr[k]` where arr is a local [T; N] scalar array (inline in
+// the frame, not behind a fat pointer).
+HANDLER(op_fused_local_array_load32) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    PUSH((uint64_t)(int64_t)*(int32_t*)(base + idx * 4));
+    NEXT();
+}
+
+// --- Local fixed-size array store: *(i32*)((u8*)(locals + slot) + locals[idx]*4) = t0. ---
+HANDLER(op_fused_local_array_store32) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    *(int32_t*)(base + idx * 4) = (int32_t)t0;
+    DROP1();
+    NEXT();
+}
+
 // --- Slice store with fused address: *(data + locals[idx]*4) = t0. Pop 1. ---
 HANDLER(op_fused_addr_get_sstore32) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
