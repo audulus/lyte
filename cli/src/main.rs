@@ -302,6 +302,9 @@ fn run(args: Args) -> i32 {
                     eprintln!("vm exec: {:.3}s", start.elapsed().as_secs_f64());
                 }
             }
+            if let Some(msg) = vm.trap {
+                eprintln!("trap: {}", msg);
+            }
         }
 
         if run_stack {

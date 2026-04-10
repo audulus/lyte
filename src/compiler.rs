@@ -683,9 +683,9 @@ impl Compiler {
         jit.print_ir = self.print_ir;
         let entry_points = self.effective_entry_points();
         match jit.compile_and_run_multi(&self.decls, &entry_points) {
-            Ok((cancelled, compile_time, exec_time)) => {
-                if cancelled {
-                    println!("execution cancelled");
+            Ok((trap_reason, compile_time, exec_time)) => {
+                if let Some(msg) = crate::cancel::trap_reason_message(trap_reason) {
+                    eprintln!("trap: {}", msg);
                 }
                 (compile_time, exec_time)
             }
@@ -745,7 +745,7 @@ impl Compiler {
 
             type Entry = fn(*mut u8) -> ();
             let mut globals: Vec<u8> = vec![0u8; globals_size];
-            let cancelled = unsafe {
+            let trap_reason = unsafe {
                 extern "C" {
                     fn setjmp(env: *mut u8) -> i32;
                 }
@@ -758,13 +758,13 @@ impl Compiler {
                 if setjmp(jmp_buf_ptr) == 0 {
                     let code_fn = mem::transmute::<_, Entry>(code_ptr);
                     code_fn(globals.as_mut_ptr());
-                    false
+                    crate::cancel::TRAP_NONE
                 } else {
-                    true
+                    crate::cancel::read_trap_reason(globals.as_ptr())
                 }
             };
-            if cancelled {
-                println!("execution cancelled");
+            if let Some(msg) = crate::cancel::trap_reason_message(trap_reason) {
+                eprintln!("trap: {}", msg);
             }
             jit.free_memory();
         } else if let Err(e) = r {

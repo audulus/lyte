@@ -2,18 +2,13 @@
 // gracefully. The program has already printed its leading output, then
 // the assertion fires and the interpreter stops.
 //
-// skip-backend: jit
-// skip-backend: llvm
-// skip-backend: asm
-// skip-backend: vm
-//
 // expected stdout:
 // compilation successful
 // 1
 // assert(false)
 //
 // expected stderr:
-// stack VM trap: assertion failed
+// trap: assertion failed
 
 main {
     print(1)

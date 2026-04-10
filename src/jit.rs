@@ -39,8 +39,27 @@ unsafe extern "C" fn lyte_cancel_check(globals: *mut u8) {
     let user_data = *(globals.add(CANCEL_USERDATA_OFFSET) as *const *mut u8);
 
     if callback(user_data) {
+        *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) =
+            crate::cancel::TRAP_CANCELLED;
         longjmp(globals.add(JMPBUF_OFFSET), 1);
     }
+}
+
+/// Called from JIT-generated code when the call-depth counter goes
+/// negative. Sets the trap_reason in the globals header and longjmps
+/// back to the host setjmp entry point.
+unsafe extern "C" fn lyte_stack_overflow_trap(globals: *mut u8) {
+    *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) =
+        crate::cancel::TRAP_CALL_STACK_OVERFLOW;
+    longjmp(globals.add(JMPBUF_OFFSET), 1);
+}
+
+/// Called from JIT-generated code when a runtime assertion fails.
+/// Replaces the old panic-based assert path.
+unsafe extern "C" fn lyte_assert_trap(globals: *mut u8) {
+    *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) =
+        crate::cancel::TRAP_ASSERTION_FAILED;
+    longjmp(globals.add(JMPBUF_OFFSET), 1);
 }
 
 /// Called from JIT-generated code to compare two slices by contents.
@@ -375,6 +394,7 @@ impl JIT {
         // Need a return instruction at the end of the function's block.
         // Skip if the block is already unreachable (e.g., body ended with explicit return).
         if !trans.builder.is_unreachable() {
+            trans.emit_call_depth_release();
             if returns_via_pointer(decl.ret) {
                 // Copy result to output pointer and return void.
                 let output = trans.output_ptr.unwrap();
@@ -542,8 +562,72 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
+        self.emit_call_depth_check();
         self.emit_cancel_check();
         self.translate_expr(decl.body.unwrap(), decl, decls)
+    }
+
+    /// Decrement the call-depth counter at function entry. If it goes
+    /// negative, longjmp out via lyte_stack_overflow_trap. Mirrors the
+    /// emit_cancel_check pattern. Called once per function entry.
+    fn emit_call_depth_check(&mut self) {
+        let trap_block = self.builder.create_block();
+        let continue_block = self.builder.create_block();
+
+        let base = self.globals_base.expect("globals_base not set");
+
+        // Load + decrement + store
+        let depth = self
+            .builder
+            .ins()
+            .load(I32, MemFlags::trusted(), base, CALL_DEPTH_OFFSET);
+        let one = self.builder.ins().iconst(I32, 1);
+        let new_depth = self.builder.ins().isub(depth, one);
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), new_depth, base, CALL_DEPTH_OFFSET);
+
+        // If new_depth < 0 → trap
+        let is_neg = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::SignedLessThan, new_depth, 0);
+        self.builder
+            .ins()
+            .brif(is_neg, trap_block, &[], continue_block, &[]);
+
+        self.builder.switch_to_block(trap_block);
+        self.builder.seal_block(trap_block);
+        let fn_ptr = self.builder.ins().iconst(
+            I64,
+            lyte_stack_overflow_trap as *const () as usize as i64,
+        );
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(I64));
+        let sref = self.builder.import_signature(sig);
+        self.builder.ins().call_indirect(sref, fn_ptr, &[base]);
+        // The trap helper longjmps and never returns. The jump below is
+        // unreachable but keeps the IR well-formed.
+        self.builder.ins().jump(continue_block, &[]);
+
+        self.builder.switch_to_block(continue_block);
+        self.builder.seal_block(continue_block);
+    }
+
+    /// Increment the call-depth counter at function exit so the depth
+    /// reflects current recursion (not total call count). Emitted just
+    /// before the function returns.
+    fn emit_call_depth_release(&mut self) {
+        let base = self.globals_base.expect("globals_base not set");
+        let depth =
+            self.builder
+                .ins()
+                .load(I32, MemFlags::trusted(), base, CALL_DEPTH_OFFSET);
+        let one = self.builder.ins().iconst(I32, 1);
+        let new_depth = self.builder.ins().iadd(depth, one);
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), new_depth, base, CALL_DEPTH_OFFSET);
     }
 
     /// Emit a cancellation check at the current position.
@@ -877,15 +961,31 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().call_indirect(sref, fn_ptr, &args)
                     } else if is_builtin {
                         // Other builtins (assert, print, putc): indirect call.
+                        // assert needs the globals pointer as the first arg so
+                        // it can write trap_reason and longjmp on failure.
+                        let is_assert = matches!(
+                            &decl.arena[*fn_id],
+                            Expr::Id(name) if **name == "assert"
+                        );
                         let f = self.translate_expr(*fn_id, decl, decls);
                         let mut args = vec![];
+                        if is_assert {
+                            args.push(self.globals_base.expect("globals_base not set"));
+                        }
                         if let Some(addr) = output_slot {
                             args.push(addr);
                         }
                         for arg_id in arg_ids {
                             args.push(self.translate_expr(*arg_id, decl, decls));
                         }
-                        let sig = fn_sig(&self.module, from, to);
+                        let sig = if is_assert {
+                            let mut s = self.module.make_signature();
+                            s.params.push(AbiParam::new(I64)); // globals
+                            s.params.push(AbiParam::new(I8));  // val
+                            s
+                        } else {
+                            fn_sig(&self.module, from, to)
+                        };
                         let sref = self.builder.import_signature(sig);
                         self.builder.ins().call_indirect(sref, f, &args)
                     } else {
@@ -1413,6 +1513,7 @@ impl<'a> FunctionTranslator<'a> {
                 let result = self.translate_expr(*expr_id, decl, decls);
                 let ret_ty = decl.types[*expr_id];
 
+                self.emit_call_depth_release();
                 if returns_via_pointer(ret_ty) {
                     // Copy result to output pointer and return void.
                     let output = self
@@ -2479,9 +2580,11 @@ fn collect_free_vars_rec(
     }
 }
 
-extern "C" fn lyte_assert(val: i8) {
+extern "C" fn lyte_assert(globals: *mut u8, val: i8) {
     crate::vm::println_output(&format!("assert({})", val != 0));
-    assert!(val != 0);
+    if val == 0 {
+        unsafe { lyte_assert_trap(globals) };
+    }
 }
 
 extern "C" fn lyte_print_i32(val: i32) {

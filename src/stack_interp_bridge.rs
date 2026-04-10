@@ -712,7 +712,7 @@ pub fn run(program: &StackProgram) -> i64 {
     if !ctx.error.is_null() {
         let msg = unsafe { std::ffi::CStr::from_ptr(ctx.error) }
             .to_string_lossy();
-        eprintln!("stack VM trap: {}", msg);
+        eprintln!("trap: {}", msg);
     }
 
     // Clean up buffers allocated by C.
