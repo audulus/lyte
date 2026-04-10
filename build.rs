@@ -3,20 +3,17 @@ use std::process::Command;
 
 fn main() {
     // Compile the C stack interpreter with preserve_none + musttail.
-    // - Clang-only features (skip on GCC).
-    // - The handler signature has 13 register arguments (ctx, pc, sp, locals,
-    //   lm, l0, l1, l2, t0, t1, t2, t3, nh). preserve_none on x86-64 exposes
-    //   ~12 argument registers, which isn't enough — the register allocator
-    //   fails with "ran out of registers". AArch64 has enough, so gate on that.
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    // Clang-only feature (skip on GCC). The handler signature has 12
+    // register arguments (ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2,
+    // t3, nh) — fits within preserve_none's ~15 GPR arg window on both
+    // aarch64 and x86-64.
     let compiler = cc::Build::new().try_get_compiler();
     let is_clang = compiler
         .as_ref()
         .map(|c| c.is_like_clang())
         .unwrap_or(false);
-    let is_aarch64 = target_arch == "aarch64";
     println!("cargo:rustc-check-cfg=cfg(has_stack_interp)");
-    if is_clang && is_aarch64 {
+    if is_clang {
         cc::Build::new()
             .file("src/stack_interp.c")
             .include("src")

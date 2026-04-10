@@ -65,6 +65,12 @@ typedef struct Ctx {
     // Operand stack base (for bounds checking if needed)
     uint64_t*    stack_base;
 
+    // Current frame pointer: scalar locals start here, local memory follows.
+    // Stored in the context (rather than passed through the handler chain)
+    // to keep the handler argument count within preserve_none's register
+    // budget on x86-64. Updated on call/return.
+    uint64_t*    current_locals;
+
     // Closure pointer (set by call_closure, read by handlers)
     uint64_t     closure_ptr;
 
@@ -83,16 +89,20 @@ typedef struct Ctx {
 
 // Handler function signature.
 // Hot state is passed as arguments so it stays in registers:
-//   ctx     - execution context (cold state)
+//   ctx     - execution context (cold state; also holds current_locals)
 //   pc      - current instruction pointer
 //   sp      - operand stack pointer (grows upward, points BELOW TOS window)
-//   locals  - frame pointer: scalar locals start here, local memory follows
-//             at locals + local_count (single contiguous per-call frame)
 //   l0-l2   - hot local register cache (top 3 locals by access weight)
 //   t0-t3   - TOS register window (t0 = top, t3 = deepest in window)
 //
-// With preserve_none, all arguments stay in hardware registers across
-// the entire handler chain — zero memory traffic for values in the window.
+// The frame pointer (locals) lives in ctx->current_locals rather than
+// a dedicated register argument. This keeps the handler signature at
+// 11 arguments, which fits within preserve_none's register budget on
+// x86-64 (~12 GPRs available).
+//
+// With preserve_none, all these arguments stay in hardware registers
+// across the entire handler chain — zero memory traffic for values in
+// the TOS window.
 #define PRESERVE_NONE __attribute__((preserve_none))
 
 // Handler type uses void* for the nh parameter since C can't have
@@ -101,7 +111,6 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2
