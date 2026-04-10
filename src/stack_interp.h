@@ -92,13 +92,16 @@ typedef struct Ctx {
 //   ctx     - execution context (cold state; also holds current_locals)
 //   pc      - current instruction pointer
 //   sp      - operand stack pointer (grows upward, points BELOW TOS window)
+//   locals  - frame pointer (aarch64 only — see below)
 //   l0-l2   - hot local register cache (top 3 locals by access weight)
 //   t0-t3   - TOS register window (t0 = top, t3 = deepest in window)
 //
-// The frame pointer (locals) lives in ctx->current_locals rather than
-// a dedicated register argument. This keeps the handler signature at
-// 11 arguments, which fits within preserve_none's register budget on
-// x86-64 (~12 GPRs available).
+// On aarch64, preserve_none exposes enough argument registers that we
+// can pass `locals` as a dedicated parameter — fastest possible access.
+// On x86-64, the preserve_none GPR budget (~12) is tight, so `locals`
+// is stashed in ctx->current_locals instead and read via a macro in
+// the handler body. LLVM CSEs the field load so each handler pays at
+// most one extra ldr at entry.
 //
 // With preserve_none, all these arguments stay in hardware registers
 // across the entire handler chain — zero memory traffic for values in
@@ -107,6 +110,22 @@ typedef struct Ctx {
 
 // Handler type uses void* for the nh parameter since C can't have
 // self-referential function pointer typedefs.
+#if defined(__aarch64__)
+typedef PRESERVE_NONE void (*Handler)(
+    Ctx*          ctx,
+    Instruction*  pc,
+    uint64_t*     sp,
+    uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
+    uint64_t      l0,     // hot local register 0
+    uint64_t      l1,     // hot local register 1
+    uint64_t      l2,     // hot local register 2
+    uint64_t      t0,
+    uint64_t      t1,
+    uint64_t      t2,
+    uint64_t      t3,
+    void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
+);
+#else
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
@@ -120,6 +139,7 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t      t3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
+#endif
 
 // Entry point: called from Rust via FFI.
 //

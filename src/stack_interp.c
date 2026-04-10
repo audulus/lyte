@@ -86,28 +86,47 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // Drop 3 values (t0, t1, t2 consumed, e.g. slice_store32).
 #define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 
-// Handler signature shorthand. The frame pointer `locals` lives in
-// ctx->current_locals (see the `locals` macro below) rather than the
-// argument list, keeping the handler at 11 preserve_none-passed args.
+// Handler signature shorthand. The frame pointer `locals` is passed as
+// a handler argument on aarch64 (enough preserve_none arg regs) but
+// stashed in ctx->current_locals on other targets (tighter budget on
+// x86-64). Handler bodies read/write `locals` the same way on both
+// paths: on aarch64 it's a parameter; on x86-64 it's a macro that
+// expands to (ctx->current_locals).
+#if defined(__aarch64__)
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+#else
 #define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
+// Reads expand to a load of ctx->current_locals; writes (locals = X)
+// store back to the same field. LLVM's TBAA rules out aliasing with
+// stores through sp, so the field read is CSEd per handler.
+#define locals (ctx->current_locals)
+#endif
+
 #define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
 // Cast nh from void* for use in NEXT macro.
 #define nh ((Handler)_nh_raw)
 
-// Frame pointer access. Reading `locals` expands to a load of
-// ctx->current_locals; writing `locals = X` stores X back to the same
-// field, so callers (op_call, op_return, …) can update the frame
-// pointer visible to subsequent handlers by plain assignment. LLVM's
-// TBAA lets it CSE reads across the body — different pointer types
-// mean stores through `sp` cannot alias this struct field.
-#define locals (ctx->current_locals)
-
 // Dispatch macros. Parameterless — they reference the handler's in-scope
-// ctx/pc/sp/l0-l2/t0-t3/_nh_raw arguments directly and must only be
-// used inside a HANDLER() body.
+// ctx/pc/sp/l0-l2/t0-t3/_nh_raw arguments directly (plus the `locals`
+// parameter on aarch64) and must only be used inside a HANDLER() body.
 //
 // NEXT: linear fall-through. Branch to the preloaded nh and preload the
 // handler for the instruction after next.
+#if defined(__aarch64__)
+#define NEXT() \
+    do { \
+        Instruction* _next = pc + 1; \
+        void* _new_nh = (_next + 1)->handler; \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+    } while(0)
+
+#define DISPATCH() \
+    do { \
+        Handler _target_h = (Handler)pc->handler; \
+        void* _new_nh = (pc + 1)->handler; \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
+    } while(0)
+#else
 #define NEXT() \
     do { \
         Instruction* _next = pc + 1; \
@@ -115,14 +134,13 @@ static int64_t ipow(int64_t base, uint32_t exp) {
         __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
 
-// DISPATCH: non-linear jump. Reload the target handler from pc and
-// preload the one after. Used by jumps, calls, and returns.
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
         __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, _new_nh); \
     } while(0)
+#endif
 
 // ============================================================================
 // Handlers
@@ -1295,7 +1313,11 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     // Preload the handler for the second instruction as nh.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
+#if defined(__aarch64__)
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, initial_nh);
+#else
     ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, initial_nh);
+#endif
 
     return ctx->result;
 }
