@@ -81,41 +81,27 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 
 // ============================================================================
 // TOS window macros (4-register window: t0=top, t3=deepest)
+//
+// All variants spill/fill through memory. sp = stack_base + depth is
+// authoritative for current depth; balanced push/pop pairs naturally
+// round-trip the caller's t0..t3 through memory across a call.
 // ============================================================================
 
-// Deep variants (depth >= 4): spill/fill through memory.
 #define PUSH(val) do { *sp++ = t3; t3 = t2; t2 = t1; t1 = t0; t0 = (val); } while(0)
 #define POP(dst) do { (dst) = t0; t0 = t1; t1 = t2; t2 = t3; t3 = *--sp; } while(0)
 #define DROP1() do { t0 = t1; t1 = t2; t2 = t3; t3 = *--sp; } while(0)
 #define BINOP_SHIFT() do { t1 = t2; t2 = t3; t3 = *--sp; } while(0)
 
-// Shallow variants (depth < 4): pure register, no memory access.
-#define PUSH_S(val) do { t3 = t2; t2 = t1; t1 = t0; t0 = (val); } while(0)
-#define POP_S(dst) do { (dst) = t0; t0 = t1; t1 = t2; t2 = t3; } while(0)
-#define DROP1_S() do { t0 = t1; t1 = t2; t2 = t3; } while(0)
-#define BINOP_SHIFT_S() do { t1 = t2; t2 = t3; } while(0)
-
 // Drop 2 values (t0 and t1 consumed, e.g. stores).
 #define DROP2() do { t0 = t2; t1 = t3; t2 = *--sp; t3 = *--sp; } while(0)
-#define DROP2_S() do { t0 = t2; t1 = t3; } while(0)
 
 // Drop 3 values (t0, t1, t2 consumed, e.g. slice_store32).
 #define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
-#define DROP3_S() do { t0 = t3; } while(0)
 
 // Convenience macros for handlers.
 // Note: NEXT uses preloaded nh. DISPATCH reloads from target.
 #define NEXT_ALL() NEXT(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3)
 #define DISPATCH_ALL() DISPATCH(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3)
-
-// Spill all 4 TOS registers to memory (for calls).
-#define SPILL_ALL() do { *sp++ = t3; *sp++ = t2; *sp++ = t1; *sp++ = t0; } while(0)
-
-// Fill all 4 TOS registers from memory (for return void).
-#define FILL_ALL() do { t0 = *--sp; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
-
-// Fill t1-t3 from memory (for return with value, t0 = result).
-#define FILL_BELOW() do { t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 
 // Handler signature shorthand.
 #define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, void* _nh_raw
@@ -183,14 +169,6 @@ HANDLER(op_local_get_l2) { l2 = locals[2]; PUSH(l2); NEXT_ALL(); }
 HANDLER(op_local_set_l0) { POP(l0); locals[0] = l0; NEXT_ALL(); }
 HANDLER(op_local_set_l1) { POP(l1); locals[1] = l1; NEXT_ALL(); }
 HANDLER(op_local_set_l2) { POP(l2); locals[2] = l2; NEXT_ALL(); }
-
-// Shallow variants (depth < 4).
-HANDLER(op_local_get_l0_s) { l0 = locals[0]; PUSH_S(l0); NEXT_ALL(); }
-HANDLER(op_local_get_l1_s) { l1 = locals[1]; PUSH_S(l1); NEXT_ALL(); }
-HANDLER(op_local_get_l2_s) { l2 = locals[2]; PUSH_S(l2); NEXT_ALL(); }
-HANDLER(op_local_set_l0_s) { POP_S(l0); locals[0] = l0; NEXT_ALL(); }
-HANDLER(op_local_set_l1_s) { POP_S(l1); locals[1] = l1; NEXT_ALL(); }
-HANDLER(op_local_set_l2_s) { POP_S(l2); locals[2] = l2; NEXT_ALL(); }
 
 // --- Global variables ---
 
@@ -1180,263 +1158,14 @@ HANDLER(op_nop) {
 }
 
 // ============================================================================
-// Entry point
+// Fused handlers (continued)
 // ============================================================================
-
-// ============================================================================
-// Shallow handler variants (depth < 4: no memory spill/fill)
-//
-// These are selected at compile time based on static stack depth analysis.
-// The only difference from the deep variants is that TOS window shifts
-// skip the memory access (no *sp++ or *--sp).
-// ============================================================================
-
-// --- Push ops (shallow: no t3 spill) ---
-
-#define SHALLOW_PUSH_HANDLER(name, deep_name, val_expr) \
-HANDLER(name) { \
-    PUSH_S(val_expr); \
-    NEXT_ALL(); \
-}
-
-SHALLOW_PUSH_HANDLER(op_i64_const_s, op_i64_const, pc->imm[0])
-SHALLOW_PUSH_HANDLER(op_f32_const_s, op_f32_const, pc->imm[0])
-SHALLOW_PUSH_HANDLER(op_f64_const_s, op_f64_const, pc->imm[0])
-SHALLOW_PUSH_HANDLER(op_local_get_s, op_local_get, locals[pc->imm[0]])
-SHALLOW_PUSH_HANDLER(op_local_addr_s, op_local_addr, (uint64_t)(locals + pc->imm[0]))
-SHALLOW_PUSH_HANDLER(op_global_addr_s, op_global_addr, (uint64_t)(ctx->globals + (int32_t)pc->imm[0]))
-SHALLOW_PUSH_HANDLER(op_get_closure_ptr_s, op_get_closure_ptr, ctx->closure_ptr)
-
-HANDLER(op_fused_get_get_fmul_s) {
-    PUSH_S(from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]])));
-    NEXT_ALL();
-}
-HANDLER(op_fused_get_get_fadd_s) {
-    PUSH_S(from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]])));
-    NEXT_ALL();
-}
-HANDLER(op_fused_get_get_fsub_s) {
-    PUSH_S(from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]])));
-    NEXT_ALL();
-}
-HANDLER(op_fused_get_get_iadd_s) {
-    PUSH_S((uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]));
-    NEXT_ALL();
-}
-HANDLER(op_fused_get_get_ilt_s) {
-    PUSH_S(((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0);
-    NEXT_ALL();
-}
-HANDLER(op_fused_addr_load32off_s) {
-    PUSH_S((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
-    NEXT_ALL();
-}
-HANDLER(op_fused_addr_get_sload32_s) {
-    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
-    uint8_t* data = *(uint8_t**)fat;
-    PUSH_S((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
-    NEXT_ALL();
-}
-
-// --- Pop ops (shallow: no t3 fill) ---
-
-HANDLER(op_local_set_s) {
-    uint64_t val; POP_S(val);
-    locals[pc->imm[0]] = val;
-    NEXT_ALL();
-}
-
-HANDLER(op_drop_s) {
-    DROP1_S();
-    NEXT_ALL();
-}
-
-HANDLER(op_jump_if_zero_s) {
-    uint64_t cond; POP_S(cond);
-    if (cond == 0) {
-        int64_t off = (int64_t)pc->imm[0];
-        pc = pc + 1 + off;
-        DISPATCH_ALL();
-    }
-    NEXT_ALL();
-}
-
-HANDLER(op_jump_if_not_zero_s) {
-    uint64_t cond; POP_S(cond);
-    if (cond != 0) {
-        int64_t off = (int64_t)pc->imm[0];
-        pc = pc + 1 + off;
-        DISPATCH_ALL();
-    }
-    NEXT_ALL();
-}
-
-HANDLER(op_print_i32_s) {
-    uint64_t val; POP_S(val);
-    printf("%d\n", (int32_t)val);
-    NEXT_ALL();
-}
-HANDLER(op_print_f32_s) {
-    uint64_t val; POP_S(val);
-    float f = as_f32(val);
-    if (f == floorf(f) && fabsf(f) < 1e15f) { printf("%.1f\n", f); }
-    else { printf("%g\n", f); }
-    NEXT_ALL();
-}
-HANDLER(op_putc_s) {
-    uint64_t val; POP_S(val);
-    putchar((char)(int32_t)val);
-    NEXT_ALL();
-}
-HANDLER(op_assert_s) {
-    uint64_t val; POP_S(val);
-    printf("assert(%s)\n", val != 0 ? "true" : "false");
-    fflush(stdout);
-    if (val == 0) {
-        ctx->error = "assertion failed";
-        ctx->done = 1;
-        return;
-    }
-    NEXT_ALL();
-}
-HANDLER(op_memzero_s) {
-    uint8_t* dst = (uint8_t*)t0; DROP1_S();
-    memset(dst, 0, (size_t)pc->imm[0]);
-    NEXT_ALL();
-}
-
-// --- Binary ops (shallow: no t3 fill after shift) ---
-
-#define SHALLOW_BINOP_I(name, op) \
-HANDLER(name) { \
-    t0 = (uint64_t)((int64_t)t1 op (int64_t)t0); \
-    BINOP_SHIFT_S(); \
-    NEXT_ALL(); \
-}
-
-#define SHALLOW_BINOP_F32(name, op) \
-HANDLER(name) { \
-    t0 = from_f32(as_f32(t1) op as_f32(t0)); \
-    BINOP_SHIFT_S(); \
-    NEXT_ALL(); \
-}
-
-#define SHALLOW_BINOP_F64(name, op) \
-HANDLER(name) { \
-    t0 = from_f64(as_f64(t1) op as_f64(t0)); \
-    BINOP_SHIFT_S(); \
-    NEXT_ALL(); \
-}
-
-SHALLOW_BINOP_I(op_iadd_s, +)
-SHALLOW_BINOP_I(op_isub_s, -)
-SHALLOW_BINOP_I(op_imul_s, *)
-SHALLOW_BINOP_F32(op_fadd_s, +)
-SHALLOW_BINOP_F32(op_fsub_s, -)
-SHALLOW_BINOP_F32(op_fmul_s, *)
-SHALLOW_BINOP_F32(op_fdiv_s, /)
-SHALLOW_BINOP_F64(op_dadd_s, +)
-SHALLOW_BINOP_F64(op_dsub_s, -)
-SHALLOW_BINOP_F64(op_dmul_s, *)
-SHALLOW_BINOP_F64(op_ddiv_s, /)
-
-#define SHALLOW_CMP_OP(name, type, cast, op) \
-HANDLER(name) { \
-    type b = cast(t0); type a = cast(t1); \
-    t0 = (a op b) ? 1 : 0; \
-    BINOP_SHIFT_S(); \
-    NEXT_ALL(); \
-}
-
-SHALLOW_CMP_OP(op_ieq_s, int64_t, (int64_t), ==)
-SHALLOW_CMP_OP(op_ine_s, int64_t, (int64_t), !=)
-SHALLOW_CMP_OP(op_ilt_s, int64_t, (int64_t), <)
-SHALLOW_CMP_OP(op_ile_s, int64_t, (int64_t), <=)
-SHALLOW_CMP_OP(op_igt_s, int64_t, (int64_t), >)
-SHALLOW_CMP_OP(op_ige_s, int64_t, (int64_t), >=)
-SHALLOW_CMP_OP(op_ult_s, uint64_t, (uint64_t), <)
-SHALLOW_CMP_OP(op_ugt_s, uint64_t, (uint64_t), >)
-SHALLOW_CMP_OP(op_feq_s, float, as_f32, ==)
-SHALLOW_CMP_OP(op_fne_s, float, as_f32, !=)
-SHALLOW_CMP_OP(op_flt_s, float, as_f32, <)
-SHALLOW_CMP_OP(op_fle_s, float, as_f32, <=)
-SHALLOW_CMP_OP(op_fgt_s, float, as_f32, >)
-SHALLOW_CMP_OP(op_fge_s, float, as_f32, >=)
-SHALLOW_CMP_OP(op_deq_s, double, as_f64, ==)
-SHALLOW_CMP_OP(op_dlt_s, double, as_f64, <)
-SHALLOW_CMP_OP(op_dle_s, double, as_f64, <=)
-
-HANDLER(op_and_s) { t0 = t1 & t0; BINOP_SHIFT_S(); NEXT_ALL(); }
-HANDLER(op_or_s) { t0 = t1 | t0; BINOP_SHIFT_S(); NEXT_ALL(); }
-HANDLER(op_xor_s) { t0 = t1 ^ t0; BINOP_SHIFT_S(); NEXT_ALL(); }
-HANDLER(op_shl_s) { t0 = t1 << (t0 & 63); BINOP_SHIFT_S(); NEXT_ALL(); }
-HANDLER(op_shr_s) { t0 = (uint64_t)((int64_t)t1 >> (t0 & 63)); BINOP_SHIFT_S(); NEXT_ALL(); }
-HANDLER(op_ushr_s) { t0 = t1 >> (t0 & 63); BINOP_SHIFT_S(); NEXT_ALL(); }
-
-// --- Store ops (shallow: no fill after dropping 2) ---
-
-HANDLER(op_store32_s) {
-    *(int32_t*)t1 = (int32_t)t0;
-    DROP2_S();
-    NEXT_ALL();
-}
-HANDLER(op_store64_s) {
-    *(uint64_t*)t1 = t0;
-    DROP2_S();
-    NEXT_ALL();
-}
-HANDLER(op_store8_s) {
-    *(uint8_t*)t1 = (uint8_t)t0;
-    DROP2_S();
-    NEXT_ALL();
-}
-HANDLER(op_store32_off_s) {
-    *(int32_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = (int32_t)t0;
-    DROP2_S();
-    NEXT_ALL();
-}
-HANDLER(op_store64_off_s) {
-    *(uint64_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = t0;
-    DROP2_S();
-    NEXT_ALL();
-}
-HANDLER(op_store8_off_s) {
-    *((uint8_t*)t1 + (int32_t)pc->imm[0]) = (uint8_t)t0;
-    DROP2_S();
-    NEXT_ALL();
-}
-
-// --- FusedFMulFAdd/FSub shallow (consumes t0,t1,t2 — no memory fill) ---
-
-HANDLER(op_fused_fmul_fadd_s) {
-    t0 = from_f32(as_f32(t2) + as_f32(t1) * as_f32(t0));
-    t1 = t3;
-    NEXT_ALL();
-}
-HANDLER(op_fused_fmul_fsub_s) {
-    t0 = from_f32(as_f32(t2) - as_f32(t1) * as_f32(t0));
-    t1 = t3;
-    NEXT_ALL();
-}
 
 // --- Fused f32.const + f32.gt + jump_if_zero: if !(t0 > const) jump. Pop 1. ---
 HANDLER(op_fused_f32const_fgt_jiz) {
     float val = as_f32(t0);
     float limit = as_f32(pc->imm[0]);
     DROP1();
-    if (!(val > limit)) {
-        int64_t off = (int64_t)pc->imm[1];
-        pc = pc + 1 + off;
-        DISPATCH_ALL();
-    }
-    NEXT_ALL();
-}
-
-HANDLER(op_fused_f32const_fgt_jiz_s) {
-    float val = as_f32(t0);
-    float limit = as_f32(pc->imm[0]);
-    DROP1_S();
     if (!(val > limit)) {
         int64_t off = (int64_t)pc->imm[1];
         pc = pc + 1 + off;
@@ -1470,15 +1199,6 @@ HANDLER(op_fused_addr_get_sstore32) {
     NEXT_ALL();
 }
 
-HANDLER(op_fused_addr_get_sstore32_s) {
-    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
-    uint8_t* data = *(uint8_t**)fat;
-    *(int32_t*)(data + idx * 4) = (int32_t)t0;
-    DROP1_S();
-    NEXT_ALL();
-}
-
 // --- Tee + slice store: locals[n] = TOS; slice[locals[idx]*4] = TOS; pop. ---
 HANDLER(op_fused_tee_sstore32) {
     locals[pc->imm[0]] = t0;
@@ -1487,16 +1207,6 @@ HANDLER(op_fused_tee_sstore32) {
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
     DROP1();
-    NEXT_ALL();
-}
-
-HANDLER(op_fused_tee_sstore32_s) {
-    locals[pc->imm[0]] = t0;
-    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
-    int64_t idx = (int64_t)locals[pc->imm[2]];
-    uint8_t* data = *(uint8_t**)fat;
-    *(int32_t*)(data + idx * 4) = (int32_t)t0;
-    DROP1_S();
     NEXT_ALL();
 }
 
@@ -1531,13 +1241,6 @@ HANDLER(op_fused_addr_load32off_set) {
 // --- Store local into struct field: *(i32*)(fp + slot*8 + off) = locals[src]. No stack change. ---
 HANDLER(op_fused_addr_imm_get_store32) {
     *(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)locals[pc->imm[2]];
-    NEXT_ALL();
-}
-
-// --- MemCopy shallow (pop 2, no fill) ---
-HANDLER(op_memcopy_s) {
-    memmove((uint8_t*)t1, (uint8_t*)t0, (size_t)pc->imm[0]);
-    DROP2_S();
     NEXT_ALL();
 }
 
