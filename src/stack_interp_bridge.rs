@@ -17,7 +17,7 @@ struct CallFrame {
     return_pc: *mut Instruction,
     saved_locals: *mut u64,
     saved_sp: *mut u64,
-    saved_fsp: *mut f64,
+    saved_fsp: *mut f32,
     func_idx: u32,
     saved_frame_size: usize,
 }
@@ -42,7 +42,7 @@ struct Ctx {
     frame_stack_size: usize,
     frame_stack_cap: usize,
     stack_base: *mut u64,
-    float_stack: *mut f64,
+    float_stack: *mut f32,
     float_stack_cap: usize,
     current_locals: *mut u64,
     closure_ptr: u64,
@@ -690,7 +690,7 @@ pub fn run(program: &StackProgram) -> i64 {
     let frame_stack_cap: usize = 512 * 1024; // 4 MB worth of u64 slots
     let mut frame_stack: Vec<u64> = vec![0u64; frame_stack_cap];
     let float_stack_cap: usize = 64 * 1024;
-    let mut float_stack: Vec<f64> = vec![0.0f64; float_stack_cap];
+    let mut float_stack: Vec<f32> = vec![0.0f32; float_stack_cap];
     let mut globals: Vec<u8> = vec![0u8; program.globals_size];
 
     // Build context.

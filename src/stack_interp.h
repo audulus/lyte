@@ -27,7 +27,7 @@ typedef struct CallFrame {
     Instruction* return_pc;    // instruction to resume at after return
     uint64_t*    saved_locals; // caller's locals pointer (= caller's fp)
     uint64_t*    saved_sp;    // caller's stack pointer (for truncating on return)
-    double*      saved_fsp;   // caller's float spill pointer
+    float*       saved_fsp;   // caller's float spill pointer
     uint32_t     func_idx;    // caller's function index (for looking up metadata)
     size_t       saved_frame_size; // frame_stack_size to restore on return
 } CallFrame;
@@ -67,12 +67,14 @@ typedef struct Ctx {
     uint64_t*    stack_base;
 
     // Float spill stack: backing store for the float TOS window when
-    // its depth exceeds 4. Each slot is a double. The live "top" pointer
-    // lives in the `fsp` handler argument (kept in a register by
-    // preserve_none); this field is just the base for bounds checks and
-    // the initial value passed to the entry handler. Separate from
-    // stack_base so int and float spills don't interleave.
-    double*      float_stack;
+    // its depth exceeds 4. Each slot is a float (single precision) —
+    // the f-window is typed as `float` so f32 arithmetic never pays
+    // double↔float fcvt round-trips. The live "top" pointer lives in
+    // the `fsp` handler argument (kept in a register by preserve_none);
+    // this field is just the base for bounds checks and the initial
+    // value passed to the entry handler. Separate from stack_base so
+    // int and float spills don't interleave.
+    float*       float_stack;
     size_t       float_stack_cap;
 
     // Current frame pointer: scalar locals start here, local memory follows.
@@ -126,15 +128,19 @@ typedef struct Ctx {
 // handlers read/write these directly, avoiding the GPR↔FP crossings
 // that the u64 TOS window would force (3+ cycles each way). Int and
 // float values coexist on the logical stack; static types at each
-// position tell the codegen which window to use. The float window
-// uses `double` precision so it holds both f32 (widened) and f64
-// values without bit-casts.
+// position tell the codegen which window to use.
+//
+// The window is typed as `float` (not `double`) so f32 arithmetic
+// compiles to direct single-precision FMA/fadd/... instructions
+// without the fcvt round-trips that a double-typed window forces on
+// every op. f64 values — rare in our hot workloads — still travel
+// through the integer window paying GPR↔FP crossings.
 #if defined(__aarch64__)
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    double*       fsp,    // float spill pointer (lives in a GPR via preserve_none)
+    float*        fsp,    // float spill pointer (lives in a GPR via preserve_none)
     uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
@@ -143,10 +149,10 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t      t1,
     uint64_t      t2,
     uint64_t      t3,
-    double        f0,     // float TOS window (FP regs)
-    double        f1,
-    double        f2,
-    double        f3,
+    float         f0,     // float TOS window (FP regs)
+    float         f1,
+    float         f2,
+    float         f3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 #else
@@ -154,7 +160,7 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    double*       fsp,    // float spill pointer (lives in a GPR via preserve_none)
+    float*        fsp,    // float spill pointer (lives in a GPR via preserve_none)
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2
@@ -162,10 +168,10 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t      t1,
     uint64_t      t2,
     uint64_t      t3,
-    double        f0,     // float TOS window (xmm regs)
-    double        f1,
-    double        f2,
-    double        f3,
+    float         f0,     // float TOS window (xmm regs)
+    float         f1,
+    float         f2,
+    float         f3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 #endif
