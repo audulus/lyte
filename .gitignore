@@ -23,9 +23,13 @@ Cargo.lock
 CLyte.xcframework
 CLyte.xcframework.zip
 
-# benchmark stuff
-benchmark/biquad_c_o3
+# benchmark stuff (C reference binaries built by benchmark/run.sh)
 benchmark/biquad_c_o2
+benchmark/biquad_c_o3
+benchmark/fft_c_o2
+benchmark/fft_c_o3
+benchmark/sort_c_o2
+benchmark/sort_c_o3
 
 vscode-lyte/node_modules/
 
