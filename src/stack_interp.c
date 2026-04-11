@@ -1442,14 +1442,19 @@ HANDLER(op_local_get_f) {
     NEXT();
 }
 
+// Direct f32 store to the low 32 bits of locals[n]. We deliberately
+// leave the upper 32 bits undefined: f32 locals are only ever read via
+// `as_f32(locals[n])` or `*(float*)(locals + n)`, both of which ignore
+// the high bits. This saves an fmov (FP→GPR crossing) per handler vs
+// the old `locals[n] = from_f32(f0)` form.
 HANDLER(op_local_set_f) {
-    locals[pc->imm[0]] = from_f32(f0);
+    *(float*)(locals + pc->imm[0]) = f0;
     FDROP1();
     NEXT();
 }
 
 HANDLER(op_local_tee_f) {
-    locals[pc->imm[0]] = from_f32(f0);
+    *(float*)(locals + pc->imm[0]) = f0;
     NEXT();
 }
 
@@ -1627,21 +1632,26 @@ HANDLER(op_isinf_f32_f) {
 HANDLER(op_local_get_l0_f) { l0 = locals[0]; FPUSH(as_f32(l0)); NEXT(); }
 HANDLER(op_local_get_l1_f) { l1 = locals[1]; FPUSH(as_f32(l1)); NEXT(); }
 HANDLER(op_local_get_l2_f) { l2 = locals[2]; FPUSH(as_f32(l2)); NEXT(); }
+// Same direct-f32-store trick as op_local_set_f: write just the low 32
+// bits via `*(float*)`. The hot local register (l0/l1/l2) keeps the full
+// u64 bit pattern by copying from the memory slot after we've written it
+// — this avoids the FP→GPR `fmov` that `from_f32(f0)` would otherwise
+// force on the critical path.
 HANDLER(op_local_set_l0_f) {
-    l0 = from_f32(f0);
-    locals[0] = l0;
+    *(float*)(locals + 0) = f0;
+    l0 = locals[0];
     FDROP1();
     NEXT();
 }
 HANDLER(op_local_set_l1_f) {
-    l1 = from_f32(f0);
-    locals[1] = l1;
+    *(float*)(locals + 1) = f0;
+    l1 = locals[1];
     FDROP1();
     NEXT();
 }
 HANDLER(op_local_set_l2_f) {
-    l2 = from_f32(f0);
-    locals[2] = l2;
+    *(float*)(locals + 2) = f0;
+    l2 = locals[2];
     FDROP1();
     NEXT();
 }
@@ -1734,6 +1744,21 @@ HANDLER(op_fused_addr_get_sload32_f) {
 HANDLER(op_fused_addr_get_sstore32_f) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    *(float*)(data + idx * 4) = f0;
+    FDROP1();
+    NEXT();
+}
+// Tee + slice store (float window, FFT butterfly hot op):
+//   imm[0] = local_idx n (target for tee),
+//   imm[1] = slot of the slice's fat pointer,
+//   imm[2] = local holding the element index.
+// Stores f0 to locals[n] (low 32 bits) and to slice[idx], then pops f0.
+// Both stores go through `str s, [...]` with no FP→GPR crossing.
+HANDLER(op_fused_tee_sstore32_f) {
+    *(float*)(locals + pc->imm[0]) = f0;
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)locals[pc->imm[2]];
     uint8_t* data = *(uint8_t**)fat;
     *(float*)(data + idx * 4) = f0;
     FDROP1();

@@ -180,6 +180,21 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        // Float-window mirror of the above: fw.local.tee N +
+        // fw.fused.addr_get_sstore32 s idx → FusedTeeSliceStore32F.
+        // The FFT butterfly hits this four times per iteration.
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalTeeF(n), StackOp::FusedAddrGetSliceStore32F(s, idx)) =
+                (&ops[i], &ops[i + 1])
+            {
+                let n = *n; let s = *s; let idx = *idx;
+                ops[i] = StackOp::FusedTeeSliceStore32F(n, s, idx);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
         // local.get + drop → nop (dead variable read)
         if i + 1 < len && !spans_target(i, 2) {
             if matches!(ops[i], StackOp::LocalGet(_)) && matches!(ops[i + 1], StackOp::Drop) {
@@ -241,6 +256,19 @@ fn fuse(func: &mut StackFunction) {
                 if *a == *b {
                     let n = *a;
                     ops[i] = StackOp::LocalTee(n);
+                    ops[i+1] = StackOp::Nop;
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
+        // Float-window mirror: fw.local.set N + fw.local.get N → fw.local.tee N
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalSetF(a), StackOp::LocalGetF(b)) = (&ops[i], &ops[i+1]) {
+                if *a == *b {
+                    let n = *a;
+                    ops[i] = StackOp::LocalTeeF(n);
                     ops[i+1] = StackOp::Nop;
                     i += 2;
                     continue;

@@ -188,8 +188,10 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedAddrGetSliceStore32F(_, _) => -1,
 
         // Local-array variants don't take an address from the int window
-        // (they read the slot from the imm).
+        // (they read the slot from the imm). FusedTeeSliceStore32F also
+        // touches only the float window + locals[].
         StackOp::FusedLocalArrayLoad32F(_, _) | StackOp::FusedLocalArrayStore32F(_, _) => 0,
+        StackOp::FusedTeeSliceStore32F(_, _, _) => 0,
     }
 }
 
@@ -212,6 +214,7 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         | StackOp::LocalSetL0F | StackOp::LocalSetL1F | StackOp::LocalSetL2F
         | StackOp::PrintF32F
         | StackOp::FusedAddrGetSliceStore32F(_, _)
+        | StackOp::FusedTeeSliceStore32F(_, _, _)
         | StackOp::FusedLocalArrayStore32F(_, _)
         | StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => -1,
 

@@ -274,6 +274,7 @@ extern "C" {
     fn op_fused_get_addr_fmul_fadd_f(); fn op_fused_get_addr_fmul_fsub_f();
     fn op_fused_addr_load32off_f();
     fn op_fused_addr_get_sload32_f(); fn op_fused_addr_get_sstore32_f();
+    fn op_fused_tee_sstore32_f();
     fn op_fused_local_array_load32_f(); fn op_fused_local_array_store32_f();
     fn op_fused_f32const_fgt_jiz_f();
 }
@@ -544,6 +545,7 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedAddrLoad32OffF(_, _) => op_fused_addr_load32off_f as *const (),
         StackOp::FusedAddrGetSliceLoad32F(_, _) => op_fused_addr_get_sload32_f as *const (),
         StackOp::FusedAddrGetSliceStore32F(_, _) => op_fused_addr_get_sstore32_f as *const (),
+        StackOp::FusedTeeSliceStore32F(_, _, _) => op_fused_tee_sstore32_f as *const (),
         StackOp::FusedLocalArrayLoad32F(_, _) => op_fused_local_array_load32_f as *const (),
         StackOp::FusedLocalArrayStore32F(_, _) => op_fused_local_array_store32_f as *const (),
         StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => op_fused_f32const_fgt_jiz_f as *const (),
@@ -633,6 +635,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetAddrFMulFAddF(a, s, o)
         | StackOp::FusedGetAddrFMulFSubF(a, s, o) => [*a as u64, *s as u64, *o as i64 as u64],
         StackOp::FusedAddrLoad32OffF(s, o) => [*s as u64, *o as i64 as u64, 0],
+        StackOp::FusedTeeSliceStore32F(n, s, i) => [*n as u64, *s as u64, *i as u64],
         StackOp::FusedF32ConstFGtJumpIfZeroF(v, off) => {
             [f32::to_bits(*v) as u64, *off as i64 as u64, 0]
         }

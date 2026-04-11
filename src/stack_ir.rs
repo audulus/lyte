@@ -452,6 +452,10 @@ pub enum StackOp {
     FusedAddrGetSliceLoad32F(u16, u16),
     /// Pop f0, store to slice[locals[idx] * 4] at slot.
     FusedAddrGetSliceStore32F(u16, u16),
+    /// Float-window mirror of FusedTeeSliceStore32: pop f0, write its bits
+    /// to locals[n], and also store it as f32 to slice[locals[idx]*4] at
+    /// `slot`. Order: (local_idx_n, slot, idx_local). Pops 1 from f-window.
+    FusedTeeSliceStore32F(u16, u16, u16),
     /// f0 = local_array[locals[idx] * 4] at slot.
     FusedLocalArrayLoad32F(u16, u16),
     /// Pop f0, store to local_array[locals[idx] * 4] at slot.
@@ -821,6 +825,7 @@ impl fmt::Display for StackOp {
             StackOp::FusedAddrLoad32OffF(s, o) => write!(f, "fw.fused.addr_load32off {} {}", s, o),
             StackOp::FusedAddrGetSliceLoad32F(s, i) => write!(f, "fw.fused.addr_get_sload32 {} {}", s, i),
             StackOp::FusedAddrGetSliceStore32F(s, i) => write!(f, "fw.fused.addr_get_sstore32 {} {}", s, i),
+            StackOp::FusedTeeSliceStore32F(n, s, i) => write!(f, "fw.fused.tee_sstore32 {} {} {}", n, s, i),
             StackOp::FusedLocalArrayLoad32F(s, i) => write!(f, "fw.fused.local_array_load32 {} {}", s, i),
             StackOp::FusedLocalArrayStore32F(s, i) => write!(f, "fw.fused.local_array_store32 {} {}", s, i),
             StackOp::FusedF32ConstFGtJumpIfZeroF(v, o) => write!(f, "fw.fused.f32const_fgt_jiz {} {}", v, o),
