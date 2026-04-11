@@ -431,10 +431,15 @@ impl Compiler {
             last_safety_errors: Vec::new(),
             quiet: false,
             check_all: false,
-            // Flipped to true in phase 4 of FP_CODEGEN_PLAN.md: the stack
-            // VM now emits float-window (F-variant) ops by default for
-            // f32 expressions. Other backends ignore this flag.
-            stack_fp_window: true,
+            // Phase 4 of FP_CODEGEN_PLAN.md planned to flip this to true
+            // by default, but measurement (see benchmark notes in the
+            // phase 5 commit) showed the F-path regresses biquad ~2x
+            // because every f32 push/pop pays FPUSH/FDROP memory traffic
+            // to ctx->float_stack, whereas the narrow float_window_rewrite
+            // peephole only pays that cost for the FMA chain. Keep the
+            // flag off by default; enable with --fp-window for A/B tests
+            // and future experiments.
+            stack_fp_window: false,
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();

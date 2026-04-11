@@ -51,9 +51,10 @@ struct Args {
     #[clap(long)]
     entry: Option<String>,
 
-    /// Stack VM only: emit float-window (F-variant) ops for f32
-    /// expressions instead of bit-casting through the integer TOS window.
-    /// See FP_CODEGEN_PLAN.md.
+    /// Stack VM only: emit float-window (F-variant) ops for f32 exprs
+    /// instead of the default integer-window path. Currently opt-in
+    /// because the F-window regresses biquad vs the narrow
+    /// float_window_rewrite peephole — see FP_CODEGEN_PLAN.md.
     #[clap(long)]
     fp_window: bool,
 }
@@ -142,7 +143,9 @@ fn run(args: Args) -> i32 {
     }
 
     compiler.print_ir = args.ir;
-    compiler.stack_fp_window = args.fp_window;
+    if args.fp_window {
+        compiler.stack_fp_window = true;
+    }
 
     // Select backend via --backend flag, falling back to LYTE_BACKEND env var.
     let backend = if args.backend.is_empty() {
