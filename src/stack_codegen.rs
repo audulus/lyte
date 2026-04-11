@@ -1253,6 +1253,7 @@ impl<'a> FunctionTranslator<'a> {
             };
             if let Some(elem_ty) = elem_ty {
                 let elem_size = elem_ty.size(self.decls);
+                let elem_is_f32 = matches!(&*elem_ty, Type::Float32);
                 if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
                     // Try fused version if arr and idx are simple locals.
                     if let (Some(arr_slot), Some(idx_local)) = (
@@ -1260,19 +1261,38 @@ impl<'a> FunctionTranslator<'a> {
                         self.get_scalar_local(idx_id),
                     ) {
                         // Fused store: value is on TOS from translate_expr(rhs).
-                        let store_op = if is_slice {
+                        let store_op_int = if is_slice {
                             StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local)
                         } else {
                             StackOp::FusedLocalArrayStore32(arr_slot, idx_local)
                         };
+                        let store_op_float = if is_slice {
+                            StackOp::FusedAddrGetSliceStore32F(arr_slot, idx_local)
+                        } else {
+                            StackOp::FusedLocalArrayStore32F(arr_slot, idx_local)
+                        };
                         self.translate_expr(rhs_id, func);
                         if !self.void_ctx {
                             let val_local = self.alloc_scalar();
-                            func.emit(StackOp::LocalTee(val_local));
-                            func.emit(store_op);
-                            func.emit(StackOp::LocalGet(val_local));
+                            if elem_is_f32 {
+                                func.emit_float(
+                                    StackOp::LocalTee(val_local),
+                                    StackOp::LocalTeeF(val_local),
+                                );
+                                func.emit_float(store_op_int, store_op_float);
+                                func.emit_float(
+                                    StackOp::LocalGet(val_local),
+                                    StackOp::LocalGetF(val_local),
+                                );
+                            } else {
+                                func.emit(StackOp::LocalTee(val_local));
+                                func.emit(store_op_int);
+                                func.emit(StackOp::LocalGet(val_local));
+                            }
+                        } else if elem_is_f32 {
+                            func.emit_float(store_op_int, store_op_float);
                         } else {
-                            func.emit(store_op);
+                            func.emit(store_op_int);
                         }
                         return;
                     }
@@ -1280,13 +1300,38 @@ impl<'a> FunctionTranslator<'a> {
                         // Fallback: generic slice store.
                         self.translate_expr(rhs_id, func);
                         let val_local = self.alloc_scalar();
-                        func.emit(StackOp::LocalSet(val_local));
+                        if elem_is_f32 {
+                            func.emit_float(
+                                StackOp::LocalSet(val_local),
+                                StackOp::LocalSetF(val_local),
+                            );
+                        } else {
+                            func.emit(StackOp::LocalSet(val_local));
+                        }
                         self.translate_expr(arr_id, func); // push fat_ptr
                         self.translate_expr(idx_id, func); // push index
-                        func.emit(StackOp::LocalGet(val_local)); // push value
+                        if elem_is_f32 {
+                            // Generic SliceStore32 consumes the value from
+                            // the int window, so bridge an f32 val_local
+                            // back through FToBitsF.
+                            func.emit_float(
+                                StackOp::LocalGet(val_local),
+                                StackOp::LocalGetF(val_local),
+                            );
+                            func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                        } else {
+                            func.emit(StackOp::LocalGet(val_local));
+                        }
                         func.emit(StackOp::SliceStore32);
                         if !self.void_ctx {
-                            func.emit(StackOp::LocalGet(val_local)); // result
+                            if elem_is_f32 {
+                                func.emit_float(
+                                    StackOp::LocalGet(val_local),
+                                    StackOp::LocalGetF(val_local),
+                                );
+                            } else {
+                                func.emit(StackOp::LocalGet(val_local));
+                            }
                         }
                         return;
                     }
@@ -1295,6 +1340,9 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // General assignment: compute rhs, compute lvalue address, store.
+        let lhs_ty = self.expr_type(lhs_id);
+        let is_f32 = matches!(&*lhs_ty, Type::Float32);
+
         // Optimization: if RHS is a simple local variable, reuse it directly
         // instead of creating a temp (avoids get_set + get pattern).
         let val_local = if let Some(rhs_local) = self.get_scalar_local(rhs_id) {
@@ -1302,13 +1350,26 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             self.translate_expr(rhs_id, func);
             let tmp = self.alloc_scalar();
-            func.emit(StackOp::LocalSet(tmp));
+            if is_f32 {
+                func.emit_float(
+                    StackOp::LocalSet(tmp),
+                    StackOp::LocalSetF(tmp),
+                );
+            } else {
+                func.emit(StackOp::LocalSet(tmp));
+            }
             tmp
         };
 
-        let lhs_ty = self.expr_type(lhs_id);
         self.translate_lvalue(lhs_id, func); // pushes address
-        func.emit(StackOp::LocalGet(val_local)); // push value
+        if is_f32 {
+            func.emit_float(
+                StackOp::LocalGet(val_local),
+                StackOp::LocalGetF(val_local),
+            );
+        } else {
+            func.emit(StackOp::LocalGet(val_local));
+        }
 
         // For Func type field assignment, only copy func_idx (8 bytes).
         if matches!(&*lhs_ty, Type::Func(_, _)) {
@@ -1323,7 +1384,14 @@ impl<'a> FunctionTranslator<'a> {
 
         self.emit_store_op(&lhs_ty, func);
         if !self.void_ctx {
-            func.emit(StackOp::LocalGet(val_local)); // result
+            if is_f32 {
+                func.emit_float(
+                    StackOp::LocalGet(val_local),
+                    StackOp::LocalGetF(val_local),
+                );
+            } else {
+                func.emit(StackOp::LocalGet(val_local));
+            }
         }
     }
 
@@ -2202,13 +2270,26 @@ impl<'a> FunctionTranslator<'a> {
 
         // Fused 32-bit scalar load for slices and inline local arrays.
         let elem_size = elem_ty.size(self.decls);
+        let elem_is_f32 = matches!(&*elem_ty, Type::Float32);
         if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
             if let (Some(arr_slot), Some(idx_local)) = (
                 self.get_memory_slot(arr_id),
                 self.get_scalar_local(idx_id),
             ) {
                 if is_slice {
-                    func.emit(StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local));
+                    if elem_is_f32 {
+                        func.emit_float(
+                            StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local),
+                            StackOp::FusedAddrGetSliceLoad32F(arr_slot, idx_local),
+                        );
+                    } else {
+                        func.emit(StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local));
+                    }
+                } else if elem_is_f32 {
+                    func.emit_float(
+                        StackOp::FusedLocalArrayLoad32(arr_slot, idx_local),
+                        StackOp::FusedLocalArrayLoad32F(arr_slot, idx_local),
+                    );
                 } else {
                     func.emit(StackOp::FusedLocalArrayLoad32(arr_slot, idx_local));
                 }
@@ -2218,7 +2299,17 @@ impl<'a> FunctionTranslator<'a> {
                 // Fallback: generic slice load.
                 self.translate_expr(arr_id, func);
                 self.translate_expr(idx_id, func);
-                func.emit(StackOp::SliceLoad32);
+                if elem_is_f32 {
+                    // SliceLoad32 + BitsToFF bridge for f32 elements under
+                    // the float-window codegen. The SliceLoad32F variant
+                    // that takes a dynamic address is not part of the op
+                    // inventory yet (phase 3 only adds it for the fused
+                    // local-array/addr-slot variants).
+                    func.emit(StackOp::SliceLoad32);
+                    func.emit_float(StackOp::Nop, StackOp::BitsToFF);
+                } else {
+                    func.emit(StackOp::SliceLoad32);
+                }
                 return;
             }
         }
@@ -2494,7 +2585,8 @@ impl<'a> FunctionTranslator<'a> {
     fn emit_load(&self, ty: &TypeID, func: &mut StackFunction) {
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Load8),
-            Type::Int32 | Type::UInt32 | Type::Float32 => func.emit(StackOp::Load32),
+            Type::Float32 => func.emit_float(StackOp::Load32, StackOp::LoadF32F),
+            Type::Int32 | Type::UInt32 => func.emit(StackOp::Load32),
             Type::Float64 => func.emit(StackOp::Load64),
             _ => func.emit(StackOp::Load64),
         }
@@ -2507,7 +2599,13 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::IAddImm(offset));
                 func.emit(StackOp::Load8);
             }
-            Type::Int32 | Type::UInt32 | Type::Float32 => {
+            Type::Float32 => {
+                func.emit_float(
+                    StackOp::Load32Off(offset),
+                    StackOp::LoadF32OffF(offset),
+                );
+            }
+            Type::Int32 | Type::UInt32 => {
                 func.emit(StackOp::Load32Off(offset));
             }
             Type::Float64 => {
@@ -2527,7 +2625,10 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             match &**ty {
                 Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Store8),
-                Type::Int32 | Type::UInt32 | Type::Float32 => func.emit(StackOp::Store32),
+                Type::Float32 => {
+                    func.emit_float(StackOp::Store32, StackOp::StoreF32F)
+                }
+                Type::Int32 | Type::UInt32 => func.emit(StackOp::Store32),
                 Type::Float64 => func.emit(StackOp::Store64),
                 _ => func.emit(StackOp::Store64),
             }
@@ -2615,7 +2716,13 @@ impl<'a> FunctionTranslator<'a> {
                 Type::Bool | Type::Int8 | Type::UInt8 => {
                     func.emit(StackOp::Store8Off(offset));
                 }
-                Type::Int32 | Type::UInt32 | Type::Float32 => {
+                Type::Float32 => {
+                    func.emit_float(
+                        StackOp::Store32Off(offset),
+                        StackOp::StoreF32OffF(offset),
+                    );
+                }
+                Type::Int32 | Type::UInt32 => {
                     func.emit(StackOp::Store32Off(offset));
                 }
                 Type::Float64 => {
