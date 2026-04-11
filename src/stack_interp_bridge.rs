@@ -17,7 +17,6 @@ struct CallFrame {
     return_pc: *mut Instruction,
     saved_locals: *mut u64,
     saved_sp: *mut u64,
-    saved_fsp: *mut f32,
     func_idx: u32,
     saved_frame_size: usize,
 }
@@ -682,7 +681,6 @@ pub fn run(program: &StackProgram) -> i64 {
             return_pc: std::ptr::null_mut(),
             saved_locals: std::ptr::null_mut(),
             saved_sp: std::ptr::null_mut(),
-            saved_fsp: std::ptr::null_mut(),
             func_idx: 0,
             saved_frame_size: 0,
         })

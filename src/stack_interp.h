@@ -27,7 +27,6 @@ typedef struct CallFrame {
     Instruction* return_pc;    // instruction to resume at after return
     uint64_t*    saved_locals; // caller's locals pointer (= caller's fp)
     uint64_t*    saved_sp;    // caller's stack pointer (for truncating on return)
-    float*       saved_fsp;   // caller's float spill pointer
     uint32_t     func_idx;    // caller's function index (for looking up metadata)
     size_t       saved_frame_size; // frame_stack_size to restore on return
 } CallFrame;

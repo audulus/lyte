@@ -676,7 +676,6 @@ HANDLER(op_call) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_fsp = fsp;
     frame->func_idx = (uint32_t)pc->imm[2];
     frame->saved_frame_size = ctx->frame_stack_size;
 
@@ -781,7 +780,6 @@ HANDLER(op_call_closure) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_fsp = fsp;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
 
@@ -860,7 +858,6 @@ HANDLER(op_call_indirect) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
-    frame->saved_fsp = fsp;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
 
@@ -940,7 +937,9 @@ HANDLER(op_return) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    fsp = frame->saved_fsp;
+    // fsp needs no restore: f-window pushes/pops are balanced in the
+    // callee and f32 return values travel through t0, so fsp at return
+    // already equals the caller's fsp. Same rationale applies to sp.
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
@@ -950,7 +949,7 @@ HANDLER(op_return) {
 HANDLER(op_return_void) {
     // arity = 0: sp should already equal saved_sp (callee's final depth
     // is 0). Still don't rewind — just use the current sp, which is the
-    // authoritative "empty-stack-for-this-frame" value.
+    // authoritative "empty-stack-for-this-frame" value. Same for fsp.
     if (ctx->call_depth == 0) {
         ctx->result = 0;
         ctx->done = 1;
@@ -960,7 +959,6 @@ HANDLER(op_return_void) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    fsp = frame->saved_fsp;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
