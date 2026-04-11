@@ -431,7 +431,10 @@ impl Compiler {
             last_safety_errors: Vec::new(),
             quiet: false,
             check_all: false,
-            stack_fp_window: false,
+            // Flipped to true in phase 4 of FP_CODEGEN_PLAN.md: the stack
+            // VM now emits float-window (F-variant) ops by default for
+            // f32 expressions. Other backends ignore this flag.
+            stack_fp_window: true,
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
