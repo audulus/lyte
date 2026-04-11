@@ -742,8 +742,6 @@ HANDLER(op_call) {
         }
     }
 
-    frame->saved_sp = sp;
-
     // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2] and
     // inherits the caller's TOS window (post-pop). The window holds
     // garbage at depths < 4 — that's fine because well-formed callee
@@ -838,8 +836,6 @@ HANDLER(op_call_closure) {
         }
     }
 
-    frame->saved_sp = sp;
-
     pc = ctx->functions[target].code;
     locals = new_locals;
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
@@ -908,8 +904,6 @@ HANDLER(op_call_indirect) {
         }
     }
 
-    frame->saved_sp = sp;
-
     pc = ctx->functions[target].code;
     locals = new_locals;
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
@@ -918,16 +912,14 @@ HANDLER(op_call_indirect) {
 
 HANDLER(op_return) {
     // The callee leaves its return value in t0 with t1..t3 already
-    // restored by its own balanced deep PUSH/POP traffic — no FILL_BELOW
-    // needed. The deep pops at the call site (in op_call) and throughout
-    // the callee body have already round-tripped the caller's t1..t3
-    // through memory and back into the registers.
-    //
-    // We do NOT rewind sp to saved_sp here. Under the all-deep-ops
-    // invariant, sp = stack_base + depth, so the callee's sp at return
-    // time is already `saved_sp + arity` — exactly the value the caller
-    // needs to see for its own depth bookkeeping. Rewinding to saved_sp
-    // would drop the slot corresponding to the return value.
+    // restored by its own balanced deep PUSH/POP traffic. Neither sp
+    // nor fsp needs an explicit restore from the call frame: under
+    // balanced stack discipline the callee's sp at op_return time is
+    // already `caller_sp + arity`, which is exactly what the caller
+    // expects for its own depth bookkeeping, and the f-window is
+    // empty by the same argument (f32 return values cross to t0 via
+    // FToBitsF before Return). Rewinding to a saved value would drop
+    // the return-value slot.
     if (ctx->call_depth == 0) {
         ctx->result = (int64_t)t0;
         ctx->done = 1;
@@ -937,9 +929,6 @@ HANDLER(op_return) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    // fsp needs no restore: f-window pushes/pops are balanced in the
-    // callee and f32 return values travel through t0, so fsp at return
-    // already equals the caller's fsp. Same rationale applies to sp.
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
@@ -947,9 +936,7 @@ HANDLER(op_return) {
 }
 
 HANDLER(op_return_void) {
-    // arity = 0: sp should already equal saved_sp (callee's final depth
-    // is 0). Still don't rewind — just use the current sp, which is the
-    // authoritative "empty-stack-for-this-frame" value. Same for fsp.
+    // Same no-rewind invariant as op_return, arity = 0.
     if (ctx->call_depth == 0) {
         ctx->result = 0;
         ctx->done = 1;
