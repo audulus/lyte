@@ -22,7 +22,11 @@ else
     cargo build -p lyte-cli --release --quiet 2>/dev/null
     HAS_LLVM=0
 fi
-LYTE=./target/release/lyte
+# Resolve actual target dir — honors a `.cargo/config.toml` target-dir
+# override so the script doesn't rely on `./target/release/lyte` existing.
+TARGET_DIR="$(cargo metadata --format-version=1 --no-deps 2>/dev/null \
+    | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+LYTE="${TARGET_DIR:-./target}/release/lyte"
 
 echo "Building C benchmarks..."
 cc -O2 -o benchmark/biquad_c_o2 benchmark/biquad.c -lm
