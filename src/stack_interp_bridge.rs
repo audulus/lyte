@@ -71,12 +71,6 @@ extern "C" {
     fn op_ipow();
     fn op_ineg();
     fn op_iadd_imm();
-    fn op_fadd();
-    fn op_fsub();
-    fn op_fmul();
-    fn op_fdiv();
-    fn op_fpow();
-    fn op_fneg();
     fn op_dadd();
     fn op_dsub();
     fn op_dmul();
@@ -91,12 +85,6 @@ extern "C" {
     fn op_ige();
     fn op_ult();
     fn op_ugt();
-    fn op_feq();
-    fn op_fne();
-    fn op_flt();
-    fn op_fle();
-    fn op_fgt();
-    fn op_fge();
     fn op_deq();
     fn op_dlt();
     fn op_dle();
@@ -107,8 +95,6 @@ extern "C" {
     fn op_shl();
     fn op_shr();
     fn op_ushr();
-    fn op_i32_to_f32();
-    fn op_f32_to_i32();
     fn op_i32_to_f64();
     fn op_f64_to_i32();
     fn op_f32_to_f64();
@@ -144,27 +130,6 @@ extern "C" {
     fn op_return();
     fn op_return_void();
     fn op_drop();
-    fn op_sin_f32();
-    fn op_cos_f32();
-    fn op_tan_f32();
-    fn op_asin_f32();
-    fn op_acos_f32();
-    fn op_atan_f32();
-    fn op_sinh_f32();
-    fn op_cosh_f32();
-    fn op_tanh_f32();
-    fn op_asinh_f32();
-    fn op_acosh_f32();
-    fn op_atanh_f32();
-    fn op_ln_f32();
-    fn op_exp_f32();
-    fn op_exp2_f32();
-    fn op_log10_f32();
-    fn op_log2_f32();
-    fn op_sqrt_f32();
-    fn op_abs_f32();
-    fn op_floor_f32();
-    fn op_ceil_f32();
     fn op_sin_f64();
     fn op_cos_f64();
     fn op_tan_f64();
@@ -186,14 +151,10 @@ extern "C" {
     fn op_abs_f64();
     fn op_floor_f64();
     fn op_ceil_f64();
-    fn op_isnan_f32();
     fn op_isnan_f64();
-    fn op_isinf_f32();
     fn op_isinf_f64();
-    fn op_atan2_f32();
     fn op_atan2_f64();
     fn op_print_i32();
-    fn op_print_f32();
     fn op_putc();
     fn op_assert();
     fn op_get_closure_ptr();
@@ -205,31 +166,14 @@ extern "C" {
     fn op_fused_get_get_isub_set();
     fn op_fused_get_get_imul_set();
     fn op_fused_field_copy32();
-    fn op_fused_f32const_fgt_jiz();
     fn op_fused_addr_get_sstore32();
     fn op_fused_local_array_load32();
     fn op_fused_local_array_store32();
     fn op_fused_tee_sstore32();
-    fn op_fused_tee_sincos_set();
     fn op_fused_get_set();
-    fn op_fused_get_addr_fmul_fadd(); fn op_fused_get_addr_fmul_fsub();
     fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
-    fn op_fused_get_get_fmul();
-    fn op_fused_get_get_fmul_fw();
-    fn op_fused_get_addr_fmul_fadd_fw();
-    fn op_fused_get_addr_fmul_fsub_fw();
-    fn op_local_set_l0_fw();
-    fn op_local_set_l1_fw();
-    fn op_local_set_l2_fw();
-    fn op_fused_get_get_fadd();
-    fn op_fused_get_get_fsub();
     fn op_fused_get_get_iadd();
     fn op_fused_get_get_ilt();
-    fn op_fused_get_fmul();
-    fn op_fused_get_fadd();
-    fn op_fused_get_fsub();
-    fn op_fused_fmul_fadd();
-    fn op_fused_fmul_fsub();
     fn op_fused_addr_load32off();
     fn op_fused_get_addimm_set();
     fn op_fused_get_get_ilt_jiz();
@@ -299,12 +243,6 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::IPow => op_ipow as *const (),
         StackOp::INeg => op_ineg as *const (),
         StackOp::IAddImm(_) => op_iadd_imm as *const (),
-        StackOp::FAdd => op_fadd as *const (),
-        StackOp::FSub => op_fsub as *const (),
-        StackOp::FMul => op_fmul as *const (),
-        StackOp::FDiv => op_fdiv as *const (),
-        StackOp::FPow => op_fpow as *const (),
-        StackOp::FNeg => op_fneg as *const (),
         StackOp::DAdd => op_dadd as *const (),
         StackOp::DSub => op_dsub as *const (),
         StackOp::DMul => op_dmul as *const (),
@@ -319,12 +257,6 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::IGe => op_ige as *const (),
         StackOp::ULt => op_ult as *const (),
         StackOp::UGt => op_ugt as *const (),
-        StackOp::FEq => op_feq as *const (),
-        StackOp::FNe => op_fne as *const (),
-        StackOp::FLt => op_flt as *const (),
-        StackOp::FLe => op_fle as *const (),
-        StackOp::FGt => op_fgt as *const (),
-        StackOp::FGe => op_fge as *const (),
         StackOp::DEq => op_deq as *const (),
         StackOp::DLt => op_dlt as *const (),
         StackOp::DLe => op_dle as *const (),
@@ -335,8 +267,6 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::Shl => op_shl as *const (),
         StackOp::Shr => op_shr as *const (),
         StackOp::UShr => op_ushr as *const (),
-        StackOp::I32ToF32 => op_i32_to_f32 as *const (),
-        StackOp::F32ToI32 => op_f32_to_i32 as *const (),
         StackOp::I32ToF64 => op_i32_to_f64 as *const (),
         StackOp::F64ToI32 => op_f64_to_i32 as *const (),
         StackOp::F32ToF64 => op_f32_to_f64 as *const (),
@@ -372,27 +302,6 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::Return => op_return as *const (),
         StackOp::ReturnVoid => op_return_void as *const (),
         StackOp::Drop => op_drop as *const (),
-        StackOp::SinF32 => op_sin_f32 as *const (),
-        StackOp::CosF32 => op_cos_f32 as *const (),
-        StackOp::TanF32 => op_tan_f32 as *const (),
-        StackOp::AsinF32 => op_asin_f32 as *const (),
-        StackOp::AcosF32 => op_acos_f32 as *const (),
-        StackOp::AtanF32 => op_atan_f32 as *const (),
-        StackOp::SinhF32 => op_sinh_f32 as *const (),
-        StackOp::CoshF32 => op_cosh_f32 as *const (),
-        StackOp::TanhF32 => op_tanh_f32 as *const (),
-        StackOp::AsinhF32 => op_asinh_f32 as *const (),
-        StackOp::AcoshF32 => op_acosh_f32 as *const (),
-        StackOp::AtanhF32 => op_atanh_f32 as *const (),
-        StackOp::LnF32 => op_ln_f32 as *const (),
-        StackOp::ExpF32 => op_exp_f32 as *const (),
-        StackOp::Exp2F32 => op_exp2_f32 as *const (),
-        StackOp::Log10F32 => op_log10_f32 as *const (),
-        StackOp::Log2F32 => op_log2_f32 as *const (),
-        StackOp::SqrtF32 => op_sqrt_f32 as *const (),
-        StackOp::AbsF32 => op_abs_f32 as *const (),
-        StackOp::FloorF32 => op_floor_f32 as *const (),
-        StackOp::CeilF32 => op_ceil_f32 as *const (),
         StackOp::SinF64 => op_sin_f64 as *const (),
         StackOp::CosF64 => op_cos_f64 as *const (),
         StackOp::TanF64 => op_tan_f64 as *const (),
@@ -414,14 +323,10 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::AbsF64 => op_abs_f64 as *const (),
         StackOp::FloorF64 => op_floor_f64 as *const (),
         StackOp::CeilF64 => op_ceil_f64 as *const (),
-        StackOp::IsnanF32 => op_isnan_f32 as *const (),
         StackOp::IsnanF64 => op_isnan_f64 as *const (),
-        StackOp::IsinfF32 => op_isinf_f32 as *const (),
         StackOp::IsinfF64 => op_isinf_f64 as *const (),
-        StackOp::Atan2F32 => op_atan2_f32 as *const (),
         StackOp::Atan2F64 => op_atan2_f64 as *const (),
         StackOp::PrintI32 => op_print_i32 as *const (),
-        StackOp::PrintF32 => op_print_f32 as *const (),
         StackOp::Putc => op_putc as *const (),
         StackOp::Assert => op_assert as *const (),
         StackOp::GetClosurePtr => op_get_closure_ptr as *const (),
@@ -433,33 +338,15 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedGetGetISubSet(_, _, _) => op_fused_get_get_isub_set as *const (),
         StackOp::FusedGetGetIMulSet(_, _, _) => op_fused_get_get_imul_set as *const (),
         StackOp::FusedFieldCopy32(_, _, _) => op_fused_field_copy32 as *const (),
-        StackOp::FusedF32ConstFGtJumpIfZero(_, _) => op_fused_f32const_fgt_jiz as *const (),
         StackOp::FusedAddrGetSliceStore32(_, _) => op_fused_addr_get_sstore32 as *const (),
         StackOp::FusedLocalArrayLoad32(_, _) => op_fused_local_array_load32 as *const (),
         StackOp::FusedLocalArrayStore32(_, _) => op_fused_local_array_store32 as *const (),
         StackOp::FusedTeeSliceStore32(_, _, _) => op_fused_tee_sstore32 as *const (),
-        StackOp::FusedTeeSinCosSet(_, _, _) => op_fused_tee_sincos_set as *const (),
         StackOp::FusedGetSet(_, _) => op_fused_get_set as *const (),
-        StackOp::FusedGetAddrFMulFAdd(_, _, _) => op_fused_get_addr_fmul_fadd as *const (),
-        StackOp::FusedGetAddrFMulFSub(_, _, _) => op_fused_get_addr_fmul_fsub as *const (),
         StackOp::FusedAddrLoad32OffSet(_, _, _) => op_fused_addr_load32off_set as *const (),
         StackOp::FusedAddrImmGetStore32(_, _, _) => op_fused_addr_imm_get_store32 as *const (),
-        StackOp::FusedGetGetFMul(_, _) => op_fused_get_get_fmul as *const (),
-        StackOp::FusedGetGetFMulFW(_, _) => op_fused_get_get_fmul_fw as *const (),
-        StackOp::FusedGetAddrFMulFAddFW(_, _, _) => op_fused_get_addr_fmul_fadd_fw as *const (),
-        StackOp::FusedGetAddrFMulFSubFW(_, _, _) => op_fused_get_addr_fmul_fsub_fw as *const (),
-        StackOp::LocalSetL0FW => op_local_set_l0_fw as *const (),
-        StackOp::LocalSetL1FW => op_local_set_l1_fw as *const (),
-        StackOp::LocalSetL2FW => op_local_set_l2_fw as *const (),
-        StackOp::FusedGetGetFAdd(_, _) => op_fused_get_get_fadd as *const (),
-        StackOp::FusedGetGetFSub(_, _) => op_fused_get_get_fsub as *const (),
         StackOp::FusedGetGetIAdd(_, _) => op_fused_get_get_iadd as *const (),
         StackOp::FusedGetGetILt(_, _) => op_fused_get_get_ilt as *const (),
-        StackOp::FusedGetFMul(_) => op_fused_get_fmul as *const (),
-        StackOp::FusedGetFAdd(_) => op_fused_get_fadd as *const (),
-        StackOp::FusedGetFSub(_) => op_fused_get_fsub as *const (),
-        StackOp::FusedFMulFAdd => op_fused_fmul_fadd as *const (),
-        StackOp::FusedFMulFSub => op_fused_fmul_fsub as *const (),
         StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off as *const (),
         StackOp::FusedGetAddImmSet(_, _, _) => op_fused_get_addimm_set as *const (),
         StackOp::FusedGetGetILtJumpIfZero(_, _, _) => op_fused_get_get_ilt_jiz as *const (),
@@ -580,31 +467,14 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::CallIndirect { args } => [*args as u64, func_idx as u64, 0],
         StackOp::CallClosure { args } => [*args as u64, func_idx as u64, 0],
         // Fused instructions
-        StackOp::FusedGetGetFMul(a, b) | StackOp::FusedGetGetFAdd(a, b)
-        | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
+        StackOp::FusedGetGetIAdd(a, b)
         | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b)
         | StackOp::FusedAddrGetSliceStore32(a, b)
         | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b) => {
             [*a as u64, *b as u64, 0]
         }
-        // FW variants load coeff as f32 directly from locals[a] (and
-        // locals[b] for FMulFW), so they get the same byte-offset
-        // pre-shift as the F variants. See encode_imm note above.
-        StackOp::FusedGetGetFMulFW(a, b) => {
-            [(*a as u64) * 8, (*b as u64) * 8, 0]
-        }
-        StackOp::FusedGetAddrFMulFAddFW(a, s, o)
-        | StackOp::FusedGetAddrFMulFSubFW(a, s, o) => {
-            [(*a as u64) * 8, *s as u64, *o as i64 as u64]
-        }
-        StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
-            [*a as u64, 0, 0]
-        }
         StackOp::FusedGetSet(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedAddrLoad32Off(s, o) => [*s as u64, *o as i64 as u64, 0],
-        StackOp::FusedGetAddrFMulFAdd(a, s, o) | StackOp::FusedGetAddrFMulFSub(a, s, o) => {
-            [*a as u64, *s as u64, *o as i64 as u64]
-        }
         StackOp::FusedAddrLoad32OffSet(s, o, d) => [*s as u64, *o as i64 as u64, *d as u64],
         StackOp::FusedAddrImmGetStore32(s, o, src) => [*s as u64, *o as i64 as u64, *src as u64],
         StackOp::FusedGetGetFAddSet(a, b, d)
@@ -616,10 +486,8 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         | StackOp::FusedGetGetIMulSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
         StackOp::FusedFieldCopy32(s, src, dst) => [*s as u64, *src as i64 as u64, *dst as i64 as u64],
         StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
-        StackOp::FusedTeeSinCosSet(t, c, s) => [*t as u64, *c as u64, *s as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
-        StackOp::FusedF32ConstFGtJumpIfZero(v, off) => [f32::to_bits(*v) as u64, *off as i64 as u64, 0],
         StackOp::FusedConstSet(v, n) => [*v as u64, *n as u64, 0],
         StackOp::FusedF32ConstSet(v, n) => [f32::to_bits(*v) as u64, *n as u64, 0],
 

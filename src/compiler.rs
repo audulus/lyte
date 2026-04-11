@@ -413,8 +413,6 @@ pub struct Compiler {
     pub quiet: bool,
     /// When true, continue checking all declarations even after errors (for LSP).
     pub check_all: bool,
-    /// Stack VM only: emit float-window (F-variant) ops for f32 exprs.
-    pub stack_fp_window: bool,
 }
 
 impl Compiler {
@@ -431,15 +429,6 @@ impl Compiler {
             last_safety_errors: Vec::new(),
             quiet: false,
             check_all: false,
-            // Phase 4 of FP_CODEGEN_PLAN.md planned to flip this to true
-            // by default, but measurement (see benchmark notes in the
-            // phase 5 commit) showed the F-path regresses biquad ~2x
-            // because every f32 push/pop pays FPUSH/FDROP memory traffic
-            // to ctx->float_stack, whereas the narrow float_window_rewrite
-            // peephole only pays that cost for the FMA chain. Keep the
-            // flag off by default; enable with --fp-window for A/B tests
-            // and future experiments.
-            stack_fp_window: false,
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
@@ -799,7 +788,6 @@ impl Compiler {
             return Err(String::from("No declarations to compile"));
         }
         let mut codegen = crate::stack_codegen::StackCodegen::new();
-        codegen.use_fp_window = self.stack_fp_window;
         let entry_points = self.effective_entry_points();
         let mut program = codegen.compile_multi(&self.decls, &entry_points)?;
         // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
@@ -811,7 +799,6 @@ impl Compiler {
         for func in &mut program.functions {
             crate::stack_rebase_lm::rebase(func);
         }
-        // Hot local analysis: remap hottest locals to indices 0/1/2.
         // Hot local analysis: remap hottest locals to indices 0/1/2.
         for func in &mut program.functions {
             let hot = crate::stack_hot_locals::analyze(func);
@@ -829,13 +816,6 @@ impl Compiler {
             if func.hot_locals[0].is_some() {
                 crate::stack_hot_locals::lower(func);
             }
-        }
-        // Post-lower: rewrite float expression chains to use the float
-        // TOS window so accumulators stay in FP registers and dodge
-        // GPR↔FP crossings. Must run AFTER lower() because it matches
-        // against LocalSetL0/1/2, not LocalSet(0/1/2).
-        for func in &mut program.functions {
-            crate::stack_optimize::float_window_rewrite(func);
         }
         // Fill in Call.preserve from static stack depth. Must run AFTER
         // fusion since fusion can change op positions and stack_delta values.

@@ -68,10 +68,6 @@ pub struct StackCodegen {
 
     /// Counter for generating unique lambda names.
     lambda_counter: usize,
-
-    /// When true, emit float-window (F-variant) ops for f32 expressions.
-    /// Copied onto every StackFunction this codegen produces.
-    pub use_fp_window: bool,
 }
 
 impl Default for StackCodegen {
@@ -91,7 +87,6 @@ impl StackCodegen {
             pending_func_loads: Vec::new(),
             globals: HashMap::new(),
             lambda_counter: 0,
-            use_fp_window: false,
         }
     }
 
@@ -201,7 +196,6 @@ impl StackCodegen {
     fn compile_function(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Result<u32, String> {
         let mut func = StackFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
-        func.use_fp_window = self.use_fp_window;
 
         let mut translator = FunctionTranslator::new(
             decl,
@@ -492,7 +486,7 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     // Fall-through return: bridge f32 results back to t0.
                     if matches!(&*self.decl.ret, Type::Float32) {
-                        func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                        func.emit(StackOp::FToBitsF);
                     }
                     func.emit(StackOp::Return);
                 }
@@ -581,7 +575,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_expr(expr, func);
                 let ty = self.expr_type(expr);
                 if matches!(&*ty, Type::Float32) {
-                    func.emit_float(StackOp::Drop, StackOp::DropF);
+                    func.emit(StackOp::DropF);
                 } else {
                     func.emit(StackOp::Drop);
                 }
@@ -624,7 +618,7 @@ impl<'a> FunctionTranslator<'a> {
                 match &*ty {
                     Type::Float32 => {
                         let value: f32 = s.parse().unwrap_or(0.0);
-                        func.emit_float(StackOp::F32Const(value), StackOp::F32ConstF(value));
+                        func.emit(StackOp::F32ConstF(value));
                     }
                     Type::Float64 => {
                         let value: f64 = s.parse().unwrap_or(0.0);
@@ -632,7 +626,7 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     _ => {
                         let value: f32 = s.parse().unwrap_or(0.0);
-                        func.emit_float(StackOp::F32Const(value), StackOp::F32ConstF(value));
+                        func.emit(StackOp::F32ConstF(value));
                     }
                 }
             }
@@ -719,18 +713,12 @@ impl<'a> FunctionTranslator<'a> {
                     let is_f32 = matches!(&*ty, Type::Float32);
                     if self.void_ctx {
                         if is_f32 {
-                            func.emit_float(
-                                StackOp::LocalSet(local),
-                                StackOp::LocalSetF(local),
-                            );
+                            func.emit(StackOp::LocalSetF(local),);
                         } else {
                             func.emit(StackOp::LocalSet(local));
                         }
                     } else if is_f32 {
-                        func.emit_float(
-                            StackOp::LocalTee(local),
-                            StackOp::LocalTeeF(local),
-                        );
+                        func.emit(StackOp::LocalTeeF(local),);
                     } else {
                         func.emit(StackOp::LocalTee(local));
                     }
@@ -764,10 +752,7 @@ impl<'a> FunctionTranslator<'a> {
                         if !self.try_emit_binop_set(local, init_id, func) {
                             self.translate_expr(init_id, func);
                             if is_f32 {
-                                func.emit_float(
-                                    StackOp::LocalSet(local),
-                                    StackOp::LocalSetF(local),
-                                );
+                                func.emit(StackOp::LocalSetF(local),);
                             } else {
                                 func.emit(StackOp::LocalSet(local));
                             }
@@ -869,7 +854,7 @@ impl<'a> FunctionTranslator<'a> {
                     // the preceding expression left the value in the float
                     // window, bridge it back to the int window first.
                     if matches!(&*ret_ty, Type::Float32) {
-                        func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                        func.emit(StackOp::FToBitsF);
                     }
                     func.emit(StackOp::Return);
                 }
@@ -1000,10 +985,7 @@ impl<'a> FunctionTranslator<'a> {
             match kind {
                 LocalKind::Scalar(slot) => {
                     if matches!(&*ty, Type::Float32) {
-                        func.emit_float(
-                            StackOp::LocalGet(slot),
-                            StackOp::LocalGetF(slot),
-                        );
+                        func.emit(StackOp::LocalGetF(slot),);
                     } else {
                         func.emit(StackOp::LocalGet(slot));
                     }
@@ -1074,33 +1056,41 @@ impl<'a> FunctionTranslator<'a> {
 
         let ty = self.expr_type(lhs_id);
 
-        // f32x4 SIMD ops.
+        // f32x4 SIMD ops — emit element-wise using the F-window.
         if matches!(&*ty, Type::Float32x4) {
             self.translate_expr(lhs_id, func);
             self.translate_expr(rhs_id, func);
             let mem_slot = self.alloc_memory(16);
-            // For now, emit element-wise operations using Load32Off/Store32Off.
-            // A real implementation would have dedicated f32x4 stack ops.
             let lhs_local = self.alloc_scalar();
             let rhs_local = self.alloc_scalar();
             func.emit(StackOp::LocalSet(rhs_local));
             func.emit(StackOp::LocalSet(lhs_local));
             let fop = match op {
-                Binop::Plus => StackOp::FAdd,
-                Binop::Minus => StackOp::FSub,
-                Binop::Mult => StackOp::FMul,
-                Binop::Div => StackOp::FDiv,
+                Binop::Plus => StackOp::FAddF,
+                Binop::Minus => StackOp::FSubF,
+                Binop::Mult => StackOp::FMulF,
+                Binop::Div => StackOp::FDivF,
                 _ => panic!("unsupported f32x4 binop: {:?}", op),
             };
             for lane in 0..4i32 {
                 let off = lane * 4;
-                func.emit(StackOp::LocalAddr(mem_slot));
                 func.emit(StackOp::LocalGet(lhs_local));
-                func.emit(StackOp::Load32Off(off));
+                func.emit(StackOp::LoadF32OffF(off));
                 func.emit(StackOp::LocalGet(rhs_local));
-                func.emit(StackOp::Load32Off(off));
+                func.emit(StackOp::LoadF32OffF(off));
                 func.emit(fop.clone());
-                func.emit(StackOp::Store32Off(off));
+                // Store the f32 result through the F-window to
+                // locals[mem_slot + off] — the StoreF32OffF handler
+                // pops an address from the int TOS and a float from
+                // the F TOS, so push the address first.
+                func.emit(StackOp::LocalAddr(mem_slot));
+                // We need the address BELOW the value for StoreF32OffF.
+                // The F-window value is on top of f-window; we pushed
+                // the address AFTER the arithmetic, which means the
+                // order is (int addr, f-window value). StoreF32OffF
+                // pops both independently from their windows, so
+                // order doesn't matter across windows.
+                func.emit(StackOp::StoreF32OffF(off));
             }
             func.emit(StackOp::LocalAddr(mem_slot));
             return;
@@ -1112,34 +1102,34 @@ impl<'a> FunctionTranslator<'a> {
 
         match op {
             Binop::Plus => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FAdd, StackOp::FAddF),
+                Type::Float32 => func.emit(StackOp::FAddF),
                 Type::Float64 => func.emit(StackOp::DAdd),
                 _ => func.emit(StackOp::IAdd),
             },
             Binop::Minus => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FSub, StackOp::FSubF),
+                Type::Float32 => func.emit(StackOp::FSubF),
                 Type::Float64 => func.emit(StackOp::DSub),
                 _ => func.emit(StackOp::ISub),
             },
             Binop::Mult => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FMul, StackOp::FMulF),
+                Type::Float32 => func.emit(StackOp::FMulF),
                 Type::Float64 => func.emit(StackOp::DMul),
                 _ => func.emit(StackOp::IMul),
             },
             Binop::Div => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FDiv, StackOp::FDivF),
+                Type::Float32 => func.emit(StackOp::FDivF),
                 Type::Float64 => func.emit(StackOp::DDiv),
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::UDiv),
                 _ => func.emit(StackOp::IDiv),
             },
             Binop::Mod => func.emit(StackOp::IRem),
             Binop::Pow => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FPow, StackOp::FPowF),
+                Type::Float32 => func.emit(StackOp::FPowF),
                 Type::Float64 => func.emit(StackOp::DPow),
                 _ => func.emit(StackOp::IPow),
             },
             Binop::Equal => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FEq, StackOp::FEqF),
+                Type::Float32 => func.emit(StackOp::FEqF),
                 Type::Float64 => func.emit(StackOp::DEq),
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
@@ -1152,7 +1142,7 @@ impl<'a> FunctionTranslator<'a> {
                 _ => func.emit(StackOp::IEq),
             },
             Binop::NotEqual => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FNe, StackOp::FNeF),
+                Type::Float32 => func.emit(StackOp::FNeF),
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
                     func.emit(StackOp::MemNe(size));
@@ -1164,27 +1154,27 @@ impl<'a> FunctionTranslator<'a> {
                 _ => func.emit(StackOp::INe),
             },
             Binop::Less => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FLt, StackOp::FLtF),
+                Type::Float32 => func.emit(StackOp::FLtF),
                 Type::Float64 => func.emit(StackOp::DLt),
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::ULt),
                 _ => func.emit(StackOp::ILt),
             },
             Binop::Greater => {
                 match &*ty {
-                    Type::Float32 => func.emit_float(StackOp::FGt, StackOp::FGtF),
+                    Type::Float32 => func.emit(StackOp::FGtF),
                     Type::Float64 => func.emit(StackOp::IGt), // TODO: DGt
                     Type::UInt32 | Type::UInt8 => func.emit(StackOp::UGt),
                     _ => func.emit(StackOp::IGt),
                 }
             }
             Binop::Leq => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FLe, StackOp::FLeF),
+                Type::Float32 => func.emit(StackOp::FLeF),
                 Type::Float64 => func.emit(StackOp::DLe),
                 _ => func.emit(StackOp::ILe),
             },
             Binop::Geq => {
                 match &*ty {
-                    Type::Float32 => func.emit_float(StackOp::FGe, StackOp::FGeF),
+                    Type::Float32 => func.emit(StackOp::FGeF),
                     Type::Float64 => func.emit(StackOp::IGe), // TODO: DGe
                     Type::UInt32 | Type::UInt8 => func.emit(StackOp::IGe), // unsigned uses signed
                     _ => func.emit(StackOp::IGe),
@@ -1230,10 +1220,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_ty = self.expr_type(lhs_id);
                 self.translate_expr(rhs_id, func);
                 if matches!(&*lhs_ty, Type::Float32) {
-                    func.emit_float(
-                        StackOp::LocalTee(slot),
-                        StackOp::LocalTeeF(slot),
-                    );
+                    func.emit(StackOp::LocalTeeF(slot),);
                 } else {
                     func.emit(StackOp::LocalTee(slot));
                 }
@@ -1275,22 +1262,16 @@ impl<'a> FunctionTranslator<'a> {
                         if !self.void_ctx {
                             let val_local = self.alloc_scalar();
                             if elem_is_f32 {
-                                func.emit_float(
-                                    StackOp::LocalTee(val_local),
-                                    StackOp::LocalTeeF(val_local),
-                                );
-                                func.emit_float(store_op_int, store_op_float);
-                                func.emit_float(
-                                    StackOp::LocalGet(val_local),
-                                    StackOp::LocalGetF(val_local),
-                                );
+                                func.emit(StackOp::LocalTeeF(val_local),);
+                                func.emit(store_op_float);
+                                func.emit(StackOp::LocalGetF(val_local),);
                             } else {
                                 func.emit(StackOp::LocalTee(val_local));
                                 func.emit(store_op_int);
                                 func.emit(StackOp::LocalGet(val_local));
                             }
                         } else if elem_is_f32 {
-                            func.emit_float(store_op_int, store_op_float);
+                            func.emit(store_op_float);
                         } else {
                             func.emit(store_op_int);
                         }
@@ -1301,10 +1282,7 @@ impl<'a> FunctionTranslator<'a> {
                         self.translate_expr(rhs_id, func);
                         let val_local = self.alloc_scalar();
                         if elem_is_f32 {
-                            func.emit_float(
-                                StackOp::LocalSet(val_local),
-                                StackOp::LocalSetF(val_local),
-                            );
+                            func.emit(StackOp::LocalSetF(val_local),);
                         } else {
                             func.emit(StackOp::LocalSet(val_local));
                         }
@@ -1314,21 +1292,15 @@ impl<'a> FunctionTranslator<'a> {
                             // Generic SliceStore32 consumes the value from
                             // the int window, so bridge an f32 val_local
                             // back through FToBitsF.
-                            func.emit_float(
-                                StackOp::LocalGet(val_local),
-                                StackOp::LocalGetF(val_local),
-                            );
-                            func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                            func.emit(StackOp::LocalGetF(val_local),);
+                            func.emit(StackOp::FToBitsF);
                         } else {
                             func.emit(StackOp::LocalGet(val_local));
                         }
                         func.emit(StackOp::SliceStore32);
                         if !self.void_ctx {
                             if elem_is_f32 {
-                                func.emit_float(
-                                    StackOp::LocalGet(val_local),
-                                    StackOp::LocalGetF(val_local),
-                                );
+                                func.emit(StackOp::LocalGetF(val_local),);
                             } else {
                                 func.emit(StackOp::LocalGet(val_local));
                             }
@@ -1351,10 +1323,7 @@ impl<'a> FunctionTranslator<'a> {
             self.translate_expr(rhs_id, func);
             let tmp = self.alloc_scalar();
             if is_f32 {
-                func.emit_float(
-                    StackOp::LocalSet(tmp),
-                    StackOp::LocalSetF(tmp),
-                );
+                func.emit(StackOp::LocalSetF(tmp),);
             } else {
                 func.emit(StackOp::LocalSet(tmp));
             }
@@ -1363,10 +1332,7 @@ impl<'a> FunctionTranslator<'a> {
 
         self.translate_lvalue(lhs_id, func); // pushes address
         if is_f32 {
-            func.emit_float(
-                StackOp::LocalGet(val_local),
-                StackOp::LocalGetF(val_local),
-            );
+            func.emit(StackOp::LocalGetF(val_local),);
         } else {
             func.emit(StackOp::LocalGet(val_local));
         }
@@ -1385,10 +1351,7 @@ impl<'a> FunctionTranslator<'a> {
         self.emit_store_op(&lhs_ty, func);
         if !self.void_ctx {
             if is_f32 {
-                func.emit_float(
-                    StackOp::LocalGet(val_local),
-                    StackOp::LocalGetF(val_local),
-                );
+                func.emit(StackOp::LocalGetF(val_local),);
             } else {
                 func.emit(StackOp::LocalGet(val_local));
             }
@@ -1545,7 +1508,7 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_unop(&mut self, op: Unop, arg_id: ExprID, func: &mut StackFunction) {
         let ty = self.expr_type(arg_id);
 
-        // f32x4 negation.
+        // f32x4 negation — element-wise via the F-window.
         if op == Unop::Neg && matches!(&*ty, Type::Float32x4) {
             self.translate_expr(arg_id, func);
             let src_local = self.alloc_scalar();
@@ -1553,11 +1516,11 @@ impl<'a> FunctionTranslator<'a> {
             let mem_slot = self.alloc_memory(16);
             for lane in 0..4i32 {
                 let off = lane * 4;
-                func.emit(StackOp::LocalAddr(mem_slot));
                 func.emit(StackOp::LocalGet(src_local));
-                func.emit(StackOp::Load32Off(off));
-                func.emit(StackOp::FNeg);
-                func.emit(StackOp::Store32Off(off));
+                func.emit(StackOp::LoadF32OffF(off));
+                func.emit(StackOp::FNegF);
+                func.emit(StackOp::LocalAddr(mem_slot));
+                func.emit(StackOp::StoreF32OffF(off));
             }
             func.emit(StackOp::LocalAddr(mem_slot));
             return;
@@ -1567,7 +1530,7 @@ impl<'a> FunctionTranslator<'a> {
 
         match op {
             Unop::Neg => match &*ty {
-                Type::Float32 => func.emit_float(StackOp::FNeg, StackOp::FNegF),
+                Type::Float32 => func.emit(StackOp::FNegF),
                 Type::Float64 => func.emit(StackOp::DNeg),
                 _ => func.emit(StackOp::INeg),
             },
@@ -1623,7 +1586,7 @@ impl<'a> FunctionTranslator<'a> {
                     let ty = self.expr_type(arg_id);
                     match &*ty {
                         Type::Float32 => {
-                            func.emit_float(StackOp::PrintF32, StackOp::PrintF32F)
+                            func.emit(StackOp::PrintF32F)
                         }
                         _ => func.emit(StackOp::PrintI32),
                     }
@@ -1677,32 +1640,31 @@ impl<'a> FunctionTranslator<'a> {
                 return;
             }
 
-            // Unary math builtins (f32). Each entry is (name, int-window op,
-            // float-window op) — emit_float picks based on use_fp_window.
-            let unary_math_f32: &[(&str, StackOp, StackOp)] = &[
-                ("sin$f32",   StackOp::SinF32,   StackOp::SinF32F),
-                ("cos$f32",   StackOp::CosF32,   StackOp::CosF32F),
-                ("tan$f32",   StackOp::TanF32,   StackOp::TanF32F),
-                ("asin$f32",  StackOp::AsinF32,  StackOp::AsinF32F),
-                ("acos$f32",  StackOp::AcosF32,  StackOp::AcosF32F),
-                ("atan$f32",  StackOp::AtanF32,  StackOp::AtanF32F),
-                ("sinh$f32",  StackOp::SinhF32,  StackOp::SinhF32F),
-                ("cosh$f32",  StackOp::CoshF32,  StackOp::CoshF32F),
-                ("tanh$f32",  StackOp::TanhF32,  StackOp::TanhF32F),
-                ("asinh$f32", StackOp::AsinhF32, StackOp::AsinhF32F),
-                ("acosh$f32", StackOp::AcoshF32, StackOp::AcoshF32F),
-                ("atanh$f32", StackOp::AtanhF32, StackOp::AtanhF32F),
-                ("ln$f32",    StackOp::LnF32,    StackOp::LnF32F),
-                ("exp$f32",   StackOp::ExpF32,   StackOp::ExpF32F),
-                ("exp2$f32",  StackOp::Exp2F32,  StackOp::Exp2F32F),
-                ("log10$f32", StackOp::Log10F32, StackOp::Log10F32F),
-                ("log2$f32",  StackOp::Log2F32,  StackOp::Log2F32F),
-                ("sqrt$f32",  StackOp::SqrtF32,  StackOp::SqrtF32F),
-                ("abs$f32",   StackOp::AbsF32,   StackOp::AbsF32F),
-                ("floor$f32", StackOp::FloorF32, StackOp::FloorF32F),
-                ("ceil$f32",  StackOp::CeilF32,  StackOp::CeilF32F),
-                ("isnan$f32", StackOp::IsnanF32, StackOp::IsnanF32F),
-                ("isinf$f32", StackOp::IsinfF32, StackOp::IsinfF32F),
+            // Unary math builtins (f32) — F-window ops only.
+            let unary_math_f32: &[(&str, StackOp)] = &[
+                ("sin$f32",   StackOp::SinF32F),
+                ("cos$f32",   StackOp::CosF32F),
+                ("tan$f32",   StackOp::TanF32F),
+                ("asin$f32",  StackOp::AsinF32F),
+                ("acos$f32",  StackOp::AcosF32F),
+                ("atan$f32",  StackOp::AtanF32F),
+                ("sinh$f32",  StackOp::SinhF32F),
+                ("cosh$f32",  StackOp::CoshF32F),
+                ("tanh$f32",  StackOp::TanhF32F),
+                ("asinh$f32", StackOp::AsinhF32F),
+                ("acosh$f32", StackOp::AcoshF32F),
+                ("atanh$f32", StackOp::AtanhF32F),
+                ("ln$f32",    StackOp::LnF32F),
+                ("exp$f32",   StackOp::ExpF32F),
+                ("exp2$f32",  StackOp::Exp2F32F),
+                ("log10$f32", StackOp::Log10F32F),
+                ("log2$f32",  StackOp::Log2F32F),
+                ("sqrt$f32",  StackOp::SqrtF32F),
+                ("abs$f32",   StackOp::AbsF32F),
+                ("floor$f32", StackOp::FloorF32F),
+                ("ceil$f32",  StackOp::CeilF32F),
+                ("isnan$f32", StackOp::IsnanF32F),
+                ("isinf$f32", StackOp::IsinfF32F),
             ];
             let unary_math_f64: &[(&str, StackOp)] = &[
                 ("sin$f64", StackOp::SinF64),
@@ -1729,10 +1691,10 @@ impl<'a> FunctionTranslator<'a> {
                 ("isnan$f64", StackOp::IsnanF64),
                 ("isinf$f64", StackOp::IsinfF64),
             ];
-            for (n, int_op, float_op) in unary_math_f32.iter() {
+            for (n, op) in unary_math_f32.iter() {
                 if *name == *n {
                     self.translate_expr(arg_ids[0], func);
-                    func.emit_float(int_op.clone(), float_op.clone());
+                    func.emit(op.clone());
                     return;
                 }
             }
@@ -1748,7 +1710,7 @@ impl<'a> FunctionTranslator<'a> {
             if *name == "atan2$f32$f32" {
                 self.translate_expr(arg_ids[0], func);
                 self.translate_expr(arg_ids[1], func);
-                func.emit_float(StackOp::Atan2F32, StackOp::Atan2F32F);
+                func.emit(StackOp::Atan2F32F);
                 return;
             }
             if *name == "atan2$f64$f64" {
@@ -1762,7 +1724,7 @@ impl<'a> FunctionTranslator<'a> {
             if *name == "pow$f32$f32" {
                 self.translate_expr(arg_ids[0], func);
                 self.translate_expr(arg_ids[1], func);
-                func.emit_float(StackOp::FPow, StackOp::FPowF);
+                func.emit(StackOp::FPowF);
                 return;
             }
             if *name == "pow$f64$f64" {
@@ -1778,69 +1740,35 @@ impl<'a> FunctionTranslator<'a> {
             {
                 let is_f64 = name.contains("f64");
                 let is_min = name.contains("min");
-                let is_f32 = !is_f64;
-                // Local ops for the a/b temps have to match the window
-                // used to produce the arg values. For f32 with --fp-window
-                // on, that's the float window.
-                let local_set = |slot: u16| -> (StackOp, StackOp) {
-                    (StackOp::LocalSet(slot), StackOp::LocalSetF(slot))
-                };
-                let local_get = |slot: u16| -> (StackOp, StackOp) {
-                    (StackOp::LocalGet(slot), StackOp::LocalGetF(slot))
-                };
+                // Local set/get for the a/b temps: f32 goes through the
+                // float window (LocalSetF/LocalGetF); f64 through the
+                // int window (LocalSet/LocalGet — f64 values ride as
+                // u64 bit patterns).
+                let local_set =
+                    |slot: u16| if is_f64 { StackOp::LocalSet(slot) } else { StackOp::LocalSetF(slot) };
+                let local_get =
+                    |slot: u16| if is_f64 { StackOp::LocalGet(slot) } else { StackOp::LocalGetF(slot) };
+                let cmp_lt = if is_f64 { StackOp::DLt } else { StackOp::FLtF };
                 self.translate_expr(arg_ids[0], func);
                 let a_local = self.alloc_scalar();
-                if is_f32 {
-                    let (i, f) = local_set(a_local);
-                    func.emit_float(i, f);
-                } else {
-                    func.emit(StackOp::LocalSet(a_local));
-                }
+                func.emit(local_set(a_local));
                 self.translate_expr(arg_ids[1], func);
                 let b_local = self.alloc_scalar();
-                if is_f32 {
-                    let (i, f) = local_set(b_local);
-                    func.emit_float(i, f);
-                } else {
-                    func.emit(StackOp::LocalSet(b_local));
-                }
+                func.emit(local_set(b_local));
                 // Emit: if a < b then a else b (for min), if a > b then a else b (for max).
-                // For max we just flip the operand order on the comparison,
-                // so push (a, b) for min and (b, a) for max — skips the
-                // drop-and-reload dance the old codegen did.
-                let (first, second) = if is_min {
-                    (a_local, b_local)
-                } else {
-                    (b_local, a_local)
-                };
-                if is_f32 {
-                    let (gi, gf) = local_get(first);
-                    func.emit_float(gi, gf);
-                    let (gi, gf) = local_get(second);
-                    func.emit_float(gi, gf);
-                    func.emit_float(StackOp::FLt, StackOp::FLtF);
-                } else {
-                    func.emit(StackOp::LocalGet(first));
-                    func.emit(StackOp::LocalGet(second));
-                    func.emit(StackOp::DLt);
-                }
+                // For max we flip the operand order on the comparison:
+                // push (a, b) for min and (b, a) for max.
+                let (first, second) = if is_min { (a_local, b_local) } else { (b_local, a_local) };
+                func.emit(local_get(first));
+                func.emit(local_get(second));
+                func.emit(cmp_lt);
                 let jump_if_false = func.pos();
                 func.emit(StackOp::JumpIfZero(0));
-                if is_f32 {
-                    let (gi, gf) = local_get(a_local);
-                    func.emit_float(gi, gf);
-                } else {
-                    func.emit(StackOp::LocalGet(a_local));
-                }
+                func.emit(local_get(a_local));
                 let jump_end = func.pos();
                 func.emit(StackOp::Jump(0));
                 func.patch_jump(jump_if_false);
-                if is_f32 {
-                    let (gi, gf) = local_get(b_local);
-                    func.emit_float(gi, gf);
-                } else {
-                    func.emit(StackOp::LocalGet(b_local));
-                }
+                func.emit(local_get(b_local));
                 func.patch_jump(jump_end);
                 return;
             }
@@ -1919,7 +1847,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_expr(*arg_id, func);
                 let arg_ty = self.expr_type(*arg_id);
                 if matches!(&*arg_ty, Type::Float32) {
-                    func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                    func.emit(StackOp::FToBitsF);
                 }
                 if i < param_types.len() && matches!(&*param_types[i], Type::Slice(_)) {
                     let actual_ty = self.expr_type(*arg_id);
@@ -1959,7 +1887,7 @@ impl<'a> FunctionTranslator<'a> {
                 // f32 return values come back through t0 (int window).
                 // Bridge into the float window so the surrounding codegen
                 // can consume them as f32 directly.
-                func.emit_float(StackOp::Nop, StackOp::BitsToFF);
+                func.emit(StackOp::BitsToFF);
             }
             // Otherwise the call already pushed its return value.
 
@@ -2304,18 +2232,12 @@ impl<'a> FunctionTranslator<'a> {
             ) {
                 if is_slice {
                     if elem_is_f32 {
-                        func.emit_float(
-                            StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local),
-                            StackOp::FusedAddrGetSliceLoad32F(arr_slot, idx_local),
-                        );
+                        func.emit(StackOp::FusedAddrGetSliceLoad32F(arr_slot, idx_local),);
                     } else {
                         func.emit(StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local));
                     }
                 } else if elem_is_f32 {
-                    func.emit_float(
-                        StackOp::FusedLocalArrayLoad32(arr_slot, idx_local),
-                        StackOp::FusedLocalArrayLoad32F(arr_slot, idx_local),
-                    );
+                    func.emit(StackOp::FusedLocalArrayLoad32F(arr_slot, idx_local),);
                 } else {
                     func.emit(StackOp::FusedLocalArrayLoad32(arr_slot, idx_local));
                 }
@@ -2332,7 +2254,7 @@ impl<'a> FunctionTranslator<'a> {
                     // inventory yet (phase 3 only adds it for the fused
                     // local-array/addr-slot variants).
                     func.emit(StackOp::SliceLoad32);
-                    func.emit_float(StackOp::Nop, StackOp::BitsToFF);
+                    func.emit(StackOp::BitsToFF);
                 } else {
                     func.emit(StackOp::SliceLoad32);
                 }
@@ -2456,10 +2378,10 @@ impl<'a> FunctionTranslator<'a> {
 
         match (&*src_ty, &*target_ty) {
             (Type::Int32, Type::Float32) => {
-                func.emit_float(StackOp::I32ToF32, StackOp::I32ToF32F)
+                func.emit(StackOp::I32ToF32F)
             }
             (Type::Float32, Type::Int32) => {
-                func.emit_float(StackOp::F32ToI32, StackOp::F32ToI32F)
+                func.emit(StackOp::F32ToI32F)
             }
             (Type::Int32, Type::Float64) => func.emit(StackOp::I32ToF64),
             (Type::Float64, Type::Int32) => func.emit(StackOp::F64ToI32),
@@ -2611,7 +2533,7 @@ impl<'a> FunctionTranslator<'a> {
     fn emit_load(&self, ty: &TypeID, func: &mut StackFunction) {
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Load8),
-            Type::Float32 => func.emit_float(StackOp::Load32, StackOp::LoadF32F),
+            Type::Float32 => func.emit(StackOp::LoadF32F),
             Type::Int32 | Type::UInt32 => func.emit(StackOp::Load32),
             Type::Float64 => func.emit(StackOp::Load64),
             _ => func.emit(StackOp::Load64),
@@ -2626,10 +2548,7 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::Load8);
             }
             Type::Float32 => {
-                func.emit_float(
-                    StackOp::Load32Off(offset),
-                    StackOp::LoadF32OffF(offset),
-                );
+                func.emit(StackOp::LoadF32OffF(offset),);
             }
             Type::Int32 | Type::UInt32 => {
                 func.emit(StackOp::Load32Off(offset));
@@ -2652,7 +2571,7 @@ impl<'a> FunctionTranslator<'a> {
             match &**ty {
                 Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Store8),
                 Type::Float32 => {
-                    func.emit_float(StackOp::Store32, StackOp::StoreF32F)
+                    func.emit(StackOp::StoreF32F)
                 }
                 Type::Int32 | Type::UInt32 => func.emit(StackOp::Store32),
                 Type::Float64 => func.emit(StackOp::Store64),
@@ -2743,10 +2662,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Store8Off(offset));
                 }
                 Type::Float32 => {
-                    func.emit_float(
-                        StackOp::Store32Off(offset),
-                        StackOp::StoreF32OffF(offset),
-                    );
+                    func.emit(StackOp::StoreF32OffF(offset),);
                 }
                 Type::Int32 | Type::UInt32 => {
                     func.emit(StackOp::Store32Off(offset));

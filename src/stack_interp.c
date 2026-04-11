@@ -302,45 +302,10 @@ HANDLER(op_iadd_imm) {
     NEXT();
 }
 
-// --- Float32 arithmetic (binary) ---
-
-HANDLER(op_fadd) {
-    t0 = from_f32(as_f32(t1) + as_f32(t0));
-    BINOP_SHIFT();
-    NEXT();
-}
-
-HANDLER(op_fsub) {
-    t0 = from_f32(as_f32(t1) - as_f32(t0));
-    BINOP_SHIFT();
-    NEXT();
-}
-
-HANDLER(op_fmul) {
-    t0 = from_f32(as_f32(t1) * as_f32(t0));
-    BINOP_SHIFT();
-    NEXT();
-}
-
-HANDLER(op_fdiv) {
-    t0 = from_f32(as_f32(t1) / as_f32(t0));
-    BINOP_SHIFT();
-    NEXT();
-}
-
-HANDLER(op_fpow) {
-    t0 = from_f32(powf(as_f32(t1), as_f32(t0)));
-    BINOP_SHIFT();
-    NEXT();
-}
-
-// Unary f32
-HANDLER(op_fneg) {
-    t0 = from_f32(-as_f32(t0));
-    NEXT();
-}
-
 // --- Float64 arithmetic (binary) ---
+// (f32 arithmetic lives in the F-window handlers below — the int-window
+// f32 ops were removed after Instruments profiling showed they polluted
+// the indirect-branch predictor on the shared dispatch BR.)
 
 HANDLER(op_dadd) {
     t0 = from_f64(as_f64(t1) + as_f64(t0));
@@ -396,12 +361,7 @@ CMP_OP(op_igt, int64_t, (int64_t), >)
 CMP_OP(op_ige, int64_t, (int64_t), >=)
 CMP_OP(op_ult, uint64_t, (uint64_t), <)
 CMP_OP(op_ugt, uint64_t, (uint64_t), >)
-CMP_OP(op_feq, float, as_f32, ==)
-CMP_OP(op_fne, float, as_f32, !=)
-CMP_OP(op_flt, float, as_f32, <)
-CMP_OP(op_fle, float, as_f32, <=)
-CMP_OP(op_fgt, float, as_f32, >)
-CMP_OP(op_fge, float, as_f32, >=)
+// (f32 comparisons are F-window only — see the FW_CMP macro below.)
 CMP_OP(op_deq, double, as_f64, ==)
 CMP_OP(op_dlt, double, as_f64, <)
 CMP_OP(op_dle, double, as_f64, <=)
@@ -959,37 +919,8 @@ HANDLER(op_drop) {
     NEXT();
 }
 
-// --- Math builtins (f32) ---
-
-#define F32_UNARY(name, func) \
-HANDLER(name) { \
-    t0 = from_f32(func(as_f32(t0))); \
-    NEXT(); \
-}
-
-F32_UNARY(op_sin_f32,   sinf)
-F32_UNARY(op_cos_f32,   cosf)
-F32_UNARY(op_tan_f32,   tanf)
-F32_UNARY(op_asin_f32,  asinf)
-F32_UNARY(op_acos_f32,  acosf)
-F32_UNARY(op_atan_f32,  atanf)
-F32_UNARY(op_sinh_f32,  sinhf)
-F32_UNARY(op_cosh_f32,  coshf)
-F32_UNARY(op_tanh_f32,  tanhf)
-F32_UNARY(op_asinh_f32, asinhf)
-F32_UNARY(op_acosh_f32, acoshf)
-F32_UNARY(op_atanh_f32, atanhf)
-F32_UNARY(op_ln_f32,    logf)
-F32_UNARY(op_exp_f32,   expf)
-F32_UNARY(op_exp2_f32,  exp2f)
-F32_UNARY(op_log10_f32, log10f)
-F32_UNARY(op_log2_f32,  log2f)
-F32_UNARY(op_sqrt_f32,  sqrtf)
-F32_UNARY(op_abs_f32,   fabsf)
-F32_UNARY(op_floor_f32, floorf)
-F32_UNARY(op_ceil_f32,  ceilf)
-
 // --- Math builtins (f64) ---
+// (f32 math intrinsics are F-window only — see FW_F32_UNARY below.)
 
 #define F64_UNARY(name, func) \
 HANDLER(name) { \
@@ -1019,18 +950,10 @@ F64_UNARY(op_abs_f64,   fabs)
 F64_UNARY(op_floor_f64, floor)
 F64_UNARY(op_ceil_f64,  ceil)
 
-// Unary predicates
+// Unary predicates (f64 only — f32 variants live in the F-window section)
 
-HANDLER(op_isnan_f32) {
-    t0 = isnan(as_f32(t0)) ? 1 : 0;
-    NEXT();
-}
 HANDLER(op_isnan_f64) {
     t0 = isnan(as_f64(t0)) ? 1 : 0;
-    NEXT();
-}
-HANDLER(op_isinf_f32) {
-    t0 = isinf(as_f32(t0)) ? 1 : 0;
     NEXT();
 }
 HANDLER(op_isinf_f64) {
@@ -1038,13 +961,7 @@ HANDLER(op_isinf_f64) {
     NEXT();
 }
 
-// Binary math (atan2)
-
-HANDLER(op_atan2_f32) {
-    t0 = from_f32(atan2f(as_f32(t1), as_f32(t0)));
-    BINOP_SHIFT();
-    NEXT();
-}
+// Binary math (atan2, f64 only)
 
 HANDLER(op_atan2_f64) {
     t0 = from_f64(atan2(as_f64(t1), as_f64(t0)));
@@ -1061,16 +978,8 @@ HANDLER(op_print_i32) {
     NEXT();
 }
 
-HANDLER(op_print_f32) {
-    float val = as_f32(t0);
-    DROP1();
-    if (val == floorf(val) && fabsf(val) < 1e15f) {
-        printf("%.1f\n", val);
-    } else {
-        printf("%g\n", val);
-    }
-    NEXT();
-}
+// (op_print_f32 replaced by op_print_f32_f — f32 print lives in the
+// F-window section.)
 
 HANDLER(op_putc) {
     char c = (char)(int32_t)t0;
@@ -1100,37 +1009,14 @@ HANDLER(op_get_closure_ptr) {
 // ============================================================================
 // Fused superinstructions
 // ============================================================================
-
-// locals[a] * locals[b] (f32) -- push (int TOS window, legacy)
-HANDLER(op_fused_get_get_fmul) {
-    PUSH(from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]])));
-    NEXT();
-}
-
-// locals[a] * locals[b] (f32) -- push to FLOAT TOS window.
-// Loads both operands directly into FP registers (ldr s0, [x]) and the
-// result goes into f0 without crossing through a GPR. Used to start a
-// float expression chain that will feed subsequent float ops in the
-// f-window. imm[0] and imm[1] are pre-shifted byte offsets (see
-// encode_imm note on LocalGetF) so the loads don't need an extra lsl.
-HANDLER(op_fused_get_get_fmul_fw) {
-    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
-    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
-    FPUSH(a * b);
-    NEXT();
-}
-
-// locals[a] + locals[b] (f32) -- push
-HANDLER(op_fused_get_get_fadd) {
-    PUSH(from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]])));
-    NEXT();
-}
-
-// locals[a] - locals[b] (f32) -- push
-HANDLER(op_fused_get_get_fsub) {
-    PUSH(from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]])));
-    NEXT();
-}
+//
+// The int-window f32 fused ops (op_fused_get_get_fmul, op_fused_fmul_fadd,
+// etc.) and the FW-peephole output ops (op_fused_get_get_fmul_fw,
+// op_fused_get_addr_fmul_fadd_fw, op_local_set_l0_fw, …) were deleted
+// after Instruments profiling showed their co-existence with the
+// F-variant handlers polluted the indirect-branch predictor on the
+// shared dispatch BR. F handlers are now the only path for f32
+// arithmetic; see the float-window section further down.
 
 // locals[a] + locals[b] (i64) -- push
 HANDLER(op_fused_get_get_iadd) {
@@ -1141,40 +1027,6 @@ HANDLER(op_fused_get_get_iadd) {
 // locals[a] < locals[b] (i64 signed) -- push
 HANDLER(op_fused_get_get_ilt) {
     PUSH(((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0);
-    NEXT();
-}
-
-// TOS * locals[a] (f32) -- unary (replaces TOS)
-HANDLER(op_fused_get_fmul) {
-    t0 = from_f32(as_f32(t0) * as_f32(locals[pc->imm[0]]));
-    NEXT();
-}
-
-// TOS + locals[a] (f32) -- unary (replaces TOS)
-HANDLER(op_fused_get_fadd) {
-    t0 = from_f32(as_f32(t0) + as_f32(locals[pc->imm[0]]));
-    NEXT();
-}
-
-// TOS - locals[a] (f32) -- unary (replaces TOS)
-HANDLER(op_fused_get_fsub) {
-    t0 = from_f32(as_f32(t0) - as_f32(locals[pc->imm[0]]));
-    NEXT();
-}
-
-// Fused multiply-accumulate: t0=b, t1=a, t2=c, push c + a*b (f32)
-// Consumes 3, pushes 1 => net drop 2
-HANDLER(op_fused_fmul_fadd) {
-    t0 = from_f32(as_f32(t2) + as_f32(t1) * as_f32(t0));
-    // consumed t0, t1, t2
-    t1 = t3; t2 = *--sp; t3 = *--sp;
-    NEXT();
-}
-
-// Fused multiply-subtract: t0=b, t1=a, t2=c, push c - a*b (f32)
-HANDLER(op_fused_fmul_fsub) {
-    t0 = from_f32(as_f32(t2) - as_f32(t1) * as_f32(t0));
-    t1 = t3; t2 = *--sp; t3 = *--sp;
     NEXT();
 }
 
@@ -1235,18 +1087,8 @@ HANDLER(op_nop) {
 // Fused handlers (continued)
 // ============================================================================
 
-// --- Fused f32.const + f32.gt + jump_if_zero: if !(t0 > const) jump. Pop 1. ---
-HANDLER(op_fused_f32const_fgt_jiz) {
-    float val = as_f32(t0);
-    float limit = as_f32(pc->imm[0]);
-    DROP1();
-    if (!(val > limit)) {
-        int64_t off = (int64_t)pc->imm[1];
-        pc = pc + 1 + off;
-        DISPATCH();
-    }
-    NEXT();
-}
+// (op_fused_f32const_fgt_jiz replaced by op_fused_f32const_fgt_jiz_f —
+// the f32 phase-wrap check in biquad now uses the F-window variant.)
 
 // --- 3-address register-form arithmetic. locals[dst] = locals[a] <op> locals[b]. ---
 // No stack change; these replace LocalGet+LocalGet+<op>+LocalSet sequences
@@ -1330,19 +1172,11 @@ HANDLER(op_fused_tee_sstore32) {
     NEXT();
 }
 
-// --- Tee + sincos + two sets: locals[t] = theta; sincosf(theta) →
-// --- locals[c]=cos, locals[s]=sin; pop. Replaces the 6-op twiddle-
-// --- factor sequence in FFT's butterfly inner loop. ---
-HANDLER(op_fused_tee_sincos_set) {
-    float theta = as_f32(t0);
-    locals[pc->imm[0]] = t0;
-    float c, s;
-    __sincosf(theta, &s, &c);
-    locals[pc->imm[1]] = from_f32(c);
-    locals[pc->imm[2]] = from_f32(s);
-    DROP1();
-    NEXT();
-}
+// (op_fused_tee_sincos_set was a 6-op fusion for the FFT twiddle
+// factor — it matched int-window CosF32/SinF32. With the F codegen
+// now the only path, those are CosF32F/SinF32F and the fusion no
+// longer applies; the handler was removed along with the int f32
+// path.)
 
 // --- Variable move: locals[b] = locals[a]. No stack change. ---
 HANDLER(op_fused_get_set) {
@@ -1350,63 +1184,14 @@ HANDLER(op_fused_get_set) {
     NEXT();
 }
 
-// --- FMA term: accum += locals[a] * load(slot,off). Pure register on t0. ---
-HANDLER(op_fused_get_addr_fmul_fadd) {
-    float coeff = as_f32(locals[pc->imm[0]]);
-    float state = as_f32((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
-    t0 = from_f32(as_f32(t0) + coeff * state);
-    NEXT();
-}
+// (op_fused_get_addr_fmul_fadd / _fsub and their _fw variants —
+// int-window FMA terms and the narrow float_window_rewrite peephole
+// outputs — were removed along with the rest of the int f32 path.
+// The F-variant FusedGetAddrFMulF{Add,Sub}F lives in the float-window
+// section below.)
 
-// --- FMA term: accum -= locals[a] * load(slot,off). ---
-HANDLER(op_fused_get_addr_fmul_fsub) {
-    float coeff = as_f32(locals[pc->imm[0]]);
-    float state = as_f32((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]));
-    t0 = from_f32(as_f32(t0) - coeff * state);
-    NEXT();
-}
-
-// --- FMA term: f0 += locals[a] * load(slot,off). Operates in float
-// --- TOS window — f0 stays in an FP register throughout, no GPR
-// --- crossing. imm[0] is a pre-shifted byte offset for the coeff load
-// --- (see encode_imm note); imm[1] is still a u64 slot index because
-// --- `locals[imm[1]] * 8 + offset` folds the shift into the inner
-// --- address computation.
-HANDLER(op_fused_get_addr_fmul_fadd_fw) {
-    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
-    float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
-    f0 = f0 + coeff * state;
-    NEXT();
-}
-
-HANDLER(op_fused_get_addr_fmul_fsub_fw) {
-    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
-    float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
-    f0 = f0 - coeff * state;
-    NEXT();
-}
-
-// --- Pop f0 (via one-time FP→GPR crossing) and store into hot local
-// --- register l0 as the f32 bit pattern. Terminates a float chain
-// --- whose result flows back into the integer TOS / hot-local cache. ---
-HANDLER(op_local_set_l0_fw) {
-    l0 = from_f32(f0);
-    locals[0] = l0;
-    FDROP1();
-    NEXT();
-}
-HANDLER(op_local_set_l1_fw) {
-    l1 = from_f32(f0);
-    locals[1] = l1;
-    FDROP1();
-    NEXT();
-}
-HANDLER(op_local_set_l2_fw) {
-    l2 = from_f32(f0);
-    locals[2] = l2;
-    FDROP1();
-    NEXT();
-}
+// (op_local_set_l0_fw / _l1_fw / _l2_fw were also FW peephole outputs
+// and have been removed.)
 
 // --- Load struct field into local: locals[dst] = load(slot,off). No stack change. ---
 HANDLER(op_fused_addr_load32off_set) {
@@ -1421,14 +1206,23 @@ HANDLER(op_fused_addr_imm_get_store32) {
 }
 
 // ============================================================================
-// Float-window (FP register) handlers
+// Float-window (FP register) handlers — the only path for f32 arithmetic
 // ============================================================================
 //
-// These mirror the integer-window float ops but operate on f0..f3 (the
-// FP/SIMD register window) instead of t0..t3 (the GPR window). They avoid
-// the GPR↔FP crossings that the bit-pattern-in-u64 design forces on every
-// f32 op. Each handler explicitly casts to (float) so f32 arithmetic still
-// rounds at single precision even though the window holds doubles.
+// f32 values live in f0..f3, the FP TOS window (v0-v3 on aarch64,
+// xmm0-xmm3 on x86-64). Every handler reads and writes f0..f3 directly,
+// so f32 arithmetic never visits a GPR and never pays a GPR↔FP
+// crossing. f32 locals are stored in the shared locals[] array as
+// their bit pattern in the low 32 bits of a u64 slot — readers use
+// `*(float*)` casts that only touch the low 32 bits, so the high
+// half is always irrelevant.
+//
+// The original design had parallel int-window and F-window versions
+// of every f32 op, gated by a compile-time flag. Profiling with
+// Instruments showed that the coexistence of the two variant sets
+// polluted the indirect-branch predictor on the shared dispatch BR,
+// slowing down the shared integer handlers the two paths called
+// through. Deleting the int path entirely fixed that.
 
 // --- Constants and locals (float window) ---
 

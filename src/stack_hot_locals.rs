@@ -171,20 +171,13 @@ fn local_indices_read(op: &StackOp) -> Vec<u16> {
     match op {
         StackOp::LocalGet(n) | StackOp::LocalTee(n) => vec![*n],
         StackOp::LocalGetF(n) | StackOp::LocalTeeF(n) => vec![*n],
-        StackOp::FusedGetGetFMul(a, b) | StackOp::FusedGetGetFAdd(a, b)
-        | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
+        StackOp::FusedGetGetIAdd(a, b)
         | StackOp::FusedGetGetILt(a, b) | StackOp::FusedGetSet(a, b) => vec![*a, *b],
-        StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
-            vec![*a]
-        }
         StackOp::FusedGetAddImmSet(s, _, _) => vec![*s],
         StackOp::FusedGetGetILtJumpIfZero(a, b, _) => vec![*a, *b],
         StackOp::FusedGetGetFAddSet(a, b, _) => vec![*a, *b],
         StackOp::FusedAddrGetSliceLoad32(_, i) => vec![*i],
         StackOp::FusedAddrGetSliceStore32(_, i) => vec![*i],
-        StackOp::FusedGetAddrFMulFAdd(a, _, _) | StackOp::FusedGetAddrFMulFSub(a, _, _) => {
-            vec![*a]
-        }
         StackOp::FusedAddrImmGetStore32(_, _, src) => vec![*src],
         // Float-window fused ops
         StackOp::FusedGetGetFAddF(a, b) | StackOp::FusedGetGetFSubF(a, b)
@@ -243,17 +236,10 @@ fn rewrite_local_indices(op: &mut StackOp, remap: &[u16]) {
         | StackOp::FusedLocalArrayLoad32F(_, i) | StackOp::FusedLocalArrayStore32F(_, i) => {
             r(i, remap);
         }
-        StackOp::FusedGetGetFMul(a, b)
-        | StackOp::FusedGetGetFMulFW(a, b)
-        | StackOp::FusedGetGetFAdd(a, b)
-        | StackOp::FusedGetGetFSub(a, b)
-        | StackOp::FusedGetGetIAdd(a, b)
+        StackOp::FusedGetGetIAdd(a, b)
         | StackOp::FusedGetGetILt(a, b) => {
             r(a, remap);
             r(b, remap);
-        }
-        StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
-            r(a, remap);
         }
         StackOp::FusedGetAddImmSet(s, _, d) => {
             r(s, remap);
@@ -282,10 +268,6 @@ fn rewrite_local_indices(op: &mut StackOp, remap: &[u16]) {
         StackOp::FusedAddrGetSliceLoad32(_, i) | StackOp::FusedAddrGetSliceStore32(_, i)
         | StackOp::FusedLocalArrayLoad32(_, i) | StackOp::FusedLocalArrayStore32(_, i) => {
             r(i, remap);
-        }
-        StackOp::FusedGetAddrFMulFAdd(a, _, _) | StackOp::FusedGetAddrFMulFSub(a, _, _)
-        | StackOp::FusedGetAddrFMulFAddFW(a, _, _) | StackOp::FusedGetAddrFMulFSubFW(a, _, _) => {
-            r(a, remap);
         }
         StackOp::FusedAddrLoad32OffSet(_, _, d) => r(d, remap),
         StackOp::FusedAddrImmGetStore32(_, _, src) => r(src, remap),

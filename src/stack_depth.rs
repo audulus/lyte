@@ -16,7 +16,6 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
         let off = match op {
             StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => Some(*off),
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
-            StackOp::FusedF32ConstFGtJumpIfZero(_, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             _ => None,
         };
@@ -56,37 +55,27 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::LocalGet(_) | StackOp::LocalAddr(_) | StackOp::GlobalAddr(_) |
         StackOp::GetClosurePtr |
         StackOp::LocalGetL0 | StackOp::LocalGetL1 | StackOp::LocalGetL2 |
-        StackOp::FusedGetGetFMul(_, _) | StackOp::FusedGetGetFAdd(_, _) |
-        StackOp::FusedGetGetFSub(_, _) | StackOp::FusedGetGetIAdd(_, _) |
+        StackOp::FusedGetGetIAdd(_, _) |
         StackOp::FusedGetGetILt(_, _) | StackOp::FusedAddrLoad32Off(_, _) |
-        StackOp::FusedAddrGetSliceLoad32(_, _) |
-        StackOp::FusedGetGetFMulFW(_, _) => 1,
+        StackOp::FusedAddrGetSliceLoad32(_, _) => 1,
 
         // Pop 1
         StackOp::LocalSet(_) |
         StackOp::LocalSetL0 | StackOp::LocalSetL1 | StackOp::LocalSetL2 |
-        StackOp::LocalSetL0FW | StackOp::LocalSetL1FW | StackOp::LocalSetL2FW |
         StackOp::Drop |
-        StackOp::PrintI32 | StackOp::PrintF32 | StackOp::Putc | StackOp::Assert |
+        StackOp::PrintI32 | StackOp::Putc | StackOp::Assert |
         StackOp::MemZero(_) |
         StackOp::JumpIfZero(_) | StackOp::JumpIfNotZero(_) => -1,
 
         // Unary (pop 1, push 1) = net 0
-        StackOp::INeg | StackOp::FNeg | StackOp::DNeg | StackOp::IAddImm(_) |
+        StackOp::INeg | StackOp::DNeg | StackOp::IAddImm(_) |
         StackOp::Not |
-        StackOp::I32ToF32 | StackOp::F32ToI32 | StackOp::I32ToF64 | StackOp::F64ToI32 |
+        StackOp::I32ToF64 | StackOp::F64ToI32 |
         StackOp::F32ToF64 | StackOp::F64ToF32 | StackOp::I32ToI8 | StackOp::I8ToI32 |
         StackOp::I64ToU32 |
         StackOp::Load8 | StackOp::Load32 | StackOp::Load64 |
         StackOp::Load32Off(_) | StackOp::Load64Off(_) |
         StackOp::LocalTee(_) |
-        StackOp::SinF32 | StackOp::CosF32 | StackOp::TanF32 |
-        StackOp::AsinF32 | StackOp::AcosF32 | StackOp::AtanF32 |
-        StackOp::SinhF32 | StackOp::CoshF32 | StackOp::TanhF32 |
-        StackOp::AsinhF32 | StackOp::AcoshF32 | StackOp::AtanhF32 |
-        StackOp::LnF32 | StackOp::ExpF32 | StackOp::Exp2F32 |
-        StackOp::Log10F32 | StackOp::Log2F32 | StackOp::SqrtF32 |
-        StackOp::AbsF32 | StackOp::FloorF32 | StackOp::CeilF32 |
         StackOp::SinF64 | StackOp::CosF64 | StackOp::TanF64 |
         StackOp::AsinF64 | StackOp::AcosF64 | StackOp::AtanF64 |
         StackOp::SinhF64 | StackOp::CoshF64 | StackOp::TanhF64 |
@@ -94,21 +83,17 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::LnF64 | StackOp::ExpF64 | StackOp::Exp2F64 |
         StackOp::Log10F64 | StackOp::Log2F64 | StackOp::SqrtF64 |
         StackOp::AbsF64 | StackOp::FloorF64 | StackOp::CeilF64 |
-        StackOp::IsnanF32 | StackOp::IsnanF64 | StackOp::IsinfF32 | StackOp::IsinfF64 |
-        StackOp::FusedGetFMul(_) | StackOp::FusedGetFAdd(_) | StackOp::FusedGetFSub(_) => 0,
+        StackOp::IsnanF64 | StackOp::IsinfF64 => 0,
 
         // Binary (pop 2, push 1) = net -1
         StackOp::IAdd | StackOp::ISub | StackOp::IMul | StackOp::IDiv |
         StackOp::UDiv | StackOp::IRem | StackOp::IPow |
-        StackOp::FAdd | StackOp::FSub | StackOp::FMul | StackOp::FDiv | StackOp::FPow |
         StackOp::DAdd | StackOp::DSub | StackOp::DMul | StackOp::DDiv | StackOp::DPow |
         StackOp::IEq | StackOp::INe | StackOp::ILt | StackOp::ILe |
         StackOp::IGt | StackOp::IGe | StackOp::ULt | StackOp::UGt |
-        StackOp::FEq | StackOp::FNe | StackOp::FLt | StackOp::FLe |
-        StackOp::FGt | StackOp::FGe |
         StackOp::DEq | StackOp::DLt | StackOp::DLe |
         StackOp::And | StackOp::Or | StackOp::Xor | StackOp::Shl | StackOp::Shr | StackOp::UShr |
-        StackOp::Atan2F32 | StackOp::Atan2F64 |
+        StackOp::Atan2F64 |
         StackOp::MemEq(_) | StackOp::MemNe(_) |
         StackOp::SliceEq(_) | StackOp::SliceNe(_) |
         StackOp::SliceLoad32 => -1,
@@ -119,16 +104,11 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::MemCopy(_) => -2,
 
         // SliceStore32 (pop 3) = net -3
-        StackOp::FusedF32ConstFGtJumpIfZero(_, _) => -1, // pop TOS, conditionally jump
         StackOp::SliceStore32 => -3,
         StackOp::FusedAddrGetSliceStore32(_, _) => -1, // pop value from TOS
         StackOp::FusedTeeSliceStore32(_, _, _) => -1, // pop value from TOS
-        StackOp::FusedTeeSinCosSet(_, _, _) => -1,    // pop theta from TOS
         StackOp::FusedLocalArrayLoad32(_, _) => 1,    // push loaded value
         StackOp::FusedLocalArrayStore32(_, _) => -1,  // pop value to store
-
-        // FusedFMulFAdd/FSub: pop 3, push 1 = net -2
-        StackOp::FusedFMulFAdd | StackOp::FusedFMulFSub => -2,
 
         // No stack change
         StackOp::FusedGetSet(_, _) | StackOp::FusedGetGetFAddSet(_, _, _) |
@@ -136,8 +116,6 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::FusedGetGetFDivSet(_, _, _) | StackOp::FusedGetGetIAddSet(_, _, _) |
         StackOp::FusedGetGetISubSet(_, _, _) | StackOp::FusedGetGetIMulSet(_, _, _) |
         StackOp::FusedFieldCopy32(_, _, _) |
-        StackOp::FusedGetAddrFMulFAdd(_, _, _) | StackOp::FusedGetAddrFMulFSub(_, _, _) |
-        StackOp::FusedGetAddrFMulFAddFW(_, _, _) | StackOp::FusedGetAddrFMulFSubFW(_, _, _) |
         StackOp::FusedAddrLoad32OffSet(_, _, _) | StackOp::FusedAddrImmGetStore32(_, _, _) |
         StackOp::Jump(_) | StackOp::Nop | StackOp::Halt |
         StackOp::Return | StackOp::ReturnVoid |

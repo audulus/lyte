@@ -63,21 +63,26 @@ fn is_safe_to_inline(op: &StackOp) -> bool {
         StackOp::IAdd | StackOp::ISub | StackOp::IMul | StackOp::IDiv |
         StackOp::UDiv | StackOp::IRem | StackOp::IPow | StackOp::INeg |
         StackOp::IAddImm(_) |
-        StackOp::FAdd | StackOp::FSub | StackOp::FMul | StackOp::FDiv |
-        StackOp::FPow | StackOp::FNeg |
         StackOp::DAdd | StackOp::DSub | StackOp::DMul | StackOp::DDiv |
         StackOp::DPow | StackOp::DNeg |
         StackOp::IEq | StackOp::INe | StackOp::ILt | StackOp::ILe |
         StackOp::IGt | StackOp::IGe | StackOp::ULt | StackOp::UGt |
-        StackOp::FEq | StackOp::FNe | StackOp::FLt | StackOp::FLe |
-        StackOp::FGt | StackOp::FGe |
         StackOp::DEq | StackOp::DLt | StackOp::DLe |
         StackOp::And | StackOp::Or | StackOp::Xor | StackOp::Not |
         StackOp::Shl | StackOp::Shr | StackOp::UShr |
-        StackOp::I32ToF32 | StackOp::F32ToI32 | StackOp::I32ToF64 |
+        StackOp::I32ToF64 |
         StackOp::F64ToI32 | StackOp::F32ToF64 | StackOp::F64ToF32 |
         StackOp::I32ToI8 | StackOp::I8ToI32 | StackOp::I64ToU32 |
-        StackOp::I64Const(_) | StackOp::F32Const(_) | StackOp::F64Const(_) => true,
+        StackOp::I64Const(_) | StackOp::F32Const(_) | StackOp::F64Const(_) |
+        // F-window f32 variants are also pure (no side effects outside
+        // their own window / spill buffer).
+        StackOp::F32ConstF(_) |
+        StackOp::FAddF | StackOp::FSubF | StackOp::FMulF | StackOp::FDivF |
+        StackOp::FPowF | StackOp::FNegF |
+        StackOp::FEqF | StackOp::FNeF | StackOp::FLtF | StackOp::FLeF |
+        StackOp::FGtF | StackOp::FGeF |
+        StackOp::F32ToI32F | StackOp::I32ToF32F |
+        StackOp::FToBitsF | StackOp::BitsToFF => true,
         _ => false,
     }
 }
@@ -135,7 +140,7 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => {
                 Some((i as i64 + 1 + *off as i64) as usize)
             }
-            StackOp::FusedF32ConstFGtJumpIfZero(_, off) => {
+            StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => {
                 Some((i as i64 + 1 + *off as i64) as usize)
             }
             _ => None,
@@ -157,7 +162,7 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
                 | StackOp::JumpIfZero(o)
                 | StackOp::JumpIfNotZero(o) => *o = new_off as i32,
                 StackOp::FusedGetGetILtJumpIfZero(_, _, o) => *o = new_off as i32,
-                StackOp::FusedF32ConstFGtJumpIfZero(_, o) => *o = new_off as i32,
+                StackOp::FusedF32ConstFGtJumpIfZeroF(_, o) => *o = new_off as i32,
                 _ => unreachable!(),
             }
         }

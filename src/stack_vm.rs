@@ -200,36 +200,8 @@ impl StackVM {
                     self.push(a.wrapping_add(imm as i64) as u64);
                 }
 
-                // === Float32 arithmetic ===
-                StackOp::FAdd => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(a + b) as u64);
-                }
-                StackOp::FSub => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(a - b) as u64);
-                }
-                StackOp::FMul => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(a * b) as u64);
-                }
-                StackOp::FDiv => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(a / b) as u64);
-                }
-                StackOp::FPow => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(a.powf(b)) as u64);
-                }
-                StackOp::FNeg => {
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(-a) as u64);
-                }
+                // (Float32 arithmetic is F-window only — routed through
+                // the fused/unimplemented catchall below.)
 
                 // === Float64 arithmetic ===
                 StackOp::DAdd => {
@@ -303,36 +275,7 @@ impl StackVM {
                     let a = self.pop();
                     self.push(if a > b { 1 } else { 0 });
                 }
-                StackOp::FEq => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(if a == b { 1 } else { 0 });
-                }
-                StackOp::FNe => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(if a != b { 1 } else { 0 });
-                }
-                StackOp::FLt => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(if a < b { 1 } else { 0 });
-                }
-                StackOp::FLe => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(if a <= b { 1 } else { 0 });
-                }
-                StackOp::FGt => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(if a > b { 1 } else { 0 });
-                }
-                StackOp::FGe => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(if a >= b { 1 } else { 0 });
-                }
+                // (f32 comparisons are F-window only — fused catchall.)
                 StackOp::DEq => {
                     let b = f64::from_bits(self.pop());
                     let a = f64::from_bits(self.pop());
@@ -386,14 +329,7 @@ impl StackVM {
                 }
 
                 // === Type conversions ===
-                StackOp::I32ToF32 => {
-                    let v = self.pop() as i32;
-                    self.push(f32::to_bits(v as f32) as u64);
-                }
-                StackOp::F32ToI32 => {
-                    let v = f32::from_bits(self.pop() as u32);
-                    self.push(v as i32 as i64 as u64);
-                }
+                // (f32↔i32 conversions are F-window variants — catchall.)
                 StackOp::I32ToF64 => {
                     let v = self.pop() as i32;
                     self.push(f64::to_bits(v as f64));
@@ -714,28 +650,7 @@ impl StackVM {
                     self.pop();
                 }
 
-                // === Math builtins: f32 unary ===
-                StackOp::SinF32 => { self.f32_unary(f32::sin); }
-                StackOp::CosF32 => { self.f32_unary(f32::cos); }
-                StackOp::TanF32 => { self.f32_unary(f32::tan); }
-                StackOp::AsinF32 => { self.f32_unary(f32::asin); }
-                StackOp::AcosF32 => { self.f32_unary(f32::acos); }
-                StackOp::AtanF32 => { self.f32_unary(f32::atan); }
-                StackOp::SinhF32 => { self.f32_unary(f32::sinh); }
-                StackOp::CoshF32 => { self.f32_unary(f32::cosh); }
-                StackOp::TanhF32 => { self.f32_unary(f32::tanh); }
-                StackOp::AsinhF32 => { self.f32_unary(f32::asinh); }
-                StackOp::AcoshF32 => { self.f32_unary(f32::acosh); }
-                StackOp::AtanhF32 => { self.f32_unary(f32::atanh); }
-                StackOp::LnF32 => { self.f32_unary(f32::ln); }
-                StackOp::ExpF32 => { self.f32_unary(f32::exp); }
-                StackOp::Exp2F32 => { self.f32_unary(f32::exp2); }
-                StackOp::Log10F32 => { self.f32_unary(f32::log10); }
-                StackOp::Log2F32 => { self.f32_unary(f32::log2); }
-                StackOp::SqrtF32 => { self.f32_unary(f32::sqrt); }
-                StackOp::AbsF32 => { self.f32_unary(f32::abs); }
-                StackOp::FloorF32 => { self.f32_unary(f32::floor); }
-                StackOp::CeilF32 => { self.f32_unary(f32::ceil); }
+                // (f32 math intrinsics are F-window only — catchall.)
 
                 // === Math builtins: f64 unary ===
                 StackOp::SinF64 => { self.f64_unary(f64::sin); }
@@ -760,17 +675,9 @@ impl StackVM {
                 StackOp::FloorF64 => { self.f64_unary(f64::floor); }
                 StackOp::CeilF64 => { self.f64_unary(f64::ceil); }
 
-                StackOp::IsnanF32 => {
-                    let v = f32::from_bits(self.pop() as u32);
-                    self.push(if v.is_nan() { 1 } else { 0 });
-                }
                 StackOp::IsnanF64 => {
                     let v = f64::from_bits(self.pop());
                     self.push(if v.is_nan() { 1 } else { 0 });
-                }
-                StackOp::IsinfF32 => {
-                    let v = f32::from_bits(self.pop() as u32);
-                    self.push(if v.is_infinite() { 1 } else { 0 });
                 }
                 StackOp::IsinfF64 => {
                     let v = f64::from_bits(self.pop());
@@ -778,11 +685,6 @@ impl StackVM {
                 }
 
                 // === Math builtins: binary ===
-                StackOp::Atan2F32 => {
-                    let b = f32::from_bits(self.pop() as u32);
-                    let a = f32::from_bits(self.pop() as u32);
-                    self.push(f32::to_bits(a.atan2(b)) as u64);
-                }
                 StackOp::Atan2F64 => {
                     let b = f64::from_bits(self.pop());
                     let a = f64::from_bits(self.pop());
@@ -792,10 +694,6 @@ impl StackVM {
                 // === Debug / IO ===
                 StackOp::PrintI32 => {
                     let val = self.pop() as i32;
-                    println_output(&format!("{}", val));
-                }
-                StackOp::PrintF32 => {
-                    let val = f32::from_bits(self.pop() as u32);
                     println_output(&format!("{}", val));
                 }
                 StackOp::Putc => {
