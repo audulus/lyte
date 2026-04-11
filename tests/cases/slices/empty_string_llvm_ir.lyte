@@ -2,6 +2,7 @@
 // skip-backend: jit
 // skip-backend: vm
 // skip-backend: asm
+// skip-backend: stack
 // args: --ir
 // expected stdout:
 // LLVM IR:
@@ -9,50 +10,65 @@
 // source_filename = "lyte"
 // define void @main(ptr %0, ptr %1) {
 // entry:
-//   %str6 = alloca i8, i64 1, align 1
-//   %fat_ptr2 = alloca i8, i64 16, align 8
+//   %str7 = alloca i8, i64 1, align 1
+//   %fat_ptr3 = alloca i8, i64 16, align 8
 //   %fat_ptr = alloca i8, i64 16, align 8
 //   %str = alloca i8, i64 1, align 1
 //   %s = alloca ptr, align 8
 //   %s_storage = alloca i8, i64 1, align 1
+//   %gep = getelementptr inbounds i8, ptr %0, i64 4
+//   %call_depth = load i32, ptr %gep, align 4
+//   %new_depth = sub i32 %call_depth, 1
+//   store i32 %new_depth, ptr %gep, align 4
+//   %depth_neg = icmp slt i32 %new_depth, 0
+//   br i1 %depth_neg, label %call_depth_trap, label %call_depth_cont
+// call_depth_trap:                                  ; preds = %entry
+//   call void @__llvm_lyte_stack_overflow_trap(ptr %0)
+//   unreachable
+// call_depth_cont:                                  ; preds = %entry
 //   %cancel_counter = load i32, ptr %0, align 4
 //   %new_counter = sub i32 %cancel_counter, 1
 //   store i32 %new_counter, ptr %0, align 4
 //   %counter_expired = icmp sle i32 %new_counter, 0
 //   br i1 %counter_expired, label %cancel_check, label %cont
-// cancel_check:                                     ; preds = %entry
+// cancel_check:                                     ; preds = %call_depth_cont
 //   call void @__llvm_lyte_cancel_check(ptr %0)
 //   br label %cont
-// cont:                                             ; preds = %cancel_check, %entry
+// cont:                                             ; preds = %cancel_check, %call_depth_cont
 //   store ptr %s_storage, ptr %s, align 8
 //   store i8 0, ptr %str, align 1
 //   call void @llvm.memcpy.p0.p0.i64(ptr align 1 %s_storage, ptr align 1 %str, i64 1, i1 false)
 //   store ptr @__llvm_lyte_assert, ptr %fat_ptr, align 8
-//   %gep = getelementptr inbounds i8, ptr %fat_ptr, i64 8
-//   store ptr null, ptr %gep, align 8
+//   %gep1 = getelementptr inbounds i8, ptr %fat_ptr, i64 8
+//   store ptr null, ptr %gep1, align 8
 //   %builtin_fn_ptr = load ptr, ptr %fat_ptr, align 8
-//   %s1 = load ptr, ptr %s, align 8
-//   %ptr_add = getelementptr inbounds i8, ptr %s1, i64 0
+//   %s2 = load ptr, ptr %s, align 8
+//   %ptr_add = getelementptr inbounds i8, ptr %s2, i64 0
 //   %elem = load i8, ptr %ptr_add, align 1
 //   %ieq = icmp eq i8 %elem, 0
 //   %zext = zext i1 %ieq to i8
-//   call void %builtin_fn_ptr(i8 %zext)
-//   store ptr @__llvm_lyte_assert, ptr %fat_ptr2, align 8
-//   %gep3 = getelementptr inbounds i8, ptr %fat_ptr2, i64 8
-//   store ptr null, ptr %gep3, align 8
-//   %builtin_fn_ptr4 = load ptr, ptr %fat_ptr2, align 8
-//   %s5 = load ptr, ptr %s, align 8
-//   store i8 0, ptr %str6, align 1
-//   %memcmp = call i32 @memcmp(ptr %s5, ptr %str6, i64 1)
+//   call void %builtin_fn_ptr(ptr %0, i8 %zext)
+//   store ptr @__llvm_lyte_assert, ptr %fat_ptr3, align 8
+//   %gep4 = getelementptr inbounds i8, ptr %fat_ptr3, i64 8
+//   store ptr null, ptr %gep4, align 8
+//   %builtin_fn_ptr5 = load ptr, ptr %fat_ptr3, align 8
+//   %s6 = load ptr, ptr %s, align 8
+//   store i8 0, ptr %str7, align 1
+//   %memcmp = call i32 @memcmp(ptr %s6, ptr %str7, i64 1)
 //   %eq = icmp eq i32 %memcmp, 0
-//   %zext7 = zext i1 %eq to i8
-//   call void %builtin_fn_ptr4(i8 %zext7)
+//   %zext8 = zext i1 %eq to i8
+//   call void %builtin_fn_ptr5(ptr %0, i8 %zext8)
+//   %gep9 = getelementptr inbounds i8, ptr %0, i64 4
+//   %call_depth_rel = load i32, ptr %gep9, align 4
+//   %new_depth_rel = add i32 %call_depth_rel, 1
+//   store i32 %new_depth_rel, ptr %gep9, align 4
 //   ret void
 // }
+// declare void @__llvm_lyte_stack_overflow_trap(ptr)
 // declare void @__llvm_lyte_cancel_check(ptr)
 // ; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
 // declare void @llvm.memcpy.p0.p0.i64(ptr noalias nocapture writeonly, ptr noalias nocapture readonly, i64, i1 immarg) #0
-// declare void @__llvm_lyte_assert(i8)
+// declare void @__llvm_lyte_assert(ptr, i8)
 // declare i32 @memcmp(ptr, ptr, i64)
 // attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
 // Optimized LLVM IR:
@@ -60,21 +76,35 @@
 // source_filename = "lyte"
 // define void @main(ptr %0, ptr nocapture readnone %1) local_unnamed_addr {
 // entry:
+//   %gep = getelementptr inbounds i8, ptr %0, i64 4
+//   %call_depth = load i32, ptr %gep, align 4
+//   %new_depth = add i32 %call_depth, -1
+//   store i32 %new_depth, ptr %gep, align 4
+//   %depth_neg = icmp slt i32 %new_depth, 0
+//   br i1 %depth_neg, label %call_depth_trap, label %call_depth_cont
+// call_depth_trap:                                  ; preds = %entry
+//   tail call void @__llvm_lyte_stack_overflow_trap(ptr nonnull %0)
+//   unreachable
+// call_depth_cont:                                  ; preds = %entry
 //   %cancel_counter = load i32, ptr %0, align 4
 //   %new_counter = add i32 %cancel_counter, -1
 //   store i32 %new_counter, ptr %0, align 4
 //   %counter_expired = icmp slt i32 %new_counter, 1
 //   br i1 %counter_expired, label %cancel_check, label %cont
-// cancel_check:                                     ; preds = %entry
+// cancel_check:                                     ; preds = %call_depth_cont
 //   tail call void @__llvm_lyte_cancel_check(ptr nonnull %0)
 //   br label %cont
-// cont:                                             ; preds = %cancel_check, %entry
-//   tail call void @__llvm_lyte_assert(i8 1)
-//   tail call void @__llvm_lyte_assert(i8 1)
+// cont:                                             ; preds = %cancel_check, %call_depth_cont
+//   tail call void @__llvm_lyte_assert(ptr nonnull %0, i8 1)
+//   tail call void @__llvm_lyte_assert(ptr nonnull %0, i8 1)
+//   %call_depth_rel = load i32, ptr %gep, align 4
+//   %new_depth_rel = add i32 %call_depth_rel, 1
+//   store i32 %new_depth_rel, ptr %gep, align 4
 //   ret void
 // }
+// declare void @__llvm_lyte_stack_overflow_trap(ptr) local_unnamed_addr
 // declare void @__llvm_lyte_cancel_check(ptr) local_unnamed_addr
-// declare void @__llvm_lyte_assert(i8) local_unnamed_addr
+// declare void @__llvm_lyte_assert(ptr, i8) local_unnamed_addr
 
 main {
     var s = ""

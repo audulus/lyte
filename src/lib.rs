@@ -68,4 +68,25 @@ pub mod vm_optimize;
 
 pub mod vm_codegen;
 
+pub mod stack_ir;
+
+pub mod stack_codegen;
+
+pub mod stack_optimize;
+
+pub mod stack_depth;
+
+pub mod stack_discover;
+
+pub mod stack_vm;
+
+pub mod stack_hot_locals;
+
+pub mod stack_inline;
+
+pub mod stack_rebase_lm;
+
+#[cfg(has_stack_interp)]
+pub mod stack_interp_bridge;
+
 pub mod ffi;

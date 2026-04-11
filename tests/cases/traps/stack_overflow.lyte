@@ -1,0 +1,16 @@
+// Infinite recursion should be caught as a trap and reported through
+// each backend's error channel without killing the host process.
+//
+// expected stdout:
+// compilation successful
+//
+// expected stderr:
+// trap: call stack overflow
+
+fn recurse(n: i32) -> i32 {
+    recurse(n) + 1
+}
+
+main {
+    print(recurse(1))
+}

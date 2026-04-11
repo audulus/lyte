@@ -72,6 +72,12 @@ pub struct AsmContext {
     pub extern_funcs_len: u64,                               // 192:
     /// Helper: call_extern(ctx, args_start, arg_count, globals_offset) -> result in r0
     pub fn_call_extern: unsafe extern "C" fn(*mut AsmContext, u64, u64, u64), // 200:
+
+    /// Trap reason set by helpers / assembly to signal a runtime trap.
+    /// 0 = no trap (normal exit). Anything non-zero is a trap and the
+    /// dispatch loop should branch to Lexit immediately. Decoded by
+    /// run_asm into a vm.trap message string after the loop returns.
+    pub trap_reason: u64, // 208:
 }
 
 // Verify critical offsets with compile-time assertions
@@ -102,7 +108,17 @@ const _: () = {
     assert!(std::mem::offset_of!(AsmContext, extern_funcs_ptr) == 184);
     assert!(std::mem::offset_of!(AsmContext, extern_funcs_len) == 192);
     assert!(std::mem::offset_of!(AsmContext, fn_call_extern) == 200);
+    assert!(std::mem::offset_of!(AsmContext, trap_reason) == 208);
 };
+
+/// Trap reason codes used by AsmContext.trap_reason. Keep in sync with
+/// the constants in vm_arm64.S.
+pub mod trap {
+    pub const NONE: u64 = 0;
+    pub const CALL_STACK_OVERFLOW: u64 = 1;
+    pub const STACK_OVERFLOW: u64 = 2;
+    pub const ASSERTION_FAILED: u64 = 3;
+}
 
 // ============ Assembly entry point ============
 
@@ -127,13 +143,12 @@ unsafe extern "C" fn helper_print_f32(bits: u32) {
     crate::vm::println_output(&format!("{}", v));
 }
 
-unsafe extern "C" fn helper_assert(val: u64, ip: u64) -> u64 {
+unsafe extern "C" fn helper_assert(val: u64, _ip: u64) -> u64 {
     if val != 0 {
         crate::vm::println_output("assert(true)");
         0
     } else {
         crate::vm::println_output("assert(false)");
-        eprintln!("Assertion failed at instruction {}", ip);
         1 // signal failure
     }
 }
@@ -144,17 +159,12 @@ unsafe extern "C" fn helper_putc(val: u64) {
     }
 }
 
-unsafe extern "C" fn helper_grow_locals(ctx: *mut AsmContext, needed: u64) {
-    // We need to grow the locals buffer. The caller (assembly) has already
-    // stored locals_base and ip back into the context.
-    // We can't directly resize the Vec from here since we don't own it.
-    // Instead, we'll use a static thread-local to communicate with run_asm.
-    // For now, just panic — the pre-allocated 1MB should be enough for tests.
-    panic!(
-        "vm_arm64: locals overflow (needed {} bytes, have {})",
-        needed,
-        (*ctx).locals_cap
-    );
+unsafe extern "C" fn helper_grow_locals(ctx: *mut AsmContext, _needed: u64) {
+    // The locals bump buffer (preallocated 1MB) overflowed. We can't grow
+    // it from here without taking ownership of the underlying Vec, so
+    // signal a trap instead. The assembly checks ctx.trap_reason after
+    // this helper returns and branches to Lexit if it's non-zero.
+    (*ctx).trap_reason = trap::STACK_OVERFLOW;
 }
 
 /// Helper for CallExtern from assembly. Reads {fn_ptr, context} from globals,
@@ -207,6 +217,7 @@ impl VM {
         self.registers = [0; 256];
         self.globals = vec![0u8; program.globals_size];
         self.cancelled = false;
+        self.trap = None;
 
         // Pre-allocate call stack
         let mut call_stack = Vec::with_capacity(MAX_CALL_DEPTH);
@@ -246,9 +257,21 @@ impl VM {
             extern_funcs_ptr: program.extern_funcs.as_ptr(),
             extern_funcs_len: program.extern_funcs.len() as u64,
             fn_call_extern: helper_call_extern,
+            trap_reason: trap::NONE,
         };
 
-        unsafe { vm_arm64_enter(&mut ctx) }
+        let result = unsafe { vm_arm64_enter(&mut ctx) };
+
+        // Decode any trap signaled by the assembly / helpers.
+        self.trap = match ctx.trap_reason {
+            trap::NONE => None,
+            trap::CALL_STACK_OVERFLOW => Some("call stack overflow"),
+            trap::STACK_OVERFLOW => Some("stack overflow"),
+            trap::ASSERTION_FAILED => Some("assertion failed"),
+            _ => Some("unknown trap"),
+        };
+
+        result
     }
 
     /// Run a specific function using the ARM64 assembly interpreter with an
@@ -265,6 +288,7 @@ impl VM {
         self.current_func = func_idx;
         self.registers = [0; 256];
         self.cancelled = false;
+        self.trap = None;
 
         // Pre-allocate call stack
         let mut call_stack = Vec::with_capacity(MAX_CALL_DEPTH);
@@ -304,8 +328,19 @@ impl VM {
             extern_funcs_ptr: program.extern_funcs.as_ptr(),
             extern_funcs_len: program.extern_funcs.len() as u64,
             fn_call_extern: helper_call_extern,
+            trap_reason: trap::NONE,
         };
 
-        vm_arm64_enter(&mut ctx)
+        let result = vm_arm64_enter(&mut ctx);
+
+        self.trap = match ctx.trap_reason {
+            trap::NONE => None,
+            trap::CALL_STACK_OVERFLOW => Some("call stack overflow"),
+            trap::STACK_OVERFLOW => Some("stack overflow"),
+            trap::ASSERTION_FAILED => Some("assertion failed"),
+            _ => Some("unknown trap"),
+        };
+
+        result
     }
 }

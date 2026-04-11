@@ -21,6 +21,14 @@ struct Args {
     #[clap(long)]
     bytecode: bool,
 
+    /// Dump stack-based IR (for Silverfir-nano-style interpreters).
+    #[clap(long)]
+    stack_ir: bool,
+
+    /// Discover fusion patterns in the stack IR.
+    #[clap(long)]
+    discover_fusion: bool,
+
     #[clap(long)]
     timing: bool,
 
@@ -69,18 +77,29 @@ fn run(args: Args) -> i32 {
             if let Ok(contents) = fs::read_to_string(path) {
                 let directive = format!("// skip-backend: {}", skip_backend);
                 if contents.contains(&directive) {
-                    // Print expected stdout lines so golden test comparison passes.
-                    let mut in_expected = false;
+                    // Replay expected stdout AND expected stderr so golden test
+                    // comparison passes on a skipped backend.
+                    #[derive(Copy, Clone, PartialEq)]
+                    enum Mode { None, Stdout, Stderr }
+                    let mut mode = Mode::None;
                     for line in contents.lines() {
                         if line.starts_with("// expected stdout:") {
-                            in_expected = true;
+                            mode = Mode::Stdout;
                             continue;
                         }
-                        if in_expected {
+                        if line.starts_with("// expected stderr:") {
+                            mode = Mode::Stderr;
+                            continue;
+                        }
+                        if mode != Mode::None {
                             if let Some(rest) = line.strip_prefix("// ") {
-                                println!("{}", rest);
+                                match mode {
+                                    Mode::Stdout => println!("{}", rest),
+                                    Mode::Stderr => eprintln!("{}", rest),
+                                    Mode::None => {}
+                                }
                             } else {
-                                break;
+                                mode = Mode::None;
                             }
                         }
                     }
@@ -124,7 +143,7 @@ fn run(args: Args) -> i32 {
     } else {
         args.backend.clone()
     };
-    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir;
+    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir && !args.stack_ir && !args.discover_fusion;
     #[cfg(feature = "cranelift")]
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     #[cfg(not(feature = "cranelift"))]
@@ -142,8 +161,9 @@ fn run(args: Args) -> i32 {
     let run_llvm = should_run && backend == "llvm";
     #[cfg(not(feature = "llvm"))]
     let run_llvm = false;
+    let run_stack = should_run && backend == "stack";
 
-    if run_jit || run_vm || run_asm || run_llvm || args.bytecode || args.ir {
+    if run_jit || run_vm || run_asm || run_llvm || run_stack || args.bytecode || args.stack_ir || args.discover_fusion || args.ir {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -164,6 +184,40 @@ fn run(args: Args) -> i32 {
                 }
                 Err(e) => {
                     eprintln!("VM compilation error: {}", e);
+                    return 1;
+                }
+            }
+        }
+
+        if args.stack_ir {
+            match compiler.compile_stack() {
+                Ok(program) => {
+                    for func in &program.functions {
+                        println!(
+                            "fn {} (params: {}, locals: {}, memory: {} bytes):",
+                            func.name, func.param_count, func.local_count, func.local_memory
+                        );
+                        for (i, op) in func.ops.iter().enumerate() {
+                            println!("  {:>4}: {}", i, op);
+                        }
+                        println!();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Stack IR compilation error: {}", e);
+                    return 1;
+                }
+            }
+        }
+
+        if args.discover_fusion {
+            // Compile WITHOUT the optimizer to see unfused patterns.
+            match compiler.compile_stack_unfused() {
+                Ok(program) => {
+                    lyte::stack_discover::print_report(&[&program]);
+                }
+                Err(e) => {
+                    eprintln!("Stack IR compilation error: {}", e);
                     return 1;
                 }
             }
@@ -247,6 +301,44 @@ fn run(args: Args) -> i32 {
                 if args.timing {
                     eprintln!("vm exec: {:.3}s", start.elapsed().as_secs_f64());
                 }
+            }
+            if let Some(msg) = vm.trap {
+                eprintln!("trap: {}", msg);
+            }
+        }
+
+        if run_stack {
+            #[cfg(has_stack_interp)]
+            {
+                let stack_compile_start = Instant::now();
+                let program = match compiler.compile_stack() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("Stack VM compilation error: {}", e);
+                        return 1;
+                    }
+                };
+                let stack_compile_elapsed = stack_compile_start.elapsed();
+                if args.timing {
+                    eprintln!(
+                        "compile: {:.0}µs (front {:.0}µs + stack codegen {:.0}µs)",
+                        compile_elapsed.as_micros() as f64 + stack_compile_elapsed.as_micros() as f64,
+                        compile_elapsed.as_micros(),
+                        stack_compile_elapsed.as_micros()
+                    );
+                }
+
+                println!("compilation successful");
+                let start = Instant::now();
+                let _result = lyte::stack_interp_bridge::run(&program);
+                if args.timing {
+                    eprintln!("stack exec: {:.3}s", start.elapsed().as_secs_f64());
+                }
+            }
+            #[cfg(not(has_stack_interp))]
+            {
+                eprintln!("Stack VM backend requires Clang (preserve_none + musttail)");
+                return 1;
             }
         }
     }

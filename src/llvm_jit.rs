@@ -27,10 +27,32 @@ use std::time::{Duration, Instant};
 // Re-export CANCEL_FLAG_RESERVED so it matches the Cranelift JIT layout.
 pub use crate::cancel::CANCEL_FLAG_RESERVED;
 
+extern "C" {
+    fn longjmp(env: *mut u8, val: i32) -> !;
+}
+
+/// Called when a runtime assert fails. Sets the trap reason and longjmps
+/// back to the host setjmp entry point so the embedder can recover.
+unsafe extern "C" fn llvm_lyte_assert_trap(globals: *mut u8) {
+    *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) =
+        crate::cancel::TRAP_ASSERTION_FAILED;
+    longjmp(globals.add(crate::cancel::JMPBUF_OFFSET), 1);
+}
+
+/// Called when the call-depth counter goes negative — i.e. recursion
+/// has exceeded MAX_CALL_DEPTH. Same trap path as the assert helper.
+unsafe extern "C" fn llvm_lyte_stack_overflow_trap(globals: *mut u8) {
+    *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) =
+        crate::cancel::TRAP_CALL_STACK_OVERFLOW;
+    longjmp(globals.add(crate::cancel::JMPBUF_OFFSET), 1);
+}
+
 // External builtins (same implementations as in jit.rs).
-extern "C" fn llvm_lyte_assert(val: i8) {
+extern "C" fn llvm_lyte_assert(globals: *mut u8, val: i8) {
     crate::vm::println_output(&format!("assert({})", val != 0));
-    assert!(val != 0, "lyte assertion failed");
+    if val == 0 {
+        unsafe { llvm_lyte_assert_trap(globals) };
+    }
 }
 
 extern "C" fn llvm_lyte_print_i32(val: i32) {
@@ -214,9 +236,6 @@ extern "C" fn llvm_lyte_maxd(x: f64, y: f64) -> f64 {
 /// Called from LLVM JIT code when the cancel counter reaches zero.
 /// Same logic as lyte_cancel_check in jit.rs.
 unsafe extern "C" fn llvm_lyte_cancel_check(globals: *mut u8) {
-    extern "C" {
-        fn longjmp(env: *mut u8, val: i32) -> !;
-    }
     use crate::cancel::*;
 
     // Reset counter
@@ -231,6 +250,7 @@ unsafe extern "C" fn llvm_lyte_cancel_check(globals: *mut u8) {
     let user_data = *(globals.add(CANCEL_USERDATA_OFFSET) as *const *mut u8);
 
     if callback(user_data) {
+        *(globals.add(TRAP_REASON_OFFSET as usize) as *mut u32) = TRAP_CANCELLED;
         longjmp(globals.add(JMPBUF_OFFSET), 1);
     }
 }
@@ -497,18 +517,20 @@ fn compile_with_context<'ctx>(
     Ok((state, compile_elapsed))
 }
 
-/// Compile and run result: Ok(cancelled) or Err(msg).
+/// Compile and run result: Ok(trap_reason, ...) or Err(msg).
+/// trap_reason is 0 (TRAP_NONE) on a normal return, otherwise one of the
+/// crate::cancel::TRAP_* constants set by JITted code via longjmp.
 fn compile_and_run_with_context(
     context: &Context,
     decls: &DeclTable,
     entry_points: &[Name],
     print_ir: bool,
     ir_only: bool,
-) -> Result<(bool, Duration, Duration), String> {
+) -> Result<(u32, Duration, Duration), String> {
     let (state, compile_elapsed) = compile_with_context(context, decls, entry_points, print_ir)?;
 
     if ir_only {
-        return Ok((false, compile_elapsed, Duration::ZERO));
+        return Ok((crate::cancel::TRAP_NONE, compile_elapsed, Duration::ZERO));
     }
 
     // Create JIT execution engine.
@@ -538,7 +560,7 @@ fn compile_and_run_with_context(
     let exec_start = Instant::now();
     type Entry = unsafe extern "C" fn(*mut u8, *mut u8);
     let mut globals: Vec<u8> = vec![0u8; state.globals_size];
-    let cancelled = unsafe {
+    let trap_reason = unsafe {
         extern "C" {
             fn setjmp(env: *mut u8) -> i32;
         }
@@ -549,14 +571,14 @@ fn compile_and_run_with_context(
             let code_fn: Entry = std::mem::transmute(fn_addr);
             let null_closure: *mut u8 = std::ptr::null_mut();
             code_fn(globals.as_mut_ptr(), null_closure);
-            false
+            crate::cancel::TRAP_NONE
         } else {
-            true
+            crate::cancel::read_trap_reason(globals.as_ptr())
         }
     };
     let exec_elapsed = exec_start.elapsed();
 
-    Ok((cancelled, compile_elapsed, exec_elapsed))
+    Ok((trap_reason, compile_elapsed, exec_elapsed))
 }
 
 /// A compiled LLVM JIT program that keeps the execution engine alive.
@@ -640,19 +662,19 @@ impl LLVMJIT {
         })
     }
 
-    /// Compile and execute main. Returns Ok((cancelled, compile_time, exec_time)) or Err.
-    pub fn compile_and_run(&self, decls: &DeclTable) -> Result<(bool, Duration, Duration), String> {
+    /// Compile and execute main. Returns Ok((trap_reason, compile_time, exec_time)) or Err.
+    pub fn compile_and_run(&self, decls: &DeclTable) -> Result<(u32, Duration, Duration), String> {
         let main = Name::new("main".into());
         self.compile_and_run_multi(decls, &[main])
     }
 
     /// Compile multiple entry points and execute the first one.
-    /// Returns Ok((cancelled, compile_time, exec_time)) or Err.
+    /// Returns Ok((trap_reason, compile_time, exec_time)) or Err.
     pub fn compile_and_run_multi(
         &self,
         decls: &DeclTable,
         entry_points: &[Name],
-    ) -> Result<(bool, Duration, Duration), String> {
+    ) -> Result<(u32, Duration, Duration), String> {
         Target::initialize_native(&InitializationConfig::default())
             .map_err(|e| format!("LLVM target init failed: {}", e))?;
 
@@ -855,7 +877,8 @@ impl<'ctx> LLVMJITState<'ctx> {
             loop_stack: Vec::new(),
         };
 
-        // Cancel-check at function entry.
+        // Call-depth check + cancel-check at function entry.
+        trans.emit_call_depth_check();
         trans.emit_cancel_check();
 
         let result = trans.translate_expr(body_id, decl);
@@ -863,6 +886,7 @@ impl<'ctx> LLVMJITState<'ctx> {
         // Emit return if the current block isn't already terminated
         // (e.g. by an explicit `return` statement).
         if !trans.is_block_terminated() {
+            trans.emit_call_depth_release();
             if returns_via_pointer(decl.ret) && result.is_pointer_value() {
                 // memcpy result to output_ptr, return void.
                 let out = trans.output_ptr.unwrap();
@@ -1057,6 +1081,79 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             .unwrap();
         self.builder().position_at_end(current_bb);
         alloca
+    }
+
+    /// Decrement the call-depth counter at function entry. If it goes
+    /// negative, call llvm_lyte_stack_overflow_trap which longjmps out.
+    fn emit_call_depth_check(&mut self) {
+        let trap_bb = self.append_bb("call_depth_trap");
+        let cont_bb = self.append_bb("call_depth_cont");
+
+        // Counter lives at globals + CALL_DEPTH_OFFSET (i32).
+        let depth_ptr = self.ptr_at_offset(
+            self.globals_base,
+            crate::cancel::CALL_DEPTH_OFFSET as u64,
+        );
+        let depth = self
+            .builder()
+            .build_load(self.i32_ty(), depth_ptr, "call_depth")
+            .unwrap()
+            .into_int_value();
+        let one = self.i32_ty().const_int(1, false);
+        let new_depth = self
+            .builder()
+            .build_int_sub(depth, one, "new_depth")
+            .unwrap();
+        self.builder().build_store(depth_ptr, new_depth).unwrap();
+
+        let zero = self.i32_ty().const_int(0, false);
+        let is_neg = self
+            .builder()
+            .build_int_compare(IntPredicate::SLT, new_depth, zero, "depth_neg")
+            .unwrap();
+        self.builder()
+            .build_conditional_branch(is_neg, trap_bb, cont_bb)
+            .unwrap();
+
+        // Trap block: call helper which longjmps out (never returns).
+        self.builder().position_at_end(trap_bb);
+        let trap_ty = self
+            .ctx()
+            .void_type()
+            .fn_type(&[self.ptr_ty().into()], false);
+        let trap_fn = self.state.get_or_declare_extern(
+            "__llvm_lyte_stack_overflow_trap",
+            trap_ty,
+            llvm_lyte_stack_overflow_trap as *const () as usize,
+        );
+        self.builder()
+            .build_call(trap_fn, &[self.globals_base.into()], "")
+            .unwrap();
+        // Helper longjmps and never returns; the unreachable keeps the
+        // basic block well-formed.
+        self.builder().build_unreachable().unwrap();
+
+        self.builder().position_at_end(cont_bb);
+    }
+
+    /// Increment the call-depth counter before returning so the count
+    /// reflects current recursion (not total call count).
+    fn emit_call_depth_release(&mut self) {
+        let depth_ptr = self.ptr_at_offset(
+            self.globals_base,
+            crate::cancel::CALL_DEPTH_OFFSET as u64,
+        );
+        let depth = self
+            .builder()
+            .build_load(self.i32_ty(), depth_ptr, "call_depth_rel")
+            .unwrap()
+            .into_int_value();
+        let one = self.i32_ty().const_int(1, false);
+        let new_depth = self
+            .builder()
+            .build_int_add(depth, one, "new_depth_rel")
+            .unwrap();
+        self.builder().build_store(depth_ptr, new_depth).unwrap();
     }
 
     fn emit_cancel_check(&mut self) {
@@ -1874,6 +1971,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let result = self.translate_expr(ret_id, decl);
                 let ret_ty = decl.types[ret_id];
 
+                self.emit_call_depth_release();
                 if returns_via_pointer(ret_ty) {
                     let out = self.output_ptr.unwrap();
                     let size = ret_ty.size(self.decls) as u64;
@@ -2752,17 +2850,30 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             } else if is_builtin {
                 // assert / print / putc — load raw fn ptr from fat pointer and indirect call.
+                // assert needs globals as its first arg so it can trap via longjmp.
+                let is_assert = matches!(&decl.arena[fn_id], Expr::Id(n) if **n == "assert");
                 let fat_ptr = self.translate_expr(fn_id, decl).into_pointer_value();
                 let fn_ptr_val = self
                     .builder()
                     .build_load(self.ptr_ty(), fat_ptr, "builtin_fn_ptr")
                     .unwrap()
                     .into_pointer_value();
-                // Build the LLVM function type without globals/closure.
-                let raw_fn_ty = self.build_raw_fn_type(from, to);
+                // Build the LLVM function type without globals/closure
+                // (but with a globals prefix for assert).
+                let raw_fn_ty = if is_assert {
+                    self.ctx()
+                        .void_type()
+                        .fn_type(&[self.ptr_ty().into(), self.i8_ty().into()], false)
+                } else {
+                    self.build_raw_fn_type(from, to)
+                };
                 let param_types = raw_fn_ty.get_param_types();
                 let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![];
                 let mut pi = 0;
+                if is_assert {
+                    args.push(self.globals_base.into());
+                    pi += 1;
+                }
                 if let Some(slot) = output_slot {
                     args.push(slot.into());
                     pi += 1;
@@ -3031,10 +3142,12 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     fn translate_func_ref(&mut self, name: &Name, ty: &crate::Type) -> BasicValueEnum<'ctx> {
         // Builtin raw function pointers.
         if *name == Name::str("assert") {
+            // assert takes (globals: ptr, val: i8) so it can write trap_reason
+            // and longjmp on failure. The Call site prepends globals_base.
             let fn_ty = self
                 .ctx()
                 .void_type()
-                .fn_type(&[self.i8_ty().into()], false);
+                .fn_type(&[self.ptr_ty().into(), self.i8_ty().into()], false);
             let f = self.state.get_or_declare_extern(
                 "__llvm_lyte_assert",
                 fn_ty,

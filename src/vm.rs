@@ -325,6 +325,17 @@ pub(crate) mod tags {
 /// Maximum number of C-level arguments for an extern function (including context).
 const MAX_EXTERN_ARGS: usize = 16;
 
+/// Maximum call stack depth before the VM traps with "call stack overflow".
+/// Must be a hard cap — an unbounded Vec would grow until OOM.
+pub const MAX_CALL_DEPTH: usize = 4096;
+
+/// Maximum byte size of the locals stack before the VM traps with
+/// "stack overflow". Caps the dynamic resize of `self.locals` so a
+/// function with a big local array can't eat all RAM through recursion.
+/// Matches the asm backend's pre-allocated 1 MB locals buffer so the
+/// same recursive program traps the same way on both.
+pub const MAX_LOCALS_BYTES: usize = 1024 * 1024;
+
 /// Call an extern function pointer using libffi's low-level API (no heap allocation).
 ///
 /// Supports any combination of types (i32, f32, f64, ptr) up to MAX_EXTERN_ARGS - 1 params.
@@ -1082,6 +1093,11 @@ pub struct VM {
     /// Set to true if execution was cancelled
     pub cancelled: bool,
 
+    /// Set to Some(msg) if execution trapped (stack overflow, etc.).
+    /// Callers check this after `run` returns to distinguish a normal
+    /// exit from a runtime trap.
+    pub trap: Option<&'static str>,
+
     /// Closure pointer set by CallClosure, read by GetClosurePtr.
     closure_ptr: u64,
 
@@ -1112,6 +1128,7 @@ impl VM {
             locals_base: 0,
             debug_func_name: String::new(),
             cancelled: false,
+            trap: None,
             closure_ptr: 0,
             cancel_callback: None,
             cancel_userdata: std::ptr::null_mut(),
@@ -1283,6 +1300,7 @@ impl VM {
         }
 
         self.cancelled = false;
+        self.trap = None;
 
         #[cfg(debug_assertions)]
         {
@@ -1937,6 +1955,10 @@ impl VM {
                         let args_start = op.a() as usize;
                         let arg_count = op.b() as usize;
 
+                        if self.call_stack.len() >= MAX_CALL_DEPTH {
+                            self.trap = Some("call stack overflow");
+                            return 0;
+                        }
                         let frame = CallFrame {
                             func_idx: self.current_func,
                             ip: ip,
@@ -1961,6 +1983,10 @@ impl VM {
                         }
 
                         let needed = locals_base + linked.func_locals[func as usize] as usize;
+                        if needed > MAX_LOCALS_BYTES {
+                            self.trap = Some("stack overflow");
+                            return 0;
+                        }
                         if needed > self.locals.len() {
                             self.locals.resize(needed * 2, 0);
                         }
@@ -1972,6 +1998,10 @@ impl VM {
                         let args_start = op.b() as usize;
                         let arg_count = op.c() as usize;
 
+                        if self.call_stack.len() >= MAX_CALL_DEPTH {
+                            self.trap = Some("call stack overflow");
+                            return 0;
+                        }
                         let frame = CallFrame {
                             func_idx: self.current_func,
                             ip: ip,
@@ -2006,6 +2036,10 @@ impl VM {
                         let args_start = op.b() as usize;
                         let arg_count = op.c() as usize;
 
+                        if self.call_stack.len() >= MAX_CALL_DEPTH {
+                            self.trap = Some("call stack overflow");
+                            return 0;
+                        }
                         let frame = CallFrame {
                             func_idx: self.current_func,
                             ip: ip,
@@ -2212,11 +2246,8 @@ impl VM {
                         let val = r!(op.a()) != 0;
                         println_output(&format!("assert({})", val));
                         if !val {
-                            panic!(
-                                "Assertion failed at {}:{}",
-                                program.functions[self.current_func as usize].name,
-                                ip - 1
-                            );
+                            self.trap = Some("assertion failed");
+                            return 0;
                         }
                     }
                     tags::PUTC => {

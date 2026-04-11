@@ -1,0 +1,25 @@
+// Stack overflow via deep recursion with large per-frame memory.
+// Each call allocates a big local array on the frame stack; repeated
+// recursive calls exhaust the bump-allocator's frame buffer.
+//
+// JIT/LLVM emit native frames on the OS stack, which has its own
+// (much larger) limit and can't be intercepted as a trap, so this
+// test is interpreter-only.
+//
+// skip-backend: jit
+// skip-backend: llvm
+//
+// expected stdout:
+// compilation successful
+//
+// expected stderr:
+// trap: stack overflow
+
+fn recurse(n: i32) {
+    var buf: [i32; 512]
+    recurse(n)
+}
+
+main {
+    recurse(1)
+}

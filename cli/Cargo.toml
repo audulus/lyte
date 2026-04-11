@@ -18,5 +18,8 @@ llvm = ["lyte/llvm"]
 clap = { version = "4.5.53", features = ["derive"] }
 lyte = { path = "../" }
 
+[build-dependencies]
+cc = "1"
+
 [dev-dependencies]
 goldentests = "1.4.1"

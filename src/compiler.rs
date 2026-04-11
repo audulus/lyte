@@ -683,9 +683,9 @@ impl Compiler {
         jit.print_ir = self.print_ir;
         let entry_points = self.effective_entry_points();
         match jit.compile_and_run_multi(&self.decls, &entry_points) {
-            Ok((cancelled, compile_time, exec_time)) => {
-                if cancelled {
-                    println!("execution cancelled");
+            Ok((trap_reason, compile_time, exec_time)) => {
+                if let Some(msg) = crate::cancel::trap_reason_message(trap_reason) {
+                    eprintln!("trap: {}", msg);
                 }
                 (compile_time, exec_time)
             }
@@ -745,7 +745,7 @@ impl Compiler {
 
             type Entry = fn(*mut u8) -> ();
             let mut globals: Vec<u8> = vec![0u8; globals_size];
-            let cancelled = unsafe {
+            let trap_reason = unsafe {
                 extern "C" {
                     fn setjmp(env: *mut u8) -> i32;
                 }
@@ -758,13 +758,13 @@ impl Compiler {
                 if setjmp(jmp_buf_ptr) == 0 {
                     let code_fn = mem::transmute::<_, Entry>(code_ptr);
                     code_fn(globals.as_mut_ptr());
-                    false
+                    crate::cancel::TRAP_NONE
                 } else {
-                    true
+                    crate::cancel::read_trap_reason(globals.as_ptr())
                 }
             };
-            if cancelled {
-                println!("execution cancelled");
+            if let Some(msg) = crate::cancel::trap_reason_message(trap_reason) {
+                eprintln!("trap: {}", msg);
             }
             jit.free_memory();
         } else if let Err(e) = r {
@@ -780,6 +780,66 @@ impl Compiler {
         let mut codegen = VMCodegen::new();
         let entry_points = self.effective_entry_points();
         codegen.compile_multi(&self.decls, &entry_points)
+    }
+
+    /// Compile to stack-based IR (for Silverfir-nano-style interpreters).
+    pub fn compile_stack(&self) -> Result<crate::stack_ir::StackProgram, String> {
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let mut codegen = crate::stack_codegen::StackCodegen::new();
+        let entry_points = self.effective_entry_points();
+        let mut program = codegen.compile_multi(&self.decls, &entry_points)?;
+        // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
+        // call sites become the raw ops and can participate in fusion.
+        crate::stack_inline::inline_trivial(&mut program);
+        // Rebase memory-slot references so they are relative to fp instead
+        // of a separate lm pointer. After this, lm is no longer needed —
+        // the C interpreter allocates locals+local_memory contiguously.
+        for func in &mut program.functions {
+            crate::stack_rebase_lm::rebase(func);
+        }
+        // Hot local analysis: remap hottest locals to indices 0/1/2.
+        for func in &mut program.functions {
+            let hot = crate::stack_hot_locals::analyze(func);
+            if hot[0].is_some() {
+                crate::stack_hot_locals::remap(func, &hot);
+                func.hot_locals = hot;
+            }
+        }
+        // Fuse common instruction sequences into superinstructions.
+        for func in &mut program.functions {
+            crate::stack_optimize::optimize(func);
+        }
+        // Lower LocalGet/Set(0/1/2) to L-register ops AFTER fusion.
+        for func in &mut program.functions {
+            if func.hot_locals[0].is_some() {
+                crate::stack_hot_locals::lower(func);
+            }
+        }
+        // Fill in Call.preserve from static stack depth. Must run AFTER
+        // fusion since fusion can change op positions and stack_delta values.
+        for func in &mut program.functions {
+            crate::stack_rebase_lm::patch_call_preserve(func);
+        }
+        Ok(program)
+    }
+
+    /// Compile to stack IR WITHOUT the fusion optimizer (for profiling).
+    pub fn compile_stack_unfused(&self) -> Result<crate::stack_ir::StackProgram, String> {
+        if self.decls.decls.is_empty() {
+            return Err(String::from("No declarations to compile"));
+        }
+        let mut codegen = crate::stack_codegen::StackCodegen::new();
+        let entry_points = self.effective_entry_points();
+        codegen.compile_multi(&self.decls, &entry_points)
+    }
+
+    /// Run the code using the stack VM interpreter.
+    pub fn run_stack(&mut self) -> Result<i64, String> {
+        let program = self.compile_stack()?;
+        let mut vm = crate::stack_vm::StackVM::new();
+        Ok(vm.run(&program))
     }
 
     /// Run the code using the VM interpreter.

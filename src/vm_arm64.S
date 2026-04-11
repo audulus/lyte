@@ -53,6 +53,16 @@
 .set CTX_EXTERN_FUNCS_PTR, 184
 .set CTX_EXTERN_FUNCS_LEN, 192
 .set CTX_FN_CALL_EXTERN,  200
+.set CTX_TRAP_REASON,     208
+
+// Trap reason codes (must match vm_arm64.rs::trap)
+.set TRAP_NONE,                0
+.set TRAP_CALL_STACK_OVERFLOW, 1
+.set TRAP_STACK_OVERFLOW,      2
+.set TRAP_ASSERTION_FAILED,    3
+
+// Maximum call stack depth (must match MAX_CALL_DEPTH in vm_arm64.rs).
+.set MAX_CALL_DEPTH,      4096
 
 // AsmCallFrame: 24 bytes each
 .set FRAME_SIZE,          24
@@ -284,6 +294,24 @@ Lexit:
     ret
 
 Lcancelled:
+    mov     x0, #0
+    b       Lexit
+
+// =============================================================================
+// Trap exits
+// =============================================================================
+// Lcall_stack_overflow: branched to from Lop_call* when call_stack_len ≥
+// MAX_CALL_DEPTH. Sets the trap_reason on the context and exits.
+Lcall_stack_overflow:
+    mov     x0, #TRAP_CALL_STACK_OVERFLOW
+    str     x0, [x24, #CTX_TRAP_REASON]
+    mov     x0, #0
+    b       Lexit
+
+// Ltrapped: branched to after a helper sets ctx->trap_reason (e.g.,
+// helper_grow_locals on locals overflow). Just exits — the trap state is
+// already on the context.
+Ltrapped:
     mov     x0, #0
     b       Lexit
 
@@ -1186,9 +1214,12 @@ Lop_call:
     extract_b w1                        // arg_count
     extract_c w2                        // func_idx
 
-    // Push call frame
+    // Push call frame (bounds-check first)
     ldr     x3, [x24, #CTX_CALL_STACK]
     ldr     x4, [x24, #CTX_CALL_STACK_LEN]
+    mov     x16, #MAX_CALL_DEPTH
+    cmp     x4, x16
+    b.hs    Lcall_stack_overflow
     mov     x5, #FRAME_SIZE
     madd    x6, x4, x5, x3             // &call_stack[len]
     ldr     x7, [x24, #CTX_CURRENT_FUNC]
@@ -1238,6 +1269,10 @@ Lcall_grow:
     mov     x1, x8
     ldr     x2, [x24, #CTX_FN_GROW_LOCALS]
     blr     x2
+    // helper_grow_locals signals overflow by setting CTX_TRAP_REASON.
+    // Check it and bail out if non-zero.
+    ldr     x16, [x24, #CTX_TRAP_REASON]
+    cbnz    x16, Ltrapped
     ldr     x23, [x24, #CTX_LOCALS_PTR]
     ldr     x9, [x24, #CTX_LOCALS_CAP]
     next
@@ -1251,9 +1286,12 @@ Lop_call_indirect:
     extract_c w2                        // arg_count
     ldr     x0, [x20, x0, lsl #3]      // func_idx = regs[func_reg]
 
-    // Push call frame
+    // Push call frame (bounds-check first)
     ldr     x3, [x24, #CTX_CALL_STACK]
     ldr     x4, [x24, #CTX_CALL_STACK_LEN]
+    mov     x16, #MAX_CALL_DEPTH
+    cmp     x4, x16
+    b.hs    Lcall_stack_overflow
     mov     x5, #FRAME_SIZE
     madd    x6, x4, x5, x3
     ldr     x7, [x24, #CTX_CURRENT_FUNC]
@@ -1475,7 +1513,11 @@ Lop_assert:
     cbnz    x0, Lassert_fail
     next
 Lassert_fail:
-    mov     x0, #1
+    // Set trap_reason = ASSERTION_FAILED and exit. Decoded by run_asm
+    // into vm.trap = "assertion failed".
+    mov     x0, #TRAP_ASSERTION_FAILED
+    str     x0, [x24, #CTX_TRAP_REASON]
+    mov     x0, #0
     b       Lexit
 
 // =============================================================================
@@ -1962,9 +2004,12 @@ Lop_call_closure:
     ldr     x5, [x3, #8]              // closure_ptr = *(fat_ptr+1)
     str     x5, [x24, #CTX_CLOSURE_PTR]
 
-    // Push call frame
+    // Push call frame (bounds-check first)
     ldr     x6, [x24, #CTX_CALL_STACK]
     ldr     x7, [x24, #CTX_CALL_STACK_LEN]
+    mov     x16, #MAX_CALL_DEPTH
+    cmp     x7, x16
+    b.hs    Lcall_stack_overflow
     mov     x8, #FRAME_SIZE
     madd    x9, x7, x8, x6
     ldr     x10, [x24, #CTX_CURRENT_FUNC]
