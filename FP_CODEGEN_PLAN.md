@@ -4,23 +4,43 @@ A plan for moving the Stack VM from "f32 values bit-cast through the integer
 TOS window" to "f32 values live in a dedicated float TOS window (f0..f3) in
 FP/SIMD registers throughout expression evaluation."
 
-> **Implementation status** (updated after commit 21f2949)
+> **Implementation status** (updated after commit `c67ed9e`)
 >
-> Phases 1–3 landed. Phase 4's premise — that uniformly emitting F-variant
-> ops would beat the narrow `float_window_rewrite` peephole — turned out
-> to be wrong, and flipping the flag by default regressed biquad ~2×. The
-> plan has been revised in §12 after root-causing the regression.
+> Phases 1–3 landed. Phase 4's original premise — that uniformly emitting
+> F-variant ops would beat the narrow `float_window_rewrite` peephole —
+> turned out to be wrong in its first form, regressing biquad ~2×. Two
+> unplanned fixes (see §12) closed most of the gap and delivered the
+> plan's speedup via a different mechanism than anticipated:
 >
-> The load-bearing fix was not a codegen change at all: the real problem
-> was that `FPUSH`/`FDROP` went through `ctx->float_stack` and
-> `ctx->float_sp_off` on every call, paying 3+ extra memory ops vs the
-> integer `*sp++` that `preserve_none` pins to a GPR. Promoting the float
-> spill pointer to a handler argument (`fsp`, analogous to `sp`) cut the
-> --fp-window biquad from 0.270s → 0.133s and improved the default
-> int-path biquad from 0.150s → 0.125s as well, because the FW peephole
-> chain was paying the same cost.
+> 1. **`fsp` register-arg promotion** (`21f2949`). `FPUSH`/`FDROP` used
+>    to chase `ctx->float_stack` and `ctx->float_sp_off` through memory
+>    on every call; promoting the float spill pointer to a
+>    `preserve_none`-pinned handler argument made it as cheap as the
+>    integer `*sp++`. Cut `--fp-window` biquad from 0.270s to 0.133s
+>    *and* improved the default int path from 0.150s to 0.125s because
+>    the FW peephole uses the same macros.
 >
-> Current status:
+> 2. **Float-typed window** (`c67ed9e`). The plan (§6.1) originally
+>    typed the float TOS window as `double` so f64 could share the
+>    register file. Every f32 op paid two fcvt round-trips because LLVM
+>    couldn't prove the narrow+widen away across the `musttail` dispatch
+>    boundary. Flipping the window to `float` (and rewriting
+>    `as_f32(locals[i])` as direct `*(float*)` loads in the fused
+>    handlers) collapsed the biquad FMA critical path from ~12 cycles
+>    per op to 3 cycles. Dropped biquad to **0.104s default / 0.100s
+>    --fp-window** — beating the plan's 0.15–0.18s target by a wide
+>    margin and bringing the Stack VM within ~3× of the LLVM AOT result
+>    on biquad.
+>
+> Current benchmark state (3-run averages, aarch64 M-series):
+>
+> | Workload | Start of work (`5b8c48f`) | Today (`c67ed9e`) | Plan target |
+> |---|---|---|---|
+> | biquad | 0.218s | **0.104s** (−52%) | 0.15–0.18s ✅ |
+> | sort | 0.114s | 0.075s | unchanged ✅ |
+> | fft | 0.612s | 0.399s (−35%) | 0.35–0.45s ✅ |
+>
+> Phase status:
 >
 > | Phase                               | Status                  | Commit      |
 > |-------------------------------------|-------------------------|-------------|
@@ -31,12 +51,16 @@ FP/SIMD registers throughout expression evaluation."
 > | 3.3 — Memory/slice/assign-temp sites | ✅ landed               | `cf44a00`   |
 > | 4 — Flip default on                  | ❌ reverted             | `4b6f00e`   |
 > | 5 — Float-aware fusion patterns      | ✅ dormant (opt-in)     | `4b6f00e`   |
-> | **fsp register-arg optimization**    | ✅ landed (not planned) | `21f2949`   |
+> | **`fsp` register-arg promotion**     | ✅ landed (unplanned)   | `21f2949`   |
+> | **Float-typed window**               | ✅ landed (unplanned)   | `c67ed9e`   |
 > | 6 — Remove legacy FW path            | ⏸ not done — see §12   |             |
 > | 7 — Float hot local cache            | ⏸ skipped              |             |
 >
-> The F-variant path remains opt-in behind `--fp-window`. The narrow
-> peephole path is still the fast default.
+> The F-variant codegen path remains opt-in behind `--fp-window` and is
+> now roughly on par with the default path (biquad 0.100s vs 0.104s).
+> The narrow `float_window_rewrite` peephole is still the fast default;
+> the open question is whether a sufficiently smart codegen could beat
+> it — see §12.
 
 ## 1. Background
 
@@ -502,23 +526,23 @@ Baselines from when the plan was written (3-run averages, aarch64 M-series):
 | sort | 0.114s | 0.027s | 0.023s | 0.068s |
 | fft | 0.612s | 0.043s | 0.054s | 0.656s |
 
-Actual results after Phases 1–5 + `fsp` register fix (commit `21f2949`):
+Actual results after Phases 1–5 + the two unplanned fixes:
 
-| Workload | Stack VM default | Stack VM `--fp-window` | Plan target |
-|---|---|---|---|
-| biquad | **0.125s** | 0.133s | 0.15–0.18s ✅ |
-| sort | 0.074s | 0.080s | unchanged ✅ |
-| fft | **0.405s** | 0.500s | 0.35–0.45s ✅ |
+| Workload | 5b8c48f baseline | +`fsp` (`21f2949`) | +float window (`c67ed9e`) | `--fp-window` today | Plan target |
+|---|---|---|---|---|---|
+| biquad | 0.218s | 0.125s | **0.104s** | 0.100s | 0.15–0.18s ✅ |
+| sort | 0.114s | 0.074s | 0.075s | 0.080s | unchanged ✅ |
+| fft | 0.612s | 0.405s | **0.399s** | 0.490s | 0.35–0.45s ✅ |
 
-The default (int-window + FW peephole) path comfortably hits every
-plan target and is consistently the fast path. The `--fp-window`
-opt-in path sits 6–23% behind it. The improvement over the commit
-5b8c48f baseline comes almost entirely from the `fsp` register-arg
-optimization discovered during Phase 4, not from the uniform
-F-emission that Phase 4 was supposed to deliver — see §12.
+The default (int-window + FW peephole) path comfortably beats every
+plan target. The `--fp-window` opt-in path is now at parity on biquad
+(0.100 vs 0.104) but still ~23% behind on FFT. The improvement over
+the 5b8c48f baseline comes from two unplanned fixes (`fsp` register
+promotion and the float-typed window — see §12), not from the uniform
+F-emission that Phase 4 was originally supposed to deliver.
 
 Silverfir pure-interp is the honest ceiling for an interpreter with
-this architecture. We currently beat it by ~5× on biquad, ~1.6× on
+this architecture. We currently beat it by ~6× on biquad, ~1.6× on
 FFT, and match it on sort.
 
 ## 9. Rollback strategy
@@ -567,9 +591,14 @@ raw-ops coverage is needed, then add Phase 5 for fusion coverage later.
 
 Phases 1–3 landed cleanly. Flipping the default in phase 4 regressed
 biquad from 0.150s to 0.270s (−80%) and FFT from 0.395s to 1.036s
-(−163%). The assumption that uniform F-variant emission would be
-faster than the narrow `float_window_rewrite` peephole was wrong for
-two reasons — one we fixed, one we didn't.
+(−163%). Tracing the regression turned up two independent costs the
+plan hadn't anticipated: the float spill pointer chasing memory on
+every push/pop, and a latent fcvt tax from the `double`-typed float
+window. Both got fixed, and both ended up helping the *default* int
+path more than the `--fp-window` path the plan was supposed to
+optimize — because the narrow `float_window_rewrite` peephole uses
+the same `FPUSH`/`FDROP` macros and feeds into the same FMA-chain
+handlers.
 
 ### Root cause 1 (fixed): `fsp` lived in memory, `sp` lived in a register
 
@@ -602,87 +631,170 @@ Impact (3-run averages, aarch64 M-series):
 
 Note that the **default int-window path also benefited** from this
 fix — the FW peephole chain uses the same `FPUSH`/`FDROP` macros.
-This is the single biggest stack-VM perf improvement since the hot
-local registers landed, and it was hiding in plain sight.
+This is the biggest stack-VM perf improvement since hot local
+registers landed, and it was hiding in plain sight.
 
-### Root cause 2 (open): the float window has a per-op spill cost
+### Root cause 2 (fixed): the `double`-typed float window cost an fcvt tax per op
 
-Even after the `fsp` fix, `--fp-window` is still 6% slower than the
-int path on biquad and 23% slower on FFT. The remaining gap isn't
-FPUSH cost per se — it's that uniform F-emission uses the float
-window for *more values per iteration* than the narrow peephole.
+§6.1 of the original plan typed the float TOS window as `double` so
+one set of FP-register slots could hold both f32 (widened) and f64
+values. Every f32 handler body looked like:
 
-The peephole only rewrites long FMA chains where `f0` stays live
-across many ops. Short-lived f32 values (the phase-wrap check in
-biquad, isolated `*` or `+` outside a chain) stay in the int window
-where they cost zero spills because they never push more than one
-slot. Uniform F-emission routes every f32 through the float window,
-so every short-lived value still pays one `FPUSH` + `FDROP` pair
-even though the chain couldn't benefit from FP-register residency.
+```c
+f0 = (double)((float)f0 + coeff * state);
+```
 
-The fundamental tradeoff: the F window wins when a value is used
-across many ops in a row (amortizes the push/pop); it loses against
-the int window when the value only lives for one op (int window
-values are free to push/pop because they're just GPR assignments
-while the window isn't full, and the FW peephole avoids f-spills
-entirely outside the matched chain).
+The intent was that the `(float)` narrow + `(double)` widen round-trip
+would disappear under optimization since f0 had just come from an f32
+op. It didn't. LLVM couldn't prove the round-trip away because `f0`
+is a handler argument: its `double` type survives across the
+`musttail` dispatch boundary, and the next handler (chosen by
+indirect branch) might interpret it differently. So every op in the
+biquad FMA chain compiled to:
+
+```asm
+fcvt  s0, d0                 ; ~3 cycles, narrow on entry
+fmadd s0, s4, s5, s0         ; ~3 cycles, the actual work
+fcvt  d0, s0                 ; ~3 cycles, widen on exit
+```
+
+Plus — separately — `as_f32(locals[i])` on the coeff side compiled to
+`ldr x_, [x_addr]; fmov s_, w_` because `locals` is typed as
+`uint64_t*`, forcing a GPR load followed by a GPR→FP move. That's an
+extra ~3-cycle crossing per op.
+
+**Fix** (commit `c67ed9e`): flip the window to `float`.
+
+- `HANDLER_ARGS`, `Handler` typedef, `CallFrame.saved_fsp`, and
+  `Ctx.float_stack` all change from `double` / `double*` to `float` /
+  `float*`. The spill buffer halves in size. `FPUSH` pushes a `float`
+  directly.
+- Every float-window handler body loses its `(double)` / `(float)f0`
+  casts. `f0 = f1 + f0;` is literal source code now.
+- Every `as_f32(locals[pc->imm[i]])` in a fused f-window handler is
+  rewritten as `*(float*)(locals + pc->imm[i])` so the compiler emits
+  `ldr s_, [x_, y_]` — a direct single-precision load, no crossing.
+- f64 is already on the int-window path per §6.2 Option B; dropping
+  double-precision window support costs nothing on our hot workloads.
+
+Resulting handler disassembly for the biquad FMA term:
+
+```asm
+_op_fused_get_addr_fmul_fadd_fw:
+  ldp   x8, x9, [x21, #0x8]
+  lsl   x8, x8, #3
+  ldr   s4, [x24, x8]           ; direct f32 load, no crossing
+  add   x8, x24, x9, lsl #3
+  ldrsw x9, [x21, #0x18]
+  ldr   s5, [x8, x9]            ; direct f32 load
+  fmadd s0, s4, s5, s0          ; single-cycle FMA
+  ldr   x3, [x21, #0x40]
+  add   x21, x21, #0x20
+  br    x4
+```
+
+Critical path on the `f0` accumulator: one `fmadd` per op (3 cycles),
+down from `fcvt` + `fmadd` + `fcvt` (9 cycles). The two `ldr s` loads
+are off-critical so the scheduler can hide them under the data
+dependency.
+
+Impact (3-run averages, aarch64 M-series):
+
+| Workload | Pre (`double` window) | Post (`float` window) | Delta |
+|---|---|---|---|
+| biquad default | 0.125s | **0.104s** | −17% |
+| biquad `--fp-window` | 0.133s | **0.100s** | −25% |
+| sort default | 0.074s | 0.075s | ~0 |
+| fft default | 0.405s | 0.399s | ~0 |
+| fft `--fp-window` | 0.500s | 0.490s | −2% |
+
+Biquad's FMA chain is the tightest dependency chain in the suite, so
+it gets the biggest win. FFT has more control-flow overhead per FP
+op so the fcvt savings are overlapped with other work.
+
+### What's left: the float window still has a small per-iteration tax
+
+After both fixes, `--fp-window` on biquad is within the noise of the
+default path (0.100 vs 0.104). On FFT it's still ~23% slower, likely
+because of the same reason Phase 5 fusion couldn't fully close: the
+F codegen uses the float window for more values per iteration than
+the narrow FW peephole, and the few extra FPUSH/FDROPs still cost
+(albeit much less than before) on workloads with dense, short-lived
+f32 values.
+
+The fundamental tradeoff is unchanged: the F window wins when a
+value is used across many ops (amortizing FPUSH/FDROP); the int
+window wins when a value only lives for one op, because GPR shuffles
+in the int TOS window don't touch memory while the window isn't full.
+Phase 5 fusion mitigates this partially by collapsing chains, but
+doesn't help single-use values. A smarter codegen that only emits F
+variants for values provably used in multi-op chains would close the
+remaining FFT gap — but the ROI is small at this point.
 
 ### Revised recommendations
 
-1. **Don't flip the default flag.** The narrow peephole beats uniform
-   F-emission on every benchmark in our suite. Keep `stack_fp_window`
-   defaulted to `false`. The F-variant codegen path stays behind
-   `--fp-window` as an A/B testing and experimentation surface.
+1. **Keep the default flag off.** The narrow peephole path is now
+   within ~4% of uniform F-emission on biquad and remains ahead on
+   FFT. Default `stack_fp_window = false`; keep `--fp-window` as an
+   opt-in for experimentation.
 
-2. **Don't remove the peephole path.** Phase 6 (cleanup) is canceled.
-   `float_window_rewrite` and the `*FW` ops are the fast path and
-   should stay.
+2. **Keep the peephole path.** Phase 6 (cleanup) is canceled. The
+   narrow `float_window_rewrite` pass plus the `*FW` handlers are
+   the fast default and should stay. Removing them would force all
+   f32 code onto uniform F-emission, regressing FFT ~23%.
 
-3. **If we want to beat the peephole, codegen needs to be selective.**
-   Two candidate strategies:
+3. **The two unplanned fixes are the real story.** Both are independent
+   of whether the F codegen path is used:
 
-   a. *Chain-length heuristic at codegen time.* Before emitting F
-      variants for an f32 subexpression, statically estimate the
-      chain length (number of f32 ops feeding into the same
-      accumulator). Only emit F variants when the chain crosses some
-      threshold. Shorter chains stay in the int window. This
-      recovers the peephole's behavior with cleaner codegen.
+   - `fsp` register promotion (`21f2949`): −17% biquad, ~40 lines of
+     C. Low risk, high impact, already landed.
+   - Float-typed window (`c67ed9e`): another −17% biquad, ~100 lines
+     of handler body rewrites, plus a tiny API ripple (Ctx /
+     CallFrame / Rust bridge). Also low risk because the cost
+     reduction shows up in the disassembly before running any
+     benchmark.
 
-   b. *Two-level codegen with backpatching.* Emit a mix of int and
-      F variants with explicit bridges (`FToBitsF` / `BitsToFF`),
-      then run a peephole pass that detects "int op that would've
-      been F followed by a bridge" sequences and collapses them back
-      to int when the chain is short.
+   Neither required any codegen changes, and both benefit the FW
+   peephole path as much as the uniform F path.
 
-   Both strategies require cost modeling that the current codegen
-   doesn't have; neither is a small change.
+4. **Phase 5 fusion patterns remain dormant behind `--fp-window`.**
+   Zero cost when the flag is off. Delete only if maintenance becomes
+   a drag — there's no current benefit to removing them.
 
-4. **The `fsp` fix stands on its own merits.** Even if we never ship
-   more of the F path, the register-arg promotion gave the default
-   int path a clean 17% biquad speedup for ~40 lines of change. Ship
-   it independently — which is what commit `21f2949` already did.
+5. **Phase 7 (float hot local cache) is still skipped.** At current
+   gap sizes, the ROI is too small.
 
-5. **Phase 5's fusion patterns remain useful for the opt-in path.**
-   They don't fire when `stack_fp_window = false`, so they cost
-   nothing to keep. Anyone flipping `--fp-window` on for
-   experimentation gets them automatically. Delete only if code
-   maintenance becomes a drag.
+6. **If you ever want to beat the peephole, do one of:**
 
-6. **Phase 7 (float hot local cache) is moot until the uniform F
-   path is competitive.** Defer indefinitely.
+   a. *Chain-length heuristic at codegen time.* Emit F variants only
+      for f32 subexpressions of statically-estimated chain length ≥ N.
+      Shorter chains stay in the int window. Recovers the peephole's
+      selectivity inside the codegen.
+
+   b. *Two-level codegen with backpatching.* Emit a mix of int and F
+      variants with explicit bridges, then run a peephole pass that
+      collapses short F chains back to int when the amortization
+      doesn't pay off.
+
+   Both require cost modeling the codegen currently lacks. Neither
+   is a small change, and both would optimize a path (uniform F
+   emission) that isn't on by default.
 
 ### What this means for the original success criteria
 
 | Criterion | Status |
 |---|---|
-| Biquad ≤ 0.18s | ✅ 0.125s (int path + fsp fix) |
-| FFT ≤ 0.45s | ✅ 0.405s |
+| Biquad ≤ 0.18s | ✅ 0.104s — beats target by 42%, within 3.4× of LLVM AOT |
+| FFT ≤ 0.45s | ✅ 0.399s — beats target by 11% |
 | No regression on sort | ✅ |
 | No regression on any golden test | ✅ |
 | No new unsafe code | ✅ |
 | Legacy FW peephole path removed | ❌ — and shouldn't be |
 
-Four of six targets met, one invalidated by findings. The biquad
-and FFT numbers exceed the plan's targets but via a different
-mechanism than the plan anticipated (register-pinned `fsp`, not
-uniform F-emission).
+Five of six targets met; the sixth is invalidated by findings. The
+biquad and FFT numbers comfortably exceed the plan's targets, but
+almost all of the speedup came from the two unplanned fixes, not
+from the uniform F-emission the plan set out to deliver. The F-path
+infrastructure (Phases 1–5) remains in place as an opt-in and as a
+test bed for the "smart selective codegen" directions in §12.6, but
+it isn't load-bearing for hitting the targets.
