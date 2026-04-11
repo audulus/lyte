@@ -290,9 +290,8 @@ pub enum StackOp {
     // xmm0-xmm3 on x86-64). Every f32 op reads and writes f0..f3
     // directly, so f32 arithmetic never visits a GPR and never pays a
     // GPR↔FP crossing. The legacy integer-window f32 ops were removed
-    // after Instruments profiling showed their co-existence with the
-    // F variants polluted the indirect-branch predictor on the shared
-    // dispatch BR — see §13 of FP_CODEGEN_PLAN.md.
+    // because the F handlers are strictly shorter (3+ fewer fmov
+    // crossings per hot op) — see docs/FP_CODEGEN_PLAN.md.
     //
     // The window is typed as `float`, not `double`, so f32 arithmetic
     // compiles to direct single-precision FMA/fadd/... without the
