@@ -1613,28 +1613,28 @@ impl<'a> FunctionTranslator<'a> {
                 return;
             }
 
-            // f32x4 constructor.
+            // f32x4 constructor. Each arg is an f32 in the float window.
             if *name == "f32x4" && arg_ids.len() == 4 {
                 let mem_slot = self.alloc_memory(16);
                 for (i, arg_id) in arg_ids.iter().enumerate() {
                     func.emit(StackOp::LocalAddr(mem_slot));
                     self.translate_expr(*arg_id, func);
-                    func.emit(StackOp::Store32Off((i * 4) as i32));
+                    func.emit(StackOp::StoreF32OffF((i * 4) as i32));
                 }
                 func.emit(StackOp::LocalAddr(mem_slot));
                 return;
             }
 
-            // f32x4_splat.
+            // f32x4_splat. Arg is an f32 in the float window.
             if *name == "f32x4_splat" && arg_ids.len() == 1 {
                 self.translate_expr(arg_ids[0], func);
                 let val_local = self.alloc_scalar();
-                func.emit(StackOp::LocalSet(val_local));
+                func.emit(StackOp::LocalSetF(val_local));
                 let mem_slot = self.alloc_memory(16);
                 for i in 0..4 {
                     func.emit(StackOp::LocalAddr(mem_slot));
-                    func.emit(StackOp::LocalGet(val_local));
-                    func.emit(StackOp::Store32Off((i * 4) as i32));
+                    func.emit(StackOp::LocalGetF(val_local));
+                    func.emit(StackOp::StoreF32OffF((i * 4) as i32));
                 }
                 func.emit(StackOp::LocalAddr(mem_slot));
                 return;
@@ -2112,7 +2112,7 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
-        // f32x4 swizzle fields.
+        // f32x4 swizzle fields. Result is an f32 pushed to the float window.
         if matches!(&*lhs_ty, Type::Float32x4) {
             let s: &str = &name;
             let lane: i32 = match s {
@@ -2123,7 +2123,7 @@ impl<'a> FunctionTranslator<'a> {
                 _ => panic!("invalid f32x4 field: {}", name),
             };
             self.translate_expr(lhs_id, func);
-            func.emit(StackOp::Load32Off(lane * 4));
+            func.emit(StackOp::LoadF32OffF(lane * 4));
             return;
         }
 
@@ -2202,14 +2202,14 @@ impl<'a> FunctionTranslator<'a> {
     ) {
         let arr_ty = self.expr_type(arr_id);
 
-        // f32x4 element extraction.
+        // f32x4 element extraction. Result is an f32 pushed to the float window.
         if matches!(&*arr_ty, Type::Float32x4) {
             self.translate_expr(arr_id, func);
             self.translate_expr(idx_id, func);
             func.emit(StackOp::I64Const(4));
             func.emit(StackOp::IMul);
             func.emit(StackOp::IAdd);
-            func.emit(StackOp::Load32);
+            func.emit(StackOp::LoadF32F);
             return;
         }
 

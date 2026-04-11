@@ -405,10 +405,18 @@ HANDLER(op_f64_to_i32) {
     t0 = (uint64_t)(int64_t)(int32_t)as_f64(t0); NEXT();
 }
 HANDLER(op_f32_to_f64) {
-    t0 = from_f64((double)as_f32(t0)); NEXT();
+    // Pop f0 (f32 from float window), push f64 bits to int window.
+    double v = (double)f0;
+    FDROP1();
+    PUSH(from_f64(v));
+    NEXT();
 }
 HANDLER(op_f64_to_f32) {
-    t0 = from_f32((float)as_f64(t0)); NEXT();
+    // Pop f64 bits from int window, push f32 to float window.
+    float v = (float)as_f64(t0);
+    DROP1();
+    FPUSH(v);
+    NEXT();
 }
 HANDLER(op_i32_to_i8) {
     t0 = (uint64_t)(int64_t)(int8_t)(int32_t)t0; NEXT();

@@ -71,7 +71,7 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::INeg | StackOp::DNeg | StackOp::IAddImm(_) |
         StackOp::Not |
         StackOp::I32ToF64 | StackOp::F64ToI32 |
-        StackOp::F32ToF64 | StackOp::F64ToF32 | StackOp::I32ToI8 | StackOp::I8ToI32 |
+        StackOp::I32ToI8 | StackOp::I8ToI32 |
         StackOp::I64ToU32 |
         StackOp::Load8 | StackOp::Load32 | StackOp::Load64 |
         StackOp::Load32Off(_) | StackOp::Load64Off(_) |
@@ -156,6 +156,8 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         // Crossings that consume from one window and produce in the other.
         StackOp::F32ToI32F | StackOp::FToBitsF => 1,    // pop f0, push t0
         StackOp::I32ToF32F | StackOp::BitsToFF => -1,   // pop t0, push f0
+        StackOp::F32ToF64 => 1,                         // pop f0, push f64 bits
+        StackOp::F64ToF32 => -1,                        // pop f64 bits, push f0
 
         // Float loads: pop addr from int window, push float to f-window.
         StackOp::LoadF32F | StackOp::LoadF32OffF(_)
@@ -228,9 +230,11 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
 
         // Crossings: F→int pops f-window
         StackOp::F32ToI32F | StackOp::FToBitsF
-        | StackOp::IsnanF32F | StackOp::IsinfF32F => -1,
+        | StackOp::IsnanF32F | StackOp::IsinfF32F
+        | StackOp::F32ToF64 => -1,
         // int→F pushes f-window
-        StackOp::I32ToF32F | StackOp::BitsToFF => 1,
+        StackOp::I32ToF32F | StackOp::BitsToFF
+        | StackOp::F64ToF32 => 1,
 
         // f-window stores pop f0
         StackOp::StoreF32F | StackOp::StoreF32OffF(_) => -1,

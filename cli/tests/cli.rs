@@ -18,16 +18,6 @@ fn run_golden_tests(backend: &str) -> goldentests::TestResult<()> {
     config.run_tests()
 }
 
-/// Run golden tests from a specific subdirectory. Used for backend-specific
-/// test suites (e.g., the stack VM only runs the traps/ subdirectory because
-/// it doesn't yet support every feature the other backends do).
-fn run_golden_tests_dir(backend: &str, dir: &str) -> goldentests::TestResult<()> {
-    let test_dir = format!("../tests/cases/{}", dir);
-    let mut config = goldentests::TestConfig::new(LYTE_BIN, &test_dir, "// ");
-    config.base_args = format!("--backend {} --skip-backend {}", backend, backend);
-    config.run_tests()
-}
-
 #[test]
 #[cfg(feature = "cranelift")]
 fn golden_tests_jit() -> goldentests::TestResult<()> {
@@ -51,14 +41,8 @@ fn golden_tests_asm() -> goldentests::TestResult<()> {
     run_golden_tests("asm")
 }
 
-/// Stack VM golden tests. Only runs the `traps/` subdirectory today:
-/// the stack backend is missing support for some language features (closures,
-/// interface dispatch, etc.) that several unrelated tests exercise. Adding
-/// skip-backend directives to each of those tests would be noise. Once the
-/// stack VM feature-set catches up with the others, swap this for
-/// run_golden_tests("stack").
 #[test]
 #[cfg(target_arch = "aarch64")]
 fn golden_tests_stack() -> goldentests::TestResult<()> {
-    run_golden_tests_dir("stack", "traps")
+    run_golden_tests("stack")
 }
