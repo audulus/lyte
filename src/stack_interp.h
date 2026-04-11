@@ -83,6 +83,13 @@ typedef struct Ctx {
     // budget on x86-64. Updated on call/return.
     uint64_t*    current_locals;
 
+    // Current float spill pointer. On aarch64 this lives in a GPR as a
+    // handler argument (`fsp`) — preserve_none has budget for it. On
+    // x86-64 we're out of GPRs, so it's stashed here and handlers access
+    // it via a `#define fsp (ctx->current_fsp)` macro, the same trick
+    // used for `locals`. Updated on call/return.
+    float*       current_fsp;
+
     // Closure pointer (set by call_closure, read by handlers)
     uint64_t     closure_ptr;
 
@@ -156,11 +163,12 @@ typedef PRESERVE_NONE void (*Handler)(
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 #else
+// x86-64 preserve_none has only ~12 GPR arg slots. `locals` and `fsp`
+// both live in ctx on this platform; handlers reach them via macros.
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    float*        fsp,    // float spill pointer (lives in a GPR via preserve_none)
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2

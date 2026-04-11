@@ -1778,43 +1778,69 @@ impl<'a> FunctionTranslator<'a> {
             {
                 let is_f64 = name.contains("f64");
                 let is_min = name.contains("min");
+                let is_f32 = !is_f64;
+                // Local ops for the a/b temps have to match the window
+                // used to produce the arg values. For f32 with --fp-window
+                // on, that's the float window.
+                let local_set = |slot: u16| -> (StackOp, StackOp) {
+                    (StackOp::LocalSet(slot), StackOp::LocalSetF(slot))
+                };
+                let local_get = |slot: u16| -> (StackOp, StackOp) {
+                    (StackOp::LocalGet(slot), StackOp::LocalGetF(slot))
+                };
                 self.translate_expr(arg_ids[0], func);
                 let a_local = self.alloc_scalar();
-                func.emit(StackOp::LocalSet(a_local));
+                if is_f32 {
+                    let (i, f) = local_set(a_local);
+                    func.emit_float(i, f);
+                } else {
+                    func.emit(StackOp::LocalSet(a_local));
+                }
                 self.translate_expr(arg_ids[1], func);
                 let b_local = self.alloc_scalar();
-                func.emit(StackOp::LocalSet(b_local));
-                // Emit: if a < b then a else b (for min), if a > b then a else b (for max).
-                func.emit(StackOp::LocalGet(a_local));
-                func.emit(StackOp::LocalGet(b_local));
-                if is_min {
-                    if is_f64 {
-                        func.emit(StackOp::DLt);
-                    } else {
-                        func.emit_float(StackOp::FLt, StackOp::FLtF);
-                    }
+                if is_f32 {
+                    let (i, f) = local_set(b_local);
+                    func.emit_float(i, f);
                 } else {
-                    // a > b == b < a, but we have [a, b] and want to test a > b.
-                    // We already consumed them for comparison, so use locals.
-                    // Actually let's redo: push b, a for "less than" to get a > b.
-                    // We need to redo the comparison properly.
-                    func.emit(StackOp::Drop); // drop the second arg we just pushed
-                    func.emit(StackOp::Drop); // drop the first
-                    func.emit(StackOp::LocalGet(b_local));
-                    func.emit(StackOp::LocalGet(a_local));
-                    if is_f64 {
-                        func.emit(StackOp::DLt);
-                    } else {
-                        func.emit_float(StackOp::FLt, StackOp::FLtF);
-                    }
+                    func.emit(StackOp::LocalSet(b_local));
+                }
+                // Emit: if a < b then a else b (for min), if a > b then a else b (for max).
+                // For max we just flip the operand order on the comparison,
+                // so push (a, b) for min and (b, a) for max — skips the
+                // drop-and-reload dance the old codegen did.
+                let (first, second) = if is_min {
+                    (a_local, b_local)
+                } else {
+                    (b_local, a_local)
+                };
+                if is_f32 {
+                    let (gi, gf) = local_get(first);
+                    func.emit_float(gi, gf);
+                    let (gi, gf) = local_get(second);
+                    func.emit_float(gi, gf);
+                    func.emit_float(StackOp::FLt, StackOp::FLtF);
+                } else {
+                    func.emit(StackOp::LocalGet(first));
+                    func.emit(StackOp::LocalGet(second));
+                    func.emit(StackOp::DLt);
                 }
                 let jump_if_false = func.pos();
                 func.emit(StackOp::JumpIfZero(0));
-                func.emit(StackOp::LocalGet(a_local));
+                if is_f32 {
+                    let (gi, gf) = local_get(a_local);
+                    func.emit_float(gi, gf);
+                } else {
+                    func.emit(StackOp::LocalGet(a_local));
+                }
                 let jump_end = func.pos();
                 func.emit(StackOp::Jump(0));
                 func.patch_jump(jump_if_false);
-                func.emit(StackOp::LocalGet(b_local));
+                if is_f32 {
+                    let (gi, gf) = local_get(b_local);
+                    func.emit_float(gi, gf);
+                } else {
+                    func.emit(StackOp::LocalGet(b_local));
+                }
                 func.patch_jump(jump_end);
                 return;
             }

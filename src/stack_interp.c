@@ -102,11 +102,14 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #if defined(__aarch64__)
 #define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
 #else
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
-// Reads expand to a load of ctx->current_locals; writes (locals = X)
-// store back to the same field. LLVM's TBAA rules out aliasing with
-// stores through sp, so the field read is CSEd per handler.
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
+// Reads expand to a load of ctx->current_locals / current_fsp; writes
+// (locals = X, fsp = X) store back to the same field. LLVM's TBAA rules
+// out aliasing with stores through sp, so the field read is CSEd per
+// handler. The macros keep the source code identical between aarch64
+// and x86-64 — the only difference is where these values live.
 #define locals (ctx->current_locals)
+#define fsp (ctx->current_fsp)
 #endif
 
 #define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
@@ -139,14 +142,14 @@ static int64_t ipow(int64_t base, uint32_t exp) {
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #endif
 
@@ -1804,15 +1807,17 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     uint64_t* entry_locals = ctx->current_locals;
 
     // Start dispatch with hot locals loaded and both TOS windows zeroed.
-    // Preload the handler for the second instruction as nh. fsp starts
-    // at the base of the float spill buffer — pinned to a GPR by
-    // preserve_none for the entire handler chain.
+    // Preload the handler for the second instruction as nh. On aarch64
+    // fsp is a handler arg pinned to a GPR by preserve_none; on x86-64
+    // it lives in ctx->current_fsp and handlers reach it via a macro
+    // (see stack_interp.c's HANDLER_ARGS / fsp definitions).
+    ctx->current_fsp = ctx->float_stack;
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
 #if defined(__aarch64__)
     ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
 #else
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
 #endif
 
     return ctx->result;
