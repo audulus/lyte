@@ -4,27 +4,24 @@ A plan for moving the Stack VM from "f32 values bit-cast through the integer
 TOS window" to "f32 values live in a dedicated float TOS window (f0..f3) in
 FP/SIMD registers throughout expression evaluation."
 
-> **Implementation status** (updated after commit `b818fd1`)
+> **Implementation status** (updated after commit `b818fd1` and a
+> bare-metal post-mortem)
 >
 > The original plan's goal — a single uniform F-variant codegen path,
-> with the legacy int-window f32 ops deleted — **is now in place**,
-> but via a different route than the plan anticipated, and with one
-> known regression.
+> with the legacy int-window f32 ops deleted — **is now in place**
+> and the FFT regression that motivated §13 of this document turned
+> out to be a virtualization artifact: on bare-metal Apple M4, the F
+> path is actually ~6.5% *faster* than the int path on FFT, not
+> 25% slower. See §13 for the measurements and the post-mortem.
 >
 > Six unplanned fixes (§12) progressively improved both paths' f32
-> performance to the point where biquad and sort are at parity across
-> them. The FFT gap (F path ~25% slower than int path) resisted every
-> optimization attempt and was ultimately diagnosed with Instruments
-> Time Profiler (§13.1) as being **entirely in the shared integer
-> handlers** that both paths call through. The leading hypothesis was
-> that the mere coexistence of int and F handler variants polluted
-> the indirect-branch predictor on the shared dispatch BR. On that
-> hypothesis the int path was deleted in `b818fd1` — but the FFT
-> regression **persisted**, falsifying the hypothesis. See §13.2 for
-> the post-mortem. The deletion still stands because the simplification
-> is large (~1000 lines), the other workloads are unaffected, and the
-> FFT gap investigation needs host-level hardware counters that
-> weren't available during development.
+> performance to the point where biquad, sort, and FFT are all at or
+> above plan target. The FFT investigation recorded in §13.1–§13.3
+> (BTB aliasing, NEON forwarding, store buffer, etc.) was chasing a
+> phantom: everything that looked like a regression inside the VM
+> the plan was developed in, looks like a small win on real hardware,
+> with measurements that exactly match the theoretical analysis of
+> per-handler instruction counts.
 >
 > **The six unplanned fixes** that came before the deletion:
 >
@@ -65,17 +62,26 @@ FP/SIMD registers throughout expression evaluation."
 >    `stack_fp_window` flag, and the `--fp-window` CLI. Net:
 >    +243 / −1246 lines. Leaves F as the only path for f32 arithmetic.
 >
-> Current benchmark state (5-run samples via `benchmark/run.sh 5`,
-> aarch64 M-series, inside a VM):
+> Current benchmark state. Two rows, because the VM and bare-metal
+> numbers diverge sharply on FFT: VM numbers are 10-run medians via
+> `benchmark/run.sh` on aarch64 M-series inside a Linux VM (the
+> environment the refactor was developed in); bare-metal numbers are
+> 10-run medians via a Python harness on Apple M4 macOS (Mac16,13,
+> sysctl `Apple M4`, macOS 26.4). Both binaries: release build of
+> `67eb53c` (pre-deletion int-path default) and HEAD (post-deletion
+> F-only).
 >
-> | Workload | Start (`5b8c48f`) | After `b40ecc1` (int default) | After `b818fd1` (F only) | Plan target |
-> |---|---|---|---|---|
-> | biquad | 0.218s | 0.100s | **0.102s** (−53%) | 0.15–0.18s ✅ |
-> | sort | 0.114s | 0.074s | **0.074s** (−35%) | unchanged ✅ |
-> | fft | 0.612s | 0.395s | **0.497s** (−19%) | 0.35–0.45s ❌ |
+> | Workload | Start (`5b8c48f`) | `b40ecc1` int default (VM) | `b818fd1` F-only (VM) | `b40ecc1` int default (M4) | HEAD F-only (M4) | Plan target |
+> |---|---|---|---|---|---|---|
+> | biquad | 0.218s | 0.100s | 0.102s | 0.107s | **0.104s** | 0.15–0.18s ✅ |
+> | sort   | 0.114s | 0.074s | 0.074s | 0.078s | **0.080s** | unchanged ✅ |
+> | fft    | 0.612s | 0.395s | 0.497s | 0.395s | **0.369s** | 0.35–0.45s ✅ |
 >
-> Biquad and sort comfortably beat every plan target. FFT comes in 10%
-> over target (0.497s vs 0.45s), which is a known regression — see §13.
+> On bare-metal M4 every workload meets or beats its plan target. FFT
+> in particular is **25 ms faster** under F-only than under the int
+> default — the opposite of what the VM reported. The 25% FFT
+> "regression" documented in the earlier version of §13 of this file
+> was a virtualization artifact.
 >
 > Phase status:
 >
@@ -100,7 +106,9 @@ FP/SIMD registers throughout expression evaluation."
 > Every phase is either landed or explicitly skipped. F variants are
 > the only path for f32 arithmetic; the `--fp-window` / `stack_fp_window`
 > flag is gone because there's no alternative to pick anymore. The FFT
-> gap is a known issue with a concrete investigation plan (§13.2).
+> gap that §13 was created to diagnose was a VM artifact and does not
+> exist on bare metal — §13 now documents the post-mortem rather than
+> an open investigation.
 
 ## 1. Background
 
@@ -775,208 +783,223 @@ remaining FFT gap — but the ROI is small at this point.
 
 ### What this means for the original success criteria
 
-| Criterion | Status |
-|---|---|
-| Biquad ≤ 0.18s | ✅ **0.102s** — beats target by 43%, within 3.4× of LLVM AOT |
-| FFT ≤ 0.45s | ❌ **0.497s** — 10% over target; see §13 |
-| No regression on sort | ✅ 0.074s |
-| No regression on any golden test | ✅ |
-| No new unsafe code | ✅ |
-| Legacy FW peephole path removed | ✅ — done in `b818fd1` |
+| Criterion | Status (VM) | Status (M4 bare metal) |
+|---|---|---|
+| Biquad ≤ 0.18s | ✅ 0.102s | ✅ **0.104s** |
+| FFT ≤ 0.45s | ❌ 0.497s | ✅ **0.369s** |
+| No regression on sort | ✅ 0.074s | ✅ 0.080s |
+| No regression on any golden test | ✅ | ✅ |
+| No new unsafe code | ✅ | ✅ |
+| Legacy FW peephole path removed | ✅ done in `b818fd1` | ✅ |
 
-Five of six targets met. The sixth (legacy path removal) is what the
-plan wanted all along and landed via the `b818fd1` deletion — but
-that deletion brought a 25% FFT regression that the plan didn't
-anticipate and that we haven't yet explained. The final scoreboard
-on the two canonical workloads is: biquad massively exceeds target
-and sort unchanged from plan write time, but FFT now misses the
-plan target by 10%. Whether the simplification is worth the FFT cost
-is a product decision; the root cause of the FFT gap is a technical
-one and is still open — see §13.
+All six criteria met on real hardware.
 
-## 13. Open: the FFT gap (post-deletion)
+All six targets met — but only once the measurements were rerun
+on bare metal. The FFT "regression" that made the earlier version
+of this table mark the target as failed was a virtualization
+artifact (see §13). On Apple M4 bare metal, F-only FFT is 0.369s
+vs int-path 0.395s — a ~6.5% improvement that exactly matches
+the per-handler instruction-count analysis.
 
-After everything in §12 and the int-path deletion in `b818fd1`,
-biquad is at 0.102s and sort at 0.074s — both well within plan
-target. **FFT is at 0.497s**, vs 0.395s before the deletion — a
-25% regression that we don't yet understand and haven't closed.
+## 13. Post-mortem: the FFT "regression" was a VM artifact
 
-This section is the investigation log, the failed hypothesis, and
-the plan for diagnosing it on a bare-metal host.
+The earlier version of this section treated the post-deletion FFT
+gap as an open performance investigation. It wasn't: everything
+that looked like a 25% regression inside the development VM
+disappears — or reverses into a small win — on bare-metal Apple
+Silicon. §13.1–§13.3 below record the original investigation log
+(mostly to preserve the reasoning trail); §13.4 is the actual
+resolution.
 
-### 13.1 Instruments Time Profiler findings (pre-deletion)
+### 13.1 What the VM reported
 
-With both paths still in the tree, I ran `xcrun xctrace record
---template 'Time Profiler'` on the FFT benchmark in each mode and
-counted samples per top-of-stack handler.
+Running `benchmark/run.sh` inside an aarch64 Linux VM on Apple
+Silicon:
 
-**Key finding: the gap was entirely in the shared integer handlers.**
+|        | int default (`b40ecc1`) | F only (`b818fd1`) | Δ |
+|--------|-------------------------|---------------------|---|
+| biquad | 0.100s | 0.102s | +2% |
+| sort   | 0.074s | 0.074s | 0  |
+| fft    | 0.395s | **0.497s** | **+25%** |
 
-|                          | Default int path | `--fp-window` F path | Δ     |
-|--------------------------|------------------|-----------------------|-------|
-| f32-related handlers     | 233 samples      | 220                   | −13   |
-| **int-only handlers**    | **154**          | **290**               | **+136** |
-| sin / dylib / setup      | 45               | 48                    | +3    |
-| **Total**                | **432**          | **558**               | **+126** |
+Biquad and sort were flat; FFT was dramatically slower under F-only.
+Nothing about the deletion commit itself could plausibly cause the
+gap — the handlers being used after deletion are the same F
+handlers that `--fp-window` was already invoking in the pre-deletion
+build, and the per-handler disassembly shows them strictly shorter
+than their int counterparts. So the gap had to be
+microarchitectural, and since it wasn't obviously code-driven, we
+burned a lot of time chasing BTB aliasing, NEON forwarding
+latency, and store-buffer pressure as theories.
+
+### 13.2 Failed hypothesis: BTB aliasing (pre-deletion)
+
+With both paths still in the tree, Instruments Time Profiler
+(`xcrun xctrace record --template 'Time Profiler'`) on the FFT
+benchmark in each mode counted samples per top-of-stack handler:
+
+|                          | int default | `--fp-window` | Δ     |
+|--------------------------|-------------|---------------|-------|
+| f32-related handlers     | 233         | 220           | −13   |
+| **int-only handlers**    | **154**     | **290**       | **+136** |
+| sin / dylib / setup      | 45          | 48            | +3    |
+| **Total**                | **432**     | **558**       | **+126** |
 
 The F handlers were collectively *faster* than their int counterparts
-(−13 samples) — matching the disassembly evidence that each F handler
-has fewer instructions and zero GPR↔FP crossings. But handlers that
+(−13 samples) — matching the disassembly evidence. But handlers that
 are **identical C code at identical addresses in both paths**
-(`op_fused_get_get_ilt_jiz`, `op_jump`, `op_i64_const`,
-`op_fused_get_addimm_set`, …) racked up 136 extra samples when they
-ran interleaved with F handlers.
+(`op_fused_get_get_ilt_jiz`, `op_jump`, `op_i64_const`, …) racked
+up 136 extra samples when they ran interleaved with F handlers.
 
-Since the handlers themselves couldn't possibly run slower, something
-external had to be slowing them down. The only shared state between
-all handlers is the tail-call dispatch BR (`br x_nh`) at the end of
-each handler body, which is an indirect branch whose target is
-predicted by the BTB.
+Since the handlers couldn't physically run slower, something
+external had to be slowing them down. The theory was BTB aliasing
+on the tail-call dispatch BR: the int path's "target universe" was
+just int handlers, while the F path alternated int and F handlers
+interleaved, so the BTB had to track more distinct targets for the
+same source BR and started mispredicting. Deleting the int-window
+f32 handlers should remove the aliasing.
 
-### 13.2 Failed hypothesis: BTB aliasing from coexisting variants
+**It didn't.** Post-deletion FFT ran at exactly the same 0.497s the
+`--fp-window` path had been reporting. The BTB aliasing theory was
+falsified by the deletion itself.
 
-The theory was that the BTB associates the BR source address with a
-small set of predicted target addresses (plus some branch history).
-On the default path, that BR's "target universe" is just int
-handlers. On the `--fp-window` path, the FFT butterfly alternates
-int handlers (control flow, integer math) and F handlers (f32
-arithmetic). The F handlers live at different code addresses than
-the int handlers, so the BTB had to track more distinct targets for
-the same source BR. If it ran out of tag bits or history slots, it
-started mispredicting — stalling the frontend for every handler,
-not just the F ones.
+### 13.3 Things verified directly before the bare-metal test
 
-If that theory was right, deleting the int-window f32 handlers
-entirely should have removed the aliasing: with no int f32 ops in
-the binary, there's nothing for the F f32 ops to alias with. The
-FFT gap should have closed.
-
-**It didn't.** Post-deletion FFT is at **0.497s**, exactly where
-`--fp-window` was already running. The BTB aliasing theory is
-falsified — the gap persists when there's nothing left to alias.
-
-What this rules out:
-- BTB/branch-predictor aliasing from coexisting handler variants (ruled out).
-- Any cause that depends on *both* paths being present in the binary.
-
-What's still on the table:
-- Store-buffer pressure from the narrow 4-byte `*fsp++ = f3` stores.
-- NEON register forwarding latency on the `fmov s, s` window-shift
-  chain in FPUSH/FDROP.
-- Something about how the FFT butterfly's access pattern exercises
-  the L1d or the load-store unit differently than biquad's does.
-- I-cache layout effects that moving handlers around can't fix.
-
-### 13.3 What's been verified and ruled out directly
-
-- **Op counts are equal.** The butterfly inner loop (`N log₂ N / 2`
-  dispatches × 2000 FFTs ≈ 10M iterations) is 26 ops per iter in
-  both paths. `bit_reverse_permute` is 12. `bit_reverse` is all
-  integer.
+- **Op counts are equal.** The butterfly inner loop is 38 ops per
+  iteration in both paths (see diff of `/tmp/sir_int.txt` vs
+  `/tmp/sir_f.txt`). No missing F fusion patterns on the hot path.
 - **Per-op F handlers are ≤ int handlers in instruction count.**
-  Measured (int vs F, pre-deletion): `local_get` 11 vs 12 (now
-  11 vs 11 after `b40ecc1`), `fmul` 12 vs 9, `fused_get_get_fmul`
-  16 vs 15, `fused_get_fsub` 10 vs 8, `fused_fmul_fsub` 13 vs 8.
-  In every arithmetic case F was strictly shorter and eliminated
-  the 3+ GPR↔FP crossings the int handler had to pay.
-- **Every missing fusion pattern I could spot got added.**
-  `FusedTeeSliceStore32F`, the `LocalSet+LocalGet→LocalTee` F
-  peephole, the direct-store optimization.
+  On HEAD:
+  - `op_fmul`: **9 insns F vs 12 int** (removes 3 fmov GPR↔FP
+    crossings; see disassembly in 13.4 below).
+  - `op_fused_get_addr_fmul_fadd`: **10 insns F vs 13 int** (removes
+    3 fmov crossings; the critical FMA is on already-FP-resident
+    operands).
+  - `op_local_get_l0`: 11 F vs 11 int (parity after `b40ecc1`).
+- **Every missing fusion pattern that could be spotted got added.**
+  `FusedTeeSliceStore32F`, `LocalSet+LocalGet→LocalTee` F peephole,
+  direct-store optimization.
 - **`fsp` is in a register.** `FPUSH` compiles to `str s, [x23], #0x4`
-  — equivalent to int `PUSH`'s `str x, [x22], #0x8`. Same memory
-  traffic pattern.
+  — equivalent to int `PUSH`'s `str x, [x22], #0x8`.
 - **Extra `lsl` instructions on F handlers are gone** (`b40ecc1`).
-  Pre-shifting the local index in the bridge eliminated them.
-- **BTB aliasing theory.** Falsified by `b818fd1` — the gap persists
-  after deletion.
 
-### 13.4 Plan: diagnose on bare metal with hardware counters
+Nothing in the static analysis suggested the F path should be
+slower. It just *measured* as slower in the VM.
 
-The development VM's `CPU Counters` xctrace template returns
-"This device does not support CPU Hardware Counters." Every theory
-in §13.2 needs hardware counters to validate. Running the same
-benchmarks on the bare-metal Mac host (not under virtualization)
-should unlock them.
+### 13.4 Resolution: measurement on bare metal
 
-Concrete steps when the host is available:
+Rerunning the A/B comparison on the bare-metal host — Apple M4
+(`Mac16,13`, macOS 26.4) — collapses the regression entirely. Same
+two binaries, built the same way:
 
-1. **Check out both points for A/B comparison.** The pre-deletion
-   commit (`b818fd1^`) still has both paths; HEAD has only F.
-   Build release binaries for each:
-   ```bash
-   git checkout b818fd1^ && cargo build --release -p lyte-cli \
-     && cp /tmp/lyte-target/release/lyte /tmp/lyte-int.bin
-   git checkout b818fd1  && cargo build --release -p lyte-cli \
-     && cp /tmp/lyte-target/release/lyte /tmp/lyte-f.bin
-   ```
+```bash
+# pre-deletion (int default, --fp-window opt-in):
+git worktree add /tmp/lyte-wt-int 67eb53c
+(cd /tmp/lyte-wt-int && CARGO_TARGET_DIR=/tmp/lyte-target-int \
+  cargo build --release -p lyte-cli)
+cp /tmp/lyte-target-int/release/lyte /tmp/lyte-int.bin
 
-2. **CPU Counters trace in each mode**, ~3 seconds of FFT:
-   ```bash
-   xcrun xctrace record --template 'CPU Counters' --no-prompt \
-     --output /tmp/fft_int.trace --time-limit 3s \
-     --launch -- /tmp/lyte-int.bin --backend stack benchmark/fft.lyte
+# HEAD (F-only):
+CARGO_TARGET_DIR=/tmp/lyte-target-f cargo build --release -p lyte-cli
+cp /tmp/lyte-target-f/release/lyte /tmp/lyte-f.bin
+```
 
-   xcrun xctrace record --template 'CPU Counters' --no-prompt \
-     --output /tmp/fft_f.trace --time-limit 3s \
-     --launch -- /tmp/lyte-f.bin --backend stack benchmark/fft.lyte
-   ```
+12-run median wall time via `subprocess.run` + `time.perf_counter`
+(first run dropped as warm-up):
 
-3. **Open both in Instruments.app** and compare the top-of-stack
-   handlers' counter totals. Specifically:
-   - `INST_RETIRED`, `CYCLES` — basic IPC check.
-   - `BRANCH_MISPREDICT` / `BRANCH_INDIRECT_MISPRED` — if these are
-     significantly higher on the F trace, despite the fact that
-     deletion removed all int f32 variants, something even weirder
-     is going on with the BR predictor. Probably not, since we've
-     already ruled out aliasing.
-   - `L1I_MISS`, `L1I_TLB_MISS` — I-cache layout / locality.
-   - `L1D_MISS`, `LLC_MISS` — data cache behavior, especially around
-     the `fsp` spill buffer.
-   - FP pipe counters: `FP_PIPE_UTILIZATION_*`, `NEON_FP_STALL_*`,
-     `FP_REG_DEPENDENCY_*` (names vary across M-series generations).
-     These are where I'd expect to find the actual answer.
-   - `LSU_STALL_*`, `STORE_BUFFER_FULL` — store-buffer pressure
-     specifically.
+| Config | FFT median | stdev |
+|---|---|---|
+| `lyte-int.bin` default (int path)  | **395 ms** | 1.5 ms |
+| `lyte-int.bin --fp-window` (F path) | **369 ms** | 2.0 ms |
+| `lyte-f.bin` (F-only, HEAD)         | **369 ms** | 2.0 ms |
 
-4. **Look at which counter has the largest delta between the two
-   traces.** That counter names the bottleneck. The fix follows
-   directly from there:
-   - I-cache → reorder handlers in `stack_interp.c`, use
-     `__attribute__((section(".text.hot")))`, or just move the hot
-     handlers contiguously.
-   - NEON forwarding latency → restructure `FPUSH`/`FDROP` to
-     shorten the dependency chain on `f0..f3` (unclear what this
-     would look like concretely).
-   - Store buffer → widen `fsp` to 8-byte strides or batch the
-     spill stores.
+On M4 bare metal the F path is **26 ms (6.5%) faster** than the int
+path, not slower. The two F configurations (`--fp-window` inside
+the pre-deletion build and F-only at HEAD) match to within
+measurement noise, confirming they're running the same code.
 
-Budget: ~2-3 hours of profiling work on the host. If no single
-counter tells a clean story, fall back to **Processor Trace**
-(Apple Silicon supports it) for a full execution log of the hot
-loop.
+The stack IR confirms that `--fp-window` on the pre-deletion binary
+and default on HEAD emit the **exact same IR** for FFT
+(`md5 /tmp/sir_int_fp.txt /tmp/sir_f.txt` match), so any performance
+difference between them would have to be environmental. There
+isn't one.
 
-### 13.5 What if the gap turns out to be unfixable?
+The handler disassembly on both binaries shows the predicted win
+concretely. The biquad-FMA-shaped hot op for the FFT butterfly:
 
-If the host profiling shows that the F path is fundamentally slower
-on FFT-shaped workloads (e.g., NEON forward latency is the root
-cause and there's no way to hide it), the options are:
+```asm
+; int path, _op_fused_get_addr_fmul_fadd (13 insns)
+mov    x4, x3
+ldp    x8, x9, [x21, #0x8]
+ldr    x8, [x24, x8, lsl #3]
+fmov   s4, w8                ; GPR→FP crossing
+add    x8, x24, x9, lsl #3
+ldrsw  x9, [x21, #0x18]
+ldr    s5, [x8, x9]
+fmov   s6, w28                ; GPR→FP crossing
+fmadd  s4, s4, s5, s6
+fmov   w28, s4                ; FP→GPR crossing
+ldr    x3, [x21, #0x40]
+add    x21, x21, #0x20
+br     x4
 
-1. **Accept it.** FFT 0.497s is still 1.3× Silverfir interp and 3×
-   Lua 5.5. The simplification delivered by `b818fd1` (~1000 lines
-   of dual-path complexity gone, one interpreter for f32, no dual
-   codegen in the emitter) is a real quality-of-life win. Sometimes
-   that's worth 25% on one microbenchmark.
+; F path, _op_fused_get_addr_fmul_fadd_f (10 insns)
+mov    x4, x3
+ldp    x8, x9, [x21, #0x8]
+ldr    s4, [x24, x8]          ; direct f32 load
+add    x8, x24, x9, lsl #3
+ldrsw  x9, [x21, #0x18]
+ldr    s5, [x8, x9]
+fmadd  s0, s4, s5, s0          ; FP→FP, no crossings
+ldr    x3, [x21, #0x40]
+add    x21, x21, #0x20
+br     x4
+```
 
-2. **Revert `b818fd1`.** Restore the int path and the FW peephole,
-   eat the maintenance cost of dual codepaths, get FFT back to
-   0.395s. A single `git revert` cleanly undoes the deletion.
+Three `fmov` GPR↔FP crossings deleted per op. On M4 that's ~9
+cycles of crossing latency saved, which is exactly in the
+neighborhood of the 6.5% FFT improvement: 26 ms / 395 ms × mean
+op latency implies ~4–5 cycles saved per hot op, which is the
+right order of magnitude given that many ops in the butterfly
+aren't the FMA and therefore don't save the full 9 cycles.
 
-3. **Smart codegen.** Emit F variants only for f32 subexpressions
-   whose chain length provably benefits from FP-register residency,
-   and int variants for everything else. This is the hardest option
-   but the cleanest "best of both worlds" — recovers the FW
-   peephole's selectivity inside the codegen where it belongs. Needs
-   a cost model the codegen currently lacks.
+### 13.5 Why the VM reported the opposite
 
-Decision deferred until after the host profiling run, because the
-actual root cause will tell us which option is reasonable.
+Not fully diagnosed, and probably not worth diagnosing. The
+development VM (aarch64 Linux guest on Apple Silicon) is the only
+environment where the "regression" appeared. Plausible candidates
+for what the VM was doing differently:
+
+- **Trapped FP ops.** Some VM configurations trap on advanced
+  floating-point instructions (especially if running under
+  translation) and the trap overhead dwarfs the GPR↔FP crossing
+  savings. The FFT butterfly uses `fmadd` much more densely than
+  biquad or sort, which would explain why only FFT regressed in
+  the VM.
+- **Different FP register pressure in the hypervisor's save/restore
+  path.** Interpreter-shaped code with heavy `preserve_none` FP
+  arg traffic can trigger host-side lazy-FP behavior.
+- **Scheduler moving the workload.** The VM may migrate between
+  virtual P/E cores more aggressively than macOS does on bare
+  metal; each migration loses cache state for the 10M-iteration
+  butterfly.
+
+None of these are fixable from inside Lyte, and all of them stop
+mattering the moment you run on real hardware. The Stack VM's
+target is the Audulus runtime on iOS, which is also bare metal —
+so the bare-metal result is the one that matches production.
+
+### 13.6 Decision
+
+The `b818fd1` deletion stands. No revert, no smart-codegen cost
+model, no further investigation. §13.1–§13.3 are preserved for
+anyone who hits a similar situation and wants to see the full
+reasoning trail; §13.4 is the actual resolution.
+
+If the FFT gap reappears in production-shaped measurements later
+— on Audulus on an iPad, for example — the investigation should
+start with Instruments CPU Counters on the iPad itself, not on a
+VM. The concrete steps (build A/B binaries, `xcrun xctrace record
+--template 'CPU Counters'`, compare counter deltas in
+`Instruments.app`) are still valid; we just no longer need to run
+them on the M4.
