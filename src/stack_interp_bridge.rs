@@ -584,13 +584,18 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         | StackOp::FusedGetGetFSub(a, b) | StackOp::FusedGetGetIAdd(a, b)
         | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b)
         | StackOp::FusedAddrGetSliceStore32(a, b)
-        | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b)
-        | StackOp::FusedGetGetFMulFW(a, b) => {
+        | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b) => {
             [*a as u64, *b as u64, 0]
+        }
+        // FW variants load coeff as f32 directly from locals[a] (and
+        // locals[b] for FMulFW), so they get the same byte-offset
+        // pre-shift as the F variants. See encode_imm note above.
+        StackOp::FusedGetGetFMulFW(a, b) => {
+            [(*a as u64) * 8, (*b as u64) * 8, 0]
         }
         StackOp::FusedGetAddrFMulFAddFW(a, s, o)
         | StackOp::FusedGetAddrFMulFSubFW(a, s, o) => {
-            [*a as u64, *s as u64, *o as i64 as u64]
+            [(*a as u64) * 8, *s as u64, *o as i64 as u64]
         }
         StackOp::FusedGetFMul(a) | StackOp::FusedGetFAdd(a) | StackOp::FusedGetFSub(a) => {
             [*a as u64, 0, 0]
@@ -619,23 +624,49 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedF32ConstSet(v, n) => [f32::to_bits(*v) as u64, *n as u64, 0],
 
         // === Float-window ops ===
+        //
+        // For F ops that load a 32-bit float out of a `locals[n]` slot, we
+        // pre-multiply the local index by 8 (the u64 stride of locals[])
+        // and store it as a byte offset in imm[0]. This lets the handler
+        // emit a single `ldr s, [locals, byte_off]` with no scale —
+        // aarch64's register-indexed `ldr s, [base, idx, lsl #SCALE]` form
+        // requires SCALE=2 to match 4-byte strides, but we need stride 8
+        // to reach the next u64 slot, so without pre-shifting the
+        // compiler has to emit an extra `lsl x, x, #3`. Pre-shifting
+        // eliminates one instruction per handler call on every f32
+        // `locals[]` access in the hot loop.
+        //
+        // The shifted form only applies to F variants that dereference
+        // `locals + imm` as `*(float*)`. F variants that reuse int-style
+        // handlers (FusedAddrGetSliceLoad32F et al.) keep the plain
+        // unshifted local-index encoding because their inner loads
+        // already fold the lsl via u64 addressing.
         StackOp::F32ConstF(v) => [f32::to_bits(*v) as u64, 0, 0],
-        StackOp::LocalGetF(n) | StackOp::LocalSetF(n) | StackOp::LocalTeeF(n) => [*n as u64, 0, 0],
+        StackOp::LocalGetF(n) | StackOp::LocalSetF(n) | StackOp::LocalTeeF(n) => {
+            [(*n as u64) * 8, 0, 0]
+        }
         StackOp::LoadF32OffF(o) | StackOp::StoreF32OffF(o) => [*o as i64 as u64, 0, 0],
         StackOp::FusedGetGetFAddF(a, b)
         | StackOp::FusedGetGetFSubF(a, b)
-        | StackOp::FusedGetGetFMulF(a, b)
-        | StackOp::FusedAddrGetSliceLoad32F(a, b)
+        | StackOp::FusedGetGetFMulF(a, b) => [(*a as u64) * 8, (*b as u64) * 8, 0],
+        StackOp::FusedAddrGetSliceLoad32F(a, b)
         | StackOp::FusedAddrGetSliceStore32F(a, b)
         | StackOp::FusedLocalArrayLoad32F(a, b)
         | StackOp::FusedLocalArrayStore32F(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedGetFMulF(a) | StackOp::FusedGetFAddF(a) | StackOp::FusedGetFSubF(a) => {
-            [*a as u64, 0, 0]
+            [(*a as u64) * 8, 0, 0]
         }
         StackOp::FusedGetAddrFMulFAddF(a, s, o)
-        | StackOp::FusedGetAddrFMulFSubF(a, s, o) => [*a as u64, *s as u64, *o as i64 as u64],
+        | StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
+            [(*a as u64) * 8, *s as u64, *o as i64 as u64]
+        }
         StackOp::FusedAddrLoad32OffF(s, o) => [*s as u64, *o as i64 as u64, 0],
-        StackOp::FusedTeeSliceStore32F(n, s, i) => [*n as u64, *s as u64, *i as u64],
+        // imm[0] is the byte offset into locals[] for the tee target
+        // (pre-shifted — see the note on LocalGetF above). imm[1] is the
+        // slot holding the slice fat pointer; still a u64 index because
+        // the handler loads it via `locals[imm[1]]` which folds the lsl.
+        // imm[2] is the local index of the element index, also u64.
+        StackOp::FusedTeeSliceStore32F(n, s, i) => [(*n as u64) * 8, *s as u64, *i as u64],
         StackOp::FusedF32ConstFGtJumpIfZeroF(v, off) => {
             [f32::to_bits(*v) as u64, *off as i64 as u64, 0]
         }

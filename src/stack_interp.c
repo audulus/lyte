@@ -1111,10 +1111,11 @@ HANDLER(op_fused_get_get_fmul) {
 // Loads both operands directly into FP registers (ldr s0, [x]) and the
 // result goes into f0 without crossing through a GPR. Used to start a
 // float expression chain that will feed subsequent float ops in the
-// f-window.
+// f-window. imm[0] and imm[1] are pre-shifted byte offsets (see
+// encode_imm note on LocalGetF) so the loads don't need an extra lsl.
 HANDLER(op_fused_get_get_fmul_fw) {
-    float a = *(float*)(locals + pc->imm[0]);
-    float b = *(float*)(locals + pc->imm[1]);
+    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
     FPUSH(a * b);
     NEXT();
 }
@@ -1367,16 +1368,19 @@ HANDLER(op_fused_get_addr_fmul_fsub) {
 
 // --- FMA term: f0 += locals[a] * load(slot,off). Operates in float
 // --- TOS window — f0 stays in an FP register throughout, no GPR
-// --- crossing. ---
+// --- crossing. imm[0] is a pre-shifted byte offset for the coeff load
+// --- (see encode_imm note); imm[1] is still a u64 slot index because
+// --- `locals[imm[1]] * 8 + offset` folds the shift into the inner
+// --- address computation.
 HANDLER(op_fused_get_addr_fmul_fadd_fw) {
-    float coeff = *(float*)(locals + pc->imm[0]);
+    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
     f0 = f0 + coeff * state;
     NEXT();
 }
 
 HANDLER(op_fused_get_addr_fmul_fsub_fw) {
-    float coeff = *(float*)(locals + pc->imm[0]);
+    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
     f0 = f0 - coeff * state;
     NEXT();
@@ -1437,8 +1441,14 @@ HANDLER(op_f32_const_f) {
     NEXT();
 }
 
+// NOTE: the imm[0] field for F LocalGet/Set/Tee holds a *byte offset*
+// (pre-shifted by the bridge — see encode_imm in stack_interp_bridge.rs)
+// so the handler can emit a single `ldr s, [locals, imm0]` with no
+// shift. aarch64 register-indexed f32 loads only allow SCALE=2 in the
+// [base, idx, lsl #SCALE] form, which doesn't match the 8-byte stride
+// of `locals[]`. Pre-shifting saves one instruction per handler call.
 HANDLER(op_local_get_f) {
-    FPUSH(*(float*)(locals + pc->imm[0]));
+    FPUSH(*(float*)((uint8_t*)locals + pc->imm[0]));
     NEXT();
 }
 
@@ -1448,13 +1458,13 @@ HANDLER(op_local_get_f) {
 // the high bits. This saves an fmov (FP→GPR crossing) per handler vs
 // the old `locals[n] = from_f32(f0)` form.
 HANDLER(op_local_set_f) {
-    *(float*)(locals + pc->imm[0]) = f0;
+    *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
     FDROP1();
     NEXT();
 }
 
 HANDLER(op_local_tee_f) {
-    *(float*)(locals + pc->imm[0]) = f0;
+    *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
     NEXT();
 }
 
@@ -1671,34 +1681,38 @@ HANDLER(op_print_f32_f) {
 
 // --- Float-window fused superinstructions (Phase 5) ---
 
+// NOTE: imm[0] and imm[1] on these handlers are pre-shifted byte offsets
+// into locals[], encoded that way by the bridge so the `ldr s` can be
+// emitted without an extra lsl. See the comment in
+// stack_interp_bridge.rs::encode_imm and op_local_get_f above.
 HANDLER(op_fused_get_get_fadd_f) {
-    float a = *(float*)(locals + pc->imm[0]);
-    float b = *(float*)(locals + pc->imm[1]);
+    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
     FPUSH(a + b);
     NEXT();
 }
 HANDLER(op_fused_get_get_fsub_f) {
-    float a = *(float*)(locals + pc->imm[0]);
-    float b = *(float*)(locals + pc->imm[1]);
+    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
     FPUSH(a - b);
     NEXT();
 }
 HANDLER(op_fused_get_get_fmul_f) {
-    float a = *(float*)(locals + pc->imm[0]);
-    float b = *(float*)(locals + pc->imm[1]);
+    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
     FPUSH(a * b);
     NEXT();
 }
 HANDLER(op_fused_get_fmul_f) {
-    f0 = f0 * *(float*)(locals + pc->imm[0]);
+    f0 = f0 * *(float*)((uint8_t*)locals + pc->imm[0]);
     NEXT();
 }
 HANDLER(op_fused_get_fadd_f) {
-    f0 = f0 + *(float*)(locals + pc->imm[0]);
+    f0 = f0 + *(float*)((uint8_t*)locals + pc->imm[0]);
     NEXT();
 }
 HANDLER(op_fused_get_fsub_f) {
-    f0 = f0 - *(float*)(locals + pc->imm[0]);
+    f0 = f0 - *(float*)((uint8_t*)locals + pc->imm[0]);
     NEXT();
 }
 // Pop f0=b, f1=a, f2=c (in f-window), push c + a*b. 3→1.
@@ -1717,13 +1731,13 @@ HANDLER(op_fused_fmul_fsub_f) {
     NEXT();
 }
 HANDLER(op_fused_get_addr_fmul_fadd_f) {
-    float coeff = *(float*)(locals + pc->imm[0]);
+    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
     f0 = f0 + coeff * state;
     NEXT();
 }
 HANDLER(op_fused_get_addr_fmul_fsub_f) {
-    float coeff = *(float*)(locals + pc->imm[0]);
+    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
     f0 = f0 - coeff * state;
     NEXT();
@@ -1750,13 +1764,14 @@ HANDLER(op_fused_addr_get_sstore32_f) {
     NEXT();
 }
 // Tee + slice store (float window, FFT butterfly hot op):
-//   imm[0] = local_idx n (target for tee),
-//   imm[1] = slot of the slice's fat pointer,
-//   imm[2] = local holding the element index.
-// Stores f0 to locals[n] (low 32 bits) and to slice[idx], then pops f0.
-// Both stores go through `str s, [...]` with no FP→GPR crossing.
+//   imm[0] = *byte offset* into locals[] for tee target (pre-shifted),
+//   imm[1] = slot of the slice's fat pointer (u64 index),
+//   imm[2] = local holding the element index (u64 index).
+// Stores f0 to locals[tee] (low 32 bits) and to slice[idx], then
+// pops f0. Both stores go through `str s, [...]` with no FP→GPR
+// crossing. See encode_imm in the bridge for the byte-offset rationale.
 HANDLER(op_fused_tee_sstore32_f) {
-    *(float*)(locals + pc->imm[0]) = f0;
+    *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
     uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
     int64_t idx = (int64_t)locals[pc->imm[2]];
     uint8_t* data = *(uint8_t**)fat;
