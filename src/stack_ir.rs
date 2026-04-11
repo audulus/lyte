@@ -502,6 +502,14 @@ impl StackFunction {
         self.ops.push(op);
     }
 
+    /// Emit an f32 op, picking between the legacy integer-window variant
+    /// and the new float-window variant based on `use_fp_window`. Phase 3
+    /// of FP_CODEGEN_PLAN.md routes f32 codegen sites through this helper
+    /// one pattern at a time.
+    pub fn emit_float(&mut self, int_op: StackOp, float_op: StackOp) {
+        self.ops.push(if self.use_fp_window { float_op } else { int_op });
+    }
+
     /// Current instruction index (for jump targets).
     pub fn pos(&self) -> usize {
         self.ops.len()
