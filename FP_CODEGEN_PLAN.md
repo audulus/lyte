@@ -4,13 +4,13 @@ A plan for moving the Stack VM from "f32 values bit-cast through the integer
 TOS window" to "f32 values live in a dedicated float TOS window (f0..f3) in
 FP/SIMD registers throughout expression evaluation."
 
-> **Implementation status** (updated after commit `c67ed9e`)
+> **Implementation status** (updated after commit `f2a9c95`)
 >
 > Phases 1–3 landed. Phase 4's original premise — that uniformly emitting
 > F-variant ops would beat the narrow `float_window_rewrite` peephole —
-> turned out to be wrong in its first form, regressing biquad ~2×. Two
-> unplanned fixes (see §12) closed most of the gap and delivered the
-> plan's speedup via a different mechanism than anticipated:
+> turned out to be wrong in its first form, regressing biquad ~2×. Four
+> separate unplanned fixes (see §12) progressively closed the gap and
+> then pushed past it on biquad and sort:
 >
 > 1. **`fsp` register-arg promotion** (`21f2949`). `FPUSH`/`FDROP` used
 >    to chase `ctx->float_stack` and `ctx->float_sp_off` through memory
@@ -27,40 +27,59 @@ FP/SIMD registers throughout expression evaluation."
 >    boundary. Flipping the window to `float` (and rewriting
 >    `as_f32(locals[i])` as direct `*(float*)` loads in the fused
 >    handlers) collapsed the biquad FMA critical path from ~12 cycles
->    per op to 3 cycles. Dropped biquad to **0.104s default / 0.100s
->    --fp-window** — beating the plan's 0.15–0.18s target by a wide
->    margin and bringing the Stack VM within ~3× of the LLVM AOT result
->    on biquad.
+>    per op to 3 cycles.
 >
-> Current benchmark state (3-run averages, aarch64 M-series):
+> 3. **`saved_sp` / `saved_fsp` removal** (`bc44a11`, `b999162`). Both
+>    fields were written on every call and never read — balanced stack
+>    discipline leaves `sp` and `fsp` at exactly the value the caller
+>    expects at op_return time. Removed one store per non-tail call,
+>    16 bytes of `CallFrame` shrinkage.
 >
-> | Workload | Start of work (`5b8c48f`) | Today (`c67ed9e`) | Plan target |
-> |---|---|---|---|
-> | biquad | 0.218s | **0.104s** (−52%) | 0.15–0.18s ✅ |
-> | sort | 0.114s | 0.075s | unchanged ✅ |
-> | fft | 0.612s | 0.399s (−35%) | 0.35–0.45s ✅ |
+> 4. **Direct f32 stores + tee fusions** (`f2a9c95`). Every F handler
+>    writing `locals[n] = from_f32(f0)` compiled to `fmov w, s; str x`
+>    (FP→GPR crossing + u64 store). Rewriting as `*(float*)(locals + n)
+>    = f0` emits a single `str s, [...]` — safe because f32 locals
+>    are only ever read via `*(float*)` / `as_f32()` which ignore the
+>    upper 32 bits. Also added `FusedTeeSliceStore32F` (F mirror of
+>    the FFT butterfly store fusion) and the F variant of the
+>    `LocalSet + LocalGet → LocalTee` peephole. Pushed `--fp-window`
+>    biquad to **ahead of** the default path.
+>
+> Current benchmark state (5-run samples, aarch64 M-series):
+>
+> | Workload | Start of work (`5b8c48f`) | Default (today) | `--fp-window` (today) | Plan target |
+> |---|---|---|---|---|
+> | biquad | 0.218s | **0.110s** (−50%) | **0.095s** (−56%) | 0.15–0.18s ✅ |
+> | sort | 0.114s | 0.074s | 0.073s | unchanged ✅ |
+> | fft | 0.612s | **0.395s** (−35%) | 0.485s (−21%) | 0.35–0.45s ✅ |
 >
 > Phase status:
 >
-> | Phase                               | Status                  | Commit      |
-> |-------------------------------------|-------------------------|-------------|
-> | 1 — F-variant op scaffold            | ✅ landed               | `2be383d`   |
-> | 2 — `emit_float` helper              | ✅ landed               | `4a366ae`   |
-> | 3.1 — Direct f32 op sites            | ✅ landed               | `9d2e0bc`   |
-> | 3.2 — Type-dependent sites + CLI     | ✅ landed               | `f9e27a8`   |
-> | 3.3 — Memory/slice/assign-temp sites | ✅ landed               | `cf44a00`   |
-> | 4 — Flip default on                  | ❌ reverted             | `4b6f00e`   |
-> | 5 — Float-aware fusion patterns      | ✅ dormant (opt-in)     | `4b6f00e`   |
-> | **`fsp` register-arg promotion**     | ✅ landed (unplanned)   | `21f2949`   |
-> | **Float-typed window**               | ✅ landed (unplanned)   | `c67ed9e`   |
-> | 6 — Remove legacy FW path            | ⏸ not done — see §12   |             |
-> | 7 — Float hot local cache            | ⏸ skipped              |             |
+> | Phase                               | Status                  | Commit(s)            |
+> |-------------------------------------|-------------------------|----------------------|
+> | 1 — F-variant op scaffold            | ✅ landed               | `2be383d`            |
+> | 2 — `emit_float` helper              | ✅ landed               | `4a366ae`            |
+> | 3.1 — Direct f32 op sites            | ✅ landed               | `9d2e0bc`            |
+> | 3.2 — Type-dependent sites + CLI     | ✅ landed               | `f9e27a8`            |
+> | 3.3 — Memory/slice/assign-temp sites | ✅ landed               | `cf44a00`            |
+> | 4 — Flip default on                  | ❌ reverted             | `4b6f00e`            |
+> | 5 — Float-aware fusion patterns      | ✅ dormant (opt-in)     | `4b6f00e`, `f2a9c95` |
+> | **`fsp` register-arg promotion**     | ✅ landed (unplanned)   | `21f2949`            |
+> | **Float-typed window**               | ✅ landed (unplanned)   | `c67ed9e`            |
+> | **x86-64 `fsp` in ctx + min/max fix** | ✅ landed (unplanned)  | `821af8d`            |
+> | **`saved_sp` / `saved_fsp` removal** | ✅ landed (unplanned)   | `bc44a11`, `b999162` |
+> | **Direct f32 stores + tee fusions**  | ✅ landed (unplanned)   | `f2a9c95`            |
+> | 6 — Remove legacy FW path            | ⏸ blocked on FFT gap   |                      |
+> | 7 — Float hot local cache            | ⏸ skipped              |                      |
 >
-> The F-variant codegen path remains opt-in behind `--fp-window` and is
-> now roughly on par with the default path (biquad 0.100s vs 0.104s).
-> The narrow `float_window_rewrite` peephole is still the fast default;
-> the open question is whether a sufficiently smart codegen could beat
-> it — see §12.
+> The F-variant path is opt-in behind `--fp-window`. On biquad it's now
+> **ahead of** the default path, on sort it's at parity, and the **FFT
+> gap has shrunk but not closed** — `--fp-window` is still ~20% behind
+> the default. The gap resists static-analysis diagnosis: op counts in
+> the butterfly hot loop are equal, every per-op F handler is shorter
+> than its int counterpart in the disassembly, and all the obvious
+> missing fusions have been added. See §13 for the investigation log
+> and candidate theories.
 
 ## 1. Background
 
@@ -526,20 +545,21 @@ Baselines from when the plan was written (3-run averages, aarch64 M-series):
 | sort | 0.114s | 0.027s | 0.023s | 0.068s |
 | fft | 0.612s | 0.043s | 0.054s | 0.656s |
 
-Actual results after Phases 1–5 + the two unplanned fixes:
+Actual results after Phases 1–5 plus four rounds of unplanned fixes:
 
-| Workload | 5b8c48f baseline | +`fsp` (`21f2949`) | +float window (`c67ed9e`) | `--fp-window` today | Plan target |
-|---|---|---|---|---|---|
-| biquad | 0.218s | 0.125s | **0.104s** | 0.100s | 0.15–0.18s ✅ |
-| sort | 0.114s | 0.074s | 0.075s | 0.080s | unchanged ✅ |
-| fft | 0.612s | 0.405s | **0.399s** | 0.490s | 0.35–0.45s ✅ |
+| Workload | 5b8c48f | +`fsp` (`21f2949`) | +float window (`c67ed9e`) | Default today | `--fp-window` today | Plan target |
+|---|---|---|---|---|---|---|
+| biquad | 0.218s | 0.125s | 0.104s | **0.110s** | **0.095s** | 0.15–0.18s ✅ |
+| sort | 0.114s | 0.074s | 0.075s | 0.074s | 0.073s | unchanged ✅ |
+| fft | 0.612s | 0.405s | 0.399s | **0.395s** | 0.485s | 0.35–0.45s ✅ |
 
-The default (int-window + FW peephole) path comfortably beats every
-plan target. The `--fp-window` opt-in path is now at parity on biquad
-(0.100 vs 0.104) but still ~23% behind on FFT. The improvement over
-the 5b8c48f baseline comes from two unplanned fixes (`fsp` register
-promotion and the float-typed window — see §12), not from the uniform
-F-emission that Phase 4 was originally supposed to deliver.
+The default path comfortably beats every plan target. The `--fp-window`
+opt-in path is now **ahead of** the default on biquad, at parity on
+sort, and still ~20% behind on FFT. The speedup over the 5b8c48f
+baseline came from a sequence of four unplanned fixes — none of them
+involving uniform F-emission, which is what Phase 4 was originally
+supposed to deliver. See §12 for the individual findings and §13 for
+the still-open FFT gap investigation.
 
 Silverfir pure-interp is the honest ceiling for an interpreter with
 this architecture. We currently beat it by ~6× on biquad, ~1.6× on
@@ -784,17 +804,127 @@ remaining FFT gap — but the ROI is small at this point.
 
 | Criterion | Status |
 |---|---|
-| Biquad ≤ 0.18s | ✅ 0.104s — beats target by 42%, within 3.4× of LLVM AOT |
-| FFT ≤ 0.45s | ✅ 0.399s — beats target by 11% |
+| Biquad ≤ 0.18s | ✅ **0.095s under `--fp-window`, 0.110s default** — beats target by 40–50% |
+| FFT ≤ 0.45s | ✅ 0.395s default (0.485s `--fp-window`) — default beats target |
 | No regression on sort | ✅ |
 | No regression on any golden test | ✅ |
 | No new unsafe code | ✅ |
-| Legacy FW peephole path removed | ❌ — and shouldn't be |
+| Legacy FW peephole path removed | ❌ — blocked on FFT, see §13 |
 
-Five of six targets met; the sixth is invalidated by findings. The
-biquad and FFT numbers comfortably exceed the plan's targets, but
-almost all of the speedup came from the two unplanned fixes, not
-from the uniform F-emission the plan set out to deliver. The F-path
-infrastructure (Phases 1–5) remains in place as an opt-in and as a
-test bed for the "smart selective codegen" directions in §12.6, but
-it isn't load-bearing for hitting the targets.
+Five of six targets met; the sixth is blocked specifically by the
+FFT gap under `--fp-window`. The biquad and FFT numbers comfortably
+exceed the plan's targets. The speedup came entirely from a series
+of unplanned C-level fixes to the interpreter runtime, not from the
+uniform F-emission that Phase 4 was supposed to deliver. The F-path
+infrastructure (Phases 1–5) remains in place as an opt-in; it's
+now a net win on biquad and sort and would be a net win overall if
+the FFT gap closes.
+
+## 13. Open: the FFT `--fp-window` gap
+
+After all the fixes in §12, biquad is 13% *faster* under `--fp-window`
+(0.095s vs 0.110s) and sort is at parity. FFT is the one workload
+where the F path is still slower — 0.485s vs 0.395s, about 23%.
+
+### What's been verified and ruled out
+
+- **Op counts are equal.** The butterfly inner loop (which runs
+  `N log₂ N / 2 ≈ 5120` times per FFT × 2000 iterations ≈ 10M times)
+  is 26 dispatches per iteration in both paths. `bit_reverse_permute`
+  is 12 per iter in both paths. `bit_reverse` is all integer and
+  identical byte-for-byte.
+- **Per-op F handlers are shorter than their int counterparts.**
+  Manually disassembled `op_fused_get_fsub`, `op_fused_get_fsub_f`,
+  `op_fused_get_get_fmul`, `op_fused_get_get_fmul_f`,
+  `op_fused_tee_sstore32`, `op_fused_tee_sstore32_f`,
+  `op_fused_get_addr_fmul_fadd_fw`. In every case the F handler is
+  strictly shorter and eliminates GPR↔FP crossings that the int
+  handler has to pay.
+- **All missing fusion patterns I could spot from the IR have been
+  added.** `FusedTeeSliceStore32F`, the `LocalSet+LocalGet→LocalTee`
+  F peephole, the direct-store optimization. There are a handful of
+  patterns the default path is also missing (the int path has the
+  same unfused `local.tee + fused.local_array_store32` sequences in
+  the twiddle loop), so those aren't a gap contributor.
+- **The spill pointer (`fsp`) is in a register.** `FPUSH` compiles
+  to a single `str s, [x23], #0x4` on aarch64 — equivalent to int
+  `PUSH`'s `str x, [x22], #0x8`. Same memory traffic.
+
+### Candidate theories for the remaining gap
+
+The gap is stubbornly resistant to static analysis. Without hardware
+counters, the most plausible explanations are:
+
+1. **Indirect-branch mispredict rate.** The FFT butterfly has 9
+   distinct handler targets, executed in the same order every
+   iteration. The CPU's indirect branch predictor (BTB) should
+   handle this perfectly — but only if both the target address and
+   the history pattern fit in BTB entries. The F handlers sit at
+   different object-file offsets than the int handlers; if one
+   layout happens to alias better in the BTB than the other, that's
+   enough to account for ~10–20% on 266M dispatches. Testable with
+   `perf stat -e branch-misses`.
+
+2. **Store-buffer pressure.** The F butterfly does 4 `*fsp++ = f3`
+   stores per iter (in the 4 LocalGets before the arithmetic),
+   same as the int path's 4 `*sp++ = t3`. But aarch64's store buffer
+   may track the narrower 4-byte stores differently than the 8-byte
+   ones, especially when the next ops don't immediately read them
+   back. Testable with `perf stat -e ld_st_buffer_stall`.
+
+3. **NEON register forwarding latency.** The `fmov s, s` register
+   moves used for window shifts might have 1-2 cycle extra
+   forwarding latency vs GPR `mov x, x` on specific M-series
+   microarchitectures. The butterfly does ~4 such moves per handler
+   × 26 handlers × 10M iters = 1B FP reg moves. A 1-cycle latency
+   penalty each would add ~330ms at 3 GHz — too much, but even a
+   10% penalty would explain the gap. Testable with
+   `Instruments > System Trace > CPU counters`.
+
+4. **I-cache layout.** The F handlers are at higher addresses in
+   the object file than the int handlers (they were added later).
+   Cold-start from 0 to 10M dispatches: the int path may have better
+   spatial locality. Testable with `perf stat -e l1i-cache-misses`.
+
+### What would it take to close the gap
+
+Any of the theories above can be validated or ruled out with a
+single `Instruments` run on the FFT benchmark under each mode. Until
+then, the gap is unexplained but:
+
+- **bounded**: ~90ms per 2000-iteration FFT run, or ~45µs per
+  single 1024-point FFT — meaningful for a microbenchmark, probably
+  invisible in real DSP workloads that do more than FFT.
+- **contained**: only FFT sees it. Biquad (the workload the plan
+  was originally targeting) and sort don't.
+
+### Why this matters for the "delete the dual path" decision
+
+Phase 6 of the plan originally wanted to remove the int-window f32
+ops and the `float_window_rewrite` peephole. That simplification —
+roughly 1000 lines of handler code, the entire peephole pass, the
+`emit_float` conditional in codegen — would be a net quality
+improvement and a meaningful reduction in surface area.
+
+The biquad and sort numbers say go ahead. The FFT gap says wait.
+Three choices:
+
+1. **Delete the dual path anyway.** Accept a 20% regression on FFT
+   specifically, win on everything else including the plan targets.
+   Net: simpler code, still within plan targets. Possibly regrettable
+   if the FFT gap later turns out to have a simple fix.
+
+2. **Investigate the FFT gap first.** Run Instruments / perf against
+   the two paths, identify the micro-architectural cost, fix it if
+   possible. Bounded in effort (probably 1–2 days), but required
+   before the simplification can ship.
+
+3. **Keep both paths indefinitely.** Accept the maintenance cost,
+   ship what's there. The dormant F-path remains a test bed.
+
+Recommendation: **option 2**. The gap is small enough that the
+investigation cost is reasonable, and if it has a concrete answer
+it's the cleanest outcome. If the root cause turns out to be something
+unfixable (fundamental μarch behavior), fall back to option 1 — at
+which point the simplification is a clean trade of 20% on one
+workload for a much smaller interpreter.
