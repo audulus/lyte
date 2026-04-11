@@ -609,7 +609,7 @@ impl<'a> FunctionTranslator<'a> {
                 match &*ty {
                     Type::Float32 => {
                         let value: f32 = s.parse().unwrap_or(0.0);
-                        func.emit(StackOp::F32Const(value));
+                        func.emit_float(StackOp::F32Const(value), StackOp::F32ConstF(value));
                     }
                     Type::Float64 => {
                         let value: f64 = s.parse().unwrap_or(0.0);
@@ -617,7 +617,7 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     _ => {
                         let value: f32 = s.parse().unwrap_or(0.0);
-                        func.emit(StackOp::F32Const(value));
+                        func.emit_float(StackOp::F32Const(value), StackOp::F32ConstF(value));
                     }
                 }
             }
@@ -1060,34 +1060,34 @@ impl<'a> FunctionTranslator<'a> {
 
         match op {
             Binop::Plus => match &*ty {
-                Type::Float32 => func.emit(StackOp::FAdd),
+                Type::Float32 => func.emit_float(StackOp::FAdd, StackOp::FAddF),
                 Type::Float64 => func.emit(StackOp::DAdd),
                 _ => func.emit(StackOp::IAdd),
             },
             Binop::Minus => match &*ty {
-                Type::Float32 => func.emit(StackOp::FSub),
+                Type::Float32 => func.emit_float(StackOp::FSub, StackOp::FSubF),
                 Type::Float64 => func.emit(StackOp::DSub),
                 _ => func.emit(StackOp::ISub),
             },
             Binop::Mult => match &*ty {
-                Type::Float32 => func.emit(StackOp::FMul),
+                Type::Float32 => func.emit_float(StackOp::FMul, StackOp::FMulF),
                 Type::Float64 => func.emit(StackOp::DMul),
                 _ => func.emit(StackOp::IMul),
             },
             Binop::Div => match &*ty {
-                Type::Float32 => func.emit(StackOp::FDiv),
+                Type::Float32 => func.emit_float(StackOp::FDiv, StackOp::FDivF),
                 Type::Float64 => func.emit(StackOp::DDiv),
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::UDiv),
                 _ => func.emit(StackOp::IDiv),
             },
             Binop::Mod => func.emit(StackOp::IRem),
             Binop::Pow => match &*ty {
-                Type::Float32 => func.emit(StackOp::FPow),
+                Type::Float32 => func.emit_float(StackOp::FPow, StackOp::FPowF),
                 Type::Float64 => func.emit(StackOp::DPow),
                 _ => func.emit(StackOp::IPow),
             },
             Binop::Equal => match &*ty {
-                Type::Float32 => func.emit(StackOp::FEq),
+                Type::Float32 => func.emit_float(StackOp::FEq, StackOp::FEqF),
                 Type::Float64 => func.emit(StackOp::DEq),
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
@@ -1100,7 +1100,7 @@ impl<'a> FunctionTranslator<'a> {
                 _ => func.emit(StackOp::IEq),
             },
             Binop::NotEqual => match &*ty {
-                Type::Float32 => func.emit(StackOp::FNe),
+                Type::Float32 => func.emit_float(StackOp::FNe, StackOp::FNeF),
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
                     func.emit(StackOp::MemNe(size));
@@ -1112,27 +1112,27 @@ impl<'a> FunctionTranslator<'a> {
                 _ => func.emit(StackOp::INe),
             },
             Binop::Less => match &*ty {
-                Type::Float32 => func.emit(StackOp::FLt),
+                Type::Float32 => func.emit_float(StackOp::FLt, StackOp::FLtF),
                 Type::Float64 => func.emit(StackOp::DLt),
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::ULt),
                 _ => func.emit(StackOp::ILt),
             },
             Binop::Greater => {
                 match &*ty {
-                    Type::Float32 => func.emit(StackOp::FGt),
+                    Type::Float32 => func.emit_float(StackOp::FGt, StackOp::FGtF),
                     Type::Float64 => func.emit(StackOp::IGt), // TODO: DGt
                     Type::UInt32 | Type::UInt8 => func.emit(StackOp::UGt),
                     _ => func.emit(StackOp::IGt),
                 }
             }
             Binop::Leq => match &*ty {
-                Type::Float32 => func.emit(StackOp::FLe),
+                Type::Float32 => func.emit_float(StackOp::FLe, StackOp::FLeF),
                 Type::Float64 => func.emit(StackOp::DLe),
                 _ => func.emit(StackOp::ILe),
             },
             Binop::Geq => {
                 match &*ty {
-                    Type::Float32 => func.emit(StackOp::FGe),
+                    Type::Float32 => func.emit_float(StackOp::FGe, StackOp::FGeF),
                     Type::Float64 => func.emit(StackOp::IGe), // TODO: DGe
                     Type::UInt32 | Type::UInt8 => func.emit(StackOp::IGe), // unsigned uses signed
                     _ => func.emit(StackOp::IGe),
@@ -1439,7 +1439,7 @@ impl<'a> FunctionTranslator<'a> {
 
         match op {
             Unop::Neg => match &*ty {
-                Type::Float32 => func.emit(StackOp::FNeg),
+                Type::Float32 => func.emit_float(StackOp::FNeg, StackOp::FNegF),
                 Type::Float64 => func.emit(StackOp::DNeg),
                 _ => func.emit(StackOp::INeg),
             },
@@ -1494,7 +1494,9 @@ impl<'a> FunctionTranslator<'a> {
                     self.translate_expr(arg_id, func);
                     let ty = self.expr_type(arg_id);
                     match &*ty {
-                        Type::Float32 => func.emit(StackOp::PrintF32),
+                        Type::Float32 => {
+                            func.emit_float(StackOp::PrintF32, StackOp::PrintF32F)
+                        }
                         _ => func.emit(StackOp::PrintI32),
                     }
                 }
@@ -1547,31 +1549,32 @@ impl<'a> FunctionTranslator<'a> {
                 return;
             }
 
-            // Unary math builtins (f32).
-            let unary_math_f32: &[(&str, StackOp)] = &[
-                ("sin$f32", StackOp::SinF32),
-                ("cos$f32", StackOp::CosF32),
-                ("tan$f32", StackOp::TanF32),
-                ("asin$f32", StackOp::AsinF32),
-                ("acos$f32", StackOp::AcosF32),
-                ("atan$f32", StackOp::AtanF32),
-                ("sinh$f32", StackOp::SinhF32),
-                ("cosh$f32", StackOp::CoshF32),
-                ("tanh$f32", StackOp::TanhF32),
-                ("asinh$f32", StackOp::AsinhF32),
-                ("acosh$f32", StackOp::AcoshF32),
-                ("atanh$f32", StackOp::AtanhF32),
-                ("ln$f32", StackOp::LnF32),
-                ("exp$f32", StackOp::ExpF32),
-                ("exp2$f32", StackOp::Exp2F32),
-                ("log10$f32", StackOp::Log10F32),
-                ("log2$f32", StackOp::Log2F32),
-                ("sqrt$f32", StackOp::SqrtF32),
-                ("abs$f32", StackOp::AbsF32),
-                ("floor$f32", StackOp::FloorF32),
-                ("ceil$f32", StackOp::CeilF32),
-                ("isnan$f32", StackOp::IsnanF32),
-                ("isinf$f32", StackOp::IsinfF32),
+            // Unary math builtins (f32). Each entry is (name, int-window op,
+            // float-window op) — emit_float picks based on use_fp_window.
+            let unary_math_f32: &[(&str, StackOp, StackOp)] = &[
+                ("sin$f32",   StackOp::SinF32,   StackOp::SinF32F),
+                ("cos$f32",   StackOp::CosF32,   StackOp::CosF32F),
+                ("tan$f32",   StackOp::TanF32,   StackOp::TanF32F),
+                ("asin$f32",  StackOp::AsinF32,  StackOp::AsinF32F),
+                ("acos$f32",  StackOp::AcosF32,  StackOp::AcosF32F),
+                ("atan$f32",  StackOp::AtanF32,  StackOp::AtanF32F),
+                ("sinh$f32",  StackOp::SinhF32,  StackOp::SinhF32F),
+                ("cosh$f32",  StackOp::CoshF32,  StackOp::CoshF32F),
+                ("tanh$f32",  StackOp::TanhF32,  StackOp::TanhF32F),
+                ("asinh$f32", StackOp::AsinhF32, StackOp::AsinhF32F),
+                ("acosh$f32", StackOp::AcoshF32, StackOp::AcoshF32F),
+                ("atanh$f32", StackOp::AtanhF32, StackOp::AtanhF32F),
+                ("ln$f32",    StackOp::LnF32,    StackOp::LnF32F),
+                ("exp$f32",   StackOp::ExpF32,   StackOp::ExpF32F),
+                ("exp2$f32",  StackOp::Exp2F32,  StackOp::Exp2F32F),
+                ("log10$f32", StackOp::Log10F32, StackOp::Log10F32F),
+                ("log2$f32",  StackOp::Log2F32,  StackOp::Log2F32F),
+                ("sqrt$f32",  StackOp::SqrtF32,  StackOp::SqrtF32F),
+                ("abs$f32",   StackOp::AbsF32,   StackOp::AbsF32F),
+                ("floor$f32", StackOp::FloorF32, StackOp::FloorF32F),
+                ("ceil$f32",  StackOp::CeilF32,  StackOp::CeilF32F),
+                ("isnan$f32", StackOp::IsnanF32, StackOp::IsnanF32F),
+                ("isinf$f32", StackOp::IsinfF32, StackOp::IsinfF32F),
             ];
             let unary_math_f64: &[(&str, StackOp)] = &[
                 ("sin$f64", StackOp::SinF64),
@@ -1598,7 +1601,14 @@ impl<'a> FunctionTranslator<'a> {
                 ("isnan$f64", StackOp::IsnanF64),
                 ("isinf$f64", StackOp::IsinfF64),
             ];
-            for (n, op) in unary_math_f32.iter().chain(unary_math_f64.iter()) {
+            for (n, int_op, float_op) in unary_math_f32.iter() {
+                if *name == *n {
+                    self.translate_expr(arg_ids[0], func);
+                    func.emit_float(int_op.clone(), float_op.clone());
+                    return;
+                }
+            }
+            for (n, op) in unary_math_f64.iter() {
                 if *name == *n {
                     self.translate_expr(arg_ids[0], func);
                     func.emit(op.clone());
@@ -1607,24 +1617,24 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             // Binary math builtins.
-            let binary_math: &[(&str, StackOp)] = &[
-                ("atan2$f32$f32", StackOp::Atan2F32),
-                ("atan2$f64$f64", StackOp::Atan2F64),
-            ];
-            for (n, op) in binary_math {
-                if *name == *n {
-                    self.translate_expr(arg_ids[0], func);
-                    self.translate_expr(arg_ids[1], func);
-                    func.emit(op.clone());
-                    return;
-                }
+            if *name == "atan2$f32$f32" {
+                self.translate_expr(arg_ids[0], func);
+                self.translate_expr(arg_ids[1], func);
+                func.emit_float(StackOp::Atan2F32, StackOp::Atan2F32F);
+                return;
+            }
+            if *name == "atan2$f64$f64" {
+                self.translate_expr(arg_ids[0], func);
+                self.translate_expr(arg_ids[1], func);
+                func.emit(StackOp::Atan2F64);
+                return;
             }
 
             // pow builtins: map to FPow/DPow.
             if *name == "pow$f32$f32" {
                 self.translate_expr(arg_ids[0], func);
                 self.translate_expr(arg_ids[1], func);
-                func.emit(StackOp::FPow);
+                func.emit_float(StackOp::FPow, StackOp::FPowF);
                 return;
             }
             if *name == "pow$f64$f64" {
@@ -1650,7 +1660,11 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::LocalGet(a_local));
                 func.emit(StackOp::LocalGet(b_local));
                 if is_min {
-                    if is_f64 { func.emit(StackOp::DLt); } else { func.emit(StackOp::FLt); }
+                    if is_f64 {
+                        func.emit(StackOp::DLt);
+                    } else {
+                        func.emit_float(StackOp::FLt, StackOp::FLtF);
+                    }
                 } else {
                     // a > b == b < a, but we have [a, b] and want to test a > b.
                     // We already consumed them for comparison, so use locals.
@@ -1660,7 +1674,11 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Drop); // drop the first
                     func.emit(StackOp::LocalGet(b_local));
                     func.emit(StackOp::LocalGet(a_local));
-                    if is_f64 { func.emit(StackOp::DLt); } else { func.emit(StackOp::FLt); }
+                    if is_f64 {
+                        func.emit(StackOp::DLt);
+                    } else {
+                        func.emit_float(StackOp::FLt, StackOp::FLtF);
+                    }
                 }
                 let jump_if_false = func.pos();
                 func.emit(StackOp::JumpIfZero(0));
@@ -2249,8 +2267,12 @@ impl<'a> FunctionTranslator<'a> {
         let src_ty = self.expr_type(expr_id);
 
         match (&*src_ty, &*target_ty) {
-            (Type::Int32, Type::Float32) => func.emit(StackOp::I32ToF32),
-            (Type::Float32, Type::Int32) => func.emit(StackOp::F32ToI32),
+            (Type::Int32, Type::Float32) => {
+                func.emit_float(StackOp::I32ToF32, StackOp::I32ToF32F)
+            }
+            (Type::Float32, Type::Int32) => {
+                func.emit_float(StackOp::F32ToI32, StackOp::F32ToI32F)
+            }
             (Type::Int32, Type::Float64) => func.emit(StackOp::I32ToF64),
             (Type::Float64, Type::Int32) => func.emit(StackOp::F64ToI32),
             (Type::Float32, Type::Float64) => func.emit(StackOp::F32ToF64),
