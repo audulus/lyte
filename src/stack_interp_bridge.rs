@@ -17,6 +17,7 @@ struct CallFrame {
     return_pc: *mut Instruction,
     saved_locals: *mut u64,
     saved_sp: *mut u64,
+    saved_fsp: *mut f64,
     func_idx: u32,
     saved_frame_size: usize,
 }
@@ -42,7 +43,6 @@ struct Ctx {
     frame_stack_cap: usize,
     stack_base: *mut u64,
     float_stack: *mut f64,
-    float_sp_off: usize,
     float_stack_cap: usize,
     current_locals: *mut u64,
     closure_ptr: u64,
@@ -681,6 +681,7 @@ pub fn run(program: &StackProgram) -> i64 {
             return_pc: std::ptr::null_mut(),
             saved_locals: std::ptr::null_mut(),
             saved_sp: std::ptr::null_mut(),
+            saved_fsp: std::ptr::null_mut(),
             func_idx: 0,
             saved_frame_size: 0,
         })
@@ -705,7 +706,6 @@ pub fn run(program: &StackProgram) -> i64 {
         frame_stack_cap,
         stack_base: operand_stack.as_mut_ptr(),
         float_stack: float_stack.as_mut_ptr(),
-        float_sp_off: 0,
         float_stack_cap,
         current_locals: std::ptr::null_mut(),
         closure_ptr: 0,

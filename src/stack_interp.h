@@ -27,6 +27,7 @@ typedef struct CallFrame {
     Instruction* return_pc;    // instruction to resume at after return
     uint64_t*    saved_locals; // caller's locals pointer (= caller's fp)
     uint64_t*    saved_sp;    // caller's stack pointer (for truncating on return)
+    double*      saved_fsp;   // caller's float spill pointer
     uint32_t     func_idx;    // caller's function index (for looking up metadata)
     size_t       saved_frame_size; // frame_stack_size to restore on return
 } CallFrame;
@@ -66,11 +67,12 @@ typedef struct Ctx {
     uint64_t*    stack_base;
 
     // Float spill stack: backing store for the float TOS window when
-    // its depth exceeds 4. Each slot is a double. Grows upward via
-    // float_sp_off (index in doubles). Separate from stack_base so int
-    // and float spills don't interleave.
+    // its depth exceeds 4. Each slot is a double. The live "top" pointer
+    // lives in the `fsp` handler argument (kept in a register by
+    // preserve_none); this field is just the base for bounds checks and
+    // the initial value passed to the entry handler. Separate from
+    // stack_base so int and float spills don't interleave.
     double*      float_stack;
-    size_t       float_sp_off;
     size_t       float_stack_cap;
 
     // Current frame pointer: scalar locals start here, local memory follows.
@@ -132,6 +134,7 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
+    double*       fsp,    // float spill pointer (lives in a GPR via preserve_none)
     uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
@@ -151,6 +154,7 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
+    double*       fsp,    // float spill pointer (lives in a GPR via preserve_none)
     uint64_t      l0,     // hot local register 0
     uint64_t      l1,     // hot local register 1
     uint64_t      l2,     // hot local register 2

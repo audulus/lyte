@@ -100,9 +100,9 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // fmov/movq penalty that the old "f32 bit-pattern in u64" design
 // paid on every float arithmetic op.
 #if defined(__aarch64__)
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, double f0, double f1, double f2, double f3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, double* fsp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, double f0, double f1, double f2, double f3, void* _nh_raw
 #else
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, double f0, double f1, double f2, double f3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, double* fsp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, double f0, double f1, double f2, double f3, void* _nh_raw
 // Reads expand to a load of ctx->current_locals; writes (locals = X)
 // store back to the same field. LLVM's TBAA rules out aliasing with
 // stores through sp, so the field read is CSEd per handler.
@@ -125,46 +125,48 @@ static int64_t ipow(int64_t base, uint32_t exp) {
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #else
 #define NEXT() \
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #endif
 
-// Float TOS window push/pop. Spills/refills through ctx->float_stack
-// indexed by ctx->float_sp_off. The float stack is a separate buffer
-// from the integer operand stack so int and float spills don't
-// interleave — each window has its own depth.
+// Float TOS window push/pop. Spills/refills through `fsp`, a handler
+// argument pinned to a GPR by preserve_none — analogous to the integer
+// `sp`. Each op pays a single register-indirect store/load (one cycle
+// on aarch64) instead of chasing ctx->float_stack and ctx->float_sp_off
+// through memory. Separate from stack_base so int and float spills
+// don't interleave.
 #define FPUSH(val) do { \
-    ctx->float_stack[ctx->float_sp_off++] = f3; \
+    *fsp++ = f3; \
     f3 = f2; f2 = f1; f1 = f0; f0 = (val); \
 } while(0)
 
 #define FPOP(dst) do { \
-    (dst) = f0; f0 = f1; f1 = f2; f2 = f3; f3 = ctx->float_stack[--ctx->float_sp_off]; \
+    (dst) = f0; f0 = f1; f1 = f2; f2 = f3; f3 = *--fsp; \
 } while(0)
 
-#define FDROP1() do { f0 = f1; f1 = f2; f2 = f3; f3 = ctx->float_stack[--ctx->float_sp_off]; } while(0)
-#define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = ctx->float_stack[--ctx->float_sp_off]; } while(0)
+#define FDROP1() do { f0 = f1; f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
+#define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
 
 // ============================================================================
 // Handlers
@@ -671,6 +673,7 @@ HANDLER(op_call) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
+    frame->saved_fsp = fsp;
     frame->func_idx = (uint32_t)pc->imm[2];
     frame->saved_frame_size = ctx->frame_stack_size;
 
@@ -775,6 +778,7 @@ HANDLER(op_call_closure) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
+    frame->saved_fsp = fsp;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
 
@@ -853,6 +857,7 @@ HANDLER(op_call_indirect) {
     CallFrame* frame = &ctx->call_stack[ctx->call_depth++];
     frame->return_pc = pc + 1;
     frame->saved_locals = locals;
+    frame->saved_fsp = fsp;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
 
@@ -932,6 +937,7 @@ HANDLER(op_return) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
+    fsp = frame->saved_fsp;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
@@ -951,6 +957,7 @@ HANDLER(op_return_void) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
+    fsp = frame->saved_fsp;
     // Fill hot locals from restored caller's locals.
     l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
@@ -1506,7 +1513,7 @@ HANDLER(name) { \
     float a = (float)f1, b = (float)f0; \
     PUSH((a op b) ? 1ULL : 0ULL); \
     /* drop both floats */ \
-    f0 = f2; f1 = f3; f2 = ctx->float_stack[--ctx->float_sp_off]; f3 = ctx->float_stack[--ctx->float_sp_off]; \
+    f0 = f2; f1 = f3; f2 = *--fsp; f3 = *--fsp; \
     NEXT(); \
 }
 FW_CMP(op_feq_f, ==)
@@ -1709,16 +1716,16 @@ HANDLER(op_fused_fmul_fadd_f) {
     float result = (float)f2 + (float)f1 * (float)f0;
     f0 = (double)result;
     f1 = f3;
-    f2 = ctx->float_stack[--ctx->float_sp_off];
-    f3 = ctx->float_stack[--ctx->float_sp_off];
+    f2 = *--fsp;
+    f3 = *--fsp;
     NEXT();
 }
 HANDLER(op_fused_fmul_fsub_f) {
     float result = (float)f2 - (float)f1 * (float)f0;
     f0 = (double)result;
     f1 = f3;
-    f2 = ctx->float_stack[--ctx->float_sp_off];
-    f3 = ctx->float_stack[--ctx->float_sp_off];
+    f2 = *--fsp;
+    f3 = *--fsp;
     NEXT();
 }
 HANDLER(op_fused_get_addr_fmul_fadd_f) {
@@ -1798,7 +1805,6 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->error = NULL;
     ctx->frame_stack_size = 0;
     ctx->call_depth = 0;
-    ctx->float_sp_off = 0;
 
     // Enter entry function. enter_function writes the new frame pointer
     // into ctx->current_locals via the out-parameter.
@@ -1808,13 +1814,15 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     uint64_t* entry_locals = ctx->current_locals;
 
     // Start dispatch with hot locals loaded and both TOS windows zeroed.
-    // Preload the handler for the second instruction as nh.
+    // Preload the handler for the second instruction as nh. fsp starts
+    // at the base of the float spill buffer — pinned to a GPR by
+    // preserve_none for the entire handler chain.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
 #if defined(__aarch64__)
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, initial_nh);
 #else
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, initial_nh);
 #endif
 
     return ctx->result;
