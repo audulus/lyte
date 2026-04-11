@@ -50,6 +50,12 @@ struct Args {
     /// Entry point function name(s), comma-separated. Defaults to "main".
     #[clap(long)]
     entry: Option<String>,
+
+    /// Stack VM only: emit float-window (F-variant) ops for f32
+    /// expressions instead of bit-casting through the integer TOS window.
+    /// See FP_CODEGEN_PLAN.md.
+    #[clap(long)]
+    fp_window: bool,
 }
 
 fn run(args: Args) -> i32 {
@@ -136,6 +142,7 @@ fn run(args: Args) -> i32 {
     }
 
     compiler.print_ir = args.ir;
+    compiler.stack_fp_window = args.fp_window;
 
     // Select backend via --backend flag, falling back to LYTE_BACKEND env var.
     let backend = if args.backend.is_empty() {

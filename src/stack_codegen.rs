@@ -68,6 +68,10 @@ pub struct StackCodegen {
 
     /// Counter for generating unique lambda names.
     lambda_counter: usize,
+
+    /// When true, emit float-window (F-variant) ops for f32 expressions.
+    /// Copied onto every StackFunction this codegen produces.
+    pub use_fp_window: bool,
 }
 
 impl Default for StackCodegen {
@@ -87,6 +91,7 @@ impl StackCodegen {
             pending_func_loads: Vec::new(),
             globals: HashMap::new(),
             lambda_counter: 0,
+            use_fp_window: false,
         }
     }
 
@@ -196,6 +201,7 @@ impl StackCodegen {
     fn compile_function(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Result<u32, String> {
         let mut func = StackFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
+        func.use_fp_window = self.use_fp_window;
 
         let mut translator = FunctionTranslator::new(
             decl,
@@ -484,6 +490,10 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Drop);
                     func.emit(StackOp::ReturnVoid);
                 } else {
+                    // Fall-through return: bridge f32 results back to t0.
+                    if matches!(&*self.decl.ret, Type::Float32) {
+                        func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                    }
                     func.emit(StackOp::Return);
                 }
             }
@@ -569,7 +579,12 @@ impl<'a> FunctionTranslator<'a> {
             // Everything else: translate normally then drop.
             _ => {
                 self.translate_expr(expr, func);
-                func.emit(StackOp::Drop);
+                let ty = self.expr_type(expr);
+                if matches!(&*ty, Type::Float32) {
+                    func.emit_float(StackOp::Drop, StackOp::DropF);
+                } else {
+                    func.emit(StackOp::Drop);
+                }
             }
         }
     }
@@ -701,8 +716,21 @@ impl<'a> FunctionTranslator<'a> {
                     // Scalar: translate init, store in local.
                     self.translate_expr(init, func);
                     let local = self.alloc_scalar();
+                    let is_f32 = matches!(&*ty, Type::Float32);
                     if self.void_ctx {
-                        func.emit(StackOp::LocalSet(local));
+                        if is_f32 {
+                            func.emit_float(
+                                StackOp::LocalSet(local),
+                                StackOp::LocalSetF(local),
+                            );
+                        } else {
+                            func.emit(StackOp::LocalSet(local));
+                        }
+                    } else if is_f32 {
+                        func.emit_float(
+                            StackOp::LocalTee(local),
+                            StackOp::LocalTeeF(local),
+                        );
                     } else {
                         func.emit(StackOp::LocalTee(local));
                     }
@@ -731,12 +759,23 @@ impl<'a> FunctionTranslator<'a> {
 
                 if !self.is_ptr_type(&ty) {
                     let local = self.alloc_scalar();
+                    let is_f32 = matches!(&*ty, Type::Float32);
                     if let Some(init_id) = init {
                         if !self.try_emit_binop_set(local, init_id, func) {
                             self.translate_expr(init_id, func);
-                            func.emit(StackOp::LocalSet(local));
+                            if is_f32 {
+                                func.emit_float(
+                                    StackOp::LocalSet(local),
+                                    StackOp::LocalSetF(local),
+                                );
+                            } else {
+                                func.emit(StackOp::LocalSet(local));
+                            }
                         }
                     } else {
+                        // Uninitialized local — zero the slot via the int window.
+                        // (Float zero has the same bit pattern, so this works
+                        // for f32 locals too even when use_fp_window is on.)
                         func.emit(StackOp::I64Const(0));
                         func.emit(StackOp::LocalSet(local));
                     }
@@ -826,6 +865,12 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::MemCopy(size));
                     func.emit(StackOp::ReturnVoid);
                 } else {
+                    // f32 return values travel through t0 (int window). If
+                    // the preceding expression left the value in the float
+                    // window, bridge it back to the int window first.
+                    if matches!(&*ret_ty, Type::Float32) {
+                        func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                    }
                     func.emit(StackOp::Return);
                 }
                 self.has_returned = true;
@@ -954,7 +999,14 @@ impl<'a> FunctionTranslator<'a> {
         if let Some(&kind) = self.variables.get(&name) {
             match kind {
                 LocalKind::Scalar(slot) => {
-                    func.emit(StackOp::LocalGet(slot));
+                    if matches!(&*ty, Type::Float32) {
+                        func.emit_float(
+                            StackOp::LocalGet(slot),
+                            StackOp::LocalGetF(slot),
+                        );
+                    } else {
+                        func.emit(StackOp::LocalGet(slot));
+                    }
                 }
                 LocalKind::Memory(slot) => {
                     if self.is_ptr_type(&ty) {
@@ -1175,8 +1227,16 @@ impl<'a> FunctionTranslator<'a> {
                 if self.void_ctx && self.try_emit_binop_set(slot, rhs_id, func) {
                     return;
                 }
+                let lhs_ty = self.expr_type(lhs_id);
                 self.translate_expr(rhs_id, func);
-                func.emit(StackOp::LocalTee(slot));
+                if matches!(&*lhs_ty, Type::Float32) {
+                    func.emit_float(
+                        StackOp::LocalTee(slot),
+                        StackOp::LocalTeeF(slot),
+                    );
+                } else {
+                    func.emit(StackOp::LocalTee(slot));
+                }
                 return;
             }
         }
@@ -1758,9 +1818,15 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::LocalAddr(slot));
             }
 
-            // Push arguments.
+            // Push arguments. op_call copies args from the int TOS window
+            // into the callee's locals, so f32 args that rode through the
+            // float window have to be bridged back to their bit pattern.
             for (i, arg_id) in arg_ids.iter().enumerate() {
                 self.translate_expr(*arg_id, func);
+                let arg_ty = self.expr_type(*arg_id);
+                if matches!(&*arg_ty, Type::Float32) {
+                    func.emit_float(StackOp::Nop, StackOp::FToBitsF);
+                }
                 if i < param_types.len() && matches!(&*param_types[i], Type::Slice(_)) {
                     let actual_ty = self.expr_type(*arg_id);
                     self.emit_wrap_as_slice(actual_ty, func);
@@ -1795,6 +1861,11 @@ impl<'a> FunctionTranslator<'a> {
                 // other wrappers expect it). Push a placeholder zero; void
                 // contexts drop it via translate_void's normal Drop path.
                 func.emit(StackOp::I64Const(0));
+            } else if matches!(&*ret_ty, Type::Float32) {
+                // f32 return values come back through t0 (int window).
+                // Bridge into the float window so the surrounding codegen
+                // can consume them as f32 directly.
+                func.emit_float(StackOp::Nop, StackOp::BitsToFF);
             }
             // Otherwise the call already pushed its return value.
 

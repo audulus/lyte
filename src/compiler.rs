@@ -413,6 +413,8 @@ pub struct Compiler {
     pub quiet: bool,
     /// When true, continue checking all declarations even after errors (for LSP).
     pub check_all: bool,
+    /// Stack VM only: emit float-window (F-variant) ops for f32 exprs.
+    pub stack_fp_window: bool,
 }
 
 impl Compiler {
@@ -429,6 +431,7 @@ impl Compiler {
             last_safety_errors: Vec::new(),
             quiet: false,
             check_all: false,
+            stack_fp_window: false,
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
@@ -788,6 +791,7 @@ impl Compiler {
             return Err(String::from("No declarations to compile"));
         }
         let mut codegen = crate::stack_codegen::StackCodegen::new();
+        codegen.use_fp_window = self.stack_fp_window;
         let entry_points = self.effective_entry_points();
         let mut program = codegen.compile_multi(&self.decls, &entry_points)?;
         // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
