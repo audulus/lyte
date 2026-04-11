@@ -4,11 +4,11 @@ A plan for moving the Stack VM from "f32 values bit-cast through the integer
 TOS window" to "f32 values live in a dedicated float TOS window (f0..f3) in
 FP/SIMD registers throughout expression evaluation."
 
-> **Implementation status** (updated after commit `f2a9c95`)
+> **Implementation status** (updated after commit `b40ecc1`)
 >
 > Phases 1–3 landed. Phase 4's original premise — that uniformly emitting
 > F-variant ops would beat the narrow `float_window_rewrite` peephole —
-> turned out to be wrong in its first form, regressing biquad ~2×. Four
+> turned out to be wrong in its first form, regressing biquad ~2×. Five
 > separate unplanned fixes (see §12) progressively closed the gap and
 > then pushed past it on biquad and sort:
 >
@@ -42,44 +42,59 @@ FP/SIMD registers throughout expression evaluation."
 >    are only ever read via `*(float*)` / `as_f32()` which ignore the
 >    upper 32 bits. Also added `FusedTeeSliceStore32F` (F mirror of
 >    the FFT butterfly store fusion) and the F variant of the
->    `LocalSet + LocalGet → LocalTee` peephole. Pushed `--fp-window`
->    biquad to **ahead of** the default path.
+>    `LocalSet + LocalGet → LocalTee` peephole.
 >
-> Current benchmark state (5-run samples, aarch64 M-series):
+> 5. **Pre-shifted f32 local indices** (`b40ecc1`). Every F handler
+>    loading an f32 directly from `locals[n]` had to emit
+>    `lsl x, x, #3; ldr s, [locals, x]` because aarch64's indexed f32
+>    load only supports `lsl #2` (matching 4-byte stride), not the
+>    `lsl #3` we'd need to hit `locals[n]` (8-byte stride). Encoding
+>    the local index as a pre-shifted byte offset in the bridge lets
+>    the handler emit a single `ldr s, [locals, byte_off]`. One
+>    instruction saved per affected handler; benefits both paths since
+>    the FW peephole handlers (`op_fused_get_get_fmul_fw` et al.)
+>    share the same issue. Pushed biquad default from 0.11s to 0.10s.
+>
+> Current benchmark state (8-run interleaved samples, aarch64 M-series):
 >
 > | Workload | Start of work (`5b8c48f`) | Default (today) | `--fp-window` (today) | Plan target |
 > |---|---|---|---|---|
-> | biquad | 0.218s | **0.110s** (−50%) | **0.095s** (−56%) | 0.15–0.18s ✅ |
+> | biquad | 0.218s | **0.100s** (−54%) | **0.100s** (−54%) | 0.15–0.18s ✅ |
 > | sort | 0.114s | 0.074s | 0.073s | unchanged ✅ |
 > | fft | 0.612s | **0.395s** (−35%) | 0.485s (−21%) | 0.35–0.45s ✅ |
 >
 > Phase status:
 >
-> | Phase                               | Status                  | Commit(s)            |
-> |-------------------------------------|-------------------------|----------------------|
-> | 1 — F-variant op scaffold            | ✅ landed               | `2be383d`            |
-> | 2 — `emit_float` helper              | ✅ landed               | `4a366ae`            |
-> | 3.1 — Direct f32 op sites            | ✅ landed               | `9d2e0bc`            |
-> | 3.2 — Type-dependent sites + CLI     | ✅ landed               | `f9e27a8`            |
-> | 3.3 — Memory/slice/assign-temp sites | ✅ landed               | `cf44a00`            |
-> | 4 — Flip default on                  | ❌ reverted             | `4b6f00e`            |
-> | 5 — Float-aware fusion patterns      | ✅ dormant (opt-in)     | `4b6f00e`, `f2a9c95` |
-> | **`fsp` register-arg promotion**     | ✅ landed (unplanned)   | `21f2949`            |
-> | **Float-typed window**               | ✅ landed (unplanned)   | `c67ed9e`            |
-> | **x86-64 `fsp` in ctx + min/max fix** | ✅ landed (unplanned)  | `821af8d`            |
-> | **`saved_sp` / `saved_fsp` removal** | ✅ landed (unplanned)   | `bc44a11`, `b999162` |
-> | **Direct f32 stores + tee fusions**  | ✅ landed (unplanned)   | `f2a9c95`            |
-> | 6 — Remove legacy FW path            | ⏸ blocked on FFT gap   |                      |
-> | 7 — Float hot local cache            | ⏸ skipped              |                      |
+> | Phase                                 | Status                  | Commit(s)            |
+> |---------------------------------------|-------------------------|----------------------|
+> | 1 — F-variant op scaffold             | ✅ landed               | `2be383d`            |
+> | 2 — `emit_float` helper               | ✅ landed               | `4a366ae`            |
+> | 3.1 — Direct f32 op sites             | ✅ landed               | `9d2e0bc`            |
+> | 3.2 — Type-dependent sites + CLI      | ✅ landed               | `f9e27a8`            |
+> | 3.3 — Memory/slice/assign-temp sites  | ✅ landed               | `cf44a00`            |
+> | 4 — Flip default on                   | ❌ reverted             | `4b6f00e`            |
+> | 5 — Float-aware fusion patterns       | ✅ dormant (opt-in)     | `4b6f00e`, `f2a9c95` |
+> | **`fsp` register-arg promotion**      | ✅ landed (unplanned)   | `21f2949`            |
+> | **Float-typed window**                | ✅ landed (unplanned)   | `c67ed9e`            |
+> | **x86-64 `fsp` in ctx + min/max fix** | ✅ landed (unplanned)   | `821af8d`            |
+> | **`saved_sp` / `saved_fsp` removal**  | ✅ landed (unplanned)   | `bc44a11`, `b999162` |
+> | **Direct f32 stores + tee fusions**   | ✅ landed (unplanned)   | `f2a9c95`            |
+> | **Pre-shifted f32 local indices**     | ✅ landed (unplanned)   | `b40ecc1`            |
+> | 6 — Remove legacy FW path             | ⏸ blocked on FFT gap   |                      |
+> | 7 — Float hot local cache             | ⏸ skipped              |                      |
 >
-> The F-variant path is opt-in behind `--fp-window`. On biquad it's now
-> **ahead of** the default path, on sort it's at parity, and the **FFT
-> gap has shrunk but not closed** — `--fp-window` is still ~20% behind
-> the default. The gap resists static-analysis diagnosis: op counts in
-> the butterfly hot loop are equal, every per-op F handler is shorter
-> than its int counterpart in the disassembly, and all the obvious
-> missing fusions have been added. See §13 for the investigation log
-> and candidate theories.
+> The F-variant path is opt-in behind `--fp-window`. On biquad it's at
+> parity with the default path (both 0.10s), on sort it's at parity,
+> and the **FFT gap has shrunk but not closed** — `--fp-window` is
+> still ~23% behind the default. The gap resists static-analysis
+> diagnosis: op counts in the butterfly hot loop are equal, every
+> per-op F handler is equal or shorter than its int counterpart in
+> the disassembly, all the obvious missing fusions have been added,
+> and the extra `lsl`s have been eliminated. The one new finding
+> since the last update is that the `float_window_rewrite` peephole
+> **never fires on FFT** — FFT's default path runs raw int-window
+> f32 ops which *should* be strictly slower per op than F, yet still
+> isn't. See §13 for the investigation log and remaining theories.
 
 ## 1. Background
 
@@ -545,21 +560,22 @@ Baselines from when the plan was written (3-run averages, aarch64 M-series):
 | sort | 0.114s | 0.027s | 0.023s | 0.068s |
 | fft | 0.612s | 0.043s | 0.054s | 0.656s |
 
-Actual results after Phases 1–5 plus four rounds of unplanned fixes:
+Actual results after Phases 1–5 plus five rounds of unplanned fixes
+(interleaved multi-run samples, aarch64 M-series):
 
-| Workload | 5b8c48f | +`fsp` (`21f2949`) | +float window (`c67ed9e`) | Default today | `--fp-window` today | Plan target |
-|---|---|---|---|---|---|---|
-| biquad | 0.218s | 0.125s | 0.104s | **0.110s** | **0.095s** | 0.15–0.18s ✅ |
-| sort | 0.114s | 0.074s | 0.075s | 0.074s | 0.073s | unchanged ✅ |
-| fft | 0.612s | 0.405s | 0.399s | **0.395s** | 0.485s | 0.35–0.45s ✅ |
+| Workload | 5b8c48f | +`fsp` | +float win | +tee fusions | +pre-shift | `--fp-window` | Plan target |
+|---|---|---|---|---|---|---|---|
+| biquad | 0.218s | 0.125s | 0.104s | 0.110s | **0.100s** | 0.100s | 0.15–0.18s ✅ |
+| sort | 0.114s | 0.074s | 0.075s | 0.074s | 0.074s | 0.073s | unchanged ✅ |
+| fft | 0.612s | 0.405s | 0.399s | 0.395s | **0.395s** | 0.485s | 0.35–0.45s ✅ |
 
-The default path comfortably beats every plan target. The `--fp-window`
-opt-in path is now **ahead of** the default on biquad, at parity on
-sort, and still ~20% behind on FFT. The speedup over the 5b8c48f
-baseline came from a sequence of four unplanned fixes — none of them
-involving uniform F-emission, which is what Phase 4 was originally
-supposed to deliver. See §12 for the individual findings and §13 for
-the still-open FFT gap investigation.
+The default path beats every plan target by a wide margin. The
+`--fp-window` opt-in path is at parity with the default on biquad and
+sort, and still ~23% behind on FFT. The biquad speedup came from a
+sequence of five unplanned fixes — none of them involving uniform
+F-emission, which is what Phase 4 was originally supposed to deliver.
+See §12 for the individual findings and §13 for the still-open FFT
+gap investigation.
 
 Silverfir pure-interp is the honest ceiling for an interpreter with
 this architecture. We currently beat it by ~6× on biquad, ~1.6× on
@@ -804,9 +820,9 @@ remaining FFT gap — but the ROI is small at this point.
 
 | Criterion | Status |
 |---|---|
-| Biquad ≤ 0.18s | ✅ **0.095s under `--fp-window`, 0.110s default** — beats target by 40–50% |
+| Biquad ≤ 0.18s | ✅ **0.100s on both paths** — beats target by 44%, within 3.3× of LLVM AOT |
 | FFT ≤ 0.45s | ✅ 0.395s default (0.485s `--fp-window`) — default beats target |
-| No regression on sort | ✅ |
+| No regression on sort | ✅ 0.074s (both paths) |
 | No regression on any golden test | ✅ |
 | No new unsafe code | ✅ |
 | Legacy FW peephole path removed | ❌ — blocked on FFT, see §13 |
@@ -816,15 +832,37 @@ FFT gap under `--fp-window`. The biquad and FFT numbers comfortably
 exceed the plan's targets. The speedup came entirely from a series
 of unplanned C-level fixes to the interpreter runtime, not from the
 uniform F-emission that Phase 4 was supposed to deliver. The F-path
-infrastructure (Phases 1–5) remains in place as an opt-in; it's
-now a net win on biquad and sort and would be a net win overall if
-the FFT gap closes.
+infrastructure (Phases 1–5) remains in place as an opt-in; it's now
+at parity on biquad and sort and would be a net win overall if the
+FFT gap closes.
 
 ## 13. Open: the FFT `--fp-window` gap
 
-After all the fixes in §12, biquad is 13% *faster* under `--fp-window`
-(0.095s vs 0.110s) and sort is at parity. FFT is the one workload
+After all the fixes in §12, biquad is at parity between the two
+paths (both 0.10s) and sort is at parity. FFT is the one workload
 where the F path is still slower — 0.485s vs 0.395s, about 23%.
+
+### The surprising part: FW peephole never fires on FFT
+
+`float_window_rewrite` was designed to match the biquad-shaped FMA
+chain: `FusedGetGetFMul` → `FusedGetAddrFMulFAdd+` → `LocalSetL0/1/2`.
+The FFT butterfly has a different shape:
+
+```
+LocalGet + FusedAddrGetSliceLoad32 + f32.mul
+LocalGet + FusedAddrGetSliceLoad32 + fused.fmul_fsub
+LocalSet(n)   ← not a hot local register
+```
+
+So the FW peephole **never matches** on FFT. `grep _fw` in the
+default FFT IR dump returns zero hits. That means the default-path
+FFT is running the raw int-window f32 ops (`op_fmul`,
+`op_fused_fmul_fsub`, `op_fused_get_fsub`) on every arithmetic op,
+each paying 3–4 GPR↔FP crossings. By rights the F path — which
+pays zero crossings — should be strictly faster per op.
+
+It isn't. Which tells us the gap isn't about GPR↔FP crossings.
+Something else is going on.
 
 ### What's been verified and ruled out
 
@@ -833,13 +871,12 @@ where the F path is still slower — 0.485s vs 0.395s, about 23%.
   is 26 dispatches per iteration in both paths. `bit_reverse_permute`
   is 12 per iter in both paths. `bit_reverse` is all integer and
   identical byte-for-byte.
-- **Per-op F handlers are shorter than their int counterparts.**
-  Manually disassembled `op_fused_get_fsub`, `op_fused_get_fsub_f`,
-  `op_fused_get_get_fmul`, `op_fused_get_get_fmul_f`,
-  `op_fused_tee_sstore32`, `op_fused_tee_sstore32_f`,
-  `op_fused_get_addr_fmul_fadd_fw`. In every case the F handler is
-  strictly shorter and eliminates GPR↔FP crossings that the int
-  handler has to pay.
+- **Per-op F handlers are ≤ int handlers in instruction count.**
+  Measured (int vs F): `local_get` 11 vs 12, `local_set` 11 vs 12
+  (both now 11 vs 11 after the pre-shift fix in `b40ecc1`), `fmul`
+  12 vs 9, `fused_get_get_fmul` 16 vs 15, `fused_get_fsub` 10 vs 8,
+  `fused_fmul_fsub` 13 vs 8. In every arithmetic case F is strictly
+  shorter and eliminates crossings the int handler has to pay.
 - **All missing fusion patterns I could spot from the IR have been
   added.** `FusedTeeSliceStore32F`, the `LocalSet+LocalGet→LocalTee`
   F peephole, the direct-store optimization. There are a handful of
@@ -849,6 +886,12 @@ where the F path is still slower — 0.485s vs 0.395s, about 23%.
 - **The spill pointer (`fsp`) is in a register.** `FPUSH` compiles
   to a single `str s, [x23], #0x4` on aarch64 — equivalent to int
   `PUSH`'s `str x, [x22], #0x8`. Same memory traffic.
+- **Extra `lsl` instructions on F handlers are gone.** Fixed in
+  `b40ecc1` by pre-shifting the local index in the bridge. F
+  handlers now emit a single `ldr s, [locals, byte_off]` with no
+  scale. This moved biquad default from 0.11s to 0.10s but did
+  **not** move FFT at all — which tells us those lsls were already
+  hiding behind load latencies in the out-of-order schedule on FFT.
 
 ### Candidate theories for the remaining gap
 
