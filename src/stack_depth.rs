@@ -17,6 +17,7 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
             StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => Some(*off),
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZero(_, off) => Some(*off),
+            StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             _ => None,
         };
         if let Some(off) = off {
@@ -43,8 +44,12 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
     depths
 }
 
-/// Stack depth change for an instruction.
-fn stack_delta(op: &StackOp) -> i32 {
+/// Stack depth change for an instruction (integer window only).
+///
+/// Float-window ops that don't touch the int window contribute 0 here;
+/// the float-window depth is tracked separately by `float_stack_delta` if
+/// needed.
+pub fn stack_delta(op: &StackOp) -> i32 {
     match op {
         // Push 1
         StackOp::I64Const(_) | StackOp::F32Const(_) | StackOp::F64Const(_) |
@@ -139,5 +144,118 @@ fn stack_delta(op: &StackOp) -> i32 {
         StackOp::Call { .. } | StackOp::CallIndirect { .. } | StackOp::CallClosure { .. } |
         StackOp::FusedConstSet(_, _) | StackOp::FusedF32ConstSet(_, _) |
         StackOp::FusedGetAddImmSet(_, _, _) | StackOp::FusedGetGetILtJumpIfZero(_, _, _) => 0,
+
+        // === Float-window ops: integer-window deltas ===
+        // Most don't touch the int window. Crossings do.
+        StackOp::F32ConstF(_) | StackOp::LocalGetF(_) | StackOp::LocalSetF(_)
+        | StackOp::LocalTeeF(_) | StackOp::DropF
+        | StackOp::FAddF | StackOp::FSubF | StackOp::FMulF | StackOp::FDivF
+        | StackOp::FPowF | StackOp::FNegF
+        | StackOp::SinF32F | StackOp::CosF32F | StackOp::TanF32F
+        | StackOp::AsinF32F | StackOp::AcosF32F | StackOp::AtanF32F
+        | StackOp::SinhF32F | StackOp::CoshF32F | StackOp::TanhF32F
+        | StackOp::AsinhF32F | StackOp::AcoshF32F | StackOp::AtanhF32F
+        | StackOp::LnF32F | StackOp::ExpF32F | StackOp::Exp2F32F
+        | StackOp::Log10F32F | StackOp::Log2F32F | StackOp::SqrtF32F
+        | StackOp::AbsF32F | StackOp::FloorF32F | StackOp::CeilF32F
+        | StackOp::Atan2F32F
+        | StackOp::LocalGetL0F | StackOp::LocalGetL1F | StackOp::LocalGetL2F
+        | StackOp::LocalSetL0F | StackOp::LocalSetL1F | StackOp::LocalSetL2F
+        | StackOp::PrintF32F
+        | StackOp::FusedGetGetFAddF(_, _) | StackOp::FusedGetGetFSubF(_, _)
+        | StackOp::FusedGetGetFMulF(_, _)
+        | StackOp::FusedGetFMulF(_) | StackOp::FusedGetFAddF(_) | StackOp::FusedGetFSubF(_)
+        | StackOp::FusedFMulFAddF | StackOp::FusedFMulFSubF
+        | StackOp::FusedGetAddrFMulFAddF(_, _, _) | StackOp::FusedGetAddrFMulFSubF(_, _, _)
+        | StackOp::FusedAddrLoad32OffF(_, _)
+        | StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => 0,
+
+        // Float comparisons: pop 2 from f-window, push 1 to int window.
+        StackOp::FEqF | StackOp::FNeF | StackOp::FLtF | StackOp::FLeF
+        | StackOp::FGtF | StackOp::FGeF
+        | StackOp::IsnanF32F | StackOp::IsinfF32F => 1,
+
+        // Crossings that consume from one window and produce in the other.
+        StackOp::F32ToI32F | StackOp::FToBitsF => 1,    // pop f0, push t0
+        StackOp::I32ToF32F | StackOp::BitsToFF => -1,   // pop t0, push f0
+
+        // Float loads: pop addr from int window, push float to f-window.
+        StackOp::LoadF32F | StackOp::LoadF32OffF(_)
+        | StackOp::FusedAddrGetSliceLoad32F(_, _) => -1,
+
+        // Float stores: pop addr from int window (and pop f0).
+        StackOp::StoreF32F | StackOp::StoreF32OffF(_)
+        | StackOp::FusedAddrGetSliceStore32F(_, _) => -1,
+
+        // Local-array variants don't take an address from the int window
+        // (they read the slot from the imm).
+        StackOp::FusedLocalArrayLoad32F(_, _) | StackOp::FusedLocalArrayStore32F(_, _) => 0,
+    }
+}
+
+/// Stack depth change for an instruction (float window only).
+///
+/// Used to track f0..f3 occupancy independently from the integer window.
+pub fn float_stack_delta(op: &StackOp) -> i32 {
+    match op {
+        // Pushes
+        StackOp::F32ConstF(_) | StackOp::LocalGetF(_)
+        | StackOp::LocalGetL0F | StackOp::LocalGetL1F | StackOp::LocalGetL2F
+        | StackOp::FusedGetGetFAddF(_, _) | StackOp::FusedGetGetFSubF(_, _)
+        | StackOp::FusedGetGetFMulF(_, _)
+        | StackOp::FusedAddrLoad32OffF(_, _)
+        | StackOp::FusedAddrGetSliceLoad32F(_, _)
+        | StackOp::FusedLocalArrayLoad32F(_, _) => 1,
+
+        // Pops
+        StackOp::LocalSetF(_) | StackOp::DropF
+        | StackOp::LocalSetL0F | StackOp::LocalSetL1F | StackOp::LocalSetL2F
+        | StackOp::PrintF32F
+        | StackOp::FusedAddrGetSliceStore32F(_, _)
+        | StackOp::FusedLocalArrayStore32F(_, _)
+        | StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => -1,
+
+        // LocalTeeF: peek (pop 0)
+        StackOp::LocalTeeF(_) => 0,
+
+        // Binary float arith: pop 2, push 1 = -1
+        StackOp::FAddF | StackOp::FSubF | StackOp::FMulF | StackOp::FDivF
+        | StackOp::FPowF | StackOp::Atan2F32F => -1,
+
+        // Float comparisons: pop 2 from f-window
+        StackOp::FEqF | StackOp::FNeF | StackOp::FLtF | StackOp::FLeF
+        | StackOp::FGtF | StackOp::FGeF => -2,
+
+        // FMA fused: pop 3, push 1 = -2
+        StackOp::FusedFMulFAddF | StackOp::FusedFMulFSubF => -2,
+
+        // Unary in float window: pop 1, push 1 = 0
+        StackOp::FNegF
+        | StackOp::SinF32F | StackOp::CosF32F | StackOp::TanF32F
+        | StackOp::AsinF32F | StackOp::AcosF32F | StackOp::AtanF32F
+        | StackOp::SinhF32F | StackOp::CoshF32F | StackOp::TanhF32F
+        | StackOp::AsinhF32F | StackOp::AcoshF32F | StackOp::AtanhF32F
+        | StackOp::LnF32F | StackOp::ExpF32F | StackOp::Exp2F32F
+        | StackOp::Log10F32F | StackOp::Log2F32F | StackOp::SqrtF32F
+        | StackOp::AbsF32F | StackOp::FloorF32F | StackOp::CeilF32F => 0,
+
+        // f0 op locals[a]: pop 0 push 0
+        StackOp::FusedGetFMulF(_) | StackOp::FusedGetFAddF(_) | StackOp::FusedGetFSubF(_) => 0,
+
+        // f0 ± coeff*state from frame slot — net 0 in f-window.
+        StackOp::FusedGetAddrFMulFAddF(_, _, _) | StackOp::FusedGetAddrFMulFSubF(_, _, _) => 0,
+
+        // Crossings: F→int pops f-window
+        StackOp::F32ToI32F | StackOp::FToBitsF
+        | StackOp::IsnanF32F | StackOp::IsinfF32F => -1,
+        // int→F pushes f-window
+        StackOp::I32ToF32F | StackOp::BitsToFF => 1,
+
+        // f-window stores pop f0
+        StackOp::StoreF32F | StackOp::StoreF32OffF(_) => -1,
+        // f-window loads push f0
+        StackOp::LoadF32F | StackOp::LoadF32OffF(_) => 1,
+
+        _ => 0,
     }
 }

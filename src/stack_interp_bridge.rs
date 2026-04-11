@@ -242,6 +242,41 @@ extern "C" {
     fn op_local_set_l0(); fn op_local_set_l1(); fn op_local_set_l2();
     fn op_halt();
     fn op_nop();
+
+    // === Float-window handlers (Phase 1+) ===
+    fn op_f32_const_f();
+    fn op_local_get_f();
+    fn op_local_set_f();
+    fn op_local_tee_f();
+    fn op_drop_f();
+    fn op_fadd_f(); fn op_fsub_f(); fn op_fmul_f(); fn op_fdiv_f();
+    fn op_fpow_f(); fn op_fneg_f();
+    fn op_feq_f(); fn op_fne_f(); fn op_flt_f(); fn op_fle_f();
+    fn op_fgt_f(); fn op_fge_f();
+    fn op_f32_to_i32_f(); fn op_i32_to_f32_f();
+    fn op_to_bits_f(); fn op_from_bits_f();
+    fn op_load_f32_f(); fn op_load_f32_off_f();
+    fn op_store_f32_f(); fn op_store_f32_off_f();
+    fn op_sin_f32_f(); fn op_cos_f32_f(); fn op_tan_f32_f();
+    fn op_asin_f32_f(); fn op_acos_f32_f(); fn op_atan_f32_f();
+    fn op_sinh_f32_f(); fn op_cosh_f32_f(); fn op_tanh_f32_f();
+    fn op_asinh_f32_f(); fn op_acosh_f32_f(); fn op_atanh_f32_f();
+    fn op_ln_f32_f(); fn op_exp_f32_f(); fn op_exp2_f32_f();
+    fn op_log10_f32_f(); fn op_log2_f32_f();
+    fn op_sqrt_f32_f(); fn op_abs_f32_f(); fn op_floor_f32_f(); fn op_ceil_f32_f();
+    fn op_atan2_f32_f();
+    fn op_isnan_f32_f(); fn op_isinf_f32_f();
+    fn op_local_get_l0_f(); fn op_local_get_l1_f(); fn op_local_get_l2_f();
+    fn op_local_set_l0_f(); fn op_local_set_l1_f(); fn op_local_set_l2_f();
+    fn op_print_f32_f();
+    fn op_fused_get_get_fadd_f(); fn op_fused_get_get_fsub_f(); fn op_fused_get_get_fmul_f();
+    fn op_fused_get_fmul_f(); fn op_fused_get_fadd_f(); fn op_fused_get_fsub_f();
+    fn op_fused_fmul_fadd_f(); fn op_fused_fmul_fsub_f();
+    fn op_fused_get_addr_fmul_fadd_f(); fn op_fused_get_addr_fmul_fsub_f();
+    fn op_fused_addr_load32off_f();
+    fn op_fused_addr_get_sload32_f(); fn op_fused_addr_get_sstore32_f();
+    fn op_fused_local_array_load32_f(); fn op_fused_local_array_store32_f();
+    fn op_fused_f32const_fgt_jiz_f();
 }
 
 /// Get the C handler function pointer for a StackOp.
@@ -439,6 +474,80 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::LocalSetL2 => op_local_set_l2 as *const (),
         StackOp::Halt => op_halt as *const (),
         StackOp::Nop => op_nop as *const (),
+
+        // === Float-window ops ===
+        StackOp::F32ConstF(_) => op_f32_const_f as *const (),
+        StackOp::LocalGetF(_) => op_local_get_f as *const (),
+        StackOp::LocalSetF(_) => op_local_set_f as *const (),
+        StackOp::LocalTeeF(_) => op_local_tee_f as *const (),
+        StackOp::DropF => op_drop_f as *const (),
+        StackOp::FAddF => op_fadd_f as *const (),
+        StackOp::FSubF => op_fsub_f as *const (),
+        StackOp::FMulF => op_fmul_f as *const (),
+        StackOp::FDivF => op_fdiv_f as *const (),
+        StackOp::FPowF => op_fpow_f as *const (),
+        StackOp::FNegF => op_fneg_f as *const (),
+        StackOp::FEqF => op_feq_f as *const (),
+        StackOp::FNeF => op_fne_f as *const (),
+        StackOp::FLtF => op_flt_f as *const (),
+        StackOp::FLeF => op_fle_f as *const (),
+        StackOp::FGtF => op_fgt_f as *const (),
+        StackOp::FGeF => op_fge_f as *const (),
+        StackOp::F32ToI32F => op_f32_to_i32_f as *const (),
+        StackOp::I32ToF32F => op_i32_to_f32_f as *const (),
+        StackOp::FToBitsF => op_to_bits_f as *const (),
+        StackOp::BitsToFF => op_from_bits_f as *const (),
+        StackOp::LoadF32F => op_load_f32_f as *const (),
+        StackOp::LoadF32OffF(_) => op_load_f32_off_f as *const (),
+        StackOp::StoreF32F => op_store_f32_f as *const (),
+        StackOp::StoreF32OffF(_) => op_store_f32_off_f as *const (),
+        StackOp::SinF32F => op_sin_f32_f as *const (),
+        StackOp::CosF32F => op_cos_f32_f as *const (),
+        StackOp::TanF32F => op_tan_f32_f as *const (),
+        StackOp::AsinF32F => op_asin_f32_f as *const (),
+        StackOp::AcosF32F => op_acos_f32_f as *const (),
+        StackOp::AtanF32F => op_atan_f32_f as *const (),
+        StackOp::SinhF32F => op_sinh_f32_f as *const (),
+        StackOp::CoshF32F => op_cosh_f32_f as *const (),
+        StackOp::TanhF32F => op_tanh_f32_f as *const (),
+        StackOp::AsinhF32F => op_asinh_f32_f as *const (),
+        StackOp::AcoshF32F => op_acosh_f32_f as *const (),
+        StackOp::AtanhF32F => op_atanh_f32_f as *const (),
+        StackOp::LnF32F => op_ln_f32_f as *const (),
+        StackOp::ExpF32F => op_exp_f32_f as *const (),
+        StackOp::Exp2F32F => op_exp2_f32_f as *const (),
+        StackOp::Log10F32F => op_log10_f32_f as *const (),
+        StackOp::Log2F32F => op_log2_f32_f as *const (),
+        StackOp::SqrtF32F => op_sqrt_f32_f as *const (),
+        StackOp::AbsF32F => op_abs_f32_f as *const (),
+        StackOp::FloorF32F => op_floor_f32_f as *const (),
+        StackOp::CeilF32F => op_ceil_f32_f as *const (),
+        StackOp::Atan2F32F => op_atan2_f32_f as *const (),
+        StackOp::IsnanF32F => op_isnan_f32_f as *const (),
+        StackOp::IsinfF32F => op_isinf_f32_f as *const (),
+        StackOp::LocalGetL0F => op_local_get_l0_f as *const (),
+        StackOp::LocalGetL1F => op_local_get_l1_f as *const (),
+        StackOp::LocalGetL2F => op_local_get_l2_f as *const (),
+        StackOp::LocalSetL0F => op_local_set_l0_f as *const (),
+        StackOp::LocalSetL1F => op_local_set_l1_f as *const (),
+        StackOp::LocalSetL2F => op_local_set_l2_f as *const (),
+        StackOp::PrintF32F => op_print_f32_f as *const (),
+        StackOp::FusedGetGetFAddF(_, _) => op_fused_get_get_fadd_f as *const (),
+        StackOp::FusedGetGetFSubF(_, _) => op_fused_get_get_fsub_f as *const (),
+        StackOp::FusedGetGetFMulF(_, _) => op_fused_get_get_fmul_f as *const (),
+        StackOp::FusedGetFMulF(_) => op_fused_get_fmul_f as *const (),
+        StackOp::FusedGetFAddF(_) => op_fused_get_fadd_f as *const (),
+        StackOp::FusedGetFSubF(_) => op_fused_get_fsub_f as *const (),
+        StackOp::FusedFMulFAddF => op_fused_fmul_fadd_f as *const (),
+        StackOp::FusedFMulFSubF => op_fused_fmul_fsub_f as *const (),
+        StackOp::FusedGetAddrFMulFAddF(_, _, _) => op_fused_get_addr_fmul_fadd_f as *const (),
+        StackOp::FusedGetAddrFMulFSubF(_, _, _) => op_fused_get_addr_fmul_fsub_f as *const (),
+        StackOp::FusedAddrLoad32OffF(_, _) => op_fused_addr_load32off_f as *const (),
+        StackOp::FusedAddrGetSliceLoad32F(_, _) => op_fused_addr_get_sload32_f as *const (),
+        StackOp::FusedAddrGetSliceStore32F(_, _) => op_fused_addr_get_sstore32_f as *const (),
+        StackOp::FusedLocalArrayLoad32F(_, _) => op_fused_local_array_load32_f as *const (),
+        StackOp::FusedLocalArrayStore32F(_, _) => op_fused_local_array_store32_f as *const (),
+        StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => op_fused_f32const_fgt_jiz_f as *const (),
     }
 }
 
@@ -507,6 +616,27 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedF32ConstFGtJumpIfZero(v, off) => [f32::to_bits(*v) as u64, *off as i64 as u64, 0],
         StackOp::FusedConstSet(v, n) => [*v as u64, *n as u64, 0],
         StackOp::FusedF32ConstSet(v, n) => [f32::to_bits(*v) as u64, *n as u64, 0],
+
+        // === Float-window ops ===
+        StackOp::F32ConstF(v) => [f32::to_bits(*v) as u64, 0, 0],
+        StackOp::LocalGetF(n) | StackOp::LocalSetF(n) | StackOp::LocalTeeF(n) => [*n as u64, 0, 0],
+        StackOp::LoadF32OffF(o) | StackOp::StoreF32OffF(o) => [*o as i64 as u64, 0, 0],
+        StackOp::FusedGetGetFAddF(a, b)
+        | StackOp::FusedGetGetFSubF(a, b)
+        | StackOp::FusedGetGetFMulF(a, b)
+        | StackOp::FusedAddrGetSliceLoad32F(a, b)
+        | StackOp::FusedAddrGetSliceStore32F(a, b)
+        | StackOp::FusedLocalArrayLoad32F(a, b)
+        | StackOp::FusedLocalArrayStore32F(a, b) => [*a as u64, *b as u64, 0],
+        StackOp::FusedGetFMulF(a) | StackOp::FusedGetFAddF(a) | StackOp::FusedGetFSubF(a) => {
+            [*a as u64, 0, 0]
+        }
+        StackOp::FusedGetAddrFMulFAddF(a, s, o)
+        | StackOp::FusedGetAddrFMulFSubF(a, s, o) => [*a as u64, *s as u64, *o as i64 as u64],
+        StackOp::FusedAddrLoad32OffF(s, o) => [*s as u64, *o as i64 as u64, 0],
+        StackOp::FusedF32ConstFGtJumpIfZeroF(v, off) => {
+            [f32::to_bits(*v) as u64, *off as i64 as u64, 0]
+        }
         _ => [0, 0, 0],
     }
 }

@@ -354,6 +354,111 @@ pub enum StackOp {
     /// Pop into hot local register 2.
     LocalSetL2,
 
+    // === Float-window (FP register) ops ===
+    //
+    // These mirror the integer-window float ops but operate on f0..f3
+    // (the FP/SIMD register window) instead of t0..t3 (the GPR window).
+    // The codegen emits these when `StackFunction::use_fp_window` is true
+    // and the value being computed has type f32. They avoid the ~6-cycle
+    // GPR↔FP crossings that the bit-pattern-in-u64 design would force.
+    //
+    // The float TOS window holds values as `double`s but every f32 op
+    // explicitly casts to `(float)` so each op rounds at f32 precision —
+    // matching the JIT/VM backends.
+
+    /// Push an f32 constant onto the float window.
+    F32ConstF(f32),
+    /// Push the value of scalar local N (interpreted as f32) onto the float window.
+    LocalGetF(u16),
+    /// Pop top of float window into scalar local N (stored as f32 bit pattern).
+    LocalSetF(u16),
+    /// Copy top of float window into scalar local N (don't pop).
+    LocalTeeF(u16),
+    /// Pop and discard top of float window.
+    DropF,
+
+    // Float arithmetic (binary, pop 2 push 1, all in f-window).
+    FAddF, FSubF, FMulF, FDivF, FPowF,
+    /// Pop 1 push 1 (negate) on f-window.
+    FNegF,
+
+    // Float comparisons: pop 2 from f-window, push 0/1 to **int** window.
+    FEqF, FNeF, FLtF, FLeF, FGtF, FGeF,
+
+    // Conversions / window crossings
+    /// Pop f0 (as float), push int t0 (= signed i32 cast).
+    F32ToI32F,
+    /// Pop t0 (as i32), push f0.
+    I32ToF32F,
+    /// Pop f0, push t0 holding the f32 bit pattern (no numeric conversion).
+    /// Used at function-call boundaries where args/returns are passed via
+    /// the integer locals path.
+    FToBitsF,
+    /// Inverse of FToBitsF.
+    BitsToFF,
+
+    // Float memory loads: pop address from int window, push float to f0.
+    LoadF32F,
+    LoadF32OffF(i32),
+    // Float memory stores: pop float from f0, pop address from int window.
+    StoreF32F,
+    StoreF32OffF(i32),
+
+    // Float math intrinsics — all read f0, write f0.
+    SinF32F, CosF32F, TanF32F, AsinF32F, AcosF32F, AtanF32F,
+    SinhF32F, CoshF32F, TanhF32F, AsinhF32F, AcoshF32F, AtanhF32F,
+    LnF32F, ExpF32F, Exp2F32F, Log10F32F, Log2F32F,
+    SqrtF32F, AbsF32F, FloorF32F, CeilF32F,
+    /// Read f0 and f1, push result to f0.
+    Atan2F32F,
+    /// Pop f0, push int t0 (1 if NaN, else 0).
+    IsnanF32F,
+    /// Pop f0, push int t0 (1 if infinite, else 0).
+    IsinfF32F,
+
+    // Hot local register get/set in float window.
+    LocalGetL0F, LocalGetL1F, LocalGetL2F,
+    LocalSetL0F, LocalSetL1F, LocalSetL2F,
+
+    // Debug
+    /// Pop f0, printf as f32.
+    PrintF32F,
+
+    // === Float-window fused superinstructions (Phase 5) ===
+
+    /// f0 = locals[a] + locals[b] (f32). Pop 0, push 1.
+    FusedGetGetFAddF(u16, u16),
+    /// f0 = locals[a] - locals[b] (f32).
+    FusedGetGetFSubF(u16, u16),
+    /// f0 = locals[a] * locals[b] (f32).
+    FusedGetGetFMulF(u16, u16),
+    /// f0 = f0 * locals[a] (f32). Pop 0, push 0.
+    FusedGetFMulF(u16),
+    /// f0 = f0 + locals[a] (f32).
+    FusedGetFAddF(u16),
+    /// f0 = f0 - locals[a] (f32).
+    FusedGetFSubF(u16),
+    /// Pop f0=b, f1=a, f2=c (in f-window), push c + a*b. 3→1.
+    FusedFMulFAddF,
+    /// Same but a*b - c — i.e. push c - a*b.
+    FusedFMulFSubF,
+    /// f0 = f0 + locals[a] * load_f32(slot, off). Pop 0, push 0.
+    FusedGetAddrFMulFAddF(u16, u16, i32),
+    /// f0 = f0 - locals[a] * load_f32(slot, off).
+    FusedGetAddrFMulFSubF(u16, u16, i32),
+    /// f0 = load_f32(slot, off). Pop 0, push 1.
+    FusedAddrLoad32OffF(u16, i32),
+    /// f0 = slice[locals[idx] * 4] from slice at slot (f32).
+    FusedAddrGetSliceLoad32F(u16, u16),
+    /// Pop f0, store to slice[locals[idx] * 4] at slot.
+    FusedAddrGetSliceStore32F(u16, u16),
+    /// f0 = local_array[locals[idx] * 4] at slot.
+    FusedLocalArrayLoad32F(u16, u16),
+    /// Pop f0, store to local_array[locals[idx] * 4] at slot.
+    FusedLocalArrayStore32F(u16, u16),
+    /// if !(f0 > const) jump. Pop 1 (f-window), conditionally jump.
+    FusedF32ConstFGtJumpIfZeroF(f32, i32),
+
     Halt,
     Nop,
 }
@@ -373,6 +478,10 @@ pub struct StackFunction {
     /// Hot local mapping: hot_locals[i] = original local index that maps to L_i register.
     /// None means this register slot is unused.
     pub hot_locals: [Option<u16>; 3],
+    /// When true, the codegen emits float-window (F-variant) ops for f32
+    /// expressions instead of bit-casting them through the integer TOS
+    /// window. See FP_CODEGEN_PLAN.md for the rationale.
+    pub use_fp_window: bool,
 }
 
 impl StackFunction {
@@ -385,6 +494,7 @@ impl StackFunction {
             ops: Vec::new(),
             has_return_value: false,
             hot_locals: [None; 3],
+            use_fp_window: false,
         }
     }
 
@@ -633,6 +743,79 @@ impl fmt::Display for StackOp {
             StackOp::LocalSetL0 => write!(f, "local.set_l0"),
             StackOp::LocalSetL1 => write!(f, "local.set_l1"),
             StackOp::LocalSetL2 => write!(f, "local.set_l2"),
+            // === Float-window ops (Phase 1+) ===
+            StackOp::F32ConstF(v) => write!(f, "fw.f32.const {}", v),
+            StackOp::LocalGetF(n) => write!(f, "fw.local.get {}", n),
+            StackOp::LocalSetF(n) => write!(f, "fw.local.set {}", n),
+            StackOp::LocalTeeF(n) => write!(f, "fw.local.tee {}", n),
+            StackOp::DropF => write!(f, "fw.drop"),
+            StackOp::FAddF => write!(f, "fw.f32.add"),
+            StackOp::FSubF => write!(f, "fw.f32.sub"),
+            StackOp::FMulF => write!(f, "fw.f32.mul"),
+            StackOp::FDivF => write!(f, "fw.f32.div"),
+            StackOp::FPowF => write!(f, "fw.f32.pow"),
+            StackOp::FNegF => write!(f, "fw.f32.neg"),
+            StackOp::FEqF => write!(f, "fw.f32.eq"),
+            StackOp::FNeF => write!(f, "fw.f32.ne"),
+            StackOp::FLtF => write!(f, "fw.f32.lt"),
+            StackOp::FLeF => write!(f, "fw.f32.le"),
+            StackOp::FGtF => write!(f, "fw.f32.gt"),
+            StackOp::FGeF => write!(f, "fw.f32.ge"),
+            StackOp::F32ToI32F => write!(f, "fw.convert.f32_to_i32"),
+            StackOp::I32ToF32F => write!(f, "fw.convert.i32_to_f32"),
+            StackOp::FToBitsF => write!(f, "fw.to_bits"),
+            StackOp::BitsToFF => write!(f, "fw.from_bits"),
+            StackOp::LoadF32F => write!(f, "fw.f32.load"),
+            StackOp::LoadF32OffF(o) => write!(f, "fw.f32.load offset={}", o),
+            StackOp::StoreF32F => write!(f, "fw.f32.store"),
+            StackOp::StoreF32OffF(o) => write!(f, "fw.f32.store offset={}", o),
+            StackOp::SinF32F => write!(f, "fw.f32.sin"),
+            StackOp::CosF32F => write!(f, "fw.f32.cos"),
+            StackOp::TanF32F => write!(f, "fw.f32.tan"),
+            StackOp::AsinF32F => write!(f, "fw.f32.asin"),
+            StackOp::AcosF32F => write!(f, "fw.f32.acos"),
+            StackOp::AtanF32F => write!(f, "fw.f32.atan"),
+            StackOp::SinhF32F => write!(f, "fw.f32.sinh"),
+            StackOp::CoshF32F => write!(f, "fw.f32.cosh"),
+            StackOp::TanhF32F => write!(f, "fw.f32.tanh"),
+            StackOp::AsinhF32F => write!(f, "fw.f32.asinh"),
+            StackOp::AcoshF32F => write!(f, "fw.f32.acosh"),
+            StackOp::AtanhF32F => write!(f, "fw.f32.atanh"),
+            StackOp::LnF32F => write!(f, "fw.f32.ln"),
+            StackOp::ExpF32F => write!(f, "fw.f32.exp"),
+            StackOp::Exp2F32F => write!(f, "fw.f32.exp2"),
+            StackOp::Log10F32F => write!(f, "fw.f32.log10"),
+            StackOp::Log2F32F => write!(f, "fw.f32.log2"),
+            StackOp::SqrtF32F => write!(f, "fw.f32.sqrt"),
+            StackOp::AbsF32F => write!(f, "fw.f32.abs"),
+            StackOp::FloorF32F => write!(f, "fw.f32.floor"),
+            StackOp::CeilF32F => write!(f, "fw.f32.ceil"),
+            StackOp::Atan2F32F => write!(f, "fw.f32.atan2"),
+            StackOp::IsnanF32F => write!(f, "fw.f32.isnan"),
+            StackOp::IsinfF32F => write!(f, "fw.f32.isinf"),
+            StackOp::LocalGetL0F => write!(f, "fw.local.get_l0"),
+            StackOp::LocalGetL1F => write!(f, "fw.local.get_l1"),
+            StackOp::LocalGetL2F => write!(f, "fw.local.get_l2"),
+            StackOp::LocalSetL0F => write!(f, "fw.local.set_l0"),
+            StackOp::LocalSetL1F => write!(f, "fw.local.set_l1"),
+            StackOp::LocalSetL2F => write!(f, "fw.local.set_l2"),
+            StackOp::PrintF32F => write!(f, "fw.debug.print_f32"),
+            StackOp::FusedGetGetFAddF(a, b) => write!(f, "fw.fused.get_get_fadd {} {}", a, b),
+            StackOp::FusedGetGetFSubF(a, b) => write!(f, "fw.fused.get_get_fsub {} {}", a, b),
+            StackOp::FusedGetGetFMulF(a, b) => write!(f, "fw.fused.get_get_fmul {} {}", a, b),
+            StackOp::FusedGetFMulF(a) => write!(f, "fw.fused.get_fmul {}", a),
+            StackOp::FusedGetFAddF(a) => write!(f, "fw.fused.get_fadd {}", a),
+            StackOp::FusedGetFSubF(a) => write!(f, "fw.fused.get_fsub {}", a),
+            StackOp::FusedFMulFAddF => write!(f, "fw.fused.fmul_fadd"),
+            StackOp::FusedFMulFSubF => write!(f, "fw.fused.fmul_fsub"),
+            StackOp::FusedGetAddrFMulFAddF(a, s, o) => write!(f, "fw.fused.get_addr_fmul_fadd {} {} {}", a, s, o),
+            StackOp::FusedGetAddrFMulFSubF(a, s, o) => write!(f, "fw.fused.get_addr_fmul_fsub {} {} {}", a, s, o),
+            StackOp::FusedAddrLoad32OffF(s, o) => write!(f, "fw.fused.addr_load32off {} {}", s, o),
+            StackOp::FusedAddrGetSliceLoad32F(s, i) => write!(f, "fw.fused.addr_get_sload32 {} {}", s, i),
+            StackOp::FusedAddrGetSliceStore32F(s, i) => write!(f, "fw.fused.addr_get_sstore32 {} {}", s, i),
+            StackOp::FusedLocalArrayLoad32F(s, i) => write!(f, "fw.fused.local_array_load32 {} {}", s, i),
+            StackOp::FusedLocalArrayStore32F(s, i) => write!(f, "fw.fused.local_array_store32 {} {}", s, i),
+            StackOp::FusedF32ConstFGtJumpIfZeroF(v, o) => write!(f, "fw.fused.f32const_fgt_jiz {} {}", v, o),
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
         }

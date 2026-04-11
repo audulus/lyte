@@ -62,6 +62,15 @@ pub fn rebase(func: &mut StackFunction) {
             StackOp::FusedGetAddrFMulFAddFW(_, s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFSubFW(_, s, _) => *s += lc,
             StackOp::FusedFieldCopy32(s, _, _) => *s += lc,
+
+            // Float-window fused ops carrying memory-slot indices.
+            StackOp::FusedAddrLoad32OffF(s, _) => *s += lc,
+            StackOp::FusedAddrGetSliceLoad32F(s, _) => *s += lc,
+            StackOp::FusedAddrGetSliceStore32F(s, _) => *s += lc,
+            StackOp::FusedLocalArrayLoad32F(s, _) => *s += lc,
+            StackOp::FusedLocalArrayStore32F(s, _) => *s += lc,
+            StackOp::FusedGetAddrFMulFAddF(_, s, _) => *s += lc,
+            StackOp::FusedGetAddrFMulFSubF(_, s, _) => *s += lc,
             _ => {}
         }
     }

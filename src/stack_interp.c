@@ -1425,6 +1425,364 @@ HANDLER(op_fused_addr_imm_get_store32) {
 }
 
 // ============================================================================
+// Float-window (FP register) handlers
+// ============================================================================
+//
+// These mirror the integer-window float ops but operate on f0..f3 (the
+// FP/SIMD register window) instead of t0..t3 (the GPR window). They avoid
+// the GPR↔FP crossings that the bit-pattern-in-u64 design forces on every
+// f32 op. Each handler explicitly casts to (float) so f32 arithmetic still
+// rounds at single precision even though the window holds doubles.
+
+// --- Constants and locals (float window) ---
+
+HANDLER(op_f32_const_f) {
+    // imm[0] is the f32 bit pattern. Reinterpret as float, widen to double.
+    uint32_t bits = (uint32_t)pc->imm[0];
+    float v;
+    memcpy(&v, &bits, 4);
+    FPUSH((double)v);
+    NEXT();
+}
+
+HANDLER(op_local_get_f) {
+    FPUSH((double)as_f32(locals[pc->imm[0]]));
+    NEXT();
+}
+
+HANDLER(op_local_set_f) {
+    float v = (float)f0;
+    locals[pc->imm[0]] = from_f32(v);
+    FDROP1();
+    NEXT();
+}
+
+HANDLER(op_local_tee_f) {
+    locals[pc->imm[0]] = from_f32((float)f0);
+    NEXT();
+}
+
+HANDLER(op_drop_f) {
+    FDROP1();
+    NEXT();
+}
+
+// --- Float arithmetic (binary): pop b=f0, pop a=f1, push a OP b ---
+
+HANDLER(op_fadd_f) {
+    f0 = (double)((float)f1 + (float)f0);
+    FBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_fsub_f) {
+    f0 = (double)((float)f1 - (float)f0);
+    FBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_fmul_f) {
+    f0 = (double)((float)f1 * (float)f0);
+    FBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_fdiv_f) {
+    f0 = (double)((float)f1 / (float)f0);
+    FBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_fpow_f) {
+    f0 = (double)powf((float)f1, (float)f0);
+    FBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_fneg_f) {
+    f0 = (double)(-(float)f0);
+    NEXT();
+}
+
+// --- Comparisons: pop 2 from f-window, push 0/1 to int window ---
+
+#define FW_CMP(name, op) \
+HANDLER(name) { \
+    float a = (float)f1, b = (float)f0; \
+    PUSH((a op b) ? 1ULL : 0ULL); \
+    /* drop both floats */ \
+    f0 = f2; f1 = f3; f2 = ctx->float_stack[--ctx->float_sp_off]; f3 = ctx->float_stack[--ctx->float_sp_off]; \
+    NEXT(); \
+}
+FW_CMP(op_feq_f, ==)
+FW_CMP(op_fne_f, !=)
+FW_CMP(op_flt_f, <)
+FW_CMP(op_fle_f, <=)
+FW_CMP(op_fgt_f, >)
+FW_CMP(op_fge_f, >=)
+
+// --- Conversions / window crossings ---
+
+HANDLER(op_f32_to_i32_f) {
+    // Pop f0, push int t0 = (int32)(float)f0
+    int64_t v = (int64_t)(int32_t)(float)f0;
+    PUSH((uint64_t)v);
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_i32_to_f32_f) {
+    // Pop t0 (int32), push f0 = (float)i
+    float v = (float)(int32_t)t0;
+    DROP1();
+    FPUSH((double)v);
+    NEXT();
+}
+HANDLER(op_to_bits_f) {
+    // Pop f0, push int t0 = bit pattern of (float)f0
+    uint64_t bits = from_f32((float)f0);
+    PUSH(bits);
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_from_bits_f) {
+    // Pop t0 (bit pattern), push f0 = float
+    float v = as_f32(t0);
+    DROP1();
+    FPUSH((double)v);
+    NEXT();
+}
+
+// --- Float memory loads ---
+
+HANDLER(op_load_f32_f) {
+    // Pop addr from int window, push f32 to float window.
+    float v = *(float*)t0;
+    DROP1();
+    FPUSH((double)v);
+    NEXT();
+}
+HANDLER(op_load_f32_off_f) {
+    int32_t off = (int32_t)pc->imm[0];
+    float v = *(float*)((uint8_t*)t0 + off);
+    DROP1();
+    FPUSH((double)v);
+    NEXT();
+}
+
+// --- Float memory stores: pop f0 (value), pop t0 (addr) ---
+
+HANDLER(op_store_f32_f) {
+    *(float*)t0 = (float)f0;
+    DROP1();
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_store_f32_off_f) {
+    int32_t off = (int32_t)pc->imm[0];
+    *(float*)((uint8_t*)t0 + off) = (float)f0;
+    DROP1();
+    FDROP1();
+    NEXT();
+}
+
+// --- Math intrinsics (float window) ---
+
+#define FW_F32_UNARY(name, func) \
+HANDLER(name) { \
+    f0 = (double)func((float)f0); \
+    NEXT(); \
+}
+FW_F32_UNARY(op_sin_f32_f,   sinf)
+FW_F32_UNARY(op_cos_f32_f,   cosf)
+FW_F32_UNARY(op_tan_f32_f,   tanf)
+FW_F32_UNARY(op_asin_f32_f,  asinf)
+FW_F32_UNARY(op_acos_f32_f,  acosf)
+FW_F32_UNARY(op_atan_f32_f,  atanf)
+FW_F32_UNARY(op_sinh_f32_f,  sinhf)
+FW_F32_UNARY(op_cosh_f32_f,  coshf)
+FW_F32_UNARY(op_tanh_f32_f,  tanhf)
+FW_F32_UNARY(op_asinh_f32_f, asinhf)
+FW_F32_UNARY(op_acosh_f32_f, acoshf)
+FW_F32_UNARY(op_atanh_f32_f, atanhf)
+FW_F32_UNARY(op_ln_f32_f,    logf)
+FW_F32_UNARY(op_exp_f32_f,   expf)
+FW_F32_UNARY(op_exp2_f32_f,  exp2f)
+FW_F32_UNARY(op_log10_f32_f, log10f)
+FW_F32_UNARY(op_log2_f32_f,  log2f)
+FW_F32_UNARY(op_sqrt_f32_f,  sqrtf)
+FW_F32_UNARY(op_abs_f32_f,   fabsf)
+FW_F32_UNARY(op_floor_f32_f, floorf)
+FW_F32_UNARY(op_ceil_f32_f,  ceilf)
+
+HANDLER(op_atan2_f32_f) {
+    // Binary in f-window: pop b=f0, a=f1, push atan2f(a, b).
+    f0 = (double)atan2f((float)f1, (float)f0);
+    FBINOP_SHIFT();
+    NEXT();
+}
+
+HANDLER(op_isnan_f32_f) {
+    int v = isnan((float)f0) ? 1 : 0;
+    PUSH((uint64_t)v);
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_isinf_f32_f) {
+    int v = isinf((float)f0) ? 1 : 0;
+    PUSH((uint64_t)v);
+    FDROP1();
+    NEXT();
+}
+
+// --- Hot local register get/set in float window ---
+// Like the integer LocalGetL0..L2, these stay in sync with locals[]
+// memory: gets reload from locals[] so concurrent fused ops that write
+// to those slots remain consistent.
+
+HANDLER(op_local_get_l0_f) { l0 = locals[0]; FPUSH((double)as_f32(l0)); NEXT(); }
+HANDLER(op_local_get_l1_f) { l1 = locals[1]; FPUSH((double)as_f32(l1)); NEXT(); }
+HANDLER(op_local_get_l2_f) { l2 = locals[2]; FPUSH((double)as_f32(l2)); NEXT(); }
+HANDLER(op_local_set_l0_f) {
+    float v = (float)f0;
+    l0 = from_f32(v);
+    locals[0] = l0;
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_local_set_l1_f) {
+    float v = (float)f0;
+    l1 = from_f32(v);
+    locals[1] = l1;
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_local_set_l2_f) {
+    float v = (float)f0;
+    l2 = from_f32(v);
+    locals[2] = l2;
+    FDROP1();
+    NEXT();
+}
+
+// --- Debug ---
+
+HANDLER(op_print_f32_f) {
+    float val = (float)f0;
+    FDROP1();
+    if (val == floorf(val) && fabsf(val) < 1e15f) {
+        printf("%.1f\n", val);
+    } else {
+        printf("%g\n", val);
+    }
+    NEXT();
+}
+
+// --- Float-window fused superinstructions (Phase 5) ---
+
+HANDLER(op_fused_get_get_fadd_f) {
+    float a = as_f32(locals[pc->imm[0]]);
+    float b = as_f32(locals[pc->imm[1]]);
+    FPUSH((double)(a + b));
+    NEXT();
+}
+HANDLER(op_fused_get_get_fsub_f) {
+    float a = as_f32(locals[pc->imm[0]]);
+    float b = as_f32(locals[pc->imm[1]]);
+    FPUSH((double)(a - b));
+    NEXT();
+}
+HANDLER(op_fused_get_get_fmul_f) {
+    float a = as_f32(locals[pc->imm[0]]);
+    float b = as_f32(locals[pc->imm[1]]);
+    FPUSH((double)(a * b));
+    NEXT();
+}
+HANDLER(op_fused_get_fmul_f) {
+    f0 = (double)((float)f0 * as_f32(locals[pc->imm[0]]));
+    NEXT();
+}
+HANDLER(op_fused_get_fadd_f) {
+    f0 = (double)((float)f0 + as_f32(locals[pc->imm[0]]));
+    NEXT();
+}
+HANDLER(op_fused_get_fsub_f) {
+    f0 = (double)((float)f0 - as_f32(locals[pc->imm[0]]));
+    NEXT();
+}
+// Pop f0=b, f1=a, f2=c (in f-window), push c + a*b. 3→1.
+HANDLER(op_fused_fmul_fadd_f) {
+    float result = (float)f2 + (float)f1 * (float)f0;
+    f0 = (double)result;
+    f1 = f3;
+    f2 = ctx->float_stack[--ctx->float_sp_off];
+    f3 = ctx->float_stack[--ctx->float_sp_off];
+    NEXT();
+}
+HANDLER(op_fused_fmul_fsub_f) {
+    float result = (float)f2 - (float)f1 * (float)f0;
+    f0 = (double)result;
+    f1 = f3;
+    f2 = ctx->float_stack[--ctx->float_sp_off];
+    f3 = ctx->float_stack[--ctx->float_sp_off];
+    NEXT();
+}
+HANDLER(op_fused_get_addr_fmul_fadd_f) {
+    float coeff = as_f32(locals[pc->imm[0]]);
+    float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
+    f0 = (double)((float)f0 + coeff * state);
+    NEXT();
+}
+HANDLER(op_fused_get_addr_fmul_fsub_f) {
+    float coeff = as_f32(locals[pc->imm[0]]);
+    float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
+    f0 = (double)((float)f0 - coeff * state);
+    NEXT();
+}
+HANDLER(op_fused_addr_load32off_f) {
+    float v = *(float*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
+    FPUSH((double)v);
+    NEXT();
+}
+HANDLER(op_fused_addr_get_sload32_f) {
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    float v = *(float*)(data + idx * 4);
+    FPUSH((double)v);
+    NEXT();
+}
+HANDLER(op_fused_addr_get_sstore32_f) {
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    uint8_t* data = *(uint8_t**)fat;
+    *(float*)(data + idx * 4) = (float)f0;
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_fused_local_array_load32_f) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    float v = *(float*)(base + idx * 4);
+    FPUSH((double)v);
+    NEXT();
+}
+HANDLER(op_fused_local_array_store32_f) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)locals[pc->imm[1]];
+    *(float*)(base + idx * 4) = (float)f0;
+    FDROP1();
+    NEXT();
+}
+HANDLER(op_fused_f32const_fgt_jiz_f) {
+    float val = (float)f0;
+    uint32_t lim_bits = (uint32_t)pc->imm[0];
+    float limit;
+    memcpy(&limit, &lim_bits, 4);
+    FDROP1();
+    if (!(val > limit)) {
+        int64_t off = (int64_t)pc->imm[1];
+        pc = pc + 1 + off;
+        DISPATCH();
+    }
+    NEXT();
+}
+
+// ============================================================================
 // Entry point
 // ============================================================================
 
