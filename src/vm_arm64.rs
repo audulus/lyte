@@ -69,7 +69,7 @@ pub struct AsmContext {
 
     // === Extern function support ===
     pub extern_funcs_ptr: *const crate::vm::ExternFuncInfo, // 184:
-    pub extern_funcs_len: u64,                               // 192:
+    pub extern_funcs_len: u64,                              // 192:
     /// Helper: call_extern(ctx, args_start, arg_count, globals_offset) -> result in r0
     pub fn_call_extern: unsafe extern "C" fn(*mut AsmContext, u64, u64, u64), // 200:
 
@@ -169,7 +169,12 @@ unsafe extern "C" fn helper_grow_locals(ctx: *mut AsmContext, _needed: u64) {
 
 /// Helper for CallExtern from assembly. Reads {fn_ptr, context} from globals,
 /// calls the extern function via libffi, and stores the result in register 0.
-unsafe extern "C" fn helper_call_extern(ctx: *mut AsmContext, args_start: u64, _arg_count: u64, globals_offset: u64) {
+unsafe extern "C" fn helper_call_extern(
+    ctx: *mut AsmContext,
+    args_start: u64,
+    _arg_count: u64,
+    globals_offset: u64,
+) {
     let regs = std::slice::from_raw_parts((*ctx).regs, 256);
     let globals_ptr = (*ctx).globals_ptr;
 
@@ -179,12 +184,18 @@ unsafe extern "C" fn helper_call_extern(ctx: *mut AsmContext, args_start: u64, _
     let context = *slot.add(1) as *mut u8;
 
     if fn_ptr == 0 {
-        panic!("called unbound extern function (globals offset {})", globals_offset);
+        panic!(
+            "called unbound extern function (globals offset {})",
+            globals_offset
+        );
     }
 
     // Find the ExternFuncInfo for this globals_offset.
-    let extern_funcs = std::slice::from_raw_parts((*ctx).extern_funcs_ptr, (*ctx).extern_funcs_len as usize);
-    let info = extern_funcs.iter().find(|e| e.globals_offset == globals_offset as i32)
+    let extern_funcs =
+        std::slice::from_raw_parts((*ctx).extern_funcs_ptr, (*ctx).extern_funcs_len as usize);
+    let info = extern_funcs
+        .iter()
+        .find(|e| e.globals_offset == globals_offset as i32)
         .expect("no ExternFuncInfo for extern call");
 
     let result = crate::vm::call_extern_fn(

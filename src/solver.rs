@@ -130,7 +130,12 @@ impl Constraint {
                     .map(|t| format!("{}", t.ty.subst(inst)))
                     .collect();
                 if let Some(hint) = hint {
-                    format!("{}: {} is one of [{}]", hint, a.subst(inst), alt_strs.join(", "))
+                    format!(
+                        "{}: {} is one of [{}]",
+                        hint,
+                        a.subst(inst),
+                        alt_strs.join(", ")
+                    )
                 } else {
                     format!("{} is one of [{}]", a.subst(inst), alt_strs.join(", "))
                 }
@@ -177,7 +182,12 @@ impl Constraint {
 }
 
 /// Build a human-readable error message for a failed equality constraint.
-fn format_equality_error(a: TypeID, b: TypeID, hint: &Option<String>, instance: &Instance) -> String {
+fn format_equality_error(
+    a: TypeID,
+    b: TypeID,
+    hint: &Option<String>,
+    instance: &Instance,
+) -> String {
     let a_resolved = a.subst(instance);
     let b_resolved = b.subst(instance);
 
@@ -253,7 +263,10 @@ pub fn iterate_solver(
                         };
 
                         if let Some(hint) = hint {
-                            format!("no matching {} for argument types ({}) -> {}", hint, args, range)
+                            format!(
+                                "no matching {} for argument types ({}) -> {}",
+                                hint, args, range
+                            )
                         } else {
                             format!("no match for ({}) -> {}", args, range)
                         }
@@ -332,16 +345,17 @@ pub fn iterate_solver(
                     }
                     Type::Float32x4 => {
                         let s: &str = field_name;
-                        let valid = matches!(
-                            s,
-                            "x" | "y" | "z" | "w" | "r" | "g" | "b" | "a"
-                        );
+                        let valid = matches!(s, "x" | "y" | "z" | "w" | "r" | "g" | "b" | "a");
                         if valid {
-                            *constraint = Constraint::Equal(mk_type(Type::Float32), *ft, *loc, None);
+                            *constraint =
+                                Constraint::Equal(mk_type(Type::Float32), *ft, *loc, None);
                         } else {
                             errors.push(TypeError {
                                 location: *loc,
-                                message: format!("f32x4 has fields x/y/z/w or r/g/b/a, not {}", field_name),
+                                message: format!(
+                                    "f32x4 has fields x/y/z/w or r/g/b/a, not {}",
+                                    field_name
+                                ),
                             });
                         }
                     }

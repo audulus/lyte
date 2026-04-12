@@ -598,10 +598,10 @@ impl<'a> FunctionTranslator<'a> {
 
         self.builder.switch_to_block(trap_block);
         self.builder.seal_block(trap_block);
-        let fn_ptr = self.builder.ins().iconst(
-            I64,
-            lyte_stack_overflow_trap as *const () as usize as i64,
-        );
+        let fn_ptr = self
+            .builder
+            .ins()
+            .iconst(I64, lyte_stack_overflow_trap as *const () as usize as i64);
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(I64));
         let sref = self.builder.import_signature(sig);
@@ -619,10 +619,10 @@ impl<'a> FunctionTranslator<'a> {
     /// before the function returns.
     fn emit_call_depth_release(&mut self) {
         let base = self.globals_base.expect("globals_base not set");
-        let depth =
-            self.builder
-                .ins()
-                .load(I32, MemFlags::trusted(), base, CALL_DEPTH_OFFSET);
+        let depth = self
+            .builder
+            .ins()
+            .load(I32, MemFlags::trusted(), base, CALL_DEPTH_OFFSET);
         let one = self.builder.ins().iconst(I32, 1);
         let new_depth = self.builder.ins().iadd(depth, one);
         self.builder
@@ -875,9 +875,9 @@ impl<'a> FunctionTranslator<'a> {
                     // Check if this is an extern function call.
                     let is_extern_fn = if let Expr::Id(callee_name) = &decl.arena[*fn_id] {
                         let callee_decls = decls.find(*callee_name);
-                        callee_decls.first().map_or(false, |d| {
-                            matches!(d, crate::Decl::Func(f) if f.is_extern)
-                        })
+                        callee_decls
+                            .first()
+                            .map_or(false, |d| matches!(d, crate::Decl::Func(f) if f.is_extern))
                     } else {
                         false
                     };
@@ -901,7 +901,11 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().call(local_callee, &args)
                     } else if is_extern_fn {
                         // Extern function: indirect call through {fn_ptr, context} in globals.
-                        let callee_name = if let Expr::Id(n) = &decl.arena[*fn_id] { *n } else { unreachable!() };
+                        let callee_name = if let Expr::Id(n) = &decl.arena[*fn_id] {
+                            *n
+                        } else {
+                            unreachable!()
+                        };
                         let callee_decl = {
                             let decls_found = decls.find(callee_name);
                             match decls_found.first() {
@@ -909,10 +913,19 @@ impl<'a> FunctionTranslator<'a> {
                                 _ => unreachable!(),
                             }
                         };
-                        let globals_offset = *self.globals.get(&callee_name).expect("extern fn not in globals");
+                        let globals_offset = *self
+                            .globals
+                            .get(&callee_name)
+                            .expect("extern fn not in globals");
                         let base = self.globals_base.expect("globals_base not set");
-                        let fn_ptr = self.builder.ins().load(I64, MemFlags::new(), base, globals_offset);
-                        let context = self.builder.ins().load(I64, MemFlags::new(), base, globals_offset + 8);
+                        let fn_ptr =
+                            self.builder
+                                .ins()
+                                .load(I64, MemFlags::new(), base, globals_offset);
+                        let context =
+                            self.builder
+                                .ins()
+                                .load(I64, MemFlags::new(), base, globals_offset + 8);
 
                         // Build signature with slices expanded to (ptr, i32).
                         use cranelift_codegen::ir::types::{I32, I64};
@@ -928,7 +941,8 @@ impl<'a> FunctionTranslator<'a> {
                             }
                         }
                         if !matches!(&*callee_decl.ret, crate::Type::Void) {
-                            sig.returns.push(AbiParam::new(callee_decl.ret.cranelift_type()));
+                            sig.returns
+                                .push(AbiParam::new(callee_decl.ret.cranelift_type()));
                         }
                         sig.call_conv = cranelift_codegen::isa::CallConv::SystemV;
 
@@ -941,17 +955,32 @@ impl<'a> FunctionTranslator<'a> {
                                 match &*actual_ty {
                                     crate::Type::Slice(_) => {
                                         // Already a fat pointer: load data_ptr and len.
-                                        let data_ptr = self.builder.ins().load(I64, MemFlags::new(), arg_val, 0);
-                                        let len = self.builder.ins().load(I32, MemFlags::new(), arg_val, 8);
+                                        let data_ptr = self.builder.ins().load(
+                                            I64,
+                                            MemFlags::new(),
+                                            arg_val,
+                                            0,
+                                        );
+                                        let len = self.builder.ins().load(
+                                            I32,
+                                            MemFlags::new(),
+                                            arg_val,
+                                            8,
+                                        );
                                         args.push(data_ptr);
                                         args.push(len);
                                     }
                                     crate::Type::Array(_, sz) => {
                                         // Sized array: arg_val IS the data pointer.
                                         args.push(arg_val);
-                                        args.push(self.builder.ins().iconst(I32, sz.known() as i64));
+                                        args.push(
+                                            self.builder.ins().iconst(I32, sz.known() as i64),
+                                        );
                                     }
-                                    _ => panic!("JIT extern call: expected slice or array, got {:?}", actual_ty),
+                                    _ => panic!(
+                                        "JIT extern call: expected slice or array, got {:?}",
+                                        actual_ty
+                                    ),
                                 }
                             } else {
                                 args.push(arg_val);
@@ -981,7 +1010,7 @@ impl<'a> FunctionTranslator<'a> {
                         let sig = if is_assert {
                             let mut s = self.module.make_signature();
                             s.params.push(AbiParam::new(I64)); // globals
-                            s.params.push(AbiParam::new(I8));  // val
+                            s.params.push(AbiParam::new(I8)); // val
                             s
                         } else {
                             fn_sig(&self.module, from, to)
@@ -1861,10 +1890,9 @@ impl<'a> FunctionTranslator<'a> {
             Unop::Neg => {
                 let t = decl.types[arg_id];
                 match *t {
-                    crate::types::Type::Float32 | crate::types::Type::Float64
-                    | crate::types::Type::Float32x4 => {
-                        self.builder.ins().fneg(v)
-                    }
+                    crate::types::Type::Float32
+                    | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => self.builder.ins().fneg(v),
                     _ => self.builder.ins().imul_imm(v, -1),
                 }
             }
@@ -2034,10 +2062,9 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().iadd(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64
-                    | crate::types::Type::Float32x4 => {
-                        self.builder.ins().fadd(lhs, rhs)
-                    }
+                    crate::types::Type::Float32
+                    | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => self.builder.ins().fadd(lhs, rhs),
                     _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
@@ -2051,10 +2078,9 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().isub(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64
-                    | crate::types::Type::Float32x4 => {
-                        self.builder.ins().fsub(lhs, rhs)
-                    }
+                    crate::types::Type::Float32
+                    | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => self.builder.ins().fsub(lhs, rhs),
                     _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
@@ -2067,10 +2093,9 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().imul(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64
-                    | crate::types::Type::Float32x4 => {
-                        self.builder.ins().fmul(lhs, rhs)
-                    }
+                    crate::types::Type::Float32
+                    | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => self.builder.ins().fmul(lhs, rhs),
                     _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
@@ -2083,10 +2108,9 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::UInt32
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().udiv(lhs, rhs),
-                    crate::types::Type::Float32 | crate::types::Type::Float64
-                    | crate::types::Type::Float32x4 => {
-                        self.builder.ins().fdiv(lhs, rhs)
-                    }
+                    crate::types::Type::Float32
+                    | crate::types::Type::Float64
+                    | crate::types::Type::Float32x4 => self.builder.ins().fdiv(lhs, rhs),
                     _ => unreachable!("type {:?} not supported for this binary op", t),
                 }
             }
@@ -2109,8 +2133,10 @@ impl<'a> FunctionTranslator<'a> {
                     let vec_ty = decl.types[*vec_id];
                     if matches!(*vec_ty, crate::types::Type::Float32x4) {
                         let lane: u8 = match &***field_name {
-                            "x" | "r" => 0, "y" | "g" => 1,
-                            "z" | "b" => 2, "w" | "a" => 3,
+                            "x" | "r" => 0,
+                            "y" | "g" => 1,
+                            "z" | "b" => 2,
+                            "w" | "a" => 3,
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
                         let rhs = self.translate_expr(rhs_id, decl, decls);

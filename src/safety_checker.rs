@@ -444,7 +444,11 @@ impl SafetyChecker {
                 for lb in 0..self.len_bounds.len() {
                     let array = self.len_bounds[lb].array;
                     if self.len_bounds[lb].index == hi {
-                        if !self.len_bounds.iter().any(|b| b.index == lo && b.array == array) {
+                        if !self
+                            .len_bounds
+                            .iter()
+                            .any(|b| b.index == lo && b.array == array)
+                        {
                             self.len_bounds.push(LenBound { index: lo, array });
                             added = true;
                         }
@@ -454,7 +458,11 @@ impl SafetyChecker {
                 for lb in 0..self.leq_len_bounds.len() {
                     let array = self.leq_len_bounds[lb].array;
                     if self.leq_len_bounds[lb].index == hi {
-                        if !self.len_bounds.iter().any(|b| b.index == lo && b.array == array) {
+                        if !self
+                            .len_bounds
+                            .iter()
+                            .any(|b| b.index == lo && b.array == array)
+                        {
                             self.len_bounds.push(LenBound { index: lo, array });
                             added = true;
                         }

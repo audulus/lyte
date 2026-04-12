@@ -429,7 +429,10 @@ fn replace_reg_uses_until_clobber(
             | Opcode::SaveRegs { .. }
             | Opcode::RestoreRegs { .. } => break,
             // For Call/CallIndirect/CallClosure/CallExtern: replace in the args range, then stop.
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } | Opcode::CallExtern { .. } => {
+            Opcode::Call { .. }
+            | Opcode::CallIndirect { .. }
+            | Opcode::CallClosure { .. }
+            | Opcode::CallExtern { .. } => {
                 code[i].replace_src_reg(old_reg, new_reg);
                 break;
             }
@@ -913,7 +916,10 @@ fn register_allocation(code: &mut Vec<Opcode>, param_count: u8) -> (u8, Vec<Reg>
     for (i, op) in code.iter().enumerate() {
         let is_call = matches!(
             op,
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } | Opcode::CallExtern { .. }
+            Opcode::Call { .. }
+                | Opcode::CallIndirect { .. }
+                | Opcode::CallClosure { .. }
+                | Opcode::CallExtern { .. }
         );
         if !is_call {
             continue;

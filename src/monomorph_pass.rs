@@ -127,9 +127,7 @@ impl MonomorphPass {
                             // Substitute explicit type args into the generic signature
                             // and check if it unifies with the solved call-site type.
                             let mut inst = Instance::new();
-                            for (tv, ta) in
-                                target_fdecl.typevars.iter().zip(type_args.iter())
-                            {
+                            for (tv, ta) in target_fdecl.typevars.iter().zip(type_args.iter()) {
                                 inst.insert(mk_type(Type::Var(*tv)), *ta);
                             }
                             let candidate_ty = target_fdecl.ty().subst(&inst);

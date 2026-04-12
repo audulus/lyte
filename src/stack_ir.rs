@@ -148,11 +148,19 @@ pub enum StackOp {
     /// must be spilled to memory before the call (non-arg live TOS values,
     /// 0..=4 - args). Filled in by a post-codegen pass from static stack
     /// depth; codegen emits 0 as a placeholder.
-    Call { func: u32, args: u8, preserve: u8 },
+    Call {
+        func: u32,
+        args: u8,
+        preserve: u8,
+    },
     /// Pop func_idx, pop N args, call, push result.
-    CallIndirect { args: u8 },
+    CallIndirect {
+        args: u8,
+    },
     /// Pop fat_ptr_addr, pop N args, call closure, push result.
-    CallClosure { args: u8 },
+    CallClosure {
+        args: u8,
+    },
     /// Pop result value, return to caller.
     Return,
     /// Return without a value (void functions).
@@ -213,7 +221,6 @@ pub enum StackOp {
     // FusedGetGetFMulFW / FusedGetAddrFMulF*FW / LocalSetL*FW — were
     // all removed. f32 fusion happens in F-variants only, in the
     // float-window section below.)
-
     /// locals[a] + locals[b] (i64). Pop 0, push 1.
     FusedGetGetIAdd(u16, u16),
     /// locals[a] < locals[b] (i64 signed). Pop 0, push 1.
@@ -281,7 +288,6 @@ pub enum StackOp {
     // compiles to direct single-precision FMA/fadd/... without the
     // fcvt round-trips that a double-typed window forces on every op
     // (see §12.2 of the plan).
-
     /// Push an f32 constant onto the float window.
     F32ConstF(f32),
     /// Push the value of scalar local N (interpreted as f32) onto the float window.
@@ -294,12 +300,21 @@ pub enum StackOp {
     DropF,
 
     // Float arithmetic (binary, pop 2 push 1, all in f-window).
-    FAddF, FSubF, FMulF, FDivF, FPowF,
+    FAddF,
+    FSubF,
+    FMulF,
+    FDivF,
+    FPowF,
     /// Pop 1 push 1 (negate) on f-window.
     FNegF,
 
     // Float comparisons: pop 2 from f-window, push 0/1 to **int** window.
-    FEqF, FNeF, FLtF, FLeF, FGtF, FGeF,
+    FEqF,
+    FNeF,
+    FLtF,
+    FLeF,
+    FGtF,
+    FGeF,
 
     // Conversions / window crossings
     /// Pop f0 (as float), push int t0 (= signed i32 cast).
@@ -321,10 +336,27 @@ pub enum StackOp {
     StoreF32OffF(i32),
 
     // Float math intrinsics — all read f0, write f0.
-    SinF32F, CosF32F, TanF32F, AsinF32F, AcosF32F, AtanF32F,
-    SinhF32F, CoshF32F, TanhF32F, AsinhF32F, AcoshF32F, AtanhF32F,
-    LnF32F, ExpF32F, Exp2F32F, Log10F32F, Log2F32F,
-    SqrtF32F, AbsF32F, FloorF32F, CeilF32F,
+    SinF32F,
+    CosF32F,
+    TanF32F,
+    AsinF32F,
+    AcosF32F,
+    AtanF32F,
+    SinhF32F,
+    CoshF32F,
+    TanhF32F,
+    AsinhF32F,
+    AcoshF32F,
+    AtanhF32F,
+    LnF32F,
+    ExpF32F,
+    Exp2F32F,
+    Log10F32F,
+    Log2F32F,
+    SqrtF32F,
+    AbsF32F,
+    FloorF32F,
+    CeilF32F,
     /// Read f0 and f1, push result to f0.
     Atan2F32F,
     /// Pop f0, push int t0 (1 if NaN, else 0).
@@ -337,7 +369,6 @@ pub enum StackOp {
     PrintF32F,
 
     // === Float-window fused superinstructions (Phase 5) ===
-
     /// f0 = locals[a] + locals[b] (f32). Pop 0, push 1.
     FusedGetGetFAddF(u16, u16),
     /// f0 = locals[a] - locals[b] (f32).
@@ -528,7 +559,11 @@ impl fmt::Display for StackOp {
             StackOp::Jump(off) => write!(f, "jump {}", off),
             StackOp::JumpIfZero(off) => write!(f, "jump_if_zero {}", off),
             StackOp::JumpIfNotZero(off) => write!(f, "jump_if_not_zero {}", off),
-            StackOp::Call { func, args, preserve } => {
+            StackOp::Call {
+                func,
+                args,
+                preserve,
+            } => {
                 write!(f, "call func={} args={} preserve={}", func, args, preserve)
             }
             StackOp::CallIndirect { args } => write!(f, "call_indirect args={}", args),
@@ -567,26 +602,60 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetGetIAdd(a, b) => write!(f, "fused.get_get_iadd {} {}", a, b),
             StackOp::FusedGetGetILt(a, b) => write!(f, "fused.get_get_ilt {} {}", a, b),
             StackOp::FusedAddrLoad32Off(s, o) => write!(f, "fused.addr_load32off {} {}", s, o),
-            StackOp::FusedGetAddImmSet(s, v, d) => write!(f, "fused.get_addimm_set {} {} {}", s, v, d),
-            StackOp::FusedGetGetILtJumpIfZero(a, b, o) => write!(f, "fused.get_get_ilt_jiz {} {} {}", a, b, o),
+            StackOp::FusedGetAddImmSet(s, v, d) => {
+                write!(f, "fused.get_addimm_set {} {} {}", s, v, d)
+            }
+            StackOp::FusedGetGetILtJumpIfZero(a, b, o) => {
+                write!(f, "fused.get_get_ilt_jiz {} {} {}", a, b, o)
+            }
             StackOp::FusedConstSet(v, n) => write!(f, "fused.const_set {} {}", v, n),
             StackOp::FusedF32ConstSet(v, n) => write!(f, "fused.f32const_set {} {}", v, n),
-            StackOp::FusedAddrGetSliceLoad32(s, i) => write!(f, "fused.addr_get_sload32 {} {}", s, i),
-            StackOp::FusedAddrGetSliceStore32(s, i) => write!(f, "fused.addr_get_sstore32 {} {}", s, i),
-            StackOp::FusedLocalArrayLoad32(s, i) => write!(f, "fused.local_array_load32 {} {}", s, i),
-            StackOp::FusedLocalArrayStore32(s, i) => write!(f, "fused.local_array_store32 {} {}", s, i),
+            StackOp::FusedAddrGetSliceLoad32(s, i) => {
+                write!(f, "fused.addr_get_sload32 {} {}", s, i)
+            }
+            StackOp::FusedAddrGetSliceStore32(s, i) => {
+                write!(f, "fused.addr_get_sstore32 {} {}", s, i)
+            }
+            StackOp::FusedLocalArrayLoad32(s, i) => {
+                write!(f, "fused.local_array_load32 {} {}", s, i)
+            }
+            StackOp::FusedLocalArrayStore32(s, i) => {
+                write!(f, "fused.local_array_store32 {} {}", s, i)
+            }
             StackOp::FusedGetSet(a, b) => write!(f, "fused.get_set {} {}", a, b),
-            StackOp::FusedAddrLoad32OffSet(s, o, d) => write!(f, "fused.addr_load32off_set {} {} {}", s, o, d),
-            StackOp::FusedAddrImmGetStore32(s, o, src) => write!(f, "fused.addr_imm_get_store32 {} {} {}", s, o, src),
-            StackOp::FusedGetGetFAddSet(a, b, d) => write!(f, "fused.get_get_fadd_set {} {} {}", a, b, d),
-            StackOp::FusedGetGetFSubSet(a, b, d) => write!(f, "fused.get_get_fsub_set {} {} {}", a, b, d),
-            StackOp::FusedGetGetFMulSet(a, b, d) => write!(f, "fused.get_get_fmul_set {} {} {}", a, b, d),
-            StackOp::FusedGetGetFDivSet(a, b, d) => write!(f, "fused.get_get_fdiv_set {} {} {}", a, b, d),
-            StackOp::FusedGetGetIAddSet(a, b, d) => write!(f, "fused.get_get_iadd_set {} {} {}", a, b, d),
-            StackOp::FusedGetGetISubSet(a, b, d) => write!(f, "fused.get_get_isub_set {} {} {}", a, b, d),
-            StackOp::FusedGetGetIMulSet(a, b, d) => write!(f, "fused.get_get_imul_set {} {} {}", a, b, d),
-            StackOp::FusedFieldCopy32(s, src, dst) => write!(f, "fused.field_copy32 {} {} {}", s, src, dst),
-            StackOp::FusedTeeSliceStore32(n, s, idx) => write!(f, "fused.tee_sstore32 {} {} {}", n, s, idx),
+            StackOp::FusedAddrLoad32OffSet(s, o, d) => {
+                write!(f, "fused.addr_load32off_set {} {} {}", s, o, d)
+            }
+            StackOp::FusedAddrImmGetStore32(s, o, src) => {
+                write!(f, "fused.addr_imm_get_store32 {} {} {}", s, o, src)
+            }
+            StackOp::FusedGetGetFAddSet(a, b, d) => {
+                write!(f, "fused.get_get_fadd_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedGetGetFSubSet(a, b, d) => {
+                write!(f, "fused.get_get_fsub_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedGetGetFMulSet(a, b, d) => {
+                write!(f, "fused.get_get_fmul_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedGetGetFDivSet(a, b, d) => {
+                write!(f, "fused.get_get_fdiv_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedGetGetIAddSet(a, b, d) => {
+                write!(f, "fused.get_get_iadd_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedGetGetISubSet(a, b, d) => {
+                write!(f, "fused.get_get_isub_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedGetGetIMulSet(a, b, d) => {
+                write!(f, "fused.get_get_imul_set {} {} {}", a, b, d)
+            }
+            StackOp::FusedFieldCopy32(s, src, dst) => {
+                write!(f, "fused.field_copy32 {} {} {}", s, src, dst)
+            }
+            StackOp::FusedTeeSliceStore32(n, s, idx) => {
+                write!(f, "fused.tee_sstore32 {} {} {}", n, s, idx)
+            }
             // === Float-window ops (Phase 1+) ===
             StackOp::F32ConstF(v) => write!(f, "fw.f32.const {}", v),
             StackOp::LocalGetF(n) => write!(f, "fw.local.get {}", n),
@@ -646,15 +715,31 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetFSubF(a) => write!(f, "fw.fused.get_fsub {}", a),
             StackOp::FusedFMulFAddF => write!(f, "fw.fused.fmul_fadd"),
             StackOp::FusedFMulFSubF => write!(f, "fw.fused.fmul_fsub"),
-            StackOp::FusedGetAddrFMulFAddF(a, s, o) => write!(f, "fw.fused.get_addr_fmul_fadd {} {} {}", a, s, o),
-            StackOp::FusedGetAddrFMulFSubF(a, s, o) => write!(f, "fw.fused.get_addr_fmul_fsub {} {} {}", a, s, o),
+            StackOp::FusedGetAddrFMulFAddF(a, s, o) => {
+                write!(f, "fw.fused.get_addr_fmul_fadd {} {} {}", a, s, o)
+            }
+            StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
+                write!(f, "fw.fused.get_addr_fmul_fsub {} {} {}", a, s, o)
+            }
             StackOp::FusedAddrLoad32OffF(s, o) => write!(f, "fw.fused.addr_load32off {} {}", s, o),
-            StackOp::FusedAddrGetSliceLoad32F(s, i) => write!(f, "fw.fused.addr_get_sload32 {} {}", s, i),
-            StackOp::FusedAddrGetSliceStore32F(s, i) => write!(f, "fw.fused.addr_get_sstore32 {} {}", s, i),
-            StackOp::FusedTeeSliceStore32F(n, s, i) => write!(f, "fw.fused.tee_sstore32 {} {} {}", n, s, i),
-            StackOp::FusedLocalArrayLoad32F(s, i) => write!(f, "fw.fused.local_array_load32 {} {}", s, i),
-            StackOp::FusedLocalArrayStore32F(s, i) => write!(f, "fw.fused.local_array_store32 {} {}", s, i),
-            StackOp::FusedF32ConstFGtJumpIfZeroF(v, o) => write!(f, "fw.fused.f32const_fgt_jiz {} {}", v, o),
+            StackOp::FusedAddrGetSliceLoad32F(s, i) => {
+                write!(f, "fw.fused.addr_get_sload32 {} {}", s, i)
+            }
+            StackOp::FusedAddrGetSliceStore32F(s, i) => {
+                write!(f, "fw.fused.addr_get_sstore32 {} {}", s, i)
+            }
+            StackOp::FusedTeeSliceStore32F(n, s, i) => {
+                write!(f, "fw.fused.tee_sstore32 {} {} {}", n, s, i)
+            }
+            StackOp::FusedLocalArrayLoad32F(s, i) => {
+                write!(f, "fw.fused.local_array_load32 {} {}", s, i)
+            }
+            StackOp::FusedLocalArrayStore32F(s, i) => {
+                write!(f, "fw.fused.local_array_store32 {} {}", s, i)
+            }
+            StackOp::FusedF32ConstFGtJumpIfZeroF(v, o) => {
+                write!(f, "fw.fused.f32const_fgt_jiz {} {}", v, o)
+            }
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
         }

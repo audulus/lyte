@@ -132,9 +132,7 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
 
         // If this is a jump, fix its offset.
         let jump_target_old: Option<usize> = match op {
-            StackOp::Jump(off)
-            | StackOp::JumpIfZero(off)
-            | StackOp::JumpIfNotZero(off) => {
+            StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => {
                 Some((i as i64 + 1 + *off as i64) as usize)
             }
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => {
@@ -158,9 +156,9 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
             // len == 1 for jumps (they're never inlined).
             debug_assert!(len == 1);
             match &mut new_ops[start] {
-                StackOp::Jump(o)
-                | StackOp::JumpIfZero(o)
-                | StackOp::JumpIfNotZero(o) => *o = new_off as i32,
+                StackOp::Jump(o) | StackOp::JumpIfZero(o) | StackOp::JumpIfNotZero(o) => {
+                    *o = new_off as i32
+                }
                 StackOp::FusedGetGetILtJumpIfZero(_, _, o) => *o = new_off as i32,
                 StackOp::FusedF32ConstFGtJumpIfZeroF(_, o) => *o = new_off as i32,
                 _ => unreachable!(),
@@ -176,11 +174,8 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
 /// Run the inlining pass over a program.
 pub fn inline_trivial(program: &mut StackProgram) {
     // Analyze each function to find inline candidates.
-    let bodies: Vec<Option<Vec<StackOp>>> = program
-        .functions
-        .iter()
-        .map(trivial_inline_body)
-        .collect();
+    let bodies: Vec<Option<Vec<StackOp>>> =
+        program.functions.iter().map(trivial_inline_body).collect();
 
     // Skip if nothing is inlinable.
     if bodies.iter().all(|b| b.is_none()) {

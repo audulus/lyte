@@ -432,7 +432,10 @@ fn type_to_extern_types(ty: TypeID) -> Vec<crate::vm::ExternType> {
         Type::Float32 => vec![crate::vm::ExternType::F32],
         Type::Float64 => vec![crate::vm::ExternType::F64],
         Type::Slice(_) => vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32],
-        _ => panic!("unsupported extern function parameter type: {}", ty.pretty_print()),
+        _ => panic!(
+            "unsupported extern function parameter type: {}",
+            ty.pretty_print()
+        ),
     }
 }
 
@@ -1501,10 +1504,34 @@ impl<'a> FunctionTranslator<'a> {
                 let dst = self.alloc_reg();
                 func.emit(Opcode::LocalAddr { dst, slot });
                 match op {
-                    Binop::Plus => { func.emit(Opcode::F32x4Add { dst, a: lhs, b: rhs }); }
-                    Binop::Minus => { func.emit(Opcode::F32x4Sub { dst, a: lhs, b: rhs }); }
-                    Binop::Mult => { func.emit(Opcode::F32x4Mul { dst, a: lhs, b: rhs }); }
-                    Binop::Div => { func.emit(Opcode::F32x4Div { dst, a: lhs, b: rhs }); }
+                    Binop::Plus => {
+                        func.emit(Opcode::F32x4Add {
+                            dst,
+                            a: lhs,
+                            b: rhs,
+                        });
+                    }
+                    Binop::Minus => {
+                        func.emit(Opcode::F32x4Sub {
+                            dst,
+                            a: lhs,
+                            b: rhs,
+                        });
+                    }
+                    Binop::Mult => {
+                        func.emit(Opcode::F32x4Mul {
+                            dst,
+                            a: lhs,
+                            b: rhs,
+                        });
+                    }
+                    Binop::Div => {
+                        func.emit(Opcode::F32x4Div {
+                            dst,
+                            a: lhs,
+                            b: rhs,
+                        });
+                    }
                     _ => panic!("unsupported f32x4 binop: {:?}", op),
                 }
                 return dst;
@@ -2001,12 +2028,18 @@ impl<'a> FunctionTranslator<'a> {
                 if matches!(&*lhs_ty, Type::Float32x4) {
                     let s: &str = name;
                     let offset: i32 = match s {
-                        "x" | "r" => 0, "y" | "g" => 4,
-                        "z" | "b" => 8, "w" | "a" => 12,
+                        "x" | "r" => 0,
+                        "y" | "g" => 4,
+                        "z" | "b" => 8,
+                        "w" | "a" => 12,
                         _ => panic!("invalid f32x4 field: {}", name),
                     };
                     let dst = self.alloc_reg();
-                    func.emit(Opcode::IAddImm { dst, src: lhs_addr, imm: offset });
+                    func.emit(Opcode::IAddImm {
+                        dst,
+                        src: lhs_addr,
+                        imm: offset,
+                    });
                     return dst;
                 }
 
@@ -2230,10 +2263,26 @@ impl<'a> FunctionTranslator<'a> {
                 let slot = self.alloc_local(16);
                 let dst = self.alloc_reg();
                 func.emit(Opcode::LocalAddr { dst, slot });
-                func.emit(Opcode::Store32Off { base: dst, offset: 0, src: x });
-                func.emit(Opcode::Store32Off { base: dst, offset: 4, src: y });
-                func.emit(Opcode::Store32Off { base: dst, offset: 8, src: z });
-                func.emit(Opcode::Store32Off { base: dst, offset: 12, src: w });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 0,
+                    src: x,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 4,
+                    src: y,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 8,
+                    src: z,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 12,
+                    src: w,
+                });
                 return dst;
             }
 
@@ -2243,10 +2292,26 @@ impl<'a> FunctionTranslator<'a> {
                 let slot = self.alloc_local(16);
                 let dst = self.alloc_reg();
                 func.emit(Opcode::LocalAddr { dst, slot });
-                func.emit(Opcode::Store32Off { base: dst, offset: 0, src: x });
-                func.emit(Opcode::Store32Off { base: dst, offset: 4, src: x });
-                func.emit(Opcode::Store32Off { base: dst, offset: 8, src: x });
-                func.emit(Opcode::Store32Off { base: dst, offset: 12, src: x });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 0,
+                    src: x,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 4,
+                    src: x,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 8,
+                    src: x,
+                });
+                func.emit(Opcode::Store32Off {
+                    base: dst,
+                    offset: 12,
+                    src: x,
+                });
                 return dst;
             }
 
@@ -2336,7 +2401,10 @@ impl<'a> FunctionTranslator<'a> {
                 let callee_decls = self.decls.find(*callee_name);
                 if let Some(Decl::Func(f)) = callee_decls.first() {
                     if f.is_extern {
-                        let globals_offset = *self.globals.get(callee_name).expect("extern function not in globals");
+                        let globals_offset = *self
+                            .globals
+                            .get(callee_name)
+                            .expect("extern function not in globals");
 
                         // Build the C-level parameter types (slices expand to ptr + i32).
                         let mut c_param_types: Vec<crate::vm::ExternType> = Vec::new();
@@ -2358,7 +2426,8 @@ impl<'a> FunctionTranslator<'a> {
                             let param_ty = f.params[i].ty.unwrap();
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 // Coerce array → slice if needed.
-                                let wrapped = self.wrap_as_slice(arg_reg, self.expr_type(*arg_id), func);
+                                let wrapped =
+                                    self.wrap_as_slice(arg_reg, self.expr_type(*arg_id), func);
                                 arg_values.push(wrapped);
                             } else {
                                 arg_values.push(arg_reg);
@@ -2375,9 +2444,16 @@ impl<'a> FunctionTranslator<'a> {
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 // arg_reg points to fat pointer {data_ptr: i64, len: i32}.
                                 let ptr_reg = self.alloc_reg();
-                                func.emit(Opcode::Load64 { dst: ptr_reg, addr: arg_reg });
+                                func.emit(Opcode::Load64 {
+                                    dst: ptr_reg,
+                                    addr: arg_reg,
+                                });
                                 let len_reg = self.alloc_reg();
-                                func.emit(Opcode::Load32Off { dst: len_reg, base: arg_reg, offset: 8 });
+                                func.emit(Opcode::Load32Off {
+                                    dst: len_reg,
+                                    base: arg_reg,
+                                    offset: 8,
+                                });
                                 c_arg_count += 2;
                             } else {
                                 let target = self.alloc_reg();
@@ -2931,11 +3007,22 @@ impl<'a> FunctionTranslator<'a> {
         // f32x4 element extraction: base[idx] where base is a ptr to 4 f32s
         if matches!(&*arr_ty, Type::Float32x4) {
             let size_reg = self.alloc_reg();
-            func.emit(Opcode::LoadImm { dst: size_reg, value: 4 });
+            func.emit(Opcode::LoadImm {
+                dst: size_reg,
+                value: 4,
+            });
             let offset = self.alloc_reg();
-            func.emit(Opcode::IMul { dst: offset, a: idx, b: size_reg });
+            func.emit(Opcode::IMul {
+                dst: offset,
+                a: idx,
+                b: size_reg,
+            });
             let addr = self.alloc_reg();
-            func.emit(Opcode::IAdd { dst: addr, a: arr, b: offset });
+            func.emit(Opcode::IAdd {
+                dst: addr,
+                a: arr,
+                b: offset,
+            });
             let dst = self.alloc_reg();
             func.emit(Opcode::Load32 { dst, addr });
             return dst;

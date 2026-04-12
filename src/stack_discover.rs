@@ -16,28 +16,78 @@ pub enum OpTag {
     LocalTee,
     LocalAddr,
     GlobalAddr,
-    IAdd, ISub, IMul, IDiv,
-    FAdd, FSub, FMul, FDiv,
-    DAdd, DSub, DMul, DDiv,
-    FNeg, INeg, DNeg,
+    IAdd,
+    ISub,
+    IMul,
+    IDiv,
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
+    DAdd,
+    DSub,
+    DMul,
+    DDiv,
+    FNeg,
+    INeg,
+    DNeg,
     IAddImm,
-    IEq, INe, ILt, ILe, IGt, IGe,
-    ULt, UGt,
-    FEq, FNe, FLt, FLe, FGt, FGe,
-    DEq, DLt, DLe,
-    And, Or, Xor, Not, Shl, Shr, UShr,
-    Load8, Load32, Load64,
-    Load32Off, Load64Off,
-    Store8, Store32, Store64,
-    Store8Off, Store32Off, Store64Off,
-    MemCopy, MemZero,
-    Jump, JumpIfZero, JumpIfNotZero,
-    SliceLoad32, SliceStore32,
+    IEq,
+    INe,
+    ILt,
+    ILe,
+    IGt,
+    IGe,
+    ULt,
+    UGt,
+    FEq,
+    FNe,
+    FLt,
+    FLe,
+    FGt,
+    FGe,
+    DEq,
+    DLt,
+    DLe,
+    And,
+    Or,
+    Xor,
+    Not,
+    Shl,
+    Shr,
+    UShr,
+    Load8,
+    Load32,
+    Load64,
+    Load32Off,
+    Load64Off,
+    Store8,
+    Store32,
+    Store64,
+    Store8Off,
+    Store32Off,
+    Store64Off,
+    MemCopy,
+    MemZero,
+    Jump,
+    JumpIfZero,
+    JumpIfNotZero,
+    SliceLoad32,
+    SliceStore32,
     Drop,
-    SinF32, CosF32,
-    I32ToF32, F32ToI32, I32ToF64, F64ToI32, F32ToF64, F64ToF32,
-    I32ToI8, I8ToI32,
-    Call, Return, ReturnVoid,
+    SinF32,
+    CosF32,
+    I32ToF32,
+    F32ToI32,
+    I32ToF64,
+    F64ToI32,
+    F32ToF64,
+    F64ToF32,
+    I32ToI8,
+    I8ToI32,
+    Call,
+    Return,
+    ReturnVoid,
     Other,
     // Already-fused ops (these shouldn't appear in unfused profiling)
     Fused,
@@ -115,30 +165,71 @@ fn tag_of(op: &StackOp) -> OpTag {
 
 /// Whether an op tag can participate in fusion (not a branch/call boundary).
 fn is_fusable(tag: &OpTag) -> bool {
-    !matches!(tag,
-        OpTag::Jump | OpTag::JumpIfZero | OpTag::JumpIfNotZero |
-        OpTag::Call | OpTag::Return | OpTag::ReturnVoid |
-        OpTag::Other | OpTag::Fused
+    !matches!(
+        tag,
+        OpTag::Jump
+            | OpTag::JumpIfZero
+            | OpTag::JumpIfNotZero
+            | OpTag::Call
+            | OpTag::Return
+            | OpTag::ReturnVoid
+            | OpTag::Other
+            | OpTag::Fused
     )
 }
 
 /// Stack depth delta for an op tag.
 fn tag_delta(tag: &OpTag) -> i32 {
     match tag {
-        OpTag::I64Const | OpTag::F32Const | OpTag::LocalGet | OpTag::LocalAddr | OpTag::GlobalAddr => 1,
+        OpTag::I64Const
+        | OpTag::F32Const
+        | OpTag::LocalGet
+        | OpTag::LocalAddr
+        | OpTag::GlobalAddr => 1,
         OpTag::LocalSet | OpTag::Drop => -1,
-        OpTag::IAdd | OpTag::ISub | OpTag::IMul | OpTag::IDiv |
-        OpTag::FAdd | OpTag::FSub | OpTag::FMul | OpTag::FDiv |
-        OpTag::DAdd | OpTag::DSub | OpTag::DMul | OpTag::DDiv |
-        OpTag::IEq | OpTag::INe | OpTag::ILt | OpTag::ILe | OpTag::IGt | OpTag::IGe |
-        OpTag::ULt | OpTag::UGt |
-        OpTag::FEq | OpTag::FNe | OpTag::FLt | OpTag::FLe | OpTag::FGt | OpTag::FGe |
-        OpTag::DEq | OpTag::DLt | OpTag::DLe |
-        OpTag::And | OpTag::Or | OpTag::Xor | OpTag::Shl | OpTag::Shr | OpTag::UShr |
-        OpTag::SliceLoad32 => -1,
-        OpTag::Store8 | OpTag::Store32 | OpTag::Store64 |
-        OpTag::Store8Off | OpTag::Store32Off | OpTag::Store64Off |
-        OpTag::MemCopy => -2,
+        OpTag::IAdd
+        | OpTag::ISub
+        | OpTag::IMul
+        | OpTag::IDiv
+        | OpTag::FAdd
+        | OpTag::FSub
+        | OpTag::FMul
+        | OpTag::FDiv
+        | OpTag::DAdd
+        | OpTag::DSub
+        | OpTag::DMul
+        | OpTag::DDiv
+        | OpTag::IEq
+        | OpTag::INe
+        | OpTag::ILt
+        | OpTag::ILe
+        | OpTag::IGt
+        | OpTag::IGe
+        | OpTag::ULt
+        | OpTag::UGt
+        | OpTag::FEq
+        | OpTag::FNe
+        | OpTag::FLt
+        | OpTag::FLe
+        | OpTag::FGt
+        | OpTag::FGe
+        | OpTag::DEq
+        | OpTag::DLt
+        | OpTag::DLe
+        | OpTag::And
+        | OpTag::Or
+        | OpTag::Xor
+        | OpTag::Shl
+        | OpTag::Shr
+        | OpTag::UShr
+        | OpTag::SliceLoad32 => -1,
+        OpTag::Store8
+        | OpTag::Store32
+        | OpTag::Store64
+        | OpTag::Store8Off
+        | OpTag::Store32Off
+        | OpTag::Store64Off
+        | OpTag::MemCopy => -2,
         OpTag::MemZero => -1,
         OpTag::SliceStore32 => -3,
         _ => 0, // unary, tee, etc.
@@ -159,7 +250,11 @@ pub struct FusionPattern {
 }
 
 /// Discover hot instruction patterns in a program (run on UNFUSED bytecode).
-pub fn discover(programs: &[&StackProgram], max_len: usize, min_count: usize) -> Vec<FusionPattern> {
+pub fn discover(
+    programs: &[&StackProgram],
+    max_len: usize,
+    min_count: usize,
+) -> Vec<FusionPattern> {
     let mut ngram_counts: HashMap<Vec<OpTag>, usize> = HashMap::new();
 
     for program in programs {
@@ -171,12 +266,16 @@ pub fn discover(programs: &[&StackProgram], max_len: usize, min_count: usize) ->
             let mut is_target = vec![false; len];
             for (i, op) in func.ops.iter().enumerate() {
                 let off = match op {
-                    StackOp::Jump(o) | StackOp::JumpIfZero(o) | StackOp::JumpIfNotZero(o) => Some(*o),
+                    StackOp::Jump(o) | StackOp::JumpIfZero(o) | StackOp::JumpIfNotZero(o) => {
+                        Some(*o)
+                    }
                     _ => None,
                 };
                 if let Some(off) = off {
                     let target = (i as i64 + 1 + off as i64) as usize;
-                    if target < len { is_target[target] = true; }
+                    if target < len {
+                        is_target[target] = true;
+                    }
                 }
             }
 
@@ -187,10 +286,18 @@ pub fn discover(programs: &[&StackProgram], max_len: usize, min_count: usize) ->
                     // Skip if any element is unfusable or if sequence crosses a jump target.
                     let mut valid = true;
                     for j in 0..n {
-                        if !is_fusable(&seq[j]) { valid = false; break; }
-                        if j > 0 && is_target[i + j] { valid = false; break; }
+                        if !is_fusable(&seq[j]) {
+                            valid = false;
+                            break;
+                        }
+                        if j > 0 && is_target[i + j] {
+                            valid = false;
+                            break;
+                        }
                     }
-                    if !valid { continue; }
+                    if !valid {
+                        continue;
+                    }
 
                     *ngram_counts.entry(seq.to_vec()).or_insert(0) += 1;
                 }
@@ -203,15 +310,37 @@ pub fn discover(programs: &[&StackProgram], max_len: usize, min_count: usize) ->
         .filter(|(_, count)| *count >= min_count)
         .map(|(tags, count)| {
             let stack_delta: i32 = tags.iter().map(|t| tag_delta(t)).sum();
-            let imm_count = tags.iter().filter(|t| matches!(t,
-                OpTag::LocalGet | OpTag::LocalSet | OpTag::LocalTee | OpTag::LocalAddr |
-                OpTag::GlobalAddr | OpTag::I64Const | OpTag::F32Const |
-                OpTag::IAddImm | OpTag::Load32Off | OpTag::Load64Off |
-                OpTag::Store8Off | OpTag::Store32Off | OpTag::Store64Off |
-                OpTag::MemCopy | OpTag::MemZero
-            )).count() as u8;
+            let imm_count = tags
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t,
+                        OpTag::LocalGet
+                            | OpTag::LocalSet
+                            | OpTag::LocalTee
+                            | OpTag::LocalAddr
+                            | OpTag::GlobalAddr
+                            | OpTag::I64Const
+                            | OpTag::F32Const
+                            | OpTag::IAddImm
+                            | OpTag::Load32Off
+                            | OpTag::Load64Off
+                            | OpTag::Store8Off
+                            | OpTag::Store32Off
+                            | OpTag::Store64Off
+                            | OpTag::MemCopy
+                            | OpTag::MemZero
+                    )
+                })
+                .count() as u8;
             let dispatch_savings = count * (tags.len() - 1);
-            FusionPattern { tags, count, dispatch_savings, stack_delta, imm_count }
+            FusionPattern {
+                tags,
+                count,
+                dispatch_savings,
+                stack_delta,
+                imm_count,
+            }
         })
         .collect();
 
@@ -222,48 +351,95 @@ pub fn discover(programs: &[&StackProgram], max_len: usize, min_count: usize) ->
 
 /// Format a pattern for display.
 pub fn format_pattern(p: &FusionPattern) -> String {
-    let names: Vec<&str> = p.tags.iter().map(|t| match t {
-        OpTag::I64Const => "i64.const",
-        OpTag::F32Const => "f32.const",
-        OpTag::LocalGet => "local.get",
-        OpTag::LocalSet => "local.set",
-        OpTag::LocalTee => "local.tee",
-        OpTag::LocalAddr => "local.addr",
-        OpTag::GlobalAddr => "global.addr",
-        OpTag::IAdd => "i64.add", OpTag::ISub => "i64.sub",
-        OpTag::IMul => "i64.mul", OpTag::IDiv => "i64.div",
-        OpTag::FAdd => "f32.add", OpTag::FSub => "f32.sub",
-        OpTag::FMul => "f32.mul", OpTag::FDiv => "f32.div",
-        OpTag::DAdd => "f64.add", OpTag::DSub => "f64.sub",
-        OpTag::DMul => "f64.mul", OpTag::DDiv => "f64.div",
-        OpTag::FNeg => "f32.neg", OpTag::INeg => "i64.neg", OpTag::DNeg => "f64.neg",
-        OpTag::IAddImm => "i64.add_imm",
-        OpTag::IEq => "i64.eq", OpTag::INe => "i64.ne",
-        OpTag::ILt => "i64.lt", OpTag::ILe => "i64.le",
-        OpTag::IGt => "i64.gt", OpTag::IGe => "i64.ge",
-        OpTag::ULt => "u64.lt", OpTag::UGt => "u64.gt",
-        OpTag::FEq => "f32.eq", OpTag::FLt => "f32.lt", OpTag::FLe => "f32.le",
-        OpTag::FNe => "f32.ne", OpTag::FGt => "f32.gt", OpTag::FGe => "f32.ge",
-        OpTag::DEq => "f64.eq", OpTag::DLt => "f64.lt", OpTag::DLe => "f64.le",
-        OpTag::And => "i64.and", OpTag::Or => "i64.or", OpTag::Xor => "i64.xor",
-        OpTag::Not => "i64.not", OpTag::Shl => "i64.shl", OpTag::Shr => "i64.shr", OpTag::UShr => "i64.ushr",
-        OpTag::Load8 => "i8.load", OpTag::Load32 => "i32.load", OpTag::Load64 => "i64.load",
-        OpTag::Load32Off => "i32.load_off", OpTag::Load64Off => "i64.load_off",
-        OpTag::Store8 => "i8.store", OpTag::Store32 => "i32.store", OpTag::Store64 => "i64.store",
-        OpTag::Store8Off => "i8.store_off", OpTag::Store32Off => "i32.store_off", OpTag::Store64Off => "i64.store_off",
-        OpTag::MemCopy => "mem.copy", OpTag::MemZero => "mem.zero",
-        OpTag::SliceLoad32 => "slice.load32", OpTag::SliceStore32 => "slice.store32",
-        OpTag::Drop => "drop",
-        OpTag::SinF32 => "f32.sin", OpTag::CosF32 => "f32.cos",
-        OpTag::I32ToF32 => "i32_to_f32", OpTag::F32ToI32 => "f32_to_i32",
-        OpTag::I32ToF64 => "i32_to_f64", OpTag::F64ToI32 => "f64_to_i32",
-        OpTag::F32ToF64 => "f32_to_f64", OpTag::F64ToF32 => "f64_to_f32",
-        OpTag::I32ToI8 => "i32_to_i8", OpTag::I8ToI32 => "i8_to_i32",
-        _ => "?",
-    }).collect();
-    format!("{:>4} x {:>3} saves {:>5}  [imm:{}] delta:{:+}  {}",
-        p.count, p.tags.len(), p.dispatch_savings, p.imm_count, p.stack_delta,
-        names.join(" + "))
+    let names: Vec<&str> = p
+        .tags
+        .iter()
+        .map(|t| match t {
+            OpTag::I64Const => "i64.const",
+            OpTag::F32Const => "f32.const",
+            OpTag::LocalGet => "local.get",
+            OpTag::LocalSet => "local.set",
+            OpTag::LocalTee => "local.tee",
+            OpTag::LocalAddr => "local.addr",
+            OpTag::GlobalAddr => "global.addr",
+            OpTag::IAdd => "i64.add",
+            OpTag::ISub => "i64.sub",
+            OpTag::IMul => "i64.mul",
+            OpTag::IDiv => "i64.div",
+            OpTag::FAdd => "f32.add",
+            OpTag::FSub => "f32.sub",
+            OpTag::FMul => "f32.mul",
+            OpTag::FDiv => "f32.div",
+            OpTag::DAdd => "f64.add",
+            OpTag::DSub => "f64.sub",
+            OpTag::DMul => "f64.mul",
+            OpTag::DDiv => "f64.div",
+            OpTag::FNeg => "f32.neg",
+            OpTag::INeg => "i64.neg",
+            OpTag::DNeg => "f64.neg",
+            OpTag::IAddImm => "i64.add_imm",
+            OpTag::IEq => "i64.eq",
+            OpTag::INe => "i64.ne",
+            OpTag::ILt => "i64.lt",
+            OpTag::ILe => "i64.le",
+            OpTag::IGt => "i64.gt",
+            OpTag::IGe => "i64.ge",
+            OpTag::ULt => "u64.lt",
+            OpTag::UGt => "u64.gt",
+            OpTag::FEq => "f32.eq",
+            OpTag::FLt => "f32.lt",
+            OpTag::FLe => "f32.le",
+            OpTag::FNe => "f32.ne",
+            OpTag::FGt => "f32.gt",
+            OpTag::FGe => "f32.ge",
+            OpTag::DEq => "f64.eq",
+            OpTag::DLt => "f64.lt",
+            OpTag::DLe => "f64.le",
+            OpTag::And => "i64.and",
+            OpTag::Or => "i64.or",
+            OpTag::Xor => "i64.xor",
+            OpTag::Not => "i64.not",
+            OpTag::Shl => "i64.shl",
+            OpTag::Shr => "i64.shr",
+            OpTag::UShr => "i64.ushr",
+            OpTag::Load8 => "i8.load",
+            OpTag::Load32 => "i32.load",
+            OpTag::Load64 => "i64.load",
+            OpTag::Load32Off => "i32.load_off",
+            OpTag::Load64Off => "i64.load_off",
+            OpTag::Store8 => "i8.store",
+            OpTag::Store32 => "i32.store",
+            OpTag::Store64 => "i64.store",
+            OpTag::Store8Off => "i8.store_off",
+            OpTag::Store32Off => "i32.store_off",
+            OpTag::Store64Off => "i64.store_off",
+            OpTag::MemCopy => "mem.copy",
+            OpTag::MemZero => "mem.zero",
+            OpTag::SliceLoad32 => "slice.load32",
+            OpTag::SliceStore32 => "slice.store32",
+            OpTag::Drop => "drop",
+            OpTag::SinF32 => "f32.sin",
+            OpTag::CosF32 => "f32.cos",
+            OpTag::I32ToF32 => "i32_to_f32",
+            OpTag::F32ToI32 => "f32_to_i32",
+            OpTag::I32ToF64 => "i32_to_f64",
+            OpTag::F64ToI32 => "f64_to_i32",
+            OpTag::F32ToF64 => "f32_to_f64",
+            OpTag::F64ToF32 => "f64_to_f32",
+            OpTag::I32ToI8 => "i32_to_i8",
+            OpTag::I8ToI32 => "i8_to_i32",
+            _ => "?",
+        })
+        .collect();
+    format!(
+        "{:>4} x {:>3} saves {:>5}  [imm:{}] delta:{:+}  {}",
+        p.count,
+        p.tags.len(),
+        p.dispatch_savings,
+        p.imm_count,
+        p.stack_delta,
+        names.join(" + ")
+    )
 }
 
 /// Run discovery on benchmark programs and print results.
@@ -281,7 +457,14 @@ pub fn print_report(programs: &[&StackProgram]) {
     }
 
     let total_savings: usize = feasible.iter().take(30).map(|p| p.dispatch_savings).sum();
-    let total_ops: usize = programs.iter().map(|p| p.functions.iter().map(|f| f.ops.len()).sum::<usize>()).sum();
-    println!("\nTop 30 patterns would save {} dispatches out of {} total ({:.0}%)",
-        total_savings, total_ops, total_savings as f64 / total_ops as f64 * 100.0);
+    let total_ops: usize = programs
+        .iter()
+        .map(|p| p.functions.iter().map(|f| f.ops.len()).sum::<usize>())
+        .sum();
+    println!(
+        "\nTop 30 patterns would save {} dispatches out of {} total ({:.0}%)",
+        total_savings,
+        total_ops,
+        total_savings as f64 / total_ops as f64 * 100.0
+    );
 }

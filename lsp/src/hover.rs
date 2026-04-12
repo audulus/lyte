@@ -2,10 +2,7 @@ use crate::analysis::{self, AnalysisState};
 use lsp_types::*;
 use lyte::{Decl, Expr, ExprID, FuncDecl, Name};
 
-pub fn handle_hover(
-    state: &AnalysisState,
-    params: &HoverParams,
-) -> Option<Hover> {
+pub fn handle_hover(state: &AnalysisState, params: &HoverParams) -> Option<Hover> {
     let compiler = state.compiler()?;
     let uri = &params.text_document_position_params.text_document.uri;
     let pos = params.text_document_position_params.position;
@@ -104,13 +101,20 @@ mod tests {
         let mut state = AnalysisState::new();
         let uri = test_uri("/hover.lyte");
         // `x` is an f32; hovering over it should show its type.
-        state.update_document(uri.clone(), "fn foo() -> f32 {\n  let x = 1.0\n  x\n}".to_string());
+        state.update_document(
+            uri.clone(),
+            "fn foo() -> f32 {\n  let x = 1.0\n  x\n}".to_string(),
+        );
         let params = make_hover_params(&uri, 2, 2); // line 2 (0-indexed), col 2 = `x` return expr
         let result = handle_hover(&state, &params);
         assert!(result.is_some(), "expected hover result for variable");
         if let Some(hover) = result {
             if let HoverContents::Markup(markup) = hover.contents {
-                assert!(markup.value.contains("f32"), "expected f32 type, got: {}", markup.value);
+                assert!(
+                    markup.value.contains("f32"),
+                    "expected f32 type, got: {}",
+                    markup.value
+                );
             } else {
                 panic!("expected markup content");
             }

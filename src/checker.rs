@@ -208,7 +208,8 @@ impl Checker {
         match op {
             Unop::Neg => {
                 let ft = self.fresh();
-                let alts: Vec<_> = self.neg_overloads
+                let alts: Vec<_> = self
+                    .neg_overloads
                     .iter()
                     .map(|t| Alt {
                         ty: *t,
@@ -255,24 +256,14 @@ impl Checker {
         let bt = self.check_expr(rhs, arena, decls);
 
         if op.equality() {
-            self.eq(
-                at,
-                bt,
-                arena.locs[id],
-                "equality requires matching types",
-            );
+            self.eq(at, bt, arena.locs[id], "equality requires matching types");
 
             mk_type(Type::Bool)
         } else if let Binop::Assign = op {
             // Lvalue check is deferred to check_lvalues() after type solving,
             // so that slice types are fully resolved.
 
-            self.eq(
-                at,
-                bt,
-                arena.locs[id],
-                "assignment requires matching types",
-            );
+            self.eq(at, bt, arena.locs[id], "assignment requires matching types");
 
             at
         } else if op.arithmetic() {
@@ -298,7 +289,12 @@ impl Checker {
                 }
             }
 
-            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], Some(format!("operator '{}'", format_binop(op)))));
+            self.add_constraint(Constraint::Or(
+                ft,
+                alts,
+                arena.locs[id],
+                Some(format!("operator '{}'", format_binop(op))),
+            ));
 
             let r = self.fresh();
 
@@ -322,7 +318,12 @@ impl Checker {
                 });
             }
 
-            self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], Some(format!("comparison"))));
+            self.add_constraint(Constraint::Or(
+                ft,
+                alts,
+                arena.locs[id],
+                Some(format!("comparison")),
+            ));
 
             let b = mk_type(Type::Bool);
 
@@ -453,7 +454,12 @@ impl Checker {
                         });
                     }
 
-                    self.add_constraint(Constraint::Or(t, alts, arena.locs[id], Some(format!("'{}'", name))));
+                    self.add_constraint(Constraint::Or(
+                        t,
+                        alts,
+                        arena.locs[id],
+                        Some(format!("'{}'", name)),
+                    ));
                     t
                 }
             }
@@ -474,12 +480,7 @@ impl Checker {
 
                 self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], None));
 
-                self.eq(
-                    func(et, *ty),
-                    ft,
-                    arena.locs[id],
-                    "no match for cast",
-                );
+                self.eq(func(et, *ty), ft, arena.locs[id], "no match for cast");
 
                 *ty
             }
@@ -575,8 +576,12 @@ impl Checker {
                     });
                 });
 
-                self.constraints
-                    .push(Constraint::Or(t, alts, arena.locs[id], Some(format!("enum case '.{}'", name))));
+                self.constraints.push(Constraint::Or(
+                    t,
+                    alts,
+                    arena.locs[id],
+                    Some(format!("enum case '.{}'", name)),
+                ));
 
                 t
             }
@@ -758,7 +763,12 @@ impl Checker {
                     },
                 ];
 
-                self.add_constraint(Constraint::Or(idx_t, alts, arena.locs[*index_expr], Some("array index".into())));
+                self.add_constraint(Constraint::Or(
+                    idx_t,
+                    alts,
+                    arena.locs[*index_expr],
+                    Some("array index".into()),
+                ));
 
                 self.add_constraint(Constraint::ArrayOf(array_t, t, arena.locs[*array_expr]));
                 t
@@ -1471,9 +1481,11 @@ fn lambda_has_captures(
                     .map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
                     .unwrap_or(false)
         }
-        Expr::Return(e) | Expr::Assume(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
-            lambda_has_captures(*e, arena, lambda_params, outer_scope)
-        }
+        Expr::Return(e)
+        | Expr::Assume(e)
+        | Expr::Field(e, _)
+        | Expr::AsTy(e, _)
+        | Expr::Arena(e) => lambda_has_captures(*e, arena, lambda_params, outer_scope),
         Expr::While(cond, body) | Expr::ArrayIndex(cond, body) | Expr::Array(cond, body) => {
             lambda_has_captures(*cond, arena, lambda_params, outer_scope)
                 || lambda_has_captures(*body, arena, lambda_params, outer_scope)

@@ -259,17 +259,35 @@ pub enum Opcode {
     // ============ SIMD Float32x4 ============
     // All pointer operands (dst, a, b) are registers holding memory addresses.
     // The SIMD ops load 128 bits from a/b, operate lane-wise, store to dst.
-
     /// f32x4 lane-wise add: *dst = *a + *b
-    F32x4Add { dst: Reg, a: Reg, b: Reg },
+    F32x4Add {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
     /// f32x4 lane-wise sub: *dst = *a - *b
-    F32x4Sub { dst: Reg, a: Reg, b: Reg },
+    F32x4Sub {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
     /// f32x4 lane-wise mul: *dst = *a * *b
-    F32x4Mul { dst: Reg, a: Reg, b: Reg },
+    F32x4Mul {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
     /// f32x4 lane-wise div: *dst = *a / *b
-    F32x4Div { dst: Reg, a: Reg, b: Reg },
+    F32x4Div {
+        dst: Reg,
+        a: Reg,
+        b: Reg,
+    },
     /// f32x4 lane-wise neg: *dst = -*src
-    F32x4Neg { dst: Reg, src: Reg },
+    F32x4Neg {
+        dst: Reg,
+        src: Reg,
+    },
 
     // ============ Bitwise Operations ============
     /// Bitwise AND: dst = a & b
@@ -1112,9 +1130,10 @@ impl Opcode {
             Opcode::SliceStore32 { .. } => None,
 
             // Call/CallIndirect/CallClosure/CallExtern implicitly define r0 (return value register).
-            Opcode::Call { .. } | Opcode::CallIndirect { .. } | Opcode::CallClosure { .. } | Opcode::CallExtern { .. } => {
-                Some(0)
-            }
+            Opcode::Call { .. }
+            | Opcode::CallIndirect { .. }
+            | Opcode::CallClosure { .. }
+            | Opcode::CallExtern { .. } => Some(0),
 
             Opcode::GetClosurePtr { dst } => Some(*dst),
 
@@ -1321,9 +1340,9 @@ impl Opcode {
             | Opcode::FDiv { a, b, .. }
             | Opcode::FPow { a, b, .. } => *a == reg || *b == reg,
             Opcode::FNeg { src, .. } => *src == reg,
-            Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } | Opcode::FNMulAdd { a, b, c, .. } => {
-                *a == reg || *b == reg || *c == reg
-            }
+            Opcode::FMulAdd { a, b, c, .. }
+            | Opcode::FMulSub { a, b, c, .. }
+            | Opcode::FNMulAdd { a, b, c, .. } => *a == reg || *b == reg || *c == reg,
 
             Opcode::DAdd { a, b, .. }
             | Opcode::DSub { a, b, .. }
@@ -1331,9 +1350,9 @@ impl Opcode {
             | Opcode::DDiv { a, b, .. }
             | Opcode::DPow { a, b, .. } => *a == reg || *b == reg,
             Opcode::DNeg { src, .. } => *src == reg,
-            Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } | Opcode::DNMulAdd { a, b, c, .. } => {
-                *a == reg || *b == reg || *c == reg
-            }
+            Opcode::DMulAdd { a, b, c, .. }
+            | Opcode::DMulSub { a, b, c, .. }
+            | Opcode::DNMulAdd { a, b, c, .. } => *a == reg || *b == reg || *c == reg,
 
             Opcode::F32x4Add { dst, a, b }
             | Opcode::F32x4Sub { dst, a, b }
@@ -1539,7 +1558,9 @@ impl Opcode {
                     *src = new;
                 }
             }
-            Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } | Opcode::FNMulAdd { a, b, c, .. } => {
+            Opcode::FMulAdd { a, b, c, .. }
+            | Opcode::FMulSub { a, b, c, .. }
+            | Opcode::FNMulAdd { a, b, c, .. } => {
                 if *a == old {
                     *a = new;
                 }
@@ -1567,7 +1588,9 @@ impl Opcode {
                     *src = new;
                 }
             }
-            Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } | Opcode::DNMulAdd { a, b, c, .. } => {
+            Opcode::DMulAdd { a, b, c, .. }
+            | Opcode::DMulSub { a, b, c, .. }
+            | Opcode::DNMulAdd { a, b, c, .. } => {
                 if *a == old {
                     *a = new;
                 }
@@ -1896,7 +1919,9 @@ impl Opcode {
                 f(*b);
             }
             Opcode::FNeg { src, .. } => f(*src),
-            Opcode::FMulAdd { a, b, c, .. } | Opcode::FMulSub { a, b, c, .. } | Opcode::FNMulAdd { a, b, c, .. } => {
+            Opcode::FMulAdd { a, b, c, .. }
+            | Opcode::FMulSub { a, b, c, .. }
+            | Opcode::FNMulAdd { a, b, c, .. } => {
                 f(*a);
                 f(*b);
                 f(*c);
@@ -1910,7 +1935,9 @@ impl Opcode {
                 f(*b);
             }
             Opcode::DNeg { src, .. } => f(*src),
-            Opcode::DMulAdd { a, b, c, .. } | Opcode::DMulSub { a, b, c, .. } | Opcode::DNMulAdd { a, b, c, .. } => {
+            Opcode::DMulAdd { a, b, c, .. }
+            | Opcode::DMulSub { a, b, c, .. }
+            | Opcode::DNMulAdd { a, b, c, .. } => {
                 f(*a);
                 f(*b);
                 f(*c);
@@ -2160,7 +2187,9 @@ impl Opcode {
                 *dst = map[*dst as usize];
                 *src = map[*src as usize];
             }
-            Opcode::FMulAdd { dst, a, b, c } | Opcode::FMulSub { dst, a, b, c } | Opcode::FNMulAdd { dst, a, b, c } => {
+            Opcode::FMulAdd { dst, a, b, c }
+            | Opcode::FMulSub { dst, a, b, c }
+            | Opcode::FNMulAdd { dst, a, b, c } => {
                 *dst = map[*dst as usize];
                 *a = map[*a as usize];
                 *b = map[*b as usize];
@@ -2179,7 +2208,9 @@ impl Opcode {
                 *dst = map[*dst as usize];
                 *src = map[*src as usize];
             }
-            Opcode::DMulAdd { dst, a, b, c } | Opcode::DMulSub { dst, a, b, c } | Opcode::DNMulAdd { dst, a, b, c } => {
+            Opcode::DMulAdd { dst, a, b, c }
+            | Opcode::DMulSub { dst, a, b, c }
+            | Opcode::DNMulAdd { dst, a, b, c } => {
                 *dst = map[*dst as usize];
                 *a = map[*a as usize];
                 *b = map[*b as usize];

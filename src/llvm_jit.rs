@@ -1090,10 +1090,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         let cont_bb = self.append_bb("call_depth_cont");
 
         // Counter lives at globals + CALL_DEPTH_OFFSET (i32).
-        let depth_ptr = self.ptr_at_offset(
-            self.globals_base,
-            crate::cancel::CALL_DEPTH_OFFSET as u64,
-        );
+        let depth_ptr =
+            self.ptr_at_offset(self.globals_base, crate::cancel::CALL_DEPTH_OFFSET as u64);
         let depth = self
             .builder()
             .build_load(self.i32_ty(), depth_ptr, "call_depth")
@@ -1139,10 +1137,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     /// Increment the call-depth counter before returning so the count
     /// reflects current recursion (not total call count).
     fn emit_call_depth_release(&mut self) {
-        let depth_ptr = self.ptr_at_offset(
-            self.globals_base,
-            crate::cancel::CALL_DEPTH_OFFSET as u64,
-        );
+        let depth_ptr =
+            self.ptr_at_offset(self.globals_base, crate::cancel::CALL_DEPTH_OFFSET as u64);
         let depth = self
             .builder()
             .build_load(self.i32_ty(), depth_ptr, "call_depth_rel")
@@ -1552,7 +1548,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::Id(name) => {
                 let ty = decl.types[expr];
                 if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) || ty.is_ptr() || is_llvm_value_type(ty) {
+                    if self.let_bindings.contains(&**name) || ty.is_ptr() || is_llvm_value_type(ty)
+                    {
                         // let binding or pointer type: load the value from the alloca.
                         self.builder()
                             .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
@@ -1676,7 +1673,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     };
                     let vec = self.translate_expr(lhs_id, decl).into_vector_value();
                     let idx = self.i32_ty().const_int(lane, false);
-                    return self.builder()
+                    return self
+                        .builder()
                         .build_extract_element(vec, idx, "lane")
                         .unwrap()
                         .into_float_value()
@@ -1702,7 +1700,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if matches!(*lhs_ty, crate::Type::Float32x4) {
                     let vec = self.translate_expr(lhs_id, decl).into_vector_value();
                     let idx = self.translate_expr(rhs_id, decl).into_int_value();
-                    return self.builder()
+                    return self
+                        .builder()
                         .build_extract_element(vec, idx, "lane")
                         .unwrap()
                         .into_float_value()
@@ -2192,7 +2191,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if matches!(*t, crate::Type::Float32x4) {
                     let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
                     let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
-                    return self.builder().build_float_add(lhs, rhs, "vadd").unwrap().into();
+                    return self
+                        .builder()
+                        .build_float_add(lhs, rhs, "vadd")
+                        .unwrap()
+                        .into();
                 }
 
                 // FMA: a*b + c
@@ -2232,7 +2235,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if matches!(*t, crate::Type::Float32x4) {
                     let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
                     let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
-                    return self.builder().build_float_sub(lhs, rhs, "vsub").unwrap().into();
+                    return self
+                        .builder()
+                        .build_float_sub(lhs, rhs, "vsub")
+                        .unwrap()
+                        .into();
                 }
 
                 // FMA: c - a*b => fma(-a, b, c)
@@ -2266,7 +2273,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if matches!(*t, crate::Type::Float32x4) {
                     let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
                     let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
-                    return self.builder().build_float_mul(lhs, rhs, "vmul").unwrap().into();
+                    return self
+                        .builder()
+                        .build_float_mul(lhs, rhs, "vmul")
+                        .unwrap()
+                        .into();
                 }
 
                 let lhs = self.translate_expr(lhs_id, decl);
@@ -2289,7 +2300,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if matches!(*t, crate::Type::Float32x4) {
                     let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
                     let rhs = self.translate_expr(rhs_id, decl).into_vector_value();
-                    return self.builder().build_float_div(lhs, rhs, "vdiv").unwrap().into();
+                    return self
+                        .builder()
+                        .build_float_div(lhs, rhs, "vdiv")
+                        .unwrap()
+                        .into();
                 }
 
                 let lhs = self.translate_expr(lhs_id, decl);
@@ -2335,21 +2350,31 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let vec_ty = decl.types[*vec_id];
                     if matches!(*vec_ty, crate::Type::Float32x4) {
                         let lane: u64 = match &***field_name {
-                            "x" | "r" => 0, "y" | "g" => 1,
-                            "z" | "b" => 2, "w" | "a" => 3,
+                            "x" | "r" => 0,
+                            "y" | "g" => 1,
+                            "z" | "b" => 2,
+                            "w" | "a" => 3,
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
                         let rhs_val = self.translate_expr(rhs_id, decl);
                         if let Expr::Id(name) = &decl.arena.exprs[*vec_id] {
                             if let Some(&alloca) = self.variables.get(&**name) {
-                                let vec_ty: inkwell::types::BasicTypeEnum = self.ctx().f32_type().vec_type(4).into();
-                                let vec_val = self.builder()
+                                let vec_ty: inkwell::types::BasicTypeEnum =
+                                    self.ctx().f32_type().vec_type(4).into();
+                                let vec_val = self
+                                    .builder()
                                     .build_load(vec_ty, alloca, "vec")
                                     .unwrap()
                                     .into_vector_value();
                                 let idx = self.i32_ty().const_int(lane, false);
-                                let new_vec = self.builder()
-                                    .build_insert_element(vec_val, rhs_val.into_float_value(), idx, "ins")
+                                let new_vec = self
+                                    .builder()
+                                    .build_insert_element(
+                                        vec_val,
+                                        rhs_val.into_float_value(),
+                                        idx,
+                                        "ins",
+                                    )
                                     .unwrap();
                                 self.builder().build_store(alloca, new_vec).unwrap();
                                 return rhs_val;
@@ -2715,7 +2740,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     for (i, &arg_id) in arg_ids.iter().enumerate() {
                         let val = self.translate_expr(arg_id, decl).into_float_value();
                         let idx = self.i32_ty().const_int(i as u64, false);
-                        vec = self.builder().build_insert_element(vec, val, idx, "ins").unwrap();
+                        vec = self
+                            .builder()
+                            .build_insert_element(vec, val, idx, "ins")
+                            .unwrap();
                     }
                     return vec.into();
                 }
@@ -2725,7 +2753,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let mut vec = vec_ty.get_undef();
                     for i in 0..4 {
                         let idx = self.i32_ty().const_int(i, false);
-                        vec = self.builder().build_insert_element(vec, val, idx, "splat").unwrap();
+                        vec = self
+                            .builder()
+                            .build_insert_element(vec, val, idx, "splat")
+                            .unwrap();
                     }
                     return vec.into();
                 }
@@ -2780,16 +2811,36 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 // Check for extern function.
                 if let Expr::Id(callee_name) = &decl.arena[fn_id] {
                     let callee_decls = self.decls.find(*callee_name);
-                    callee_decls.first().map_or(false, |d| matches!(d, crate::Decl::Func(f) if f.is_extern))
-                } else { false }
+                    callee_decls
+                        .first()
+                        .map_or(false, |d| matches!(d, crate::Decl::Func(f) if f.is_extern))
+                } else {
+                    false
+                }
             } {
                 // Extern function: load {fn_ptr, context} from globals buffer.
-                let callee_name = if let Expr::Id(n) = &decl.arena[fn_id] { *n } else { unreachable!() };
-                let globals_offset = *self.state.globals.get(&callee_name).expect("extern fn not in globals");
+                let callee_name = if let Expr::Id(n) = &decl.arena[fn_id] {
+                    *n
+                } else {
+                    unreachable!()
+                };
+                let globals_offset = *self
+                    .state
+                    .globals
+                    .get(&callee_name)
+                    .expect("extern fn not in globals");
                 let fn_ptr_addr = self.ptr_at_offset(self.globals_base, globals_offset as u64);
-                let fn_ptr = self.builder().build_load(self.ptr_ty(), fn_ptr_addr, "extern_fn_ptr").unwrap().into_pointer_value();
+                let fn_ptr = self
+                    .builder()
+                    .build_load(self.ptr_ty(), fn_ptr_addr, "extern_fn_ptr")
+                    .unwrap()
+                    .into_pointer_value();
                 let ctx_addr = self.ptr_at_offset(self.globals_base, globals_offset as u64 + 8);
-                let context = self.builder().build_load(self.ptr_ty(), ctx_addr, "extern_ctx").unwrap().into_pointer_value();
+                let context = self
+                    .builder()
+                    .build_load(self.ptr_ty(), ctx_addr, "extern_ctx")
+                    .unwrap()
+                    .into_pointer_value();
 
                 // Build function type with slices expanded to (ptr, i32).
                 let callee_decl = {
@@ -2824,9 +2875,19 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         match &*actual_ty {
                             crate::Type::Slice(_) => {
                                 // Already a fat pointer: load data_ptr and len.
-                                let data_ptr = self.builder().build_load(self.ptr_ty(), arg_val.into_pointer_value(), "slice_data").unwrap();
+                                let data_ptr = self
+                                    .builder()
+                                    .build_load(
+                                        self.ptr_ty(),
+                                        arg_val.into_pointer_value(),
+                                        "slice_data",
+                                    )
+                                    .unwrap();
                                 let len_addr = self.ptr_at_offset(arg_val.into_pointer_value(), 8);
-                                let len = self.builder().build_load(self.i32_ty(), len_addr, "slice_len").unwrap();
+                                let len = self
+                                    .builder()
+                                    .build_load(self.i32_ty(), len_addr, "slice_len")
+                                    .unwrap();
                                 args.push(data_ptr.into());
                                 args.push(len.into());
                             }
@@ -2836,17 +2897,25 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                                 let len_val = self.i32_ty().const_int(sz.known() as u64, false);
                                 args.push(len_val.into());
                             }
-                            _ => panic!("LLVM extern call: expected slice or array, got {:?}", actual_ty),
+                            _ => panic!(
+                                "LLVM extern call: expected slice or array, got {:?}",
+                                actual_ty
+                            ),
                         }
                     } else {
                         args.push(arg_val.into());
                     }
                 }
-                let call = self.builder().build_indirect_call(extern_fn_ty, fn_ptr, &args, "extern_call").unwrap();
+                let call = self
+                    .builder()
+                    .build_indirect_call(extern_fn_ty, fn_ptr, &args, "extern_call")
+                    .unwrap();
                 if let Some(slot) = output_slot {
                     slot.into()
                 } else {
-                    call.try_as_basic_value().basic().unwrap_or_else(|| self.zero_i32())
+                    call.try_as_basic_value()
+                        .basic()
+                        .unwrap_or_else(|| self.zero_i32())
                 }
             } else if is_builtin {
                 // assert / print / putc — load raw fn ptr from fat pointer and indirect call.

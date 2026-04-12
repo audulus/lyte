@@ -490,7 +490,7 @@ mod tests {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
-            is_extern: false,
+                is_extern: false,
             }],
             loc: test_loc(),
         };

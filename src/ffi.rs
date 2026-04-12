@@ -269,7 +269,8 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             match c.compiler.compile_program() {
                 Ok(compiled) => {
                     let globals_size = compiled.globals_size();
-                    let globals_info = make_globals_info(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+                    let globals_info =
+                        make_globals_info(crate::cancel::CANCEL_FLAG_RESERVED as usize);
                     let inner = match compiled {
                         crate::compiler::CompiledProgram::Llvm(p) => p,
                         _ => unreachable!(),

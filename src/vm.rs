@@ -26,10 +26,7 @@ thread_local! {
 }
 
 /// Set the thread-local print callback. Pass `None` to restore default stdout behavior.
-pub fn set_print_callback(
-    callback: Option<PrintCallbackFn>,
-    user_data: *mut u8,
-) {
+pub fn set_print_callback(callback: Option<PrintCallbackFn>, user_data: *mut u8) {
     PRINT_CALLBACK.with(|cb| {
         cb.set(callback.map(|func| PrintCallback { func, user_data }));
     });
@@ -351,11 +348,15 @@ pub(crate) unsafe fn call_extern_fn(
     ret_type: ExternType,
 ) -> u64 {
     use core::ffi::c_void;
-    use libffi::low::{self, ffi_cif, ffi_type, CodePtr, types};
+    use libffi::low::{self, ffi_cif, ffi_type, types, CodePtr};
     use libffi::raw::ffi_abi_FFI_DEFAULT_ABI;
 
     let n = param_types.len();
-    assert!(n + 1 <= MAX_EXTERN_ARGS, "extern function has too many parameters (max {})", MAX_EXTERN_ARGS - 1);
+    assert!(
+        n + 1 <= MAX_EXTERN_ARGS,
+        "extern function has too many parameters (max {})",
+        MAX_EXTERN_ARGS - 1
+    );
 
     // Build the ffi_type pointer array on the stack: [context, params...]
     let mut arg_types: [*mut ffi_type; MAX_EXTERN_ARGS] = [std::ptr::null_mut(); MAX_EXTERN_ARGS];
@@ -372,7 +373,8 @@ pub(crate) unsafe fn call_extern_fn(
         n + 1,
         extern_type_to_ffi_ptr(ret_type),
         arg_types.as_mut_ptr(),
-    ).expect("ffi_prep_cif failed");
+    )
+    .expect("ffi_prep_cif failed");
 
     // Store argument values on the stack as u64. On little-endian (ARM64/x86_64),
     // a pointer to the u64 works as a pointer to the i32/f32 value in its low bytes,
@@ -398,7 +400,10 @@ pub(crate) unsafe fn call_extern_fn(
 
     // Call and convert result to u64.
     match ret_type {
-        ExternType::Void => { low::call::<()>(&mut cif, code, arg_ptrs.as_mut_ptr()); 0 }
+        ExternType::Void => {
+            low::call::<()>(&mut cif, code, arg_ptrs.as_mut_ptr());
+            0
+        }
         ExternType::I32 => low::call::<i32>(&mut cif, code, arg_ptrs.as_mut_ptr()) as u64,
         ExternType::F32 => low::call::<f32>(&mut cif, code, arg_ptrs.as_mut_ptr()).to_bits() as u64,
         ExternType::F64 => low::call::<f64>(&mut cif, code, arg_ptrs.as_mut_ptr()).to_bits(),
@@ -485,16 +490,14 @@ impl LinkedProgram {
                         // Wide format: 2 packed words. ip advances past both, so offset
                         // is relative to packed_idx + 2 (the word after the data word).
                         let new_offset = target_packed as i32 - (packed_idx as i32 + 2);
-                        ops[packed_idx] =
-                            PackedOp::abc(tags::ILT_JUMP_WIDE, a as u8, b as u8, 0);
+                        ops[packed_idx] = PackedOp::abc(tags::ILT_JUMP_WIDE, a as u8, b as u8, 0);
                         ops[packed_idx + 1] = PackedOp::data(new_offset as u32);
                     }
                     Opcode::FLtJump { a, b, offset } => {
                         let target_opcode = (opcode_idx as i32 + 1 + offset) as usize;
                         let target_packed = opcode_to_packed[target_opcode];
                         let new_offset = target_packed as i32 - (packed_idx as i32 + 2);
-                        ops[packed_idx] =
-                            PackedOp::abc(tags::FLT_JUMP_WIDE, a as u8, b as u8, 0);
+                        ops[packed_idx] = PackedOp::abc(tags::FLT_JUMP_WIDE, a as u8, b as u8, 0);
                         ops[packed_idx + 1] = PackedOp::data(new_offset as u32);
                     }
                     _ => {}
@@ -788,7 +791,12 @@ impl LinkedProgram {
                 arg_count,
                 globals_offset,
             } => {
-                ops.push(PackedOp::abc(tags::CALL_EXTERN, r(args_start), arg_count, 0));
+                ops.push(PackedOp::abc(
+                    tags::CALL_EXTERN,
+                    r(args_start),
+                    arg_count,
+                    0,
+                ));
                 ops.push(PackedOp::data(globals_offset as u32));
                 return;
             }
@@ -2087,12 +2095,18 @@ impl VM {
                         let context = *slot.add(1) as *mut u8;
 
                         if fn_ptr == 0 {
-                            panic!("called unbound extern function (globals offset {})", globals_offset);
+                            panic!(
+                                "called unbound extern function (globals offset {})",
+                                globals_offset
+                            );
                         }
 
                         // Collect argument values as u64 from registers.
                         // Find the ExternFuncInfo for this globals_offset.
-                        let info = program.extern_funcs.iter().find(|e| e.globals_offset == globals_offset)
+                        let info = program
+                            .extern_funcs
+                            .iter()
+                            .find(|e| e.globals_offset == globals_offset)
                             .expect("no ExternFuncInfo for extern call");
                         let param_types = &info.param_types;
                         let ret_type = info.ret_type;

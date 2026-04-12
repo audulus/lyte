@@ -129,8 +129,7 @@ impl StackVM {
                     // into the separate local_memory buffer.
                     let local_count = func.local_count as usize;
                     let mem_slot = (slot as usize).saturating_sub(local_count);
-                    let addr =
-                        self.local_memory[lm_base + mem_slot * 8..].as_ptr() as u64;
+                    let addr = self.local_memory[lm_base + mem_slot * 8..].as_ptr() as u64;
                     self.push(addr);
                 }
 
@@ -524,8 +523,7 @@ impl StackVM {
                 StackOp::Call { func, args, .. } => {
                     let n = args as usize;
                     let stack_len = self.operand_stack.len();
-                    let arg_values: Vec<u64> =
-                        self.operand_stack[stack_len - n..].to_vec();
+                    let arg_values: Vec<u64> = self.operand_stack[stack_len - n..].to_vec();
                     self.operand_stack.truncate(stack_len - n);
 
                     self.call_stack.push(CallFrame {
@@ -548,8 +546,7 @@ impl StackVM {
                     let target = self.pop() as u32;
                     let n = args as usize;
                     let stack_len = self.operand_stack.len();
-                    let arg_values: Vec<u64> =
-                        self.operand_stack[stack_len - n..].to_vec();
+                    let arg_values: Vec<u64> = self.operand_stack[stack_len - n..].to_vec();
                     self.operand_stack.truncate(stack_len - n);
 
                     self.call_stack.push(CallFrame {
@@ -578,8 +575,7 @@ impl StackVM {
 
                     let n = args as usize;
                     let stack_len = self.operand_stack.len();
-                    let arg_values: Vec<u64> =
-                        self.operand_stack[stack_len - n..].to_vec();
+                    let arg_values: Vec<u64> = self.operand_stack[stack_len - n..].to_vec();
                     self.operand_stack.truncate(stack_len - n);
 
                     self.call_stack.push(CallFrame {
@@ -647,27 +643,69 @@ impl StackVM {
                 // (f32 math intrinsics are F-window only — catchall.)
 
                 // === Math builtins: f64 unary ===
-                StackOp::SinF64 => { self.f64_unary(f64::sin); }
-                StackOp::CosF64 => { self.f64_unary(f64::cos); }
-                StackOp::TanF64 => { self.f64_unary(f64::tan); }
-                StackOp::AsinF64 => { self.f64_unary(f64::asin); }
-                StackOp::AcosF64 => { self.f64_unary(f64::acos); }
-                StackOp::AtanF64 => { self.f64_unary(f64::atan); }
-                StackOp::SinhF64 => { self.f64_unary(f64::sinh); }
-                StackOp::CoshF64 => { self.f64_unary(f64::cosh); }
-                StackOp::TanhF64 => { self.f64_unary(f64::tanh); }
-                StackOp::AsinhF64 => { self.f64_unary(f64::asinh); }
-                StackOp::AcoshF64 => { self.f64_unary(f64::acosh); }
-                StackOp::AtanhF64 => { self.f64_unary(f64::atanh); }
-                StackOp::LnF64 => { self.f64_unary(f64::ln); }
-                StackOp::ExpF64 => { self.f64_unary(f64::exp); }
-                StackOp::Exp2F64 => { self.f64_unary(f64::exp2); }
-                StackOp::Log10F64 => { self.f64_unary(f64::log10); }
-                StackOp::Log2F64 => { self.f64_unary(f64::log2); }
-                StackOp::SqrtF64 => { self.f64_unary(f64::sqrt); }
-                StackOp::AbsF64 => { self.f64_unary(f64::abs); }
-                StackOp::FloorF64 => { self.f64_unary(f64::floor); }
-                StackOp::CeilF64 => { self.f64_unary(f64::ceil); }
+                StackOp::SinF64 => {
+                    self.f64_unary(f64::sin);
+                }
+                StackOp::CosF64 => {
+                    self.f64_unary(f64::cos);
+                }
+                StackOp::TanF64 => {
+                    self.f64_unary(f64::tan);
+                }
+                StackOp::AsinF64 => {
+                    self.f64_unary(f64::asin);
+                }
+                StackOp::AcosF64 => {
+                    self.f64_unary(f64::acos);
+                }
+                StackOp::AtanF64 => {
+                    self.f64_unary(f64::atan);
+                }
+                StackOp::SinhF64 => {
+                    self.f64_unary(f64::sinh);
+                }
+                StackOp::CoshF64 => {
+                    self.f64_unary(f64::cosh);
+                }
+                StackOp::TanhF64 => {
+                    self.f64_unary(f64::tanh);
+                }
+                StackOp::AsinhF64 => {
+                    self.f64_unary(f64::asinh);
+                }
+                StackOp::AcoshF64 => {
+                    self.f64_unary(f64::acosh);
+                }
+                StackOp::AtanhF64 => {
+                    self.f64_unary(f64::atanh);
+                }
+                StackOp::LnF64 => {
+                    self.f64_unary(f64::ln);
+                }
+                StackOp::ExpF64 => {
+                    self.f64_unary(f64::exp);
+                }
+                StackOp::Exp2F64 => {
+                    self.f64_unary(f64::exp2);
+                }
+                StackOp::Log10F64 => {
+                    self.f64_unary(f64::log10);
+                }
+                StackOp::Log2F64 => {
+                    self.f64_unary(f64::log2);
+                }
+                StackOp::SqrtF64 => {
+                    self.f64_unary(f64::sqrt);
+                }
+                StackOp::AbsF64 => {
+                    self.f64_unary(f64::abs);
+                }
+                StackOp::FloorF64 => {
+                    self.f64_unary(f64::floor);
+                }
+                StackOp::CeilF64 => {
+                    self.f64_unary(f64::ceil);
+                }
 
                 StackOp::IsnanF64 => {
                     let v = f64::from_bits(self.pop());

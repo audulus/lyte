@@ -4,7 +4,7 @@
 //! reducing dispatch count. This is the key optimization from the
 //! Silverfir-nano interpreter design.
 
-use crate::stack_ir::{StackOp, StackFunction};
+use crate::stack_ir::{StackFunction, StackOp};
 
 /// Run all optimization passes on a function.
 pub fn optimize(func: &mut StackFunction) {
@@ -25,7 +25,9 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
     let mut is_target = vec![false; len];
     for (i, op) in ops.iter().enumerate() {
         let off = match op {
-            StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => Some(*off),
+            StackOp::Jump(off) | StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => {
+                Some(*off)
+            }
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             _ => None,
@@ -100,7 +102,9 @@ fn fuse(func: &mut StackFunction) {
             if let (StackOp::LocalTee(n), StackOp::FusedAddrGetSliceStore32(s, idx)) =
                 (&ops[i], &ops[i + 1])
             {
-                let n = *n; let s = *s; let idx = *idx;
+                let n = *n;
+                let s = *s;
+                let idx = *idx;
                 ops[i] = StackOp::FusedTeeSliceStore32(n, s, idx);
                 ops[i + 1] = StackOp::Nop;
                 i += 2;
@@ -115,7 +119,9 @@ fn fuse(func: &mut StackFunction) {
             if let (StackOp::LocalTeeF(n), StackOp::FusedAddrGetSliceStore32F(s, idx)) =
                 (&ops[i], &ops[i + 1])
             {
-                let n = *n; let s = *s; let idx = *idx;
+                let n = *n;
+                let s = *s;
+                let idx = *idx;
                 ops[i] = StackOp::FusedTeeSliceStore32F(n, s, idx);
                 ops[i + 1] = StackOp::Nop;
                 i += 2;
@@ -135,9 +141,7 @@ fn fuse(func: &mut StackFunction) {
 
         // fw.local.get + fw.drop → nop
         if i + 1 < len && !spans_target(i, 2) {
-            if matches!(ops[i], StackOp::LocalGetF(_))
-                && matches!(ops[i + 1], StackOp::DropF)
-            {
+            if matches!(ops[i], StackOp::LocalGetF(_)) && matches!(ops[i + 1], StackOp::DropF) {
                 ops[i] = StackOp::Nop;
                 ops[i + 1] = StackOp::Nop;
                 i += 2;
@@ -148,11 +152,11 @@ fn fuse(func: &mut StackFunction) {
         // local.set + i64.const + drop → local.set (dead Var init result)
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalSet(_), StackOp::I64Const(_), StackOp::Drop) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
                 // Keep the LocalSet, nop out the dead const+drop
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -160,10 +164,11 @@ fn fuse(func: &mut StackFunction) {
 
         // local.get a + local.set b → FusedGetSet (variable move)
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGet(a), StackOp::LocalSet(b)) = (&ops[i], &ops[i+1]) {
-                let a = *a; let b = *b;
+            if let (StackOp::LocalGet(a), StackOp::LocalSet(b)) = (&ops[i], &ops[i + 1]) {
+                let a = *a;
+                let b = *b;
                 ops[i] = StackOp::FusedGetSet(a, b);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -175,11 +180,11 @@ fn fuse(func: &mut StackFunction) {
         // one op. Saves 1 op per var declaration that is immediately
         // read — significant in the FFT inner loop's theta/wr/wi chain.
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalSet(a), StackOp::LocalGet(b)) = (&ops[i], &ops[i+1]) {
+            if let (StackOp::LocalSet(a), StackOp::LocalGet(b)) = (&ops[i], &ops[i + 1]) {
                 if *a == *b {
                     let n = *a;
                     ops[i] = StackOp::LocalTee(n);
-                    ops[i+1] = StackOp::Nop;
+                    ops[i + 1] = StackOp::Nop;
                     i += 2;
                     continue;
                 }
@@ -188,11 +193,11 @@ fn fuse(func: &mut StackFunction) {
 
         // Float-window mirror: fw.local.set N + fw.local.get N → fw.local.tee N
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalSetF(a), StackOp::LocalGetF(b)) = (&ops[i], &ops[i+1]) {
+            if let (StackOp::LocalSetF(a), StackOp::LocalGetF(b)) = (&ops[i], &ops[i + 1]) {
                 if *a == *b {
                     let n = *a;
                     ops[i] = StackOp::LocalTeeF(n);
-                    ops[i+1] = StackOp::Nop;
+                    ops[i + 1] = StackOp::Nop;
                     i += 2;
                     continue;
                 }
@@ -210,14 +215,20 @@ fn fuse(func: &mut StackFunction) {
 
         // local.addr s + i64.add_imm off + local.get src + i32.store → FusedAddrImmGetStore32
         if i + 3 < len && !spans_target(i, 4) {
-            if let (StackOp::LocalAddr(s), StackOp::IAddImm(off), StackOp::LocalGet(src), StackOp::Store32) =
-                (&ops[i], &ops[i+1], &ops[i+2], &ops[i+3])
+            if let (
+                StackOp::LocalAddr(s),
+                StackOp::IAddImm(off),
+                StackOp::LocalGet(src),
+                StackOp::Store32,
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
             {
-                let s = *s; let off = *off; let src = *src;
+                let s = *s;
+                let off = *off;
+                let src = *src;
                 ops[i] = StackOp::FusedAddrImmGetStore32(s, off, src);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                ops[i+3] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
                 i += 4;
                 continue;
             }
@@ -225,17 +236,22 @@ fn fuse(func: &mut StackFunction) {
 
         // local.get a + local.get b + i64.lt_s + jump_if_zero off → FusedGetGetILtJumpIfZero
         if i + 3 < len && !spans_target(i, 4) {
-            if let (StackOp::LocalGet(a), StackOp::LocalGet(b), StackOp::ILt, StackOp::JumpIfZero(off)) =
-                (&ops[i], &ops[i+1], &ops[i+2], &ops[i+3])
+            if let (
+                StackOp::LocalGet(a),
+                StackOp::LocalGet(b),
+                StackOp::ILt,
+                StackOp::JumpIfZero(off),
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
             {
-                let a = *a; let b = *b;
+                let a = *a;
+                let b = *b;
                 // Adjust offset: original JumpIfZero at i+3 targets i+3+1+off.
                 // Fused instruction at i targets i+1+new_off. So new_off = off + 3.
                 let new_off = *off + 3;
                 ops[i] = StackOp::FusedGetGetILtJumpIfZero(a, b, new_off);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                ops[i+3] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
                 i += 4;
                 continue;
             }
@@ -248,12 +264,14 @@ fn fuse(func: &mut StackFunction) {
                 StackOp::LocalGetF(a),
                 StackOp::FusedAddrLoad32OffF(s, o),
                 StackOp::FusedFMulFAddF,
-            ) = (&ops[i], &ops[i+1], &ops[i+2])
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let s = *s; let o = *o;
+                let a = *a;
+                let s = *s;
+                let o = *o;
                 ops[i] = StackOp::FusedGetAddrFMulFAddF(a, s, o);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -265,12 +283,14 @@ fn fuse(func: &mut StackFunction) {
                 StackOp::LocalGetF(a),
                 StackOp::FusedAddrLoad32OffF(s, o),
                 StackOp::FusedFMulFSubF,
-            ) = (&ops[i], &ops[i+1], &ops[i+2])
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let s = *s; let o = *o;
+                let a = *a;
+                let s = *s;
+                let o = *o;
                 ops[i] = StackOp::FusedGetAddrFMulFSubF(a, s, o);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -279,11 +299,13 @@ fn fuse(func: &mut StackFunction) {
         // fused.addr_load32off s o + local.set dst → FusedAddrLoad32OffSet
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::FusedAddrLoad32Off(s, o), StackOp::LocalSet(dst)) =
-                (&ops[i], &ops[i+1])
+                (&ops[i], &ops[i + 1])
             {
-                let s = *s; let o = *o; let dst = *dst;
+                let s = *s;
+                let o = *o;
+                let dst = *dst;
                 ops[i] = StackOp::FusedAddrLoad32OffSet(s, o, dst);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -293,13 +315,13 @@ fn fuse(func: &mut StackFunction) {
         //              → FusedF32ConstFGtJumpIfZeroF.
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::F32ConstF(v), StackOp::FGtF, StackOp::JumpIfZero(off)) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
                 let v = *v;
                 let new_off = *off + 2;
                 ops[i] = StackOp::FusedF32ConstFGtJumpIfZeroF(v, new_off);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -311,33 +333,39 @@ fn fuse(func: &mut StackFunction) {
         // they work unchanged.
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::FusedGetGetFAddF(a, b), StackOp::LocalSetF(dst)) =
-                (&ops[i], &ops[i+1])
+                (&ops[i], &ops[i + 1])
             {
-                let a = *a; let b = *b; let dst = *dst;
+                let a = *a;
+                let b = *b;
+                let dst = *dst;
                 ops[i] = StackOp::FusedGetGetFAddSet(a, b, dst);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
         }
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::FusedGetGetFSubF(a, b), StackOp::LocalSetF(dst)) =
-                (&ops[i], &ops[i+1])
+                (&ops[i], &ops[i + 1])
             {
-                let a = *a; let b = *b; let dst = *dst;
+                let a = *a;
+                let b = *b;
+                let dst = *dst;
                 ops[i] = StackOp::FusedGetGetFSubSet(a, b, dst);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
         }
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::FusedGetGetFMulF(a, b), StackOp::LocalSetF(dst)) =
-                (&ops[i], &ops[i+1])
+                (&ops[i], &ops[i + 1])
             {
-                let a = *a; let b = *b; let dst = *dst;
+                let a = *a;
+                let b = *b;
+                let dst = *dst;
                 ops[i] = StackOp::FusedGetGetFMulSet(a, b, dst);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -349,11 +377,13 @@ fn fuse(func: &mut StackFunction) {
         // window, so it's reused unchanged.
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::FusedAddrLoad32OffF(s, o), StackOp::LocalSetF(dst)) =
-                (&ops[i], &ops[i+1])
+                (&ops[i], &ops[i + 1])
             {
-                let s = *s; let o = *o; let dst = *dst;
+                let s = *s;
+                let o = *o;
+                let dst = *dst;
                 ops[i] = StackOp::FusedAddrLoad32OffSet(s, o, dst);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -369,13 +399,15 @@ fn fuse(func: &mut StackFunction) {
                 StackOp::IAddImm(off),
                 StackOp::LocalGetF(src),
                 StackOp::StoreF32F,
-            ) = (&ops[i], &ops[i+1], &ops[i+2], &ops[i+3])
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
             {
-                let s = *s; let off = *off; let src = *src;
+                let s = *s;
+                let off = *off;
+                let src = *src;
                 ops[i] = StackOp::FusedAddrImmGetStore32(s, off, src);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                ops[i+3] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
                 i += 4;
                 continue;
             }
@@ -383,14 +415,17 @@ fn fuse(func: &mut StackFunction) {
 
         // fused.addr_load32off_set s src_off tmp + fused.addr_imm_get_store32 s dst_off tmp → FusedFieldCopy32
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::FusedAddrLoad32OffSet(s1, src_off, tmp1),
-                    StackOp::FusedAddrImmGetStore32(s2, dst_off, tmp2)) =
-                (&ops[i], &ops[i+1])
+            if let (
+                StackOp::FusedAddrLoad32OffSet(s1, src_off, tmp1),
+                StackOp::FusedAddrImmGetStore32(s2, dst_off, tmp2),
+            ) = (&ops[i], &ops[i + 1])
             {
                 if s1 == s2 && tmp1 == tmp2 {
-                    let s = *s1; let src_off = *src_off; let dst_off = *dst_off;
+                    let s = *s1;
+                    let src_off = *src_off;
+                    let dst_off = *dst_off;
                     ops[i] = StackOp::FusedFieldCopy32(s, src_off, dst_off);
-                    ops[i+1] = StackOp::Nop;
+                    ops[i + 1] = StackOp::Nop;
                     i += 2;
                     continue;
                 }
@@ -400,12 +435,14 @@ fn fuse(func: &mut StackFunction) {
         // local.get src + i64.add_imm v + local.set dst → FusedGetAddImmSet
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGet(src), StackOp::IAddImm(v), StackOp::LocalSet(dst)) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let src = *src; let v = *v; let dst = *dst;
+                let src = *src;
+                let v = *v;
+                let dst = *dst;
                 ops[i] = StackOp::FusedGetAddImmSet(src, v, dst);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -417,12 +454,13 @@ fn fuse(func: &mut StackFunction) {
         //             → fw.fused.get_get_fmul.
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FMulF) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let b = *b;
+                let a = *a;
+                let b = *b;
                 ops[i] = StackOp::FusedGetGetFMulF(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -432,12 +470,13 @@ fn fuse(func: &mut StackFunction) {
         //             → fw.fused.get_get_fadd.
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FAddF) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let b = *b;
+                let a = *a;
+                let b = *b;
                 ops[i] = StackOp::FusedGetGetFAddF(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -447,12 +486,13 @@ fn fuse(func: &mut StackFunction) {
         //             → fw.fused.get_get_fsub.
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FSubF) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let b = *b;
+                let a = *a;
+                let b = *b;
                 ops[i] = StackOp::FusedGetGetFSubF(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -461,12 +501,13 @@ fn fuse(func: &mut StackFunction) {
         // local.get a + local.get b + i64.add → FusedGetGetIAdd
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGet(a), StackOp::LocalGet(b), StackOp::IAdd) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let b = *b;
+                let a = *a;
+                let b = *b;
                 ops[i] = StackOp::FusedGetGetIAdd(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -475,12 +516,13 @@ fn fuse(func: &mut StackFunction) {
         // local.get a + local.get b + i64.lt_s → FusedGetGetILt
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalGet(a), StackOp::LocalGet(b), StackOp::ILt) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let a = *a; let b = *b;
+                let a = *a;
+                let b = *b;
                 ops[i] = StackOp::FusedGetGetILt(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }
@@ -488,12 +530,11 @@ fn fuse(func: &mut StackFunction) {
 
         // local.addr slot + i32.load offset=off → FusedAddrLoad32Off
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalAddr(slot), StackOp::Load32Off(off)) =
-                (&ops[i], &ops[i+1])
-            {
-                let slot = *slot; let off = *off;
+            if let (StackOp::LocalAddr(slot), StackOp::Load32Off(off)) = (&ops[i], &ops[i + 1]) {
+                let slot = *slot;
+                let off = *off;
                 ops[i] = StackOp::FusedAddrLoad32Off(slot, off);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -502,12 +543,11 @@ fn fuse(func: &mut StackFunction) {
         // Float-window mirror: local.addr slot + fw.f32.load offset=off
         //                    → fw.fused.addr_load32off.
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalAddr(slot), StackOp::LoadF32OffF(off)) =
-                (&ops[i], &ops[i+1])
-            {
-                let slot = *slot; let off = *off;
+            if let (StackOp::LocalAddr(slot), StackOp::LoadF32OffF(off)) = (&ops[i], &ops[i + 1]) {
+                let slot = *slot;
+                let off = *off;
                 ops[i] = StackOp::FusedAddrLoad32OffF(slot, off);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -517,10 +557,10 @@ fn fuse(func: &mut StackFunction) {
 
         // Float-window: fw.local.get a + fw.f32.mul → fw.fused.get_fmul.
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGetF(a), StackOp::FMulF) = (&ops[i], &ops[i+1]) {
+            if let (StackOp::LocalGetF(a), StackOp::FMulF) = (&ops[i], &ops[i + 1]) {
                 let a = *a;
                 ops[i] = StackOp::FusedGetFMulF(a);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -528,10 +568,10 @@ fn fuse(func: &mut StackFunction) {
 
         // Float-window: fw.local.get a + fw.f32.add → fw.fused.get_fadd.
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGetF(a), StackOp::FAddF) = (&ops[i], &ops[i+1]) {
+            if let (StackOp::LocalGetF(a), StackOp::FAddF) = (&ops[i], &ops[i + 1]) {
                 let a = *a;
                 ops[i] = StackOp::FusedGetFAddF(a);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -539,10 +579,10 @@ fn fuse(func: &mut StackFunction) {
 
         // Float-window: fw.local.get a + fw.f32.sub → fw.fused.get_fsub.
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGetF(a), StackOp::FSubF) = (&ops[i], &ops[i+1]) {
+            if let (StackOp::LocalGetF(a), StackOp::FSubF) = (&ops[i], &ops[i + 1]) {
                 let a = *a;
                 ops[i] = StackOp::FusedGetFSubF(a);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -550,9 +590,9 @@ fn fuse(func: &mut StackFunction) {
 
         // Float-window: fw.f32.mul + fw.f32.add → fw.fused.fmul_fadd.
         if i + 1 < len && !spans_target(i, 2) {
-            if matches!(ops[i], StackOp::FMulF) && matches!(ops[i+1], StackOp::FAddF) {
+            if matches!(ops[i], StackOp::FMulF) && matches!(ops[i + 1], StackOp::FAddF) {
                 ops[i] = StackOp::FusedFMulFAddF;
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -560,9 +600,9 @@ fn fuse(func: &mut StackFunction) {
 
         // Float-window: fw.f32.mul + fw.f32.sub → fw.fused.fmul_fsub.
         if i + 1 < len && !spans_target(i, 2) {
-            if matches!(ops[i], StackOp::FMulF) && matches!(ops[i+1], StackOp::FSubF) {
+            if matches!(ops[i], StackOp::FMulF) && matches!(ops[i + 1], StackOp::FSubF) {
                 ops[i] = StackOp::FusedFMulFSubF;
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -573,10 +613,11 @@ fn fuse(func: &mut StackFunction) {
 
         // i64.const v + local.set n → FusedConstSet
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::I64Const(v), StackOp::LocalSet(n)) = (&ops[i], &ops[i+1]) {
-                let v = *v; let n = *n;
+            if let (StackOp::I64Const(v), StackOp::LocalSet(n)) = (&ops[i], &ops[i + 1]) {
+                let v = *v;
+                let n = *n;
                 ops[i] = StackOp::FusedConstSet(v, n);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -584,10 +625,11 @@ fn fuse(func: &mut StackFunction) {
 
         // f32.const v + local.set n → FusedF32ConstSet
         if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::F32Const(v), StackOp::LocalSet(n)) = (&ops[i], &ops[i+1]) {
-                let v = *v; let n = *n;
+            if let (StackOp::F32Const(v), StackOp::LocalSet(n)) = (&ops[i], &ops[i + 1]) {
+                let v = *v;
+                let n = *n;
                 ops[i] = StackOp::FusedF32ConstSet(v, n);
-                ops[i+1] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
                 i += 2;
                 continue;
             }
@@ -596,12 +638,13 @@ fn fuse(func: &mut StackFunction) {
         // local.addr slot + local.get idx + slice.load32 → FusedAddrGetSliceLoad32
         if i + 2 < len && !spans_target(i, 3) {
             if let (StackOp::LocalAddr(slot), StackOp::LocalGet(idx), StackOp::SliceLoad32) =
-                (&ops[i], &ops[i+1], &ops[i+2])
+                (&ops[i], &ops[i + 1], &ops[i + 2])
             {
-                let slot = *slot; let idx = *idx;
+                let slot = *slot;
+                let idx = *idx;
                 ops[i] = StackOp::FusedAddrGetSliceLoad32(slot, idx);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
                 i += 3;
                 continue;
             }

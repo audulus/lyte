@@ -173,7 +173,10 @@ impl StackCodegen {
         for pending in &self.pending_calls {
             if let Some(&callee_idx) = self.func_indices.get(&pending.callee) {
                 let func = &mut self.program.functions[pending.func_idx as usize];
-                if let StackOp::Call { func: ref mut f, .. } = func.ops[pending.instr_idx] {
+                if let StackOp::Call {
+                    func: ref mut f, ..
+                } = func.ops[pending.instr_idx]
+                {
                     *f = callee_idx;
                 }
             }
@@ -420,7 +423,8 @@ impl<'a> FunctionTranslator<'a> {
                 while self.next_scalar <= param_slot {
                     self.alloc_scalar();
                 }
-                self.variables.insert(param.name, LocalKind::Scalar(param_slot));
+                self.variables
+                    .insert(param.name, LocalKind::Scalar(param_slot));
             } else {
                 // Pointer parameter: the value passed is an address (scalar).
                 // Copy it to a memory-backed local.
@@ -433,7 +437,8 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::LocalAddr(mem_slot));
                 func.emit(StackOp::LocalGet(param_slot));
                 func.emit(StackOp::MemCopy(size));
-                self.variables.insert(param.name, LocalKind::Memory(mem_slot));
+                self.variables
+                    .insert(param.name, LocalKind::Memory(mem_slot));
             }
         }
 
@@ -459,7 +464,8 @@ impl<'a> FunctionTranslator<'a> {
                 self.captured_vars.insert(cv.name);
                 self.captured_slots.insert(cv.name, addr_local);
                 // Also register in variables so nested closures can find this capture.
-                self.variables.insert(cv.name, LocalKind::Scalar(addr_local));
+                self.variables
+                    .insert(cv.name, LocalKind::Scalar(addr_local));
             }
         }
 
@@ -669,9 +675,8 @@ impl<'a> FunctionTranslator<'a> {
                 let case_name = *case_name;
                 let index = if let Type::Name(enum_name, _) = &*self.decl.types[expr] {
                     let enum_decls = self.decls.find(*enum_name);
-                    if let Some(Decl::Enum { cases, .. }) = enum_decls
-                        .iter()
-                        .find(|d| matches!(d, Decl::Enum { .. }))
+                    if let Some(Decl::Enum { cases, .. }) =
+                        enum_decls.iter().find(|d| matches!(d, Decl::Enum { .. }))
                     {
                         cases.iter().position(|c| *c == case_name).unwrap_or(0) as i64
                     } else {
@@ -713,12 +718,12 @@ impl<'a> FunctionTranslator<'a> {
                     let is_f32 = matches!(&*ty, Type::Float32);
                     if self.void_ctx {
                         if is_f32 {
-                            func.emit(StackOp::LocalSetF(local),);
+                            func.emit(StackOp::LocalSetF(local));
                         } else {
                             func.emit(StackOp::LocalSet(local));
                         }
                     } else if is_f32 {
-                        func.emit(StackOp::LocalTeeF(local),);
+                        func.emit(StackOp::LocalTeeF(local));
                     } else {
                         func.emit(StackOp::LocalTee(local));
                     }
@@ -752,7 +757,7 @@ impl<'a> FunctionTranslator<'a> {
                         if !self.try_emit_binop_set(local, init_id, func) {
                             self.translate_expr(init_id, func);
                             if is_f32 {
-                                func.emit(StackOp::LocalSetF(local),);
+                                func.emit(StackOp::LocalSetF(local));
                             } else {
                                 func.emit(StackOp::LocalSet(local));
                             }
@@ -885,9 +890,7 @@ impl<'a> FunctionTranslator<'a> {
                         .push(jump_pos);
                 } else {
                     let pos = func.pos();
-                    func.emit(StackOp::Jump(
-                        (continue_target as i32) - (pos as i32) - 1,
-                    ));
+                    func.emit(StackOp::Jump((continue_target as i32) - (pos as i32) - 1));
                 }
                 func.emit(StackOp::I64Const(0)); // stack balance
             }
@@ -985,7 +988,7 @@ impl<'a> FunctionTranslator<'a> {
             match kind {
                 LocalKind::Scalar(slot) => {
                     if matches!(&*ty, Type::Float32) {
-                        func.emit(StackOp::LocalGetF(slot),);
+                        func.emit(StackOp::LocalGetF(slot));
                     } else {
                         func.emit(StackOp::LocalGet(slot));
                     }
@@ -1200,7 +1203,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Stack: [value]. Need to store through captured pointer.
                 // Push addr, then value, then store.
                 func.emit(StackOp::LocalGet(addr_local)); // push captured addr
-                func.emit(StackOp::LocalGet(val_local));   // push value
+                func.emit(StackOp::LocalGet(val_local)); // push value
                 self.emit_store_op(&ty, func);
                 func.emit(StackOp::LocalGet(val_local)); // result value
                 return;
@@ -1220,7 +1223,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_ty = self.expr_type(lhs_id);
                 self.translate_expr(rhs_id, func);
                 if matches!(&*lhs_ty, Type::Float32) {
-                    func.emit(StackOp::LocalTeeF(slot),);
+                    func.emit(StackOp::LocalTeeF(slot));
                 } else {
                     func.emit(StackOp::LocalTee(slot));
                 }
@@ -1243,10 +1246,9 @@ impl<'a> FunctionTranslator<'a> {
                 let elem_is_f32 = matches!(&*elem_ty, Type::Float32);
                 if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
                     // Try fused version if arr and idx are simple locals.
-                    if let (Some(arr_slot), Some(idx_local)) = (
-                        self.get_memory_slot(arr_id),
-                        self.get_scalar_local(idx_id),
-                    ) {
+                    if let (Some(arr_slot), Some(idx_local)) =
+                        (self.get_memory_slot(arr_id), self.get_scalar_local(idx_id))
+                    {
                         // Fused store: value is on TOS from translate_expr(rhs).
                         let store_op_int = if is_slice {
                             StackOp::FusedAddrGetSliceStore32(arr_slot, idx_local)
@@ -1262,9 +1264,9 @@ impl<'a> FunctionTranslator<'a> {
                         if !self.void_ctx {
                             let val_local = self.alloc_scalar();
                             if elem_is_f32 {
-                                func.emit(StackOp::LocalTeeF(val_local),);
+                                func.emit(StackOp::LocalTeeF(val_local));
                                 func.emit(store_op_float);
-                                func.emit(StackOp::LocalGetF(val_local),);
+                                func.emit(StackOp::LocalGetF(val_local));
                             } else {
                                 func.emit(StackOp::LocalTee(val_local));
                                 func.emit(store_op_int);
@@ -1282,7 +1284,7 @@ impl<'a> FunctionTranslator<'a> {
                         self.translate_expr(rhs_id, func);
                         let val_local = self.alloc_scalar();
                         if elem_is_f32 {
-                            func.emit(StackOp::LocalSetF(val_local),);
+                            func.emit(StackOp::LocalSetF(val_local));
                         } else {
                             func.emit(StackOp::LocalSet(val_local));
                         }
@@ -1292,7 +1294,7 @@ impl<'a> FunctionTranslator<'a> {
                             // Generic SliceStore32 consumes the value from
                             // the int window, so bridge an f32 val_local
                             // back through FToBitsF.
-                            func.emit(StackOp::LocalGetF(val_local),);
+                            func.emit(StackOp::LocalGetF(val_local));
                             func.emit(StackOp::FToBitsF);
                         } else {
                             func.emit(StackOp::LocalGet(val_local));
@@ -1300,7 +1302,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::SliceStore32);
                         if !self.void_ctx {
                             if elem_is_f32 {
-                                func.emit(StackOp::LocalGetF(val_local),);
+                                func.emit(StackOp::LocalGetF(val_local));
                             } else {
                                 func.emit(StackOp::LocalGet(val_local));
                             }
@@ -1323,7 +1325,7 @@ impl<'a> FunctionTranslator<'a> {
             self.translate_expr(rhs_id, func);
             let tmp = self.alloc_scalar();
             if is_f32 {
-                func.emit(StackOp::LocalSetF(tmp),);
+                func.emit(StackOp::LocalSetF(tmp));
             } else {
                 func.emit(StackOp::LocalSet(tmp));
             }
@@ -1332,7 +1334,7 @@ impl<'a> FunctionTranslator<'a> {
 
         self.translate_lvalue(lhs_id, func); // pushes address
         if is_f32 {
-            func.emit(StackOp::LocalGetF(val_local),);
+            func.emit(StackOp::LocalGetF(val_local));
         } else {
             func.emit(StackOp::LocalGet(val_local));
         }
@@ -1351,7 +1353,7 @@ impl<'a> FunctionTranslator<'a> {
         self.emit_store_op(&lhs_ty, func);
         if !self.void_ctx {
             if is_f32 {
-                func.emit(StackOp::LocalGetF(val_local),);
+                func.emit(StackOp::LocalGetF(val_local));
             } else {
                 func.emit(StackOp::LocalGet(val_local));
             }
@@ -1393,20 +1395,27 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Binop(op, lhs, rhs) => (*op, *lhs, *rhs),
             _ => return false,
         };
-        let Some(a_slot) = self.get_scalar_local(lhs) else { return false; };
-        let Some(b_slot) = self.get_scalar_local(rhs) else { return false; };
+        let Some(a_slot) = self.get_scalar_local(lhs) else {
+            return false;
+        };
+        let Some(b_slot) = self.get_scalar_local(rhs) else {
+            return false;
+        };
         let ty = self.expr_type(rhs_id);
         let fused = match (op, &*ty) {
-            (Binop::Plus,  Type::Float32) => StackOp::FusedGetGetFAddSet(a_slot, b_slot, dst_slot),
+            (Binop::Plus, Type::Float32) => StackOp::FusedGetGetFAddSet(a_slot, b_slot, dst_slot),
             (Binop::Minus, Type::Float32) => StackOp::FusedGetGetFSubSet(a_slot, b_slot, dst_slot),
-            (Binop::Mult,  Type::Float32) => StackOp::FusedGetGetFMulSet(a_slot, b_slot, dst_slot),
-            (Binop::Div,   Type::Float32) => StackOp::FusedGetGetFDivSet(a_slot, b_slot, dst_slot),
-            (Binop::Plus,  _) if !matches!(&*ty, Type::Float64) =>
-                StackOp::FusedGetGetIAddSet(a_slot, b_slot, dst_slot),
-            (Binop::Minus, _) if !matches!(&*ty, Type::Float64) =>
-                StackOp::FusedGetGetISubSet(a_slot, b_slot, dst_slot),
-            (Binop::Mult,  _) if !matches!(&*ty, Type::Float64) =>
-                StackOp::FusedGetGetIMulSet(a_slot, b_slot, dst_slot),
+            (Binop::Mult, Type::Float32) => StackOp::FusedGetGetFMulSet(a_slot, b_slot, dst_slot),
+            (Binop::Div, Type::Float32) => StackOp::FusedGetGetFDivSet(a_slot, b_slot, dst_slot),
+            (Binop::Plus, _) if !matches!(&*ty, Type::Float64) => {
+                StackOp::FusedGetGetIAddSet(a_slot, b_slot, dst_slot)
+            }
+            (Binop::Minus, _) if !matches!(&*ty, Type::Float64) => {
+                StackOp::FusedGetGetISubSet(a_slot, b_slot, dst_slot)
+            }
+            (Binop::Mult, _) if !matches!(&*ty, Type::Float64) => {
+                StackOp::FusedGetGetIMulSet(a_slot, b_slot, dst_slot)
+            }
             _ => return false,
         };
         func.emit(fused);
@@ -1585,9 +1594,7 @@ impl<'a> FunctionTranslator<'a> {
                     self.translate_expr(arg_id, func);
                     let ty = self.expr_type(arg_id);
                     match &*ty {
-                        Type::Float32 => {
-                            func.emit(StackOp::PrintF32F)
-                        }
+                        Type::Float32 => func.emit(StackOp::PrintF32F),
                         _ => func.emit(StackOp::PrintI32),
                     }
                 }
@@ -1642,27 +1649,27 @@ impl<'a> FunctionTranslator<'a> {
 
             // Unary math builtins (f32) — F-window ops only.
             let unary_math_f32: &[(&str, StackOp)] = &[
-                ("sin$f32",   StackOp::SinF32F),
-                ("cos$f32",   StackOp::CosF32F),
-                ("tan$f32",   StackOp::TanF32F),
-                ("asin$f32",  StackOp::AsinF32F),
-                ("acos$f32",  StackOp::AcosF32F),
-                ("atan$f32",  StackOp::AtanF32F),
-                ("sinh$f32",  StackOp::SinhF32F),
-                ("cosh$f32",  StackOp::CoshF32F),
-                ("tanh$f32",  StackOp::TanhF32F),
+                ("sin$f32", StackOp::SinF32F),
+                ("cos$f32", StackOp::CosF32F),
+                ("tan$f32", StackOp::TanF32F),
+                ("asin$f32", StackOp::AsinF32F),
+                ("acos$f32", StackOp::AcosF32F),
+                ("atan$f32", StackOp::AtanF32F),
+                ("sinh$f32", StackOp::SinhF32F),
+                ("cosh$f32", StackOp::CoshF32F),
+                ("tanh$f32", StackOp::TanhF32F),
                 ("asinh$f32", StackOp::AsinhF32F),
                 ("acosh$f32", StackOp::AcoshF32F),
                 ("atanh$f32", StackOp::AtanhF32F),
-                ("ln$f32",    StackOp::LnF32F),
-                ("exp$f32",   StackOp::ExpF32F),
-                ("exp2$f32",  StackOp::Exp2F32F),
+                ("ln$f32", StackOp::LnF32F),
+                ("exp$f32", StackOp::ExpF32F),
+                ("exp2$f32", StackOp::Exp2F32F),
                 ("log10$f32", StackOp::Log10F32F),
-                ("log2$f32",  StackOp::Log2F32F),
-                ("sqrt$f32",  StackOp::SqrtF32F),
-                ("abs$f32",   StackOp::AbsF32F),
+                ("log2$f32", StackOp::Log2F32F),
+                ("sqrt$f32", StackOp::SqrtF32F),
+                ("abs$f32", StackOp::AbsF32F),
                 ("floor$f32", StackOp::FloorF32F),
-                ("ceil$f32",  StackOp::CeilF32F),
+                ("ceil$f32", StackOp::CeilF32F),
                 ("isnan$f32", StackOp::IsnanF32F),
                 ("isinf$f32", StackOp::IsinfF32F),
             ];
@@ -1735,8 +1742,10 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             // min/max builtins: emit comparison + select.
-            if *name == "min$f32$f32" || *name == "max$f32$f32"
-                || *name == "min$f64$f64" || *name == "max$f64$f64"
+            if *name == "min$f32$f32"
+                || *name == "max$f32$f32"
+                || *name == "min$f64$f64"
+                || *name == "max$f64$f64"
             {
                 let is_f64 = name.contains("f64");
                 let is_min = name.contains("min");
@@ -1744,10 +1753,20 @@ impl<'a> FunctionTranslator<'a> {
                 // float window (LocalSetF/LocalGetF); f64 through the
                 // int window (LocalSet/LocalGet — f64 values ride as
                 // u64 bit patterns).
-                let local_set =
-                    |slot: u16| if is_f64 { StackOp::LocalSet(slot) } else { StackOp::LocalSetF(slot) };
-                let local_get =
-                    |slot: u16| if is_f64 { StackOp::LocalGet(slot) } else { StackOp::LocalGetF(slot) };
+                let local_set = |slot: u16| {
+                    if is_f64 {
+                        StackOp::LocalSet(slot)
+                    } else {
+                        StackOp::LocalSetF(slot)
+                    }
+                };
+                let local_get = |slot: u16| {
+                    if is_f64 {
+                        StackOp::LocalGet(slot)
+                    } else {
+                        StackOp::LocalGetF(slot)
+                    }
+                };
                 let cmp_lt = if is_f64 { StackOp::DLt } else { StackOp::FLtF };
                 self.translate_expr(arg_ids[0], func);
                 let a_local = self.alloc_scalar();
@@ -1758,7 +1777,11 @@ impl<'a> FunctionTranslator<'a> {
                 // Emit: if a < b then a else b (for min), if a > b then a else b (for max).
                 // For max we flip the operand order on the comparison:
                 // push (a, b) for min and (b, a) for max.
-                let (first, second) = if is_min { (a_local, b_local) } else { (b_local, a_local) };
+                let (first, second) = if is_min {
+                    (a_local, b_local)
+                } else {
+                    (b_local, a_local)
+                };
                 func.emit(local_get(first));
                 func.emit(local_get(second));
                 func.emit(cmp_lt);
@@ -2008,9 +2031,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // Jump back to loop start.
         let pos = func.pos();
-        func.emit(StackOp::Jump(
-            (loop_start as i32) - (pos as i32) - 1,
-        ));
+        func.emit(StackOp::Jump((loop_start as i32) - (pos as i32) - 1));
 
         // Patch jump to end and break jumps.
         func.patch_jump(jump_to_end);
@@ -2072,9 +2093,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // Jump back to loop start.
         let pos = func.pos();
-        func.emit(StackOp::Jump(
-            (loop_start as i32) - (pos as i32) - 1,
-        ));
+        func.emit(StackOp::Jump((loop_start as i32) - (pos as i32) - 1));
 
         // Patch jumps.
         func.patch_jump(jump_to_end);
@@ -2194,12 +2213,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate an array index.
-    fn translate_array_index(
-        &mut self,
-        arr_id: ExprID,
-        idx_id: ExprID,
-        func: &mut StackFunction,
-    ) {
+    fn translate_array_index(&mut self, arr_id: ExprID, idx_id: ExprID, func: &mut StackFunction) {
         let arr_ty = self.expr_type(arr_id);
 
         // f32x4 element extraction. Result is an f32 pushed to the float window.
@@ -2226,18 +2240,17 @@ impl<'a> FunctionTranslator<'a> {
         let elem_size = elem_ty.size(self.decls);
         let elem_is_f32 = matches!(&*elem_ty, Type::Float32);
         if !self.is_ptr_type(&elem_ty) && elem_size == 4 {
-            if let (Some(arr_slot), Some(idx_local)) = (
-                self.get_memory_slot(arr_id),
-                self.get_scalar_local(idx_id),
-            ) {
+            if let (Some(arr_slot), Some(idx_local)) =
+                (self.get_memory_slot(arr_id), self.get_scalar_local(idx_id))
+            {
                 if is_slice {
                     if elem_is_f32 {
-                        func.emit(StackOp::FusedAddrGetSliceLoad32F(arr_slot, idx_local),);
+                        func.emit(StackOp::FusedAddrGetSliceLoad32F(arr_slot, idx_local));
                     } else {
                         func.emit(StackOp::FusedAddrGetSliceLoad32(arr_slot, idx_local));
                     }
                 } else if elem_is_f32 {
-                    func.emit(StackOp::FusedLocalArrayLoad32F(arr_slot, idx_local),);
+                    func.emit(StackOp::FusedLocalArrayLoad32F(arr_slot, idx_local));
                 } else {
                     func.emit(StackOp::FusedLocalArrayLoad32(arr_slot, idx_local));
                 }
@@ -2347,12 +2360,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate a tuple literal.
-    fn translate_tuple(
-        &mut self,
-        elements: &[ExprID],
-        expr: ExprID,
-        func: &mut StackFunction,
-    ) {
+    fn translate_tuple(&mut self, elements: &[ExprID], expr: ExprID, func: &mut StackFunction) {
         let ty = self.expr_type(expr);
         let size = ty.size(self.decls) as u32;
         let mem_slot = self.alloc_memory(size);
@@ -2377,19 +2385,13 @@ impl<'a> FunctionTranslator<'a> {
         let src_ty = self.expr_type(expr_id);
 
         match (&*src_ty, &*target_ty) {
-            (Type::Int32, Type::Float32) => {
-                func.emit(StackOp::I32ToF32F)
-            }
-            (Type::Float32, Type::Int32) => {
-                func.emit(StackOp::F32ToI32F)
-            }
+            (Type::Int32, Type::Float32) => func.emit(StackOp::I32ToF32F),
+            (Type::Float32, Type::Int32) => func.emit(StackOp::F32ToI32F),
             (Type::Int32, Type::Float64) => func.emit(StackOp::I32ToF64),
             (Type::Float64, Type::Int32) => func.emit(StackOp::F64ToI32),
             (Type::Float32, Type::Float64) => func.emit(StackOp::F32ToF64),
             (Type::Float64, Type::Float32) => func.emit(StackOp::F64ToF32),
-            (Type::Int32, Type::Int8) | (Type::UInt32, Type::Int8) => {
-                func.emit(StackOp::I32ToI8)
-            }
+            (Type::Int32, Type::Int8) | (Type::UInt32, Type::Int8) => func.emit(StackOp::I32ToI8),
             (Type::Int8, Type::Int32) => func.emit(StackOp::I8ToI32),
             (Type::Int32, Type::UInt32) | (Type::UInt32, Type::Int32) => {
                 func.emit(StackOp::I64ToU32)
@@ -2495,10 +2497,16 @@ impl<'a> FunctionTranslator<'a> {
                 // Push fat pointer address.
                 func.emit(StackOp::LocalAddr(fat_slot));
             } else {
-                panic!("stack codegen lambda: expected tuple domain type, got {:?}", dom);
+                panic!(
+                    "stack codegen lambda: expected tuple domain type, got {:?}",
+                    dom
+                );
             }
         } else {
-            panic!("stack codegen lambda: expected function type, got {:?}", lambda_ty);
+            panic!(
+                "stack codegen lambda: expected function type, got {:?}",
+                lambda_ty
+            );
         }
     }
 
@@ -2548,7 +2556,7 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::Load8);
             }
             Type::Float32 => {
-                func.emit(StackOp::LoadF32OffF(offset),);
+                func.emit(StackOp::LoadF32OffF(offset));
             }
             Type::Int32 | Type::UInt32 => {
                 func.emit(StackOp::Load32Off(offset));
@@ -2570,9 +2578,7 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             match &**ty {
                 Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Store8),
-                Type::Float32 => {
-                    func.emit(StackOp::StoreF32F)
-                }
+                Type::Float32 => func.emit(StackOp::StoreF32F),
                 Type::Int32 | Type::UInt32 => func.emit(StackOp::Store32),
                 Type::Float64 => func.emit(StackOp::Store64),
                 _ => func.emit(StackOp::Store64),
@@ -2662,7 +2668,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Store8Off(offset));
                 }
                 Type::Float32 => {
-                    func.emit(StackOp::StoreF32OffF(offset),);
+                    func.emit(StackOp::StoreF32OffF(offset));
                 }
                 Type::Int32 | Type::UInt32 => {
                     func.emit(StackOp::Store32Off(offset));
@@ -2716,7 +2722,15 @@ fn collect_free_var_names(
 ) -> Vec<(String, TypeID)> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
-    collect_free_vars_rec(body, arena, exclude, local_vars, types, &mut result, &mut seen);
+    collect_free_vars_rec(
+        body,
+        arena,
+        exclude,
+        local_vars,
+        types,
+        &mut result,
+        &mut seen,
+    );
     result
 }
 
@@ -2770,7 +2784,9 @@ fn collect_free_vars_rec(
             collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
             collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
         }
-        Expr::For { start, end, body, .. } => {
+        Expr::For {
+            start, end, body, ..
+        } => {
             collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
             collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
             collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
@@ -2807,7 +2823,15 @@ fn collect_free_vars_rec(
             for p in params {
                 inner_exclude.insert(p.name.to_string());
             }
-            collect_free_vars_rec(*body, arena, &inner_exclude, local_vars, types, result, seen);
+            collect_free_vars_rec(
+                *body,
+                arena,
+                &inner_exclude,
+                local_vars,
+                types,
+                result,
+                seen,
+            );
         }
         Expr::Macro(_, args) => {
             for a in args {
@@ -2819,8 +2843,16 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) | Expr::String(_) | Expr::Char(_)
-        | Expr::True | Expr::False | Expr::Enum(_) | Expr::Break | Expr::Continue
+        Expr::Int(_)
+        | Expr::UInt(_)
+        | Expr::Real(_)
+        | Expr::String(_)
+        | Expr::Char(_)
+        | Expr::True
+        | Expr::False
+        | Expr::Enum(_)
+        | Expr::Break
+        | Expr::Continue
         | Expr::Error => {}
     }
 }

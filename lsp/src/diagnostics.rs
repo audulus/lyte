@@ -13,30 +13,29 @@ pub fn collect_diagnostics(state: &AnalysisState) -> HashMap<Uri, Vec<Diagnostic
 
     for err in &compiler.last_parse_errors {
         let uri = analysis::path_to_uri(&err.location.file);
-        diags
-            .entry(uri)
-            .or_default()
-            .push(make_diagnostic(&err.location, &err.message, DiagnosticSeverity::ERROR));
+        diags.entry(uri).or_default().push(make_diagnostic(
+            &err.location,
+            &err.message,
+            DiagnosticSeverity::ERROR,
+        ));
     }
 
     for err in &compiler.last_type_errors {
         let uri = analysis::path_to_uri(&err.location.file);
-        diags
-            .entry(uri)
-            .or_default()
-            .push(make_diagnostic(&err.location, &err.message, DiagnosticSeverity::ERROR));
+        diags.entry(uri).or_default().push(make_diagnostic(
+            &err.location,
+            &err.message,
+            DiagnosticSeverity::ERROR,
+        ));
     }
 
     for err in &compiler.last_safety_errors {
         let uri = analysis::path_to_uri(&err.location.file);
-        diags
-            .entry(uri)
-            .or_default()
-            .push(make_diagnostic(
-                &err.location,
-                &err.message,
-                DiagnosticSeverity::WARNING,
-            ));
+        diags.entry(uri).or_default().push(make_diagnostic(
+            &err.location,
+            &err.message,
+            DiagnosticSeverity::WARNING,
+        ));
     }
 
     diags
@@ -72,7 +71,11 @@ mod tests {
         state.update_document(uri.clone(), "fn foo() -> f32 { 1.0 }".to_string());
         let diags = collect_diagnostics(&state);
         let file_diags = diags.get(&uri).cloned().unwrap_or_default();
-        assert!(file_diags.is_empty(), "expected no diagnostics, got: {:?}", file_diags);
+        assert!(
+            file_diags.is_empty(),
+            "expected no diagnostics, got: {:?}",
+            file_diags
+        );
     }
 
     #[test]
@@ -104,7 +107,11 @@ mod tests {
         let mut state = AnalysisState::new();
         let uri = test_uri("/bad2.lyte");
         state.update_document(uri.clone(), "fn foo( {".to_string());
-        assert!(!collect_diagnostics(&state).get(&uri).cloned().unwrap_or_default().is_empty());
+        assert!(!collect_diagnostics(&state)
+            .get(&uri)
+            .cloned()
+            .unwrap_or_default()
+            .is_empty());
         state.remove_document(&uri);
         let diags = collect_diagnostics(&state);
         // No documents, no diagnostics.
@@ -116,11 +123,19 @@ mod tests {
         let mut state = AnalysisState::new();
         let uri = test_uri("/fixme.lyte");
         state.update_document(uri.clone(), "fn foo( {".to_string());
-        assert!(!collect_diagnostics(&state).get(&uri).cloned().unwrap_or_default().is_empty());
+        assert!(!collect_diagnostics(&state)
+            .get(&uri)
+            .cloned()
+            .unwrap_or_default()
+            .is_empty());
         // Fix the code.
         state.update_document(uri.clone(), "fn foo() -> f32 { 1.0 }".to_string());
         let diags = collect_diagnostics(&state);
         let file_diags = diags.get(&uri).cloned().unwrap_or_default();
-        assert!(file_diags.is_empty(), "expected diagnostics to clear after fix, got: {:?}", file_diags);
+        assert!(
+            file_diags.is_empty(),
+            "expected diagnostics to clear after fix, got: {:?}",
+            file_diags
+        );
     }
 }

@@ -787,7 +787,9 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             let loc = cx.lex.loc;
             let file = loc.file.as_str();
             if file != "<stdlib>" && file != "<prelude>" {
-                cx.err(String::from("assume is only allowed in the standard library or prelude"));
+                cx.err(String::from(
+                    "assume is only allowed in the standard library or prelude",
+                ));
             }
             cx.next();
             let cond = parse_expr(arena, typevars, cx);
@@ -1612,11 +1614,7 @@ mod tests {
     fn test_parse_const() {
         test_strings(
             |_arena, _, cx| parse_decl(cx),
-            &[
-                "const N = 42",
-                "const SIZE = 1024",
-                "const NEG = -1",
-            ],
+            &["const N = 42", "const SIZE = 1024", "const NEG = -1"],
         );
     }
 }

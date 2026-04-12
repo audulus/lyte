@@ -171,7 +171,8 @@ extern "C" {
     fn op_fused_local_array_store32();
     fn op_fused_tee_sstore32();
     fn op_fused_get_set();
-    fn op_fused_addr_load32off_set(); fn op_fused_addr_imm_get_store32();
+    fn op_fused_addr_load32off_set();
+    fn op_fused_addr_imm_get_store32();
     fn op_fused_get_get_iadd();
     fn op_fused_get_get_ilt();
     fn op_fused_addr_load32off();
@@ -189,32 +190,67 @@ extern "C" {
     fn op_local_set_f();
     fn op_local_tee_f();
     fn op_drop_f();
-    fn op_fadd_f(); fn op_fsub_f(); fn op_fmul_f(); fn op_fdiv_f();
-    fn op_fpow_f(); fn op_fneg_f();
-    fn op_feq_f(); fn op_fne_f(); fn op_flt_f(); fn op_fle_f();
-    fn op_fgt_f(); fn op_fge_f();
-    fn op_f32_to_i32_f(); fn op_i32_to_f32_f();
-    fn op_to_bits_f(); fn op_from_bits_f();
-    fn op_load_f32_f(); fn op_load_f32_off_f();
-    fn op_store_f32_f(); fn op_store_f32_off_f();
-    fn op_sin_f32_f(); fn op_cos_f32_f(); fn op_tan_f32_f();
-    fn op_asin_f32_f(); fn op_acos_f32_f(); fn op_atan_f32_f();
-    fn op_sinh_f32_f(); fn op_cosh_f32_f(); fn op_tanh_f32_f();
-    fn op_asinh_f32_f(); fn op_acosh_f32_f(); fn op_atanh_f32_f();
-    fn op_ln_f32_f(); fn op_exp_f32_f(); fn op_exp2_f32_f();
-    fn op_log10_f32_f(); fn op_log2_f32_f();
-    fn op_sqrt_f32_f(); fn op_abs_f32_f(); fn op_floor_f32_f(); fn op_ceil_f32_f();
+    fn op_fadd_f();
+    fn op_fsub_f();
+    fn op_fmul_f();
+    fn op_fdiv_f();
+    fn op_fpow_f();
+    fn op_fneg_f();
+    fn op_feq_f();
+    fn op_fne_f();
+    fn op_flt_f();
+    fn op_fle_f();
+    fn op_fgt_f();
+    fn op_fge_f();
+    fn op_f32_to_i32_f();
+    fn op_i32_to_f32_f();
+    fn op_to_bits_f();
+    fn op_from_bits_f();
+    fn op_load_f32_f();
+    fn op_load_f32_off_f();
+    fn op_store_f32_f();
+    fn op_store_f32_off_f();
+    fn op_sin_f32_f();
+    fn op_cos_f32_f();
+    fn op_tan_f32_f();
+    fn op_asin_f32_f();
+    fn op_acos_f32_f();
+    fn op_atan_f32_f();
+    fn op_sinh_f32_f();
+    fn op_cosh_f32_f();
+    fn op_tanh_f32_f();
+    fn op_asinh_f32_f();
+    fn op_acosh_f32_f();
+    fn op_atanh_f32_f();
+    fn op_ln_f32_f();
+    fn op_exp_f32_f();
+    fn op_exp2_f32_f();
+    fn op_log10_f32_f();
+    fn op_log2_f32_f();
+    fn op_sqrt_f32_f();
+    fn op_abs_f32_f();
+    fn op_floor_f32_f();
+    fn op_ceil_f32_f();
     fn op_atan2_f32_f();
-    fn op_isnan_f32_f(); fn op_isinf_f32_f();
+    fn op_isnan_f32_f();
+    fn op_isinf_f32_f();
     fn op_print_f32_f();
-    fn op_fused_get_get_fadd_f(); fn op_fused_get_get_fsub_f(); fn op_fused_get_get_fmul_f();
-    fn op_fused_get_fmul_f(); fn op_fused_get_fadd_f(); fn op_fused_get_fsub_f();
-    fn op_fused_fmul_fadd_f(); fn op_fused_fmul_fsub_f();
-    fn op_fused_get_addr_fmul_fadd_f(); fn op_fused_get_addr_fmul_fsub_f();
+    fn op_fused_get_get_fadd_f();
+    fn op_fused_get_get_fsub_f();
+    fn op_fused_get_get_fmul_f();
+    fn op_fused_get_fmul_f();
+    fn op_fused_get_fadd_f();
+    fn op_fused_get_fsub_f();
+    fn op_fused_fmul_fadd_f();
+    fn op_fused_fmul_fsub_f();
+    fn op_fused_get_addr_fmul_fadd_f();
+    fn op_fused_get_addr_fmul_fsub_f();
     fn op_fused_addr_load32off_f();
-    fn op_fused_addr_get_sload32_f(); fn op_fused_addr_get_sstore32_f();
+    fn op_fused_addr_get_sload32_f();
+    fn op_fused_addr_get_sstore32_f();
     fn op_fused_tee_sstore32_f();
-    fn op_fused_local_array_load32_f(); fn op_fused_local_array_store32_f();
+    fn op_fused_local_array_load32_f();
+    fn op_fused_local_array_store32_f();
     fn op_fused_f32const_fgt_jiz_f();
 }
 
@@ -428,13 +464,16 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::I64Const(v) => [*v as u64, 0, 0],
         StackOp::F32Const(v) => [f32::to_bits(*v) as u64, 0, 0],
         StackOp::F64Const(v) => [f64::to_bits(*v), 0, 0],
-        StackOp::LocalGet(n) | StackOp::LocalSet(n) | StackOp::LocalTee(n) | StackOp::LocalAddr(n) => {
-            [*n as u64, 0, 0]
-        }
+        StackOp::LocalGet(n)
+        | StackOp::LocalSet(n)
+        | StackOp::LocalTee(n)
+        | StackOp::LocalAddr(n) => [*n as u64, 0, 0],
         StackOp::GlobalAddr(off) => [*off as u64, 0, 0],
         StackOp::IAddImm(v) => [*v as i64 as u64, 0, 0],
         StackOp::Load32Off(off) | StackOp::Load64Off(off) => [*off as u64, 0, 0],
-        StackOp::Store8Off(off) | StackOp::Store32Off(off) | StackOp::Store64Off(off) => [*off as u64, 0, 0],
+        StackOp::Store8Off(off) | StackOp::Store32Off(off) | StackOp::Store64Off(off) => {
+            [*off as u64, 0, 0]
+        }
         StackOp::MemCopy(n) | StackOp::MemZero(n) | StackOp::MemEq(n) | StackOp::MemNe(n) => {
             [*n as u64, 0, 0]
         }
@@ -443,7 +482,11 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
             [*off as i64 as u64, 0, 0]
         }
         // Call: imm[0]=func_idx, imm[1]=(nargs | preserve<<8), imm[2]=current_func_idx
-        StackOp::Call { func, args, preserve } => {
+        StackOp::Call {
+            func,
+            args,
+            preserve,
+        } => {
             let packed = (*args as u64) | ((*preserve as u64) << 8);
             [*func as u64, packed, func_idx as u64]
         }
@@ -451,11 +494,11 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::CallClosure { args } => [*args as u64, func_idx as u64, 0],
         // Fused instructions
         StackOp::FusedGetGetIAdd(a, b)
-        | StackOp::FusedGetGetILt(a, b) | StackOp::FusedAddrGetSliceLoad32(a, b)
+        | StackOp::FusedGetGetILt(a, b)
+        | StackOp::FusedAddrGetSliceLoad32(a, b)
         | StackOp::FusedAddrGetSliceStore32(a, b)
-        | StackOp::FusedLocalArrayLoad32(a, b) | StackOp::FusedLocalArrayStore32(a, b) => {
-            [*a as u64, *b as u64, 0]
-        }
+        | StackOp::FusedLocalArrayLoad32(a, b)
+        | StackOp::FusedLocalArrayStore32(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedGetSet(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedAddrLoad32Off(s, o) => [*s as u64, *o as i64 as u64, 0],
         StackOp::FusedAddrLoad32OffSet(s, o, d) => [*s as u64, *o as i64 as u64, *d as u64],
@@ -467,7 +510,9 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         | StackOp::FusedGetGetIAddSet(a, b, d)
         | StackOp::FusedGetGetISubSet(a, b, d)
         | StackOp::FusedGetGetIMulSet(a, b, d) => [*a as u64, *b as u64, *d as u64],
-        StackOp::FusedFieldCopy32(s, src, dst) => [*s as u64, *src as i64 as u64, *dst as i64 as u64],
+        StackOp::FusedFieldCopy32(s, src, dst) => {
+            [*s as u64, *src as i64 as u64, *dst as i64 as u64]
+        }
         StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
@@ -507,8 +552,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetFMulF(a) | StackOp::FusedGetFAddF(a) | StackOp::FusedGetFSubF(a) => {
             [(*a as u64) * 8, 0, 0]
         }
-        StackOp::FusedGetAddrFMulFAddF(a, s, o)
-        | StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
+        StackOp::FusedGetAddrFMulFAddF(a, s, o) | StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
             [(*a as u64) * 8, *s as u64, *o as i64 as u64]
         }
         StackOp::FusedAddrLoad32OffF(s, o) => [*s as u64, *o as i64 as u64, 0],
@@ -603,8 +647,7 @@ pub fn run(program: &StackProgram) -> i64 {
     // The C interpreter sets ctx.error to a static string and flips done;
     // it never calls exit() so the embedding host can recover.
     if !ctx.error.is_null() {
-        let msg = unsafe { std::ffi::CStr::from_ptr(ctx.error) }
-            .to_string_lossy();
+        let msg = unsafe { std::ffi::CStr::from_ptr(ctx.error) }.to_string_lossy();
         eprintln!("trap: {}", msg);
     }
 

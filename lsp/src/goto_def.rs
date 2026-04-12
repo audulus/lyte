@@ -117,7 +117,10 @@ mod tests {
         // Cursor on `bar` in the call `bar()` — line 1, col 20 (0-indexed).
         let params = make_goto_params(&uri, 1, 20);
         let result = handle_goto_definition(&state, &params);
-        assert!(result.is_some(), "expected goto definition result for function call");
+        assert!(
+            result.is_some(),
+            "expected goto definition result for function call"
+        );
         if let Some(GotoDefinitionResponse::Scalar(loc)) = result {
             // Should point to `bar` definition at line 0.
             assert_eq!(loc.range.start.line, 0);

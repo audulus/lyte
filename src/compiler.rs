@@ -134,7 +134,7 @@ fn builtin_decls() -> Vec<Decl> {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
-            is_extern: false,
+                is_extern: false,
             }));
         }
     }
@@ -159,7 +159,7 @@ fn builtin_decls() -> Vec<Decl> {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
-            is_extern: false,
+                is_extern: false,
             }));
         }
     }
@@ -192,7 +192,7 @@ fn builtin_decls() -> Vec<Decl> {
                 arena: ExprArena::new(),
                 types: vec![],
                 closure_vars: vec![],
-            is_extern: false,
+                is_extern: false,
             }));
         }
     }
@@ -205,10 +205,22 @@ fn builtin_decls() -> Vec<Decl> {
         typevars: vec![],
         size_vars: vec![],
         params: vec![
-            Param { name: Name::new("x".into()), ty: Some(f32_ty) },
-            Param { name: Name::new("y".into()), ty: Some(f32_ty) },
-            Param { name: Name::new("z".into()), ty: Some(f32_ty) },
-            Param { name: Name::new("w".into()), ty: Some(f32_ty) },
+            Param {
+                name: Name::new("x".into()),
+                ty: Some(f32_ty),
+            },
+            Param {
+                name: Name::new("y".into()),
+                ty: Some(f32_ty),
+            },
+            Param {
+                name: Name::new("z".into()),
+                ty: Some(f32_ty),
+            },
+            Param {
+                name: Name::new("w".into()),
+                ty: Some(f32_ty),
+            },
         ],
         body: None,
         ret: f32x4_ty,
@@ -225,9 +237,10 @@ fn builtin_decls() -> Vec<Decl> {
         name: Name::new("f32x4_splat".into()),
         typevars: vec![],
         size_vars: vec![],
-        params: vec![
-            Param { name: Name::new("x".into()), ty: Some(f32_ty) },
-        ],
+        params: vec![Param {
+            name: Name::new("x".into()),
+            ty: Some(f32_ty),
+        }],
         body: None,
         ret: f32x4_ty,
         constraints: vec![],
@@ -561,8 +574,7 @@ impl Compiler {
                 self.last_errors
                     .push(format_error(err.location, &err.message));
             }
-            self.last_type_errors
-                .extend(checker.errors.iter().cloned());
+            self.last_type_errors.extend(checker.errors.iter().cloned());
             if !checker.errors.is_empty() && !self.check_all {
                 return false;
             }
@@ -646,7 +658,10 @@ impl Compiler {
     /// The offset and size are in bytes within the globals buffer.
     /// The `base_offset` should be `CANCEL_FLAG_RESERVED` for JIT/LLVM backends
     /// or `0` for the VM backend.
-    pub fn globals_info_with_offset(&self, base_offset: usize) -> Vec<(String, usize, usize, String, bool)> {
+    pub fn globals_info_with_offset(
+        &self,
+        base_offset: usize,
+    ) -> Vec<(String, usize, usize, String, bool)> {
         let mut result = Vec::new();
         let mut offset: usize = base_offset;
         for decl in &self.decls.decls {
@@ -660,9 +675,14 @@ impl Compiler {
                 Decl::Func(f) if f.is_extern => {
                     // Extern functions occupy 16 bytes in the globals buffer:
                     // {fn_ptr: *const (), context: *const ()}
-                    let type_str = format!("extern fn({})", f.params.iter().map(|p| {
-                        p.ty.map_or("?".to_string(), |t| t.pretty_print())
-                    }).collect::<Vec<_>>().join(", "));
+                    let type_str = format!(
+                        "extern fn({})",
+                        f.params
+                            .iter()
+                            .map(|p| { p.ty.map_or("?".to_string(), |t| t.pretty_print()) })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
                     let type_str = if matches!(&*f.ret, Type::Void) {
                         type_str
                     } else {
@@ -1573,7 +1593,10 @@ mod tests {
         let mut compiler = Compiler::new();
         compiler.parse(prelude, "<prelude>");
         compiler.parse(code, "test.lyte");
-        assert!(compiler.check(), "safety checker should pass with global assume");
+        assert!(
+            compiler.check(),
+            "safety checker should pass with global assume"
+        );
     }
 
     #[test]
@@ -1722,7 +1745,13 @@ mod tests {
         // Run and check result.
         let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
         let result = unsafe {
-            vm.call_with_external_globals(&linked, &vm_program, func_idx, globals.as_mut_ptr(), globals_size)
+            vm.call_with_external_globals(
+                &linked,
+                &vm_program,
+                func_idx,
+                globals.as_mut_ptr(),
+                globals_size,
+            )
         };
         assert_eq!(result, 7, "host_add(3, 4) should return 7");
     }
@@ -1749,8 +1778,12 @@ mod tests {
         let mut globals = vec![0u8; globals_size];
 
         // Find the extern function's globals offset.
-        let globals_info = compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
-        let extern_info = globals_info.iter().find(|g| g.4).expect("no extern global found");
+        let globals_info =
+            compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+        let extern_info = globals_info
+            .iter()
+            .find(|g| g.4)
+            .expect("no extern global found");
         let extern_offset = extern_info.1;
 
         unsafe extern "C" fn host_mul(_ctx: *mut u8, a: i32, b: i32) -> i32 {
@@ -1768,11 +1801,7 @@ mod tests {
             *ptr_slot = host_mul as *const () as u64;
             *ctx_slot = 0;
 
-            crate::cancel::set_cancel_callback(
-                globals.as_mut_ptr(),
-                None,
-                std::ptr::null_mut(),
-            );
+            crate::cancel::set_cancel_callback(globals.as_mut_ptr(), None, std::ptr::null_mut());
             let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
             if setjmp(jmp_buf_ptr) == 0 {
                 type Entry = fn(*mut u8, *mut u8) -> i32;
@@ -1810,10 +1839,10 @@ mod tests {
 
         assert_eq!(vm_program.extern_funcs.len(), 1);
         // Slice expands to [Ptr, I32] at C level.
-        assert_eq!(vm_program.extern_funcs[0].param_types, vec![
-            crate::vm::ExternType::Ptr,
-            crate::vm::ExternType::I32,
-        ]);
+        assert_eq!(
+            vm_program.extern_funcs[0].param_types,
+            vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32,]
+        );
 
         let linked = crate::vm::LinkedProgram::from_program(&vm_program);
         let mut vm = crate::vm::VM::new();
@@ -1843,7 +1872,13 @@ mod tests {
         SEND_CALLED.store(false, Ordering::SeqCst);
         let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
         unsafe {
-            vm.call_with_external_globals(&linked, &vm_program, func_idx, globals.as_mut_ptr(), globals_size);
+            vm.call_with_external_globals(
+                &linked,
+                &vm_program,
+                func_idx,
+                globals.as_mut_ptr(),
+                globals_size,
+            );
         }
         assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
     }
@@ -1870,15 +1905,20 @@ mod tests {
         let llvm_prog = {
             let jit = crate::llvm_jit::LLVMJIT::new();
             let entry_points = vec![Name::str("main")];
-            jit.compile_only(&compiler.decls, &entry_points).expect("LLVM compile failed")
+            jit.compile_only(&compiler.decls, &entry_points)
+                .expect("LLVM compile failed")
         };
         let globals_size = llvm_prog.globals_size;
         let main_ptr = *llvm_prog.entry_points.get(&Name::str("main")).unwrap();
         let mut globals = vec![0u8; globals_size];
 
         // Find the extern function's globals offset.
-        let globals_info = compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
-        let extern_info = globals_info.iter().find(|g| g.4).expect("no extern global found");
+        let globals_info =
+            compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+        let extern_info = globals_info
+            .iter()
+            .find(|g| g.4)
+            .expect("no extern global found");
         let extern_offset = extern_info.1;
 
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -1901,11 +1941,7 @@ mod tests {
             *ptr_slot = host_send as *const () as u64;
             *ctx_slot = 0;
 
-            crate::cancel::set_cancel_callback(
-                globals.as_mut_ptr(),
-                None,
-                std::ptr::null_mut(),
-            );
+            crate::cancel::set_cancel_callback(globals.as_mut_ptr(), None, std::ptr::null_mut());
             let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
             LLVM_SEND_CALLED.store(false, Ordering::SeqCst);
             if setjmp(jmp_buf_ptr) == 0 {
@@ -1917,6 +1953,9 @@ mod tests {
             }
         }
 
-        assert!(LLVM_SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+        assert!(
+            LLVM_SEND_CALLED.load(Ordering::SeqCst),
+            "send() was not called"
+        );
     }
 }

@@ -48,7 +48,8 @@ impl MonomorphKey {
         if self.param_types.is_empty() {
             with_sizes
         } else {
-            let param_suffix = crate::mangle::mangle_name(Name::new(String::new()), &self.param_types);
+            let param_suffix =
+                crate::mangle::mangle_name(Name::new(String::new()), &self.param_types);
             Name::new(format!("{}#{}", with_sizes, param_suffix))
         }
     }

@@ -10,9 +10,7 @@ fn main() {
     let (connection, io_threads) = Connection::stdio();
 
     let server_capabilities = serde_json::to_value(ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::FULL,
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         ..Default::default()
@@ -43,11 +41,7 @@ fn main_loop(connection: &Connection, state: &mut analysis::AnalysisState) {
     }
 }
 
-fn handle_request(
-    connection: &Connection,
-    state: &mut analysis::AnalysisState,
-    req: Request,
-) {
+fn handle_request(connection: &Connection, state: &mut analysis::AnalysisState, req: Request) {
     if let Some(params) = cast_request::<request::HoverRequest>(&req) {
         let result = hover::handle_hover(state, &params);
         let resp = Response::new_ok(req.id, serde_json::to_value(result).unwrap());
@@ -73,18 +67,14 @@ fn handle_notification(
 ) {
     match not.method.as_str() {
         "textDocument/didOpen" => {
-            if let Ok(params) =
-                serde_json::from_value::<DidOpenTextDocumentParams>(not.params)
-            {
+            if let Ok(params) = serde_json::from_value::<DidOpenTextDocumentParams>(not.params) {
                 let uri = params.text_document.uri;
                 state.update_document(uri.clone(), params.text_document.text);
                 publish_diagnostics(connection, state);
             }
         }
         "textDocument/didChange" => {
-            if let Ok(params) =
-                serde_json::from_value::<DidChangeTextDocumentParams>(not.params)
-            {
+            if let Ok(params) = serde_json::from_value::<DidChangeTextDocumentParams>(not.params) {
                 let uri = params.text_document.uri;
                 if let Some(change) = params.content_changes.into_iter().last() {
                     state.update_document(uri.clone(), change.text);
@@ -93,9 +83,7 @@ fn handle_notification(
             }
         }
         "textDocument/didClose" => {
-            if let Ok(params) =
-                serde_json::from_value::<DidCloseTextDocumentParams>(not.params)
-            {
+            if let Ok(params) = serde_json::from_value::<DidCloseTextDocumentParams>(not.params) {
                 let uri = params.text_document.uri.clone();
                 state.remove_document(&params.text_document.uri);
                 // Clear diagnostics for closed file.

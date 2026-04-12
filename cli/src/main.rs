@@ -80,7 +80,11 @@ fn run(args: Args) -> i32 {
                     // Replay expected stdout AND expected stderr so golden test
                     // comparison passes on a skipped backend.
                     #[derive(Copy, Clone, PartialEq)]
-                    enum Mode { None, Stdout, Stderr }
+                    enum Mode {
+                        None,
+                        Stdout,
+                        Stderr,
+                    }
                     let mut mode = Mode::None;
                     for line in contents.lines() {
                         if line.starts_with("// expected stdout:") {
@@ -112,7 +116,11 @@ fn run(args: Args) -> i32 {
     let mut compiler = lyte::Compiler::new();
     for path in &paths {
         if let Ok(contents) = fs::read_to_string(path) {
-            let parse_path = if args.allow_assume { "<prelude>" } else { path.as_str() };
+            let parse_path = if args.allow_assume {
+                "<prelude>"
+            } else {
+                path.as_str()
+            };
             if !compiler.parse(&contents, parse_path) {
                 return 1;
             }
@@ -143,7 +151,12 @@ fn run(args: Args) -> i32 {
     } else {
         args.backend.clone()
     };
-    let should_run = !args.check && !args.ast && !args.bytecode && !args.ir && !args.stack_ir && !args.discover_fusion;
+    let should_run = !args.check
+        && !args.ast
+        && !args.bytecode
+        && !args.ir
+        && !args.stack_ir
+        && !args.discover_fusion;
     #[cfg(feature = "cranelift")]
     let run_jit = should_run && (backend.is_empty() || backend == "jit");
     #[cfg(not(feature = "cranelift"))]
@@ -163,7 +176,16 @@ fn run(args: Args) -> i32 {
     let run_llvm = false;
     let run_stack = should_run && backend == "stack";
 
-    if run_jit || run_vm || run_asm || run_llvm || run_stack || args.bytecode || args.stack_ir || args.discover_fusion || args.ir {
+    if run_jit
+        || run_vm
+        || run_asm
+        || run_llvm
+        || run_stack
+        || args.bytecode
+        || args.stack_ir
+        || args.discover_fusion
+        || args.ir
+    {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
             return 1;
@@ -322,7 +344,8 @@ fn run(args: Args) -> i32 {
                 if args.timing {
                     eprintln!(
                         "compile: {:.0}µs (front {:.0}µs + stack codegen {:.0}µs)",
-                        compile_elapsed.as_micros() as f64 + stack_compile_elapsed.as_micros() as f64,
+                        compile_elapsed.as_micros() as f64
+                            + stack_compile_elapsed.as_micros() as f64,
                         compile_elapsed.as_micros(),
                         stack_compile_elapsed.as_micros()
                     );
