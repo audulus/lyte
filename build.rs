@@ -20,6 +20,18 @@ fn main() {
             .opt_level(3)
             .flag("-std=c11")
             .flag("-Wno-unused-parameter")
+            // Strip the frame-pointer prologue/epilogue from every
+            // handler. In direct-threaded tail-call dispatch every
+            // handler is entered as "a new function", so a 3-insn
+            // rbp setup/teardown runs on every instruction — ~20% of
+            // a hot float handler's body. aarch64 already omits it at
+            // -O3; this flag forces it off on macOS x86-64 (where
+            // the Darwin ABI defaults to keeping rbp) and on Ubuntu
+            // 24.04's patched clang (which defaults to
+            // -fno-omit-frame-pointer for system-wide profiling). The
+            // interpreter TU does no setjmp/longjmp and no native
+            // unwinding runs through it, so dropping rbp is safe.
+            .flag("-fomit-frame-pointer")
             .compile("stack_interp");
         println!("cargo:rustc-cfg=has_stack_interp");
     }
