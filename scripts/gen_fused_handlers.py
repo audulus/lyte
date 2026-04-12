@@ -40,10 +40,12 @@ from typing import Dict, List, Optional
 ROOT = Path(__file__).resolve().parent.parent
 STACK_INTERP_C = ROOT / "src" / "stack_interp.c"
 
-# Suffix for generated handler names, so they can coexist with the
-# hand-written originals during A/B verification. Set to "" to
-# produce drop-in replacements.
-NAME_SUFFIX = "_gen"
+# Suffix for generated handler names. Empty by default — the generated
+# file is compiled as its own translation unit alongside stack_interp.c
+# and replaces the hand-written forms of these ops. Set to something
+# like "_gen" temporarily if you want to A/B the generated handlers
+# against hand-written versions without a symbol clash.
+NAME_SUFFIX = ""
 
 
 # ----------------------------------------------------------------------
@@ -304,7 +306,13 @@ def emit_all(handlers: Dict[str, str]) -> str:
         "// NEXT() tail-calls stripped. Correctness relies on clang's store-to-load\n"
         "// forwarding + DCE folding the PUSH/POP spills that appear between base-op\n"
         "// bodies into the same machine code as the hand-written combined forms.\n"
+        "//\n"
+        "// This file is a standalone translation unit — the shared handler macros\n"
+        "// (HANDLER, NEXT, PUSH/POP, READ_I/WRITE_I, HOT_L*_MAGIC, ...) and type\n"
+        "// definitions live in stack_interp.h.\n"
         "// ============================================================================\n"
+        "\n"
+        '#include "stack_interp.h"\n'
         "\n"
     )
     return header + "\n\n".join(emit_fusion(f, handlers) for f in FUSIONS) + "\n"

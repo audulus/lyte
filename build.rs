@@ -16,6 +16,7 @@ fn main() {
     if is_clang {
         cc::Build::new()
             .file("src/stack_interp.c")
+            .file("src/stack_interp_fused.gen.c")
             .include("src")
             .opt_level(3)
             .flag("-std=c11")
@@ -25,6 +26,7 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=src/stack_interp.c");
     println!("cargo:rerun-if-changed=src/stack_interp.h");
+    println!("cargo:rerun-if-changed=src/stack_interp_fused.gen.c");
     // Determine sizeof(jmp_buf) on this platform by compiling and running a C snippet.
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let c_path = format!("{}/jmpbuf_size.c", out_dir);

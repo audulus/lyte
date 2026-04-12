@@ -45,15 +45,6 @@ static int enter_function(Ctx* ctx, uint32_t func_idx, uint64_t** out_locals) {
 }
 
 // ============================================================================
-// f32/f64 bit helpers
-// ============================================================================
-
-static inline float    as_f32(uint64_t v) { uint32_t b = (uint32_t)v; float f; memcpy(&f, &b, 4); return f; }
-static inline uint64_t from_f32(float f)  { uint32_t b; memcpy(&b, &f, 4); return (uint64_t)b; }
-static inline double   as_f64(uint64_t v) { double d; memcpy(&d, &v, 8); return d; }
-static inline uint64_t from_f64(double d) { uint64_t v; memcpy(&v, &d, 8); return v; }
-
-// ============================================================================
 // Integer power
 // ============================================================================
 
@@ -68,174 +59,11 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 }
 
 // ============================================================================
-// TOS window macros (4-register window: t0=top, t3=deepest)
-//
-// All variants spill/fill through memory. sp = stack_base + depth is
-// authoritative for current depth; balanced push/pop pairs naturally
-// round-trip the caller's t0..t3 through memory across a call.
-// ============================================================================
-
-#define PUSH(val) do { *sp++ = t3; t3 = t2; t2 = t1; t1 = t0; t0 = (val); } while(0)
-#define POP(dst) do { (dst) = t0; t0 = t1; t1 = t2; t2 = t3; t3 = *--sp; } while(0)
-#define DROP1() do { t0 = t1; t1 = t2; t2 = t3; t3 = *--sp; } while(0)
-#define BINOP_SHIFT() do { t1 = t2; t2 = t3; t3 = *--sp; } while(0)
-
-// Drop 2 values (t0 and t1 consumed, e.g. stores).
-#define DROP2() do { t0 = t2; t1 = t3; t2 = *--sp; t3 = *--sp; } while(0)
-
-// Drop 3 values (t0, t1, t2 consumed, e.g. slice_store32).
-#define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
-
-// Handler signature shorthand. The frame pointer `locals` is passed as
-// a handler argument on aarch64 (enough preserve_none arg regs) but
-// stashed in ctx->current_locals on other targets (tighter budget on
-// x86-64). Handler bodies read/write `locals` the same way on both
-// paths: on aarch64 it's a parameter; on x86-64 it's a macro that
-// expands to (ctx->current_locals).
-//
-// The float TOS window (f0..f3) is a separate 4-slot register window
-// living in FP/SIMD registers, independent of the integer window
-// (t0..t3) in GPRs. Float ops read/write f0..f3 directly and never
-// cross between GPR and FP register files, dodging the ~3-cycle
-// fmov/movq penalty that the old "f32 bit-pattern in u64" design
-// paid on every float arithmetic op.
-#if defined(__aarch64__)
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
-#else
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
-// Reads expand to a load of ctx->current_locals / current_fsp; writes
-// (locals = X, fsp = X) store back to the same field. LLVM's TBAA rules
-// out aliasing with stores through sp, so the field read is CSEd per
-// handler. The macros keep the source code identical between aarch64
-// and x86-64 — the only difference is where these values live.
-#define locals (ctx->current_locals)
-#define fsp (ctx->current_fsp)
-#endif
-
-#define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
-// Cast nh from void* for use in NEXT macro.
-#define nh ((Handler)_nh_raw)
-
-// Dispatch macros. Parameterless — they reference the handler's in-scope
-// ctx/pc/sp/l0-l2/t0-t3/f0-f3/_nh_raw arguments directly (plus the
-// `locals` parameter on aarch64) and must only be used inside a
-// HANDLER() body.
-//
-// NEXT: linear fall-through. Branch to the preloaded nh and preload the
-// handler for the instruction after next.
-#if defined(__aarch64__)
-#define NEXT() \
-    do { \
-        Instruction* _next = pc + 1; \
-        void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
-    } while(0)
-
-#define DISPATCH() \
-    do { \
-        Handler _target_h = (Handler)pc->handler; \
-        void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
-    } while(0)
-#else
-#define NEXT() \
-    do { \
-        Instruction* _next = pc + 1; \
-        void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
-    } while(0)
-
-#define DISPATCH() \
-    do { \
-        Handler _target_h = (Handler)pc->handler; \
-        void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
-    } while(0)
-#endif
-
-// Float TOS window push/pop. Spills/refills through `fsp`, a handler
-// argument pinned to a GPR by preserve_none — analogous to the integer
-// `sp`. Each op pays a single register-indirect store/load (one cycle
-// on aarch64) instead of chasing ctx->float_stack and ctx->float_sp_off
-// through memory. Separate from stack_base so int and float spills
-// don't interleave.
-#define FPUSH(val) do { \
-    *fsp++ = f3; \
-    f3 = f2; f2 = f1; f1 = f0; f0 = (val); \
-} while(0)
-
-#define FPOP(dst) do { \
-    (dst) = f0; f0 = f1; f1 = f2; f2 = f3; f3 = *--fsp; \
-} while(0)
-
-#define FDROP1() do { f0 = f1; f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
-#define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
-
-// ============================================================================
-// Hot local register dispatch macros
-//
-// Hot local slots live exclusively in the preserve_none register args
-// l0/l1/l2 — there is no memory mirror. A fused handler discovers "this
-// operand is hot" by inspecting the slot-index immediate and matching it
-// against three reserved magic values:
-//
-//   HOT_L0 = 0xFFFC  →  l0
-//   HOT_L1 = 0xFFFD  →  l1
-//   HOT_L2 = 0xFFFE  →  l2
-//
-// The lowering pass (stack_hot_locals::lower) rewrites slot references
-// in fused ops to these magic values whenever `func.hot_locals[n]` is
-// populated. Legitimate slot indices are < func.local_count, which is
-// bounded by the u16 slot-index space — these magic values sit at the
-// very top of u16 and never collide with a real slot.
-//
-// Two coordinate systems use the same magic-value scheme:
-//   * Integer handlers treat pc->imm[k] as a u64 slot index. READ_I
-//     compares against the raw magic (0xFFFC/D/E).
-//   * Float handlers treat pc->imm[k] as a pre-shifted byte offset
-//     (slot * 8), but the bridge leaves magic values unshifted, so
-//     READ_F_OFF compares against the same raw magic values.
-//
-// The slot-index immediate is a per-instruction constant, so every
-// branch is perfectly predicted after the first few executions (one
-// path taken every time a given instruction fires) — roughly 0–1
-// cycles of overhead per dispatch.
-//
-// The l0/l1/l2 GPRs hold the full u64 for int values. For floats, the
-// low 32 bits hold the f32 bit pattern (set via `from_f32(f0)`).
-// as_f32 / from_f32 compile to `fmov s, w` / `fmov w, s` — one cycle
-// each on aarch64.
-// ============================================================================
-
-#define HOT_L0_MAGIC 0xFFFCULL
-#define HOT_L1_MAGIC 0xFFFDULL
-#define HOT_L2_MAGIC 0xFFFEULL
-
-#define READ_I(s) \
-    ((s) == HOT_L0_MAGIC ? l0 : (s) == HOT_L1_MAGIC ? l1 : (s) == HOT_L2_MAGIC ? l2 : locals[s])
-
-#define WRITE_I(s, v) do { \
-    uint64_t _wv = (v); \
-    if ((s) == HOT_L0_MAGIC) l0 = _wv; \
-    else if ((s) == HOT_L1_MAGIC) l1 = _wv; \
-    else if ((s) == HOT_L2_MAGIC) l2 = _wv; \
-    else locals[s] = _wv; \
-} while(0)
-
-#define READ_F_OFF(off) \
-    ((off) == HOT_L0_MAGIC ? as_f32(l0) : (off) == HOT_L1_MAGIC ? as_f32(l1) : (off) == HOT_L2_MAGIC ? as_f32(l2) \
-        : *(float*)((uint8_t*)locals + (off)))
-
-#define WRITE_F_OFF(off, v) do { \
-    float _wf = (v); \
-    if ((off) == HOT_L0_MAGIC) l0 = from_f32(_wf); \
-    else if ((off) == HOT_L1_MAGIC) l1 = from_f32(_wf); \
-    else if ((off) == HOT_L2_MAGIC) l2 = from_f32(_wf); \
-    else *(float*)((uint8_t*)locals + (off)) = _wf; \
-} while(0)
-
-// ============================================================================
 // Handlers
+//
+// Shared macros (PUSH/POP, NEXT/DISPATCH, HANDLER/HANDLER_ARGS, READ_I/WRITE_I,
+// HOT_L*_MAGIC, float bit helpers) live in stack_interp.h so generated handler
+// fragments can be built against the header alone.
 // ============================================================================
 
 // --- Constants (push) ---
@@ -1120,29 +948,15 @@ HANDLER(op_get_closure_ptr) {
 // shared dispatch BR. F handlers are now the only path for f32
 // arithmetic; see the float-window section further down.
 
-// locals[a] + locals[b] (i64) -- push
-HANDLER(op_fused_get_get_iadd) {
-    PUSH((uint64_t)((int64_t)READ_I(pc->imm[0]) + (int64_t)READ_I(pc->imm[1])));
-    NEXT();
-}
-
-// locals[a] < locals[b] (i64 signed) -- push
-HANDLER(op_fused_get_get_ilt) {
-    PUSH(((int64_t)READ_I(pc->imm[0]) < (int64_t)READ_I(pc->imm[1])) ? 1 : 0);
-    NEXT();
-}
+// (op_fused_get_get_iadd, op_fused_get_get_ilt, op_fused_get_addimm_set,
+// and op_fused_const_set are generated by scripts/gen_fused_handlers.py
+// and live in src/stack_interp_fused.gen.c — compiled as a separate TU.)
 
 // Load i32 from frame slot*8 + offset -- push. The slot is always a
 // memory-backed slot (codegen emits this for struct/array field loads),
 // so the direct memory access is correct without dispatch.
 HANDLER(op_fused_addr_load32off) {
     PUSH((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
-    NEXT();
-}
-
-// locals[dst] = locals[src] + imm -- no stack change
-HANDLER(op_fused_get_addimm_set) {
-    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) + (int64_t)pc->imm[1]));
     NEXT();
 }
 
@@ -1153,12 +967,6 @@ HANDLER(op_fused_get_get_ilt_jiz) {
         pc = pc + 1 + off;
         DISPATCH();
     }
-    NEXT();
-}
-
-// locals[n] = i64 constant -- no stack change
-HANDLER(op_fused_const_set) {
-    WRITE_I(pc->imm[1], pc->imm[0]);
     NEXT();
 }
 
@@ -1216,18 +1024,8 @@ HANDLER(op_fused_get_get_fdiv_set) {
     WRITE_I(pc->imm[2], from_f32(as_f32(READ_I(pc->imm[0])) / as_f32(READ_I(pc->imm[1]))));
     NEXT();
 }
-HANDLER(op_fused_get_get_iadd_set) {
-    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) + (int64_t)READ_I(pc->imm[1])));
-    NEXT();
-}
-HANDLER(op_fused_get_get_isub_set) {
-    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) - (int64_t)READ_I(pc->imm[1])));
-    NEXT();
-}
-HANDLER(op_fused_get_get_imul_set) {
-    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) * (int64_t)READ_I(pc->imm[1])));
-    NEXT();
-}
+// (op_fused_get_get_{iadd,isub,imul}_set generated from base-op bodies
+// — see stack_interp_fused.gen.c.)
 
 // --- Copy struct field: dst_field = src_field. No stack change. ---
 HANDLER(op_fused_field_copy32) {
@@ -1285,11 +1083,8 @@ HANDLER(op_fused_tee_sstore32) {
 // longer applies; the handler was removed along with the int f32
 // path.)
 
-// --- Variable move: locals[b] = locals[a]. No stack change. ---
-HANDLER(op_fused_get_set) {
-    WRITE_I(pc->imm[1], READ_I(pc->imm[0]));
-    NEXT();
-}
+// (op_fused_get_set generated from base-op bodies — see
+// stack_interp_fused.gen.c.)
 
 // (op_fused_get_addr_fmul_fadd / _fsub and their _fw variants —
 // int-window FMA terms and the narrow float_window_rewrite peephole
@@ -1581,36 +1376,8 @@ HANDLER(op_print_f32_f) {
 // into locals[], encoded that way by the bridge so the `ldr s` can be
 // emitted without an extra lsl. See the comment in
 // stack_interp_bridge.rs::encode_imm and op_local_get_f above.
-HANDLER(op_fused_get_get_fadd_f) {
-    float a = READ_F_OFF(pc->imm[0]);
-    float b = READ_F_OFF(pc->imm[1]);
-    FPUSH(a + b);
-    NEXT();
-}
-HANDLER(op_fused_get_get_fsub_f) {
-    float a = READ_F_OFF(pc->imm[0]);
-    float b = READ_F_OFF(pc->imm[1]);
-    FPUSH(a - b);
-    NEXT();
-}
-HANDLER(op_fused_get_get_fmul_f) {
-    float a = READ_F_OFF(pc->imm[0]);
-    float b = READ_F_OFF(pc->imm[1]);
-    FPUSH(a * b);
-    NEXT();
-}
-HANDLER(op_fused_get_fmul_f) {
-    f0 = f0 * READ_F_OFF(pc->imm[0]);
-    NEXT();
-}
-HANDLER(op_fused_get_fadd_f) {
-    f0 = f0 + READ_F_OFF(pc->imm[0]);
-    NEXT();
-}
-HANDLER(op_fused_get_fsub_f) {
-    f0 = f0 - READ_F_OFF(pc->imm[0]);
-    NEXT();
-}
+// (op_fused_get_get_{fadd,fsub,fmul}_f and op_fused_get_{fmul,fadd,fsub}_f
+// are generated from base-op bodies — see stack_interp_fused.gen.c.)
 // Pop f0=b, f1=a, f2=c (in f-window), push c + a*b. 3→1.
 HANDLER(op_fused_fmul_fadd_f) {
     f0 = f2 + f1 * f0;
