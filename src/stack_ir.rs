@@ -409,6 +409,8 @@ pub enum StackOp {
     FusedLocalArrayStore32F(u16, u16),
     /// if !(f0 > const) jump. Pop 1 (f-window), conditionally jump.
     FusedF32ConstFGtJumpIfZeroF(f32, i32),
+    /// if !(locals[n] > const) jump. Pop 0, conditionally jump.
+    FusedGetF32ConstFGtJumpIfZeroF(u16, f32, i32),
 
     Halt,
     Nop,
@@ -745,6 +747,9 @@ impl fmt::Display for StackOp {
             }
             StackOp::FusedF32ConstFGtJumpIfZeroF(v, o) => {
                 write!(f, "fw.fused.f32const_fgt_jiz {} {}", v, o)
+            }
+            StackOp::FusedGetF32ConstFGtJumpIfZeroF(n, v, o) => {
+                write!(f, "fw.fused.get_f32const_fgt_jiz {} {} {}", n, v, o)
             }
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),

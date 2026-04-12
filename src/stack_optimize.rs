@@ -30,6 +30,7 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
             }
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
+            StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
             _ => None,
         };
         if let Some(off) = off {
@@ -201,6 +202,25 @@ fn fuse(func: &mut StackFunction) {
                     i += 2;
                     continue;
                 }
+            }
+        }
+
+        // Float-window compare/jump from a local:
+        // fw.local.get n + fw.fused.f32const_fgt_jiz v off
+        //   → fw.fused.get_f32const_fgt_jiz n v off
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalGetF(n), StackOp::FusedF32ConstFGtJumpIfZeroF(v, off)) =
+                (&ops[i], &ops[i + 1])
+            {
+                let n = *n;
+                let v = *v;
+                // Original jump at i+1 targets i+2+off. Fused op at i
+                // targets i+1+new_off, so new_off = off + 1.
+                let new_off = *off + 1;
+                ops[i] = StackOp::FusedGetF32ConstFGtJumpIfZeroF(n, v, new_off);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
             }
         }
 
@@ -710,6 +730,12 @@ fn strip_nops(func: &mut StackFunction) {
                 let target_new = new_idx[target_old];
                 let new_off = target_new as i32 - new_idx[old] as i32 - 1;
                 StackOp::FusedF32ConstFGtJumpIfZeroF(*v, new_off)
+            }
+            StackOp::FusedGetF32ConstFGtJumpIfZeroF(n, v, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedGetF32ConstFGtJumpIfZeroF(*n, *v, new_off)
             }
             other => other.clone(),
         };

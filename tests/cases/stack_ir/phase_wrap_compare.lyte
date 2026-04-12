@@ -1,0 +1,27 @@
+// Stack-IR check for local float compare-to-const branch fusion.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 2, memory: 0 bytes):
+//      0: fw.f32.const 0.5
+//      1: fw.local.set 0
+//      2: fw.f32.const 0.25
+//      3: fw.local.set 1
+//      4: fused.get_get_fadd_set 0 1 0
+//      5: fw.fused.get_f32const_fgt_jiz 0 1 5
+//      6: fw.local.get 0
+//      7: fw.f32.const 1
+//      8: fw.f32.sub
+//      9: fw.local.tee 0
+//     10: jump 1
+//     11: i64.const 0
+//     12: drop
+//     13: return_void
+
+main {
+    var phase = 0.5
+    var inc = 0.25
+    phase = phase + inc
+    if phase > 1.0 {
+        phase = phase - 1.0
+    }
+}

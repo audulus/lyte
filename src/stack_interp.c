@@ -1571,6 +1571,18 @@ HANDLER(op_fused_f32const_fgt_jiz_f) {
     }
     NEXT();
 }
+HANDLER(op_fused_get_f32const_fgt_jiz_f) {
+    float val = *(float*)((uint8_t*)locals + pc->imm[0]);
+    uint32_t lim_bits = (uint32_t)pc->imm[1];
+    float limit;
+    memcpy(&limit, &lim_bits, 4);
+    if (!(val > limit)) {
+        int64_t off = (int64_t)pc->imm[2];
+        pc = pc + 1 + off;
+        DISPATCH();
+    }
+    NEXT();
+}
 
 // ============================================================================
 // Entry point

@@ -254,6 +254,7 @@ extern "C" {
     fn op_fused_local_array_load32_f();
     fn op_fused_local_array_store32_f();
     fn op_fused_f32const_fgt_jiz_f();
+    fn op_fused_get_f32const_fgt_jiz_f();
 }
 
 /// Get the C handler function pointer for a StackOp.
@@ -459,6 +460,9 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedLocalArrayLoad32F(_, _) => op_fused_local_array_load32_f as *const (),
         StackOp::FusedLocalArrayStore32F(_, _) => op_fused_local_array_store32_f as *const (),
         StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => op_fused_f32const_fgt_jiz_f as *const (),
+        StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, _) => {
+            op_fused_get_f32const_fgt_jiz_f as *const ()
+        }
     }
 }
 
@@ -568,6 +572,9 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedTeeSliceStore32F(n, s, i) => [(*n as u64) * 8, *s as u64, *i as u64],
         StackOp::FusedF32ConstFGtJumpIfZeroF(v, off) => {
             [f32::to_bits(*v) as u64, *off as i64 as u64, 0]
+        }
+        StackOp::FusedGetF32ConstFGtJumpIfZeroF(n, v, off) => {
+            [(*n as u64) * 8, f32::to_bits(*v) as u64, *off as i64 as u64]
         }
         _ => [0, 0, 0],
     }

@@ -19,6 +19,7 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
             }
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
+            StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
             _ => None,
         };
         if let Some(off) = off {
@@ -242,7 +243,8 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedGetAddrFMulFAddF(_, _, _)
         | StackOp::FusedGetAddrFMulFSubF(_, _, _)
         | StackOp::FusedAddrLoad32OffF(_, _)
-        | StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => 0,
+        | StackOp::FusedF32ConstFGtJumpIfZeroF(_, _)
+        | StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, _) => 0,
 
         // Float comparisons: pop 2 from f-window, push 1 to int window.
         StackOp::FEqF
@@ -304,6 +306,9 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedTeeSliceStore32F(_, _, _)
         | StackOp::FusedLocalArrayStore32F(_, _)
         | StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => -1,
+
+        // Direct local compare/jump doesn't touch the float window.
+        StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, _) => 0,
 
         // LocalTeeF: peek (pop 0)
         StackOp::LocalTeeF(_) => 0,
