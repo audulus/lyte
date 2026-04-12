@@ -231,6 +231,15 @@ pub enum StackOp {
     FusedGetAddImmSet(u16, i32, u16),
     /// if !(locals[a] < locals[b]) jump. Pop 0, push 0.
     FusedGetGetILtJumpIfZero(u16, u16, i32),
+    /// if any packed `(idx < len)` check fails, jump. Pop 0, push 0.
+    FusedBoundsCheck1JumpIfZero([u8; 2], i32),
+    FusedBoundsCheck2JumpIfZero([u8; 4], i32),
+    FusedBoundsCheck3JumpIfZero([u8; 6], i32),
+    FusedBoundsCheck4JumpIfZero([u8; 8], i32),
+    FusedBoundsCheck5JumpIfZero([u8; 10], i32),
+    FusedBoundsCheck6JumpIfZero([u8; 12], i32),
+    FusedBoundsCheck7JumpIfZero([u8; 14], i32),
+    FusedBoundsCheck8JumpIfZero([u8; 16], i32),
     /// locals[n] = const. Pop 0, push 0.
     FusedConstSet(i64, u16),
     /// locals[n] = f32 const. Pop 0, push 0.
@@ -642,6 +651,74 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetGetILtJumpIfZero(a, b, o) => {
                 write!(f, "fused.get_get_ilt_jiz {} {} {}", a, b, o)
             }
+            StackOp::FusedBoundsCheck1JumpIfZero(p, o) => {
+                write!(f, "fused.bounds_check1_jiz {} {} {}", p[0], p[1], o)
+            }
+            StackOp::FusedBoundsCheck2JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check2_jiz {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], o
+            ),
+            StackOp::FusedBoundsCheck3JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check3_jiz {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], o
+            ),
+            StackOp::FusedBoundsCheck4JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check4_jiz {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], o
+            ),
+            StackOp::FusedBoundsCheck5JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check5_jiz {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], o
+            ),
+            StackOp::FusedBoundsCheck6JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check6_jiz {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], o
+            ),
+            StackOp::FusedBoundsCheck7JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check7_jiz {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                p[4],
+                p[5],
+                p[6],
+                p[7],
+                p[8],
+                p[9],
+                p[10],
+                p[11],
+                p[12],
+                p[13],
+                o
+            ),
+            StackOp::FusedBoundsCheck8JumpIfZero(p, o) => write!(
+                f,
+                "fused.bounds_check8_jiz {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                p[4],
+                p[5],
+                p[6],
+                p[7],
+                p[8],
+                p[9],
+                p[10],
+                p[11],
+                p[12],
+                p[13],
+                p[14],
+                p[15],
+                o
+            ),
             StackOp::FusedConstSet(v, n) => write!(f, "fused.const_set {} {}", v, n),
             StackOp::FusedF32ConstSet(v, n) => write!(f, "fused.f32const_set {} {}", v, n),
             StackOp::FusedAddrGetSliceLoad32(s, i) => {

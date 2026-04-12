@@ -1,0 +1,35 @@
+// Stack-IR check for packed 8-way bounds checks.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 10, memory: 0 bytes):
+//      0: fused.const_set 1 0
+//      1: fused.const_set 10 1
+//      2: fused.const_set 11 2
+//      3: fused.const_set 12 3
+//      4: fused.const_set 13 4
+//      5: fused.const_set 14 5
+//      6: fused.const_set 15 6
+//      7: fused.const_set 16 7
+//      8: fused.const_set 17 8
+//      9: fused.bounds_check8_jiz 0 1 0 2 0 3 0 4 0 5 0 6 0 7 0 8 3
+//     10: fused.const_set 1 9
+//     11: i64.const 0
+//     12: jump 1
+//     13: i64.const 0
+//     14: drop
+//     15: return_void
+
+main {
+    var i = 1
+    var a = 10
+    var b = 11
+    var c = 12
+    var d = 13
+    var e = 14
+    var f = 15
+    var g = 16
+    var h = 17
+    if i < a && i < b && i < c && i < d && i < e && i < f && i < g && i < h {
+        var ok = 1
+    }
+}

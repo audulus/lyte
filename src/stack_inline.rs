@@ -138,6 +138,16 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => {
                 Some((i as i64 + 1 + *off as i64) as usize)
             }
+            StackOp::FusedBoundsCheck1JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck2JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck3JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck4JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck5JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck6JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck7JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck8JumpIfZero(_, off) => {
+                Some((i as i64 + 1 + *off as i64) as usize)
+            }
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => {
                 Some((i as i64 + 1 + *off as i64) as usize)
             }
@@ -163,6 +173,14 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
                     *o = new_off as i32
                 }
                 StackOp::FusedGetGetILtJumpIfZero(_, _, o) => *o = new_off as i32,
+                StackOp::FusedBoundsCheck1JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck2JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck3JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck4JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck5JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck6JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck7JumpIfZero(_, o)
+                | StackOp::FusedBoundsCheck8JumpIfZero(_, o) => *o = new_off as i32,
                 StackOp::FusedF32ConstFGtJumpIfZeroF(_, o) => *o = new_off as i32,
                 StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, o) => *o = new_off as i32,
                 _ => unreachable!(),

@@ -18,6 +18,14 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
                 Some(*off)
             }
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
+            StackOp::FusedBoundsCheck1JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck2JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck3JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck4JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck5JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck6JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck7JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck8JumpIfZero(_, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
             _ => None,
@@ -195,6 +203,14 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedF32ConstSet(_, _)
         | StackOp::FusedGetAddImmSet(_, _, _)
         | StackOp::FusedGetGetILtJumpIfZero(_, _, _)
+        | StackOp::FusedBoundsCheck1JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck2JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck3JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck4JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck5JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck6JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck7JumpIfZero(_, _)
+        | StackOp::FusedBoundsCheck8JumpIfZero(_, _)
         | StackOp::FusedGetSetF(_, _)
         | StackOp::FusedGetSet2F(_)
         | StackOp::FusedGetSet3F(_)

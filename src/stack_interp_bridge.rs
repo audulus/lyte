@@ -180,6 +180,14 @@ extern "C" {
     fn op_fused_addr_load32off();
     fn op_fused_get_addimm_set();
     fn op_fused_get_get_ilt_jiz();
+    fn op_fused_bounds_check1_jiz();
+    fn op_fused_bounds_check2_jiz();
+    fn op_fused_bounds_check3_jiz();
+    fn op_fused_bounds_check4_jiz();
+    fn op_fused_bounds_check5_jiz();
+    fn op_fused_bounds_check6_jiz();
+    fn op_fused_bounds_check7_jiz();
+    fn op_fused_bounds_check8_jiz();
     fn op_fused_const_set();
     fn op_fused_f32const_set();
     fn op_fused_addr_get_sload32();
@@ -401,6 +409,14 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off as *const (),
         StackOp::FusedGetAddImmSet(_, _, _) => op_fused_get_addimm_set as *const (),
         StackOp::FusedGetGetILtJumpIfZero(_, _, _) => op_fused_get_get_ilt_jiz as *const (),
+        StackOp::FusedBoundsCheck1JumpIfZero(_, _) => op_fused_bounds_check1_jiz as *const (),
+        StackOp::FusedBoundsCheck2JumpIfZero(_, _) => op_fused_bounds_check2_jiz as *const (),
+        StackOp::FusedBoundsCheck3JumpIfZero(_, _) => op_fused_bounds_check3_jiz as *const (),
+        StackOp::FusedBoundsCheck4JumpIfZero(_, _) => op_fused_bounds_check4_jiz as *const (),
+        StackOp::FusedBoundsCheck5JumpIfZero(_, _) => op_fused_bounds_check5_jiz as *const (),
+        StackOp::FusedBoundsCheck6JumpIfZero(_, _) => op_fused_bounds_check6_jiz as *const (),
+        StackOp::FusedBoundsCheck7JumpIfZero(_, _) => op_fused_bounds_check7_jiz as *const (),
+        StackOp::FusedBoundsCheck8JumpIfZero(_, _) => op_fused_bounds_check8_jiz as *const (),
         StackOp::FusedConstSet(_, _) => op_fused_const_set as *const (),
         StackOp::FusedF32ConstSet(_, _) => op_fused_f32const_set as *const (),
         StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32 as *const (),
@@ -572,6 +588,46 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
+        StackOp::FusedBoundsCheck1JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck2JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck3JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck4JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck5JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck6JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck7JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
+        StackOp::FusedBoundsCheck8JumpIfZero(p, off) => {
+            let mut out = pack_u8_imms(p);
+            out[2] = *off as i64 as u64;
+            out
+        }
         StackOp::FusedConstSet(v, n) => [*v as u64, *n as u64, 0],
         StackOp::FusedF32ConstSet(v, n) => [f32::to_bits(*v) as u64, *n as u64, 0],
 

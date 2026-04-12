@@ -1,0 +1,29 @@
+// Runtime check for packed bounds-check fusion semantics.
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+main {
+    var i = 1
+    var a = 10
+    var b = 11
+    var c = 12
+    var d = 13
+    var e = 14
+    var f = 15
+    var g = 16
+    var h = 17
+    var ok = 0
+    if i < a && i < b && i < c && i < d && i < e && i < f && i < g && i < h {
+        ok = 1
+    }
+    assert(ok == 1)
+
+    i = 20
+    ok = 0
+    if i < a && i < b && i < c && i < d && i < e && i < f && i < g && i < h {
+        ok = 1
+    }
+    assert(ok == 0)
+}

@@ -1055,6 +1055,32 @@ HANDLER(op_fused_get_get_ilt_jiz) {
     NEXT();
 }
 
+static inline uint8_t imm_u8(const Instruction* pc, int idx);
+
+#define BOUNDS_CHECK_HANDLER(name, PAIRS) \
+HANDLER(name) { \
+    for (int i = 0; i < (PAIRS); i++) { \
+        uint8_t idx = imm_u8(pc, i * 2); \
+        uint8_t len = imm_u8(pc, i * 2 + 1); \
+        if ((int64_t)locals[idx] >= (int64_t)locals[len]) { \
+            int64_t off = (int64_t)pc->imm[2]; \
+            pc = pc + 1 + off; \
+            DISPATCH(); \
+        } \
+    } \
+    NEXT(); \
+}
+
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check1_jiz, 1)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check2_jiz, 2)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check3_jiz, 3)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check4_jiz, 4)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check5_jiz, 5)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check6_jiz, 6)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check7_jiz, 7)
+BOUNDS_CHECK_HANDLER(op_fused_bounds_check8_jiz, 8)
+#undef BOUNDS_CHECK_HANDLER
+
 // locals[n] = i64 constant -- no stack change
 HANDLER(op_fused_const_set) {
     locals[pc->imm[1]] = pc->imm[0];

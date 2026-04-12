@@ -29,6 +29,14 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
                 Some(*off)
             }
             StackOp::FusedGetGetILtJumpIfZero(_, _, off) => Some(*off),
+            StackOp::FusedBoundsCheck1JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck2JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck3JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck4JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck5JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck6JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck7JumpIfZero(_, off)
+            | StackOp::FusedBoundsCheck8JumpIfZero(_, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
             _ => None,
@@ -129,6 +137,79 @@ fn make_fused_get_get_fmul_sum_f(bytes: &[u8], sub_mask: u8) -> StackOp {
         ),
         _ => unreachable!("unsupported float mul-sum chain length"),
     }
+}
+
+fn make_fused_bounds_check_jiz(bytes: &[u8], off: i32) -> StackOp {
+    match bytes.len() {
+        2 => StackOp::FusedBoundsCheck1JumpIfZero([bytes[0], bytes[1]], off),
+        4 => StackOp::FusedBoundsCheck2JumpIfZero([bytes[0], bytes[1], bytes[2], bytes[3]], off),
+        6 => StackOp::FusedBoundsCheck3JumpIfZero(
+            [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]],
+            off,
+        ),
+        8 => StackOp::FusedBoundsCheck4JumpIfZero(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ],
+            off,
+        ),
+        10 => StackOp::FusedBoundsCheck5JumpIfZero(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9],
+            ],
+            off,
+        ),
+        12 => StackOp::FusedBoundsCheck6JumpIfZero(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11],
+            ],
+            off,
+        ),
+        14 => StackOp::FusedBoundsCheck7JumpIfZero(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
+            ],
+            off,
+        ),
+        16 => StackOp::FusedBoundsCheck8JumpIfZero(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                bytes[15],
+            ],
+            off,
+        ),
+        _ => unreachable!("unsupported packed bounds-check length"),
+    }
+}
+
+fn packed_bounds_check_chain(ops: &[StackOp], start: usize, pairs: usize) -> Option<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(pairs * 2);
+
+    match &ops[start] {
+        StackOp::FusedGetGetILt(a, b) if *a < 256 && *b < 256 => {
+            bytes.push(*a as u8);
+            bytes.push(*b as u8);
+        }
+        _ => return None,
+    }
+
+    let mut cursor = start + 1;
+    for _ in 1..pairs {
+        match (&ops[cursor], &ops[cursor + 1]) {
+            (StackOp::FusedGetGetILt(a, b), StackOp::And) if *a < 256 && *b < 256 => {
+                bytes.push(*a as u8);
+                bytes.push(*b as u8);
+            }
+            _ => return None,
+        }
+        cursor += 2;
+    }
+
+    Some(bytes)
 }
 
 fn packed_fmul_sum_fused_chain(
@@ -420,7 +501,11 @@ fn fuse(func: &mut StackFunction) {
                 // Adjust offset: original JumpIfZero at i+3 targets i+3+1+off.
                 // Fused instruction at i targets i+1+new_off. So new_off = off + 3.
                 let new_off = *off + 3;
-                ops[i] = StackOp::FusedGetGetILtJumpIfZero(a, b, new_off);
+                ops[i] = if a < 256 && b < 256 {
+                    make_fused_bounds_check_jiz(&[a as u8, b as u8], new_off)
+                } else {
+                    StackOp::FusedGetGetILtJumpIfZero(a, b, new_off)
+                };
                 ops[i + 1] = StackOp::Nop;
                 ops[i + 2] = StackOp::Nop;
                 ops[i + 3] = StackOp::Nop;
@@ -484,6 +569,28 @@ fn fuse(func: &mut StackFunction) {
             }
         }
         if fused_mul_sum {
+            continue;
+        }
+
+        let mut fused_bounds_check = false;
+        for pairs in (2..=8).rev() {
+            let span = pairs * 2;
+            if i + span <= len && !spans_target(i, span) {
+                if let Some(bytes) = packed_bounds_check_chain(ops, i, pairs) {
+                    if let StackOp::JumpIfZero(off) = ops[i + span - 1] {
+                        let new_off = off + (span as i32 - 1);
+                        ops[i] = make_fused_bounds_check_jiz(&bytes, new_off);
+                        for slot in ops.iter_mut().take(i + span).skip(i + 1) {
+                            *slot = StackOp::Nop;
+                        }
+                        i += span;
+                        fused_bounds_check = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if fused_bounds_check {
             continue;
         }
 
@@ -925,6 +1032,54 @@ fn strip_nops(func: &mut StackFunction) {
                 let target_new = new_idx[target_old];
                 let new_off = target_new as i32 - new_idx[old] as i32 - 1;
                 StackOp::FusedGetGetILtJumpIfZero(*a, *b, new_off)
+            }
+            StackOp::FusedBoundsCheck1JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck1JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck2JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck2JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck3JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck3JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck4JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck4JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck5JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck5JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck6JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck6JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck7JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck7JumpIfZero(*p, new_off)
+            }
+            StackOp::FusedBoundsCheck8JumpIfZero(p, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedBoundsCheck8JumpIfZero(*p, new_off)
             }
             StackOp::FusedF32ConstFGtJumpIfZeroF(v, off) => {
                 let target_old = (old as i64 + 1 + *off as i64) as usize;
