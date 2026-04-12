@@ -327,6 +327,10 @@ pub enum StackOp {
     FToBitsF,
     /// Inverse of FToBitsF.
     BitsToFF,
+    /// Pop index and slice_fat_ptr from the int window, push f32 to f0.
+    SliceLoad32F,
+    /// Pop f0, then pop index and slice_fat_ptr from the int window.
+    SliceStore32F,
 
     // Float memory loads: pop address from int window, push float to f0.
     LoadF32F,
@@ -678,6 +682,8 @@ impl fmt::Display for StackOp {
             StackOp::I32ToF32F => write!(f, "fw.convert.i32_to_f32"),
             StackOp::FToBitsF => write!(f, "fw.to_bits"),
             StackOp::BitsToFF => write!(f, "fw.from_bits"),
+            StackOp::SliceLoad32F => write!(f, "fw.slice.load32"),
+            StackOp::SliceStore32F => write!(f, "fw.slice.store32"),
             StackOp::LoadF32F => write!(f, "fw.f32.load"),
             StackOp::LoadF32OffF(o) => write!(f, "fw.f32.load offset={}", o),
             StackOp::StoreF32F => write!(f, "fw.f32.store"),

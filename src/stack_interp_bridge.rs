@@ -121,6 +121,8 @@ extern "C" {
     fn op_slice_ne();
     fn op_slice_load32();
     fn op_slice_store32();
+    fn op_slice_load32_f();
+    fn op_slice_store32_f();
     fn op_jump();
     fn op_jump_if_zero();
     fn op_jump_if_not_zero();
@@ -409,6 +411,8 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::I32ToF32F => op_i32_to_f32_f as *const (),
         StackOp::FToBitsF => op_to_bits_f as *const (),
         StackOp::BitsToFF => op_from_bits_f as *const (),
+        StackOp::SliceLoad32F => op_slice_load32_f as *const (),
+        StackOp::SliceStore32F => op_slice_store32_f as *const (),
         StackOp::LoadF32F => op_load_f32_f as *const (),
         StackOp::LoadF32OffF(_) => op_load_f32_off_f as *const (),
         StackOp::StoreF32F => op_store_f32_f as *const (),

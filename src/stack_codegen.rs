@@ -1316,15 +1316,12 @@ impl<'a> FunctionTranslator<'a> {
                         self.translate_expr(arr_id, func); // push fat_ptr
                         self.translate_expr(idx_id, func); // push index
                         if elem_is_f32 {
-                            // Generic SliceStore32 consumes the value from
-                            // the int window, so bridge an f32 val_local
-                            // back through FToBitsF.
                             func.emit(StackOp::LocalGetF(val_local));
-                            func.emit(StackOp::FToBitsF);
+                            func.emit(StackOp::SliceStore32F);
                         } else {
                             func.emit(StackOp::LocalGet(val_local));
+                            func.emit(StackOp::SliceStore32);
                         }
-                        func.emit(StackOp::SliceStore32);
                         if !self.void_ctx {
                             if elem_is_f32 {
                                 func.emit(StackOp::LocalGetF(val_local));
@@ -2285,13 +2282,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_expr(arr_id, func);
                 self.translate_expr(idx_id, func);
                 if elem_is_f32 {
-                    // SliceLoad32 + BitsToFF bridge for f32 elements under
-                    // the float-window codegen. The SliceLoad32F variant
-                    // that takes a dynamic address is not part of the op
-                    // inventory yet (phase 3 only adds it for the fused
-                    // local-array/addr-slot variants).
-                    func.emit(StackOp::SliceLoad32);
-                    func.emit(StackOp::BitsToFF);
+                    func.emit(StackOp::SliceLoad32F);
                 } else {
                     func.emit(StackOp::SliceLoad32);
                 }

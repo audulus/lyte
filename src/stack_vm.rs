@@ -501,6 +501,25 @@ impl StackVM {
                         *addr = val;
                     }
                 }
+                StackOp::SliceLoad32F => {
+                    let index = self.pop() as i64;
+                    let fat_ptr = self.pop() as *const u8;
+                    unsafe {
+                        let data_ptr = *(fat_ptr as *const *const u8);
+                        let addr = data_ptr.offset(index as isize * 4) as *const f32;
+                        self.push(f32::to_bits(*addr) as u64);
+                    }
+                }
+                StackOp::SliceStore32F => {
+                    let val = f32::from_bits(self.pop() as u32);
+                    let index = self.pop() as i64;
+                    let fat_ptr = self.pop() as *const u8;
+                    unsafe {
+                        let data_ptr = *(fat_ptr as *const *const u8);
+                        let addr = data_ptr.offset(index as isize * 4) as *mut f32;
+                        *addr = val;
+                    }
+                }
 
                 // === Control flow ===
                 StackOp::Jump(off) => {

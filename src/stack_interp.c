@@ -574,6 +574,28 @@ HANDLER(op_slice_store32) {
     NEXT();
 }
 
+HANDLER(op_slice_load32_f) {
+    // pop idx=t0, pop fat=t1, push f32 to float window
+    int64_t idx = (int64_t)t0;
+    uint8_t* fat = (uint8_t*)t1;
+    uint8_t* data = *(uint8_t**)fat;
+    float v = *(float*)(data + idx * 4);
+    DROP2();
+    FPUSH(v);
+    NEXT();
+}
+
+HANDLER(op_slice_store32_f) {
+    // pop f0 (value), pop idx=t0, pop fat=t1
+    int64_t idx = (int64_t)t0;
+    uint8_t* fat = (uint8_t*)t1;
+    uint8_t* data = *(uint8_t**)fat;
+    *(float*)(data + idx * 4) = f0;
+    DROP2();
+    FDROP1();
+    NEXT();
+}
+
 // --- Control flow ---
 
 HANDLER(op_jump) {

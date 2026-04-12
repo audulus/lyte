@@ -260,6 +260,9 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::F32ToF64 => 1,                      // pop f0, push f64 bits
         StackOp::F64ToF32 => -1,                     // pop f64 bits, push f0
 
+        // Generic f32 slice ops consume both int operands directly.
+        StackOp::SliceLoad32F | StackOp::SliceStore32F => -2,
+
         // Float loads: pop addr from int window, push float to f-window.
         StackOp::LoadF32F | StackOp::LoadF32OffF(_) | StackOp::FusedAddrGetSliceLoad32F(_, _) => -1,
 
@@ -284,6 +287,7 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         // Pushes
         StackOp::F32ConstF(_)
         | StackOp::LocalGetF(_)
+        | StackOp::SliceLoad32F
         | StackOp::FusedGetGetFAddF(_, _)
         | StackOp::FusedGetGetFSubF(_, _)
         | StackOp::FusedGetGetFMulF(_, _)
@@ -294,6 +298,7 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         // Pops
         StackOp::LocalSetF(_)
         | StackOp::DropF
+        | StackOp::SliceStore32F
         | StackOp::PrintF32F
         | StackOp::FusedAddrGetSliceStore32F(_, _)
         | StackOp::FusedTeeSliceStore32F(_, _, _)
