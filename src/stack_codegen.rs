@@ -523,10 +523,8 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_expr(expr, func);
                 func.emit(StackOp::Drop);
             }
-            // Assignment: could skip result push, but some code uses the
-            // assignment result (e.g. `phase = phase + freq` where the tee'd
-            // value is consumed). Fall through to default for now.
-            // TODO: determine when assignment result is truly unused.
+            // Assignment lowering already consults void_ctx and suppresses
+            // result materialization when the assigned value is dead.
             // Block: recurse with void context for every expression,
             // including the last. Using translate_void for the last
             // expression lets value-producing constructs (If, For, While,
@@ -1191,21 +1189,43 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an assignment expression.
     fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut StackFunction) {
+        let lhs_ty = self.expr_type(lhs_id);
+        let lhs_is_f32 = matches!(&*lhs_ty, Type::Float32);
+
         // Check for captured variable assignment (double indirection).
         if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
             let name = *name;
             if self.captured_vars.contains(&name) {
                 self.translate_expr(rhs_id, func);
                 let val_local = self.alloc_scalar();
-                func.emit(StackOp::LocalTee(val_local)); // keep value as result
                 let addr_local = *self.captured_slots.get(&name).unwrap();
-                let ty = self.expr_type(lhs_id);
+                if self.void_ctx {
+                    if lhs_is_f32 {
+                        func.emit(StackOp::LocalSetF(val_local));
+                    } else {
+                        func.emit(StackOp::LocalSet(val_local));
+                    }
+                } else if lhs_is_f32 {
+                    func.emit(StackOp::LocalTeeF(val_local));
+                } else {
+                    func.emit(StackOp::LocalTee(val_local));
+                }
                 // Stack: [value]. Need to store through captured pointer.
                 // Push addr, then value, then store.
                 func.emit(StackOp::LocalGet(addr_local)); // push captured addr
-                func.emit(StackOp::LocalGet(val_local)); // push value
-                self.emit_store_op(&ty, func);
-                func.emit(StackOp::LocalGet(val_local)); // result value
+                if lhs_is_f32 {
+                    func.emit(StackOp::LocalGetF(val_local));
+                } else {
+                    func.emit(StackOp::LocalGet(val_local)); // push value
+                }
+                self.emit_store_op(&lhs_ty, func);
+                if !self.void_ctx {
+                    if lhs_is_f32 {
+                        func.emit(StackOp::LocalGetF(val_local));
+                    } else {
+                        func.emit(StackOp::LocalGet(val_local)); // result value
+                    }
+                }
                 return;
             }
         }
@@ -1220,9 +1240,14 @@ impl<'a> FunctionTranslator<'a> {
                 if self.void_ctx && self.try_emit_binop_set(slot, rhs_id, func) {
                     return;
                 }
-                let lhs_ty = self.expr_type(lhs_id);
                 self.translate_expr(rhs_id, func);
-                if matches!(&*lhs_ty, Type::Float32) {
+                if self.void_ctx {
+                    if lhs_is_f32 {
+                        func.emit(StackOp::LocalSetF(slot));
+                    } else {
+                        func.emit(StackOp::LocalSet(slot));
+                    }
+                } else if lhs_is_f32 {
                     func.emit(StackOp::LocalTeeF(slot));
                 } else {
                     func.emit(StackOp::LocalTee(slot));
@@ -1314,9 +1339,6 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // General assignment: compute rhs, compute lvalue address, store.
-        let lhs_ty = self.expr_type(lhs_id);
-        let is_f32 = matches!(&*lhs_ty, Type::Float32);
-
         // Optimization: if RHS is a simple local variable, reuse it directly
         // instead of creating a temp (avoids get_set + get pattern).
         let val_local = if let Some(rhs_local) = self.get_scalar_local(rhs_id) {
@@ -1324,7 +1346,7 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             self.translate_expr(rhs_id, func);
             let tmp = self.alloc_scalar();
-            if is_f32 {
+            if lhs_is_f32 {
                 func.emit(StackOp::LocalSetF(tmp));
             } else {
                 func.emit(StackOp::LocalSet(tmp));
@@ -1333,7 +1355,7 @@ impl<'a> FunctionTranslator<'a> {
         };
 
         self.translate_lvalue(lhs_id, func); // pushes address
-        if is_f32 {
+        if lhs_is_f32 {
             func.emit(StackOp::LocalGetF(val_local));
         } else {
             func.emit(StackOp::LocalGet(val_local));
@@ -1345,14 +1367,16 @@ impl<'a> FunctionTranslator<'a> {
                 // rhs is a fat pointer address; load func_idx and store.
                 func.emit(StackOp::Load64); // load func_idx from value (which is fat ptr addr)
                 func.emit(StackOp::Store64);
-                func.emit(StackOp::LocalGet(val_local));
+                if !self.void_ctx {
+                    func.emit(StackOp::LocalGet(val_local));
+                }
                 return;
             }
         }
 
         self.emit_store_op(&lhs_ty, func);
         if !self.void_ctx {
-            if is_f32 {
+            if lhs_is_f32 {
                 func.emit(StackOp::LocalGetF(val_local));
             } else {
                 func.emit(StackOp::LocalGet(val_local));
