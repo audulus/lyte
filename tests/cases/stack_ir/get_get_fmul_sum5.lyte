@@ -1,0 +1,44 @@
+// Stack-IR check for packed 5-term signed local-local product sums.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 12, memory: 0 bytes):
+//      0: fw.f32.const 2
+//      1: fw.local.set 0
+//      2: fw.f32.const 3
+//      3: fw.local.set 1
+//      4: fw.f32.const 4
+//      5: fw.local.set 2
+//      6: fw.f32.const 5
+//      7: fw.local.set 3
+//      8: fw.f32.const 6
+//      9: fw.local.set 4
+//     10: fw.f32.const 7
+//     11: fw.local.set 5
+//     12: fw.f32.const 8
+//     13: fw.local.set 6
+//     14: fw.f32.const 9
+//     15: fw.local.set 7
+//     16: fw.f32.const 10
+//     17: fw.local.set 8
+//     18: fw.f32.const 11
+//     19: fw.local.set 9
+//     20: fw.fused.get_get_fmul_sum5 0 1 2 3 4 5 6 7 8 9 24
+//     21: fw.local.set 10
+//     22: fw.f32.const 0
+//     23: fw.local.set 11
+//     24: return_void
+
+main {
+    var a0 = 2.0
+    var b0 = 3.0
+    var a1 = 4.0
+    var b1 = 5.0
+    var a2 = 6.0
+    var b2 = 7.0
+    var a3 = 8.0
+    var b3 = 9.0
+    var a4 = 10.0
+    var b4 = 11.0
+    var y = a0 * b0 + a1 * b1 + a2 * b2 - a3 * b3 - a4 * b4
+    var done = 0.0
+}

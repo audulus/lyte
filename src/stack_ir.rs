@@ -393,6 +393,20 @@ pub enum StackOp {
     FusedGetGetFMulFAddF(u16, u16),
     /// f0 = f0 - locals[a] * locals[b] (f32). Pop 0, push 0.
     FusedGetGetFMulFSubF(u16, u16),
+    /// f0 = sum of 2 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum2F([u8; 4], u8),
+    /// f0 = sum of 3 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum3F([u8; 6], u8),
+    /// f0 = sum of 4 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum4F([u8; 8], u8),
+    /// f0 = sum of 5 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum5F([u8; 10], u8),
+    /// f0 = sum of 6 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum6F([u8; 12], u8),
+    /// f0 = sum of 7 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum7F([u8; 14], u8),
+    /// f0 = sum of 8 signed local-local products. `sub_mask` bits select subtraction.
+    FusedGetGetFMulSum8F([u8; 16], u8),
     /// f0 = f0 + locals[a] * load_f32(slot, off). Pop 0, push 0.
     FusedGetAddrFMulFAddF(u16, u16, i32),
     /// f0 = f0 - locals[a] * load_f32(slot, off).
@@ -743,6 +757,71 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetGetFMulFSubF(a, b) => {
                 write!(f, "fw.fused.get_get_fmul_fsub {} {}", a, b)
             }
+            StackOp::FusedGetGetFMulSum2F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum2 {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], mask
+            ),
+            StackOp::FusedGetGetFMulSum3F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum3 {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], mask
+            ),
+            StackOp::FusedGetGetFMulSum4F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum4 {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], mask
+            ),
+            StackOp::FusedGetGetFMulSum5F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum5 {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], mask
+            ),
+            StackOp::FusedGetGetFMulSum6F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum6 {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], mask
+            ),
+            StackOp::FusedGetGetFMulSum7F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum7 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                p[4],
+                p[5],
+                p[6],
+                p[7],
+                p[8],
+                p[9],
+                p[10],
+                p[11],
+                p[12],
+                p[13],
+                mask
+            ),
+            StackOp::FusedGetGetFMulSum8F(p, mask) => write!(
+                f,
+                "fw.fused.get_get_fmul_sum8 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                p[4],
+                p[5],
+                p[6],
+                p[7],
+                p[8],
+                p[9],
+                p[10],
+                p[11],
+                p[12],
+                p[13],
+                p[14],
+                p[15],
+                mask
+            ),
             StackOp::FusedGetAddrFMulFAddF(a, s, o) => {
                 write!(f, "fw.fused.get_addr_fmul_fadd {} {} {}", a, s, o)
             }

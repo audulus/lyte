@@ -287,7 +287,14 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::FusedLocalArrayLoad32F(_, _)
         | StackOp::FusedLocalArrayStore32F(_, _)
         | StackOp::FusedGetGetFMulFAddF(_, _)
-        | StackOp::FusedGetGetFMulFSubF(_, _) => 0,
+        | StackOp::FusedGetGetFMulFSubF(_, _)
+        | StackOp::FusedGetGetFMulSum2F(_, _)
+        | StackOp::FusedGetGetFMulSum3F(_, _)
+        | StackOp::FusedGetGetFMulSum4F(_, _)
+        | StackOp::FusedGetGetFMulSum5F(_, _)
+        | StackOp::FusedGetGetFMulSum6F(_, _)
+        | StackOp::FusedGetGetFMulSum7F(_, _)
+        | StackOp::FusedGetGetFMulSum8F(_, _) => 0,
         StackOp::FusedTeeSliceStore32F(_, _, _) => 0,
     }
 }
@@ -304,6 +311,13 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedGetGetFAddF(_, _)
         | StackOp::FusedGetGetFSubF(_, _)
         | StackOp::FusedGetGetFMulF(_, _)
+        | StackOp::FusedGetGetFMulSum2F(_, _)
+        | StackOp::FusedGetGetFMulSum3F(_, _)
+        | StackOp::FusedGetGetFMulSum4F(_, _)
+        | StackOp::FusedGetGetFMulSum5F(_, _)
+        | StackOp::FusedGetGetFMulSum6F(_, _)
+        | StackOp::FusedGetGetFMulSum7F(_, _)
+        | StackOp::FusedGetGetFMulSum8F(_, _)
         | StackOp::FusedAddrLoad32OffF(_, _)
         | StackOp::FusedAddrGetSliceLoad32F(_, _)
         | StackOp::FusedLocalArrayLoad32F(_, _) => 1,

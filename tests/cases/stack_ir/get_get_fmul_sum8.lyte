@@ -1,0 +1,62 @@
+// Stack-IR check for packed 8-term signed local-local product sums.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 18, memory: 0 bytes):
+//      0: fw.f32.const 2
+//      1: fw.local.set 0
+//      2: fw.f32.const 3
+//      3: fw.local.set 1
+//      4: fw.f32.const 4
+//      5: fw.local.set 2
+//      6: fw.f32.const 5
+//      7: fw.local.set 3
+//      8: fw.f32.const 6
+//      9: fw.local.set 4
+//     10: fw.f32.const 7
+//     11: fw.local.set 5
+//     12: fw.f32.const 8
+//     13: fw.local.set 6
+//     14: fw.f32.const 9
+//     15: fw.local.set 7
+//     16: fw.f32.const 10
+//     17: fw.local.set 8
+//     18: fw.f32.const 11
+//     19: fw.local.set 9
+//     20: fw.f32.const 12
+//     21: fw.local.set 10
+//     22: fw.f32.const 13
+//     23: fw.local.set 11
+//     24: fw.f32.const 14
+//     25: fw.local.set 12
+//     26: fw.f32.const 15
+//     27: fw.local.set 13
+//     28: fw.f32.const 16
+//     29: fw.local.set 14
+//     30: fw.f32.const 17
+//     31: fw.local.set 15
+//     32: fw.fused.get_get_fmul_sum8 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 240
+//     33: fw.local.set 16
+//     34: fw.f32.const 0
+//     35: fw.local.set 17
+//     36: return_void
+
+main {
+    var a0 = 2.0
+    var b0 = 3.0
+    var a1 = 4.0
+    var b1 = 5.0
+    var a2 = 6.0
+    var b2 = 7.0
+    var a3 = 8.0
+    var b3 = 9.0
+    var a4 = 10.0
+    var b4 = 11.0
+    var a5 = 12.0
+    var b5 = 13.0
+    var a6 = 14.0
+    var b6 = 15.0
+    var a7 = 16.0
+    var b7 = 17.0
+    var y = a0 * b0 + a1 * b1 + a2 * b2 + a3 * b3 - a4 * b4 - a5 * b5 - a6 * b6 - a7 * b7
+    var done = 0.0
+}

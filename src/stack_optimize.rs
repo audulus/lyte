@@ -85,6 +85,86 @@ fn packed_get_set_f_chain(ops: &[StackOp], start: usize, pairs: usize) -> Option
     Some(bytes)
 }
 
+fn make_fused_get_get_fmul_sum_f(bytes: &[u8], sub_mask: u8) -> StackOp {
+    match bytes.len() {
+        4 => StackOp::FusedGetGetFMulSum2F([bytes[0], bytes[1], bytes[2], bytes[3]], sub_mask),
+        6 => StackOp::FusedGetGetFMulSum3F(
+            [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]],
+            sub_mask,
+        ),
+        8 => StackOp::FusedGetGetFMulSum4F(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ],
+            sub_mask,
+        ),
+        10 => StackOp::FusedGetGetFMulSum5F(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9],
+            ],
+            sub_mask,
+        ),
+        12 => StackOp::FusedGetGetFMulSum6F(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11],
+            ],
+            sub_mask,
+        ),
+        14 => StackOp::FusedGetGetFMulSum7F(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
+            ],
+            sub_mask,
+        ),
+        16 => StackOp::FusedGetGetFMulSum8F(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                bytes[15],
+            ],
+            sub_mask,
+        ),
+        _ => unreachable!("unsupported float mul-sum chain length"),
+    }
+}
+
+fn packed_fmul_sum_fused_chain(
+    ops: &[StackOp],
+    start: usize,
+    terms: usize,
+) -> Option<(Vec<u8>, u8)> {
+    let mut bytes = Vec::with_capacity(terms * 2);
+    let mut sub_mask = 0u8;
+
+    match &ops[start] {
+        StackOp::FusedGetGetFMulF(a, b) if *a < 256 && *b < 256 => {
+            bytes.push(*a as u8);
+            bytes.push(*b as u8);
+        }
+        _ => return None,
+    }
+
+    for term in 1..terms {
+        match &ops[start + term] {
+            StackOp::FusedGetGetFMulFAddF(a, b) if *a < 256 && *b < 256 => {
+                bytes.push(*a as u8);
+                bytes.push(*b as u8);
+            }
+            StackOp::FusedGetGetFMulFSubF(a, b) if *a < 256 && *b < 256 => {
+                bytes.push(*a as u8);
+                bytes.push(*b as u8);
+                sub_mask |= 1 << term;
+            }
+            _ => return None,
+        }
+    }
+
+    Some((bytes, sub_mask))
+}
+
 /// Fuse instruction sequences into superinstructions.
 fn fuse(func: &mut StackFunction) {
     let ops = &mut func.ops;
@@ -386,6 +466,25 @@ fn fuse(func: &mut StackFunction) {
                 i += 3;
                 continue;
             }
+        }
+
+        let mut fused_mul_sum = false;
+        for terms in (2..=8).rev() {
+            let span = terms;
+            if i + span <= len && !spans_target(i, span) {
+                if let Some((pairs, sub_mask)) = packed_fmul_sum_fused_chain(ops, i, terms) {
+                    ops[i] = make_fused_get_get_fmul_sum_f(&pairs, sub_mask);
+                    for slot in ops.iter_mut().take(i + span).skip(i + 1) {
+                        *slot = StackOp::Nop;
+                    }
+                    i += span;
+                    fused_mul_sum = true;
+                    break;
+                }
+            }
+        }
+        if fused_mul_sum {
+            continue;
         }
 
         // Float-window: fw.local.get a + fw.local.get b + fw.f32.mul + fw.f32.add

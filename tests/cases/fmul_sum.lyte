@@ -1,0 +1,39 @@
+// Runtime check for packed signed local-local product sums.
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+main {
+    var a0 = 1.0
+    var b0 = 1.0
+    var a1 = 2.0
+    var b1 = 1.0
+    var a2 = 3.0
+    var b2 = 1.0
+    var a3 = 4.0
+    var b3 = 1.0
+    var a4 = 5.0
+    var b4 = 1.0
+    var y = a0 * b0 + a1 * b1 + a2 * b2 - a3 * b3 - a4 * b4
+    assert(y == -3.0)
+
+    var c0 = 1.0
+    var d0 = 1.0
+    var c1 = 2.0
+    var d1 = 1.0
+    var c2 = 3.0
+    var d2 = 1.0
+    var c3 = 4.0
+    var d3 = 1.0
+    var c4 = 5.0
+    var d4 = 1.0
+    var c5 = 6.0
+    var d5 = 1.0
+    var c6 = 7.0
+    var d6 = 1.0
+    var c7 = 8.0
+    var d7 = 1.0
+    var z = c0 * d0 + c1 * d1 + c2 * d2 + c3 * d3 - c4 * d4 - c5 * d5 - c6 * d6 - c7 * d7
+    assert(z == -16.0)
+}

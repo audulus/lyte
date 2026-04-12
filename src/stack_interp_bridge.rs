@@ -247,6 +247,13 @@ extern "C" {
     fn op_fused_fmul_fsub_f();
     fn op_fused_get_get_fmul_fadd_f();
     fn op_fused_get_get_fmul_fsub_f();
+    fn op_fused_get_get_fmul_sum2_f();
+    fn op_fused_get_get_fmul_sum3_f();
+    fn op_fused_get_get_fmul_sum4_f();
+    fn op_fused_get_get_fmul_sum5_f();
+    fn op_fused_get_get_fmul_sum6_f();
+    fn op_fused_get_get_fmul_sum7_f();
+    fn op_fused_get_get_fmul_sum8_f();
     fn op_fused_get_addr_fmul_fadd_f();
     fn op_fused_get_addr_fmul_fsub_f();
     fn op_fused_addr_load32off_f();
@@ -463,6 +470,13 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedFMulFSubF => op_fused_fmul_fsub_f as *const (),
         StackOp::FusedGetGetFMulFAddF(_, _) => op_fused_get_get_fmul_fadd_f as *const (),
         StackOp::FusedGetGetFMulFSubF(_, _) => op_fused_get_get_fmul_fsub_f as *const (),
+        StackOp::FusedGetGetFMulSum2F(_, _) => op_fused_get_get_fmul_sum2_f as *const (),
+        StackOp::FusedGetGetFMulSum3F(_, _) => op_fused_get_get_fmul_sum3_f as *const (),
+        StackOp::FusedGetGetFMulSum4F(_, _) => op_fused_get_get_fmul_sum4_f as *const (),
+        StackOp::FusedGetGetFMulSum5F(_, _) => op_fused_get_get_fmul_sum5_f as *const (),
+        StackOp::FusedGetGetFMulSum6F(_, _) => op_fused_get_get_fmul_sum6_f as *const (),
+        StackOp::FusedGetGetFMulSum7F(_, _) => op_fused_get_get_fmul_sum7_f as *const (),
+        StackOp::FusedGetGetFMulSum8F(_, _) => op_fused_get_get_fmul_sum8_f as *const (),
         StackOp::FusedGetAddrFMulFAddF(_, _, _) => op_fused_get_addr_fmul_fadd_f as *const (),
         StackOp::FusedGetAddrFMulFSubF(_, _, _) => op_fused_get_addr_fmul_fsub_f as *const (),
         StackOp::FusedAddrLoad32OffF(_, _) => op_fused_addr_load32off_f as *const (),
@@ -491,6 +505,12 @@ fn pack_u8_imms(bytes: &[u8]) -> [u64; 3] {
     for (i, byte) in bytes.iter().enumerate() {
         out[i / 8] |= (*byte as u64) << ((i % 8) * 8);
     }
+    out
+}
+
+fn pack_u8_imms_with_tail(bytes: &[u8], tail: u8) -> [u64; 3] {
+    let mut out = pack_u8_imms(bytes);
+    out[2] = tail as u64;
     out
 }
 
@@ -591,6 +611,13 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetGetFMulFAddF(a, b) | StackOp::FusedGetGetFMulFSubF(a, b) => {
             [(*a as u64) * 8, (*b as u64) * 8, 0]
         }
+        StackOp::FusedGetGetFMulSum2F(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetFMulSum3F(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetFMulSum4F(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetFMulSum5F(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetFMulSum6F(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetFMulSum7F(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetFMulSum8F(p, mask) => pack_u8_imms_with_tail(p, *mask),
         StackOp::FusedGetAddrFMulFAddF(a, s, o) | StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
             [(*a as u64) * 8, *s as u64, *o as i64 as u64]
         }

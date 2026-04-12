@@ -1580,6 +1580,29 @@ HANDLER(op_fused_get_get_fmul_fsub_f) {
     f0 = f0 - a * b;
     NEXT();
 }
+#define FMUL_SUM_HANDLER(name, TERMS) \
+HANDLER(name) { \
+    uint8_t sub_mask = (uint8_t)pc->imm[2]; \
+    float acc = 0.0f; \
+    for (int i = 0; i < (TERMS); i++) { \
+        uint8_t a_idx = imm_u8(pc, i * 2); \
+        uint8_t b_idx = imm_u8(pc, i * 2 + 1); \
+        float a = *(float*)((uint8_t*)locals + (size_t)a_idx * 8); \
+        float b = *(float*)((uint8_t*)locals + (size_t)b_idx * 8); \
+        float prod = a * b; \
+        acc = (sub_mask & (1u << i)) ? (acc - prod) : (acc + prod); \
+    } \
+    FPUSH(acc); \
+    NEXT(); \
+}
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum2_f, 2)
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum3_f, 3)
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum4_f, 4)
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum5_f, 5)
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum6_f, 6)
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum7_f, 7)
+FMUL_SUM_HANDLER(op_fused_get_get_fmul_sum8_f, 8)
+#undef FMUL_SUM_HANDLER
 HANDLER(op_fused_get_addr_fmul_fadd_f) {
     float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
