@@ -73,6 +73,19 @@ VARIANTS: Dict[str, str] = {
     "op_fadd_f": "FAddF",
     "op_fsub_f": "FSubF",
     "op_fmul_f": "FMulF",
+    # --- L-handler base ops (hot local registers) ---
+    "op_local_get_l0": "LocalGetL0",
+    "op_local_get_l1": "LocalGetL1",
+    "op_local_get_l2": "LocalGetL2",
+    "op_local_set_l0": "LocalSetL0",
+    "op_local_set_l1": "LocalSetL1",
+    "op_local_set_l2": "LocalSetL2",
+    "op_local_get_l0_f": "LocalGetL0F",
+    "op_local_get_l1_f": "LocalGetL1F",
+    "op_local_get_l2_f": "LocalGetL2F",
+    "op_local_set_l0_f": "LocalSetL0F",
+    "op_local_set_l1_f": "LocalSetL1F",
+    "op_local_set_l2_f": "LocalSetL2F",
     # --- fused target ops produced by fusions below ---
     "op_fused_get_get_iadd": "FusedGetGetIAdd",
     "op_fused_get_get_ilt": "FusedGetGetILt",
@@ -134,6 +147,83 @@ class Fusion:
 
 def b(op: str, imm: Optional[int] = None) -> BaseRef:
     return BaseRef(op, imm)
+
+
+# ----------------------------------------------------------------------
+# Specializations: hot-local variants of existing handlers
+# ----------------------------------------------------------------------
+
+@dataclass
+class Specialization:
+    """Generates a handler from an existing handler body with specific
+    imm slots replaced by direct register access.
+
+    For each (imm_index, register) in `hot_slots`:
+      - READ_I(pc->imm[N])  →  register
+      - WRITE_I(pc->imm[N], expr)  →  register = (uint64_t)(expr)
+      - READ_F_OFF(pc->imm[N])  →  as_f32(register)
+      - WRITE_F_OFF(pc->imm[N], expr)  →  register = from_f32(expr)
+    """
+    name: str
+    base_handler: str
+    hot_slots: Dict[int, str]
+
+
+def s(name: str, base: str, hot: Dict[int, str]) -> Specialization:
+    return Specialization(name, base, hot)
+
+
+# Benchmark hot-local specializations: one entry per (op, hot-pattern)
+# combination observed in the biquad / sort / fft hot loops.
+SPECIALIZATIONS: List[Specialization] = [
+    # --- FusedGetGetILtJumpIfZero (control flow — can't concat) ---
+    s("op_fused_get_get_ilt_jiz_l0a", "op_fused_get_get_ilt_jiz", {0: "l0"}),
+    s("op_fused_get_get_ilt_jiz_l1a", "op_fused_get_get_ilt_jiz", {0: "l1"}),
+    s("op_fused_get_get_ilt_jiz_l2a", "op_fused_get_get_ilt_jiz", {0: "l2"}),
+    # --- FusedAddrImmGetStore32 (struct field store) ---
+    s("op_fused_addr_imm_get_store32_l1v", "op_fused_addr_imm_get_store32", {2: "l1"}),
+    s("op_fused_addr_imm_get_store32_l2v", "op_fused_addr_imm_get_store32", {2: "l2"}),
+    # --- FusedAddrGetSliceLoad32 ---
+    s("op_fused_addr_get_sload32_l0i", "op_fused_addr_get_sload32", {1: "l0"}),
+    s("op_fused_addr_get_sload32_l1i", "op_fused_addr_get_sload32", {1: "l1"}),
+    # --- FusedTeeSliceStore32 (n=tee dest, s=slice, idx=index) ---
+    s("op_fused_tee_sstore32_l2n_l1i", "op_fused_tee_sstore32", {0: "l2", 2: "l1"}),
+    s("op_fused_tee_sstore32_l0i", "op_fused_tee_sstore32", {2: "l0"}),
+    s("op_fused_tee_sstore32_l1i", "op_fused_tee_sstore32", {2: "l1"}),
+    # --- FusedGetGetIAddSet (codegen-emitted, but hot patterns exist) ---
+    s("op_fused_get_get_iadd_set_l2b_l1d", "op_fused_get_get_iadd_set", {1: "l2", 2: "l1"}),
+    s("op_fused_get_get_iadd_set_l1a_l0d", "op_fused_get_get_iadd_set", {0: "l1", 2: "l0"}),
+    # --- FusedGetGetFAddSet (int-window f32 — can't concat) ---
+    s("op_fused_get_get_fadd_set_l0a_l0d", "op_fused_get_get_fadd_set", {0: "l0", 2: "l0"}),
+    # --- FusedLocalArrayLoad32F ---
+    s("op_fused_local_array_load32_f_l2i", "op_fused_local_array_load32_f", {1: "l2"}),
+    # --- FusedLocalArrayStore32 ---
+    s("op_fused_local_array_store32_l1i", "op_fused_local_array_store32", {1: "l1"}),
+    # --- FusedLocalArrayStore32F ---
+    s("op_fused_local_array_store32_f_l0i", "op_fused_local_array_store32_f", {1: "l0"}),
+    # --- FusedAddrGetSliceLoad32F ---
+    s("op_fused_addr_get_sload32_f_l0i", "op_fused_addr_get_sload32_f", {1: "l0"}),
+    s("op_fused_addr_get_sload32_f_l1i", "op_fused_addr_get_sload32_f", {1: "l1"}),
+    # --- FusedTeeSliceStore32F ---
+    s("op_fused_tee_sstore32_f_l2n_l0i", "op_fused_tee_sstore32_f", {0: "l2", 2: "l0"}),
+    s("op_fused_tee_sstore32_f_l0i", "op_fused_tee_sstore32_f", {2: "l0"}),
+    s("op_fused_tee_sstore32_f_l1i", "op_fused_tee_sstore32_f", {2: "l1"}),
+    # --- FusedGetGetFMulF ---
+    s("op_fused_get_l0f_get_fmul_f", "op_fused_get_get_fmul_f", {0: "l0"}),
+    s("op_fused_get_get_l1f_fmul_f", "op_fused_get_get_fmul_f", {1: "l1"}),
+    # --- FusedGetAddImmSet ---
+    s("op_fused_get_l0_addimm_set_l0", "op_fused_get_addimm_set", {0: "l0", 2: "l0"}),
+    s("op_fused_get_l1_addimm_set_l1", "op_fused_get_addimm_set", {0: "l1", 2: "l1"}),
+    s("op_fused_get_l2_addimm_set_l2", "op_fused_get_addimm_set", {0: "l2", 2: "l2"}),
+    # --- FusedGetSet ---
+    s("op_fused_get_l1_set", "op_fused_get_set", {0: "l1"}),
+    # --- FusedGetGetILt ---
+    s("op_fused_get_l0_get_ilt", "op_fused_get_get_ilt", {0: "l0"}),
+    s("op_fused_get_l1_get_ilt", "op_fused_get_get_ilt", {0: "l1"}),
+    s("op_fused_get_l0_get_l1_ilt", "op_fused_get_get_ilt", {0: "l0", 1: "l1"}),
+    # --- FusedGetFMulF ---
+    s("op_fused_get_l1f_fmul_f", "op_fused_get_fmul_f", {0: "l1"}),
+]
 
 
 # Every entry below generates one fused handler. The bases list is
@@ -215,6 +305,7 @@ FUSIONS: List[Fusion] = [
         b("op_local_get_f", 0),
         b("op_fsub_f"),
     ]),
+
 ]
 
 
@@ -300,6 +391,42 @@ def strip_trailing_next(body: str) -> str:
     return TRAILING_NEXT_RE.sub("", body).rstrip()
 
 
+def specialize_body(body: str, hot_slots: Dict[int, str]) -> str:
+    """Replace READ_I/WRITE_I/READ_F_OFF/WRITE_F_OFF calls on hot imm
+    slots with direct register access."""
+    for imm_idx, reg in hot_slots.items():
+        imm_ref = f"pc->imm[{imm_idx}]"
+        # READ_I(pc->imm[N]) → reg
+        body = body.replace(f"READ_I({imm_ref})", reg)
+        # READ_F_OFF(pc->imm[N]) → as_f32(reg)
+        body = body.replace(f"READ_F_OFF({imm_ref})", f"as_f32({reg})")
+        # WRITE_I(pc->imm[N], <expr>) → reg = (uint64_t)(<expr>)
+        # and WRITE_F_OFF(pc->imm[N], <expr>) → reg = from_f32(<expr>)
+        for macro, assign_fmt in [
+            ("WRITE_I", "{reg} = (uint64_t)({expr})"),
+            ("WRITE_F_OFF", "{reg} = from_f32({expr})"),
+        ]:
+            prefix = f"{macro}({imm_ref},"
+            while True:
+                idx = body.find(prefix)
+                if idx == -1:
+                    break
+                # Find matching close-paren (depth counter from after the comma).
+                start = idx + len(prefix)
+                depth = 1
+                i = start
+                while i < len(body) and depth > 0:
+                    if body[i] == "(":
+                        depth += 1
+                    elif body[i] == ")":
+                        depth -= 1
+                    i += 1
+                expr = body[start:i - 1].strip()
+                replacement = assign_fmt.format(reg=reg, expr=expr)
+                body = body[:idx] + replacement + body[i:]
+    return body
+
+
 def normalize_indent(body: str) -> str:
     """Reduce to a common 4-space indent. Input bodies come straight
     from the source file and are already indented with 4 spaces, so
@@ -358,6 +485,44 @@ def emit_fusion(f: Fusion, handlers: Dict[str, str]) -> str:
     )
 
 
+def compute_fusion_body(f: Fusion, handlers: Dict[str, str]) -> str:
+    """Compute the raw body text for a concat fusion (the inside of the
+    HANDLER block including the final NEXT()). Used so that
+    specializations can reference fusion-generated handlers even though
+    those handlers no longer exist in stack_interp.c."""
+    parts: List[str] = []
+    for base in f.bases:
+        body = handlers[base.op]
+        body = strip_trailing_next(body)
+        if base.imm is not None:
+            body = rewrite_imm0(body, base.imm)
+        body = normalize_indent(body)
+        parts.append(body)
+    return "\n".join(parts) + "\n    NEXT();\n"
+
+
+def emit_specialization(spec: Specialization, handlers: Dict[str, str]) -> str:
+    """Emit a C handler that is a hot-local specialization of an
+    existing handler."""
+    if spec.base_handler not in handlers:
+        raise SystemExit(
+            f"{spec.name}: unknown base handler {spec.base_handler!r} — "
+            f"not found in {STACK_INTERP_C}"
+        )
+    body = handlers[spec.base_handler]
+    body = specialize_body(body, spec.hot_slots)
+    body = normalize_indent(body)
+    hot_desc = ", ".join(
+        f"imm[{k}]→{v}" for k, v in sorted(spec.hot_slots.items())
+    )
+    return (
+        f"// Specialization of {spec.base_handler} with {hot_desc}\n"
+        f"HANDLER({spec.name}{NAME_SUFFIX}) {{\n"
+        f"{body}\n"
+        f"}}"
+    )
+
+
 def emit_all_c(handlers: Dict[str, str]) -> str:
     header = (
         "// ============================================================================\n"
@@ -378,7 +543,16 @@ def emit_all_c(handlers: Dict[str, str]) -> str:
         '#include "stack_interp.h"\n'
         "\n"
     )
-    return header + "\n\n".join(emit_fusion(f, handlers) for f in FUSIONS) + "\n"
+    parts = [emit_fusion(f, handlers) for f in FUSIONS]
+    if SPECIALIZATIONS:
+        parts.append(
+            "\n// ============================================================================\n"
+            "// Hot-local specializations: benchmark-specific handlers with direct\n"
+            "// l0/l1/l2 register access instead of READ_I/WRITE_I dispatch.\n"
+            "// ============================================================================"
+        )
+        parts.extend(emit_specialization(sp, handlers) for sp in SPECIALIZATIONS)
+    return header + "\n\n".join(parts) + "\n"
 
 
 # ----------------------------------------------------------------------
@@ -504,8 +678,13 @@ def main() -> None:
         source = Path(args.source).read_text()
         source = preprocess_cmp_ops(source)
         handlers = extract_handlers(source)
+        # Pre-compute fusion bodies so specializations can reference
+        # handlers that were moved from stack_interp.c to the generated file.
+        for f in FUSIONS:
+            if f.name not in handlers:
+                handlers[f.name] = compute_fusion_body(f, handlers)
         out = emit_all_c(handlers)
-        emitted = len(FUSIONS)
+        emitted = len(FUSIONS) + len(SPECIALIZATIONS)
     else:
         out = emit_all_rust()
         emitted = sum(1 for f in FUSIONS if f.gen_rust_rule)

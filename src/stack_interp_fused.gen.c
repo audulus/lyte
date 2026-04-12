@@ -208,3 +208,307 @@ HANDLER(op_fused_get_fsub_f) {
     FBINOP_SHIFT();
     NEXT();
 }
+
+
+// ============================================================================
+// Hot-local specializations: benchmark-specific handlers with direct
+// l0/l1/l2 register access instead of READ_I/WRITE_I dispatch.
+// ============================================================================
+
+// Specialization of op_fused_get_get_ilt_jiz with imm[0]→l0
+HANDLER(op_fused_get_get_ilt_jiz_l0a) {
+    if ((int64_t)l0 >= (int64_t)READ_I(pc->imm[1])) {
+        int64_t off = (int64_t)pc->imm[2];
+        pc = pc + 1 + off;
+        DISPATCH();
+    }
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_ilt_jiz with imm[0]→l1
+HANDLER(op_fused_get_get_ilt_jiz_l1a) {
+    if ((int64_t)l1 >= (int64_t)READ_I(pc->imm[1])) {
+        int64_t off = (int64_t)pc->imm[2];
+        pc = pc + 1 + off;
+        DISPATCH();
+    }
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_ilt_jiz with imm[0]→l2
+HANDLER(op_fused_get_get_ilt_jiz_l2a) {
+    if ((int64_t)l2 >= (int64_t)READ_I(pc->imm[1])) {
+        int64_t off = (int64_t)pc->imm[2];
+        pc = pc + 1 + off;
+        DISPATCH();
+    }
+    NEXT();
+}
+
+// Specialization of op_fused_addr_imm_get_store32 with imm[2]→l1
+HANDLER(op_fused_addr_imm_get_store32_l1v) {
+    *(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)l1;
+    NEXT();
+}
+
+// Specialization of op_fused_addr_imm_get_store32 with imm[2]→l2
+HANDLER(op_fused_addr_imm_get_store32_l2v) {
+    *(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)l2;
+    NEXT();
+}
+
+// Specialization of op_fused_addr_get_sload32 with imm[1]→l0
+HANDLER(op_fused_addr_get_sload32_l0i) {
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l0;
+    uint8_t* data = *(uint8_t**)fat;
+    PUSH((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
+    NEXT();
+}
+
+// Specialization of op_fused_addr_get_sload32 with imm[1]→l1
+HANDLER(op_fused_addr_get_sload32_l1i) {
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l1;
+    uint8_t* data = *(uint8_t**)fat;
+    PUSH((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
+    NEXT();
+}
+
+// Specialization of op_fused_tee_sstore32 with imm[0]→l2, imm[2]→l1
+HANDLER(op_fused_tee_sstore32_l2n_l1i) {
+    l2 = (uint64_t)(t0);
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)l1;
+    uint8_t* data = *(uint8_t**)fat;
+    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    DROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_tee_sstore32 with imm[2]→l0
+HANDLER(op_fused_tee_sstore32_l0i) {
+    WRITE_I(pc->imm[0], t0);
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)l0;
+    uint8_t* data = *(uint8_t**)fat;
+    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    DROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_tee_sstore32 with imm[2]→l1
+HANDLER(op_fused_tee_sstore32_l1i) {
+    WRITE_I(pc->imm[0], t0);
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)l1;
+    uint8_t* data = *(uint8_t**)fat;
+    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    DROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_iadd_set with imm[1]→l2, imm[2]→l1
+HANDLER(op_fused_get_get_iadd_set_l2b_l1d) {
+    PUSH(READ_I(pc->imm[0]));
+    PUSH(l2);
+    t0 = (uint64_t)((int64_t)t1 + (int64_t)t0);
+    BINOP_SHIFT();
+    uint64_t val; POP(val);
+    l1 = (uint64_t)(val);
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_iadd_set with imm[0]→l1, imm[2]→l0
+HANDLER(op_fused_get_get_iadd_set_l1a_l0d) {
+    PUSH(l1);
+    PUSH(READ_I(pc->imm[1]));
+    t0 = (uint64_t)((int64_t)t1 + (int64_t)t0);
+    BINOP_SHIFT();
+    uint64_t val; POP(val);
+    l0 = (uint64_t)(val);
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_fadd_set with imm[0]→l0, imm[2]→l0
+HANDLER(op_fused_get_get_fadd_set_l0a_l0d) {
+    l0 = (uint64_t)(from_f32(as_f32(l0) + as_f32(READ_I(pc->imm[1]))));
+    NEXT();
+}
+
+// Specialization of op_fused_local_array_load32_f with imm[1]→l2
+HANDLER(op_fused_local_array_load32_f_l2i) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l2;
+    float v = *(float*)(base + idx * 4);
+    FPUSH(v);
+    NEXT();
+}
+
+// Specialization of op_fused_local_array_store32 with imm[1]→l1
+HANDLER(op_fused_local_array_store32_l1i) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l1;
+    *(int32_t*)(base + idx * 4) = (int32_t)t0;
+    DROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_local_array_store32_f with imm[1]→l0
+HANDLER(op_fused_local_array_store32_f_l0i) {
+    uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l0;
+    *(float*)(base + idx * 4) = f0;
+    FDROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_addr_get_sload32_f with imm[1]→l0
+HANDLER(op_fused_addr_get_sload32_f_l0i) {
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l0;
+    uint8_t* data = *(uint8_t**)fat;
+    float v = *(float*)(data + idx * 4);
+    FPUSH(v);
+    NEXT();
+}
+
+// Specialization of op_fused_addr_get_sload32_f with imm[1]→l1
+HANDLER(op_fused_addr_get_sload32_f_l1i) {
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
+    int64_t idx = (int64_t)l1;
+    uint8_t* data = *(uint8_t**)fat;
+    float v = *(float*)(data + idx * 4);
+    FPUSH(v);
+    NEXT();
+}
+
+// Specialization of op_fused_tee_sstore32_f with imm[0]→l2, imm[2]→l0
+HANDLER(op_fused_tee_sstore32_f_l2n_l0i) {
+    // Tee target at imm[0] (byte offset, may be hot) and idx at imm[2]
+    // (u64 slot index, may be hot int local).
+    l2 = from_f32(f0);
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)l0;
+    uint8_t* data = *(uint8_t**)fat;
+    *(float*)(data + idx * 4) = f0;
+    FDROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_tee_sstore32_f with imm[2]→l0
+HANDLER(op_fused_tee_sstore32_f_l0i) {
+    // Tee target at imm[0] (byte offset, may be hot) and idx at imm[2]
+    // (u64 slot index, may be hot int local).
+    WRITE_F_OFF(pc->imm[0], f0);
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)l0;
+    uint8_t* data = *(uint8_t**)fat;
+    *(float*)(data + idx * 4) = f0;
+    FDROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_tee_sstore32_f with imm[2]→l1
+HANDLER(op_fused_tee_sstore32_f_l1i) {
+    // Tee target at imm[0] (byte offset, may be hot) and idx at imm[2]
+    // (u64 slot index, may be hot int local).
+    WRITE_F_OFF(pc->imm[0], f0);
+    uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
+    int64_t idx = (int64_t)l1;
+    uint8_t* data = *(uint8_t**)fat;
+    *(float*)(data + idx * 4) = f0;
+    FDROP1();
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_fmul_f with imm[0]→l0
+HANDLER(op_fused_get_l0f_get_fmul_f) {
+    FPUSH(as_f32(l0));
+    FPUSH(READ_F_OFF(pc->imm[1]));
+    f0 = f1 * f0;
+    FBINOP_SHIFT();
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_fmul_f with imm[1]→l1
+HANDLER(op_fused_get_get_l1f_fmul_f) {
+    FPUSH(READ_F_OFF(pc->imm[0]));
+    FPUSH(as_f32(l1));
+    f0 = f1 * f0;
+    FBINOP_SHIFT();
+    NEXT();
+}
+
+// Specialization of op_fused_get_addimm_set with imm[0]→l0, imm[2]→l0
+HANDLER(op_fused_get_l0_addimm_set_l0) {
+    PUSH(l0);
+    t0 = (uint64_t)((int64_t)t0 + (int64_t)pc->imm[1]);
+    uint64_t val; POP(val);
+    l0 = (uint64_t)(val);
+    NEXT();
+}
+
+// Specialization of op_fused_get_addimm_set with imm[0]→l1, imm[2]→l1
+HANDLER(op_fused_get_l1_addimm_set_l1) {
+    PUSH(l1);
+    t0 = (uint64_t)((int64_t)t0 + (int64_t)pc->imm[1]);
+    uint64_t val; POP(val);
+    l1 = (uint64_t)(val);
+    NEXT();
+}
+
+// Specialization of op_fused_get_addimm_set with imm[0]→l2, imm[2]→l2
+HANDLER(op_fused_get_l2_addimm_set_l2) {
+    PUSH(l2);
+    t0 = (uint64_t)((int64_t)t0 + (int64_t)pc->imm[1]);
+    uint64_t val; POP(val);
+    l2 = (uint64_t)(val);
+    NEXT();
+}
+
+// Specialization of op_fused_get_set with imm[0]→l1
+HANDLER(op_fused_get_l1_set) {
+    PUSH(l1);
+    uint64_t val; POP(val);
+    WRITE_I(pc->imm[1], val);
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_ilt with imm[0]→l0
+HANDLER(op_fused_get_l0_get_ilt) {
+    PUSH(l0);
+    PUSH(READ_I(pc->imm[1]));
+    int64_t b = (int64_t)(t0); int64_t a = (int64_t)(t1);
+    t0 = (a < b) ? 1 : 0;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_ilt with imm[0]→l1
+HANDLER(op_fused_get_l1_get_ilt) {
+    PUSH(l1);
+    PUSH(READ_I(pc->imm[1]));
+    int64_t b = (int64_t)(t0); int64_t a = (int64_t)(t1);
+    t0 = (a < b) ? 1 : 0;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+// Specialization of op_fused_get_get_ilt with imm[0]→l0, imm[1]→l1
+HANDLER(op_fused_get_l0_get_l1_ilt) {
+    PUSH(l0);
+    PUSH(l1);
+    int64_t b = (int64_t)(t0); int64_t a = (int64_t)(t1);
+    t0 = (a < b) ? 1 : 0;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+// Specialization of op_fused_get_fmul_f with imm[0]→l1
+HANDLER(op_fused_get_l1f_fmul_f) {
+    FPUSH(as_f32(l1));
+    f0 = f1 * f0;
+    FBINOP_SHIFT();
+    NEXT();
+}
