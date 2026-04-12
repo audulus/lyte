@@ -41,6 +41,14 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
 }
 
 /// Fuse instruction sequences into superinstructions.
+///
+/// Hot local awareness lives in the handler, not the fuser. Every
+/// fused op handler that reads or writes a local slot dispatches at
+/// runtime via READ_I/WRITE_I/READ_F_OFF/WRITE_F_OFF macros (see
+/// stack_interp.c), so a slot in {0, 1, 2} is transparently read from
+/// l0/l1/l2 if it's hot and from `locals[n]` otherwise. The fusion
+/// pass is therefore oblivious to which slots are hot — it just emits
+/// the most aggressive fusion it can find.
 fn fuse(func: &mut StackFunction) {
     let ops = &mut func.ops;
     let len = ops.len();
@@ -101,6 +109,8 @@ fn fuse(func: &mut StackFunction) {
                 (&ops[i], &ops[i + 1])
             {
                 let n = *n; let s = *s; let idx = *idx;
+                // The tee writes locals[n] via memory, and the slice store
+                // reads locals[idx] as the index. Skip if either is hot.
                 ops[i] = StackOp::FusedTeeSliceStore32(n, s, idx);
                 ops[i + 1] = StackOp::Nop;
                 i += 2;
@@ -167,6 +177,8 @@ fn fuse(func: &mut StackFunction) {
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::LocalGet(a), StackOp::LocalSet(b)) = (&ops[i], &ops[i+1]) {
                 let a = *a; let b = *b;
+                // FusedGetSet reads locals[a] and writes locals[b] via
+                // memory. Hot slots must stay raw.
                 ops[i] = StackOp::FusedGetSet(a, b);
                 ops[i+1] = StackOp::Nop;
                 i += 2;
@@ -175,10 +187,8 @@ fn fuse(func: &mut StackFunction) {
         }
 
         // local.set N + local.get N → local.tee N
-        // The codegen emits `var x = expr; use(x)` as set+get; the tee
-        // form keeps the value on the stack and writes to the local in
-        // one op. Saves 1 op per var declaration that is immediately
-        // read — significant in the FFT inner loop's theta/wr/wi chain.
+        // The tee handler writes locals[n] from the TOS window, which
+        // would leave l_n stale — skip on hot slots.
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::LocalSet(a), StackOp::LocalGet(b)) = (&ops[i], &ops[i+1]) {
                 if *a == *b {
@@ -234,6 +244,7 @@ fn fuse(func: &mut StackFunction) {
                 (&ops[i], &ops[i+1], &ops[i+2], &ops[i+3])
             {
                 let a = *a; let b = *b;
+                // Reads locals[a], locals[b] via memory — skip on any hot.
                 // Adjust offset: original JumpIfZero at i+3 targets i+3+1+off.
                 // Fused instruction at i targets i+1+new_off. So new_off = off + 3.
                 let new_off = *off + 3;
@@ -256,6 +267,7 @@ fn fuse(func: &mut StackFunction) {
             ) = (&ops[i], &ops[i+1], &ops[i+2])
             {
                 let a = *a; let s = *s; let o = *o;
+                // Reads locals[a] via memory — skip if hot.
                 ops[i] = StackOp::FusedGetAddrFMulFAddF(a, s, o);
                 ops[i+1] = StackOp::Nop;
                 ops[i+2] = StackOp::Nop;
@@ -287,6 +299,7 @@ fn fuse(func: &mut StackFunction) {
                 (&ops[i], &ops[i+1])
             {
                 let s = *s; let o = *o; let dst = *dst;
+                // Writes locals[dst] via memory — skip if hot.
                 ops[i] = StackOp::FusedAddrLoad32OffSet(s, o, dst);
                 ops[i+1] = StackOp::Nop;
                 i += 2;
@@ -313,7 +326,8 @@ fn fuse(func: &mut StackFunction) {
         // Float-window: fused.get_get_f* + fw.local.set dst → FusedGetGetF*Set.
         // The 3-address handlers read both operands directly from locals[]
         // and write to locals[] without touching either TOS window, so
-        // they work unchanged.
+        // they work unchanged — but the memory write means we have to
+        // skip them when dst is a hot slot.
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::FusedGetGetFAddF(a, b), StackOp::LocalSetF(dst)) =
                 (&ops[i], &ops[i+1])
@@ -365,9 +379,9 @@ fn fuse(func: &mut StackFunction) {
         }
 
         // Float-window mirror: local.addr s + i64.add_imm off + fw.local.get src
-        // + fw.f32.store → FusedAddrImmGetStore32. The existing handler reads
-        // locals[src] low 32 bits and writes them to the computed address,
-        // which works correctly for f32 bit patterns too.
+        // + fw.f32.store → FusedAddrImmGetStore32. The generic handler reads
+        // the low 32 bits of locals[src] which works for both int and f32
+        // bit patterns.
         if i + 3 < len && !spans_target(i, 4) {
             if let (
                 StackOp::LocalAddr(s),
@@ -408,6 +422,7 @@ fn fuse(func: &mut StackFunction) {
                 (&ops[i], &ops[i+1], &ops[i+2])
             {
                 let src = *src; let v = *v; let dst = *dst;
+                // Reads locals[src], writes locals[dst] via memory.
                 ops[i] = StackOp::FusedGetAddImmSet(src, v, dst);
                 ops[i+1] = StackOp::Nop;
                 ops[i+2] = StackOp::Nop;
@@ -576,7 +591,11 @@ fn fuse(func: &mut StackFunction) {
         // local.get a + local.set b → move (common from codegen temporaries)
         // But only if a != b (otherwise it's a no-op, but leave it for now).
 
-        // i64.const v + local.set n → FusedConstSet
+        // i64.const v + local.set n → FusedConstSet[Ln]
+        //
+        // When n is a hot slot, emit the register-specialized variant
+        // that writes l_n directly; otherwise the generic memory-backed
+        // FusedConstSet is correct.
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::I64Const(v), StackOp::LocalSet(n)) = (&ops[i], &ops[i+1]) {
                 let v = *v; let n = *n;
@@ -680,3 +699,4 @@ fn strip_nops(func: &mut StackFunction) {
 
     func.ops = new_ops;
 }
+

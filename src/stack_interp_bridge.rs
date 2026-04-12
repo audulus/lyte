@@ -18,6 +18,9 @@ struct CallFrame {
     saved_locals: *mut u64,
     func_idx: u32,
     saved_frame_size: usize,
+    saved_l0: u64,
+    saved_l1: u64,
+    saved_l2: u64,
 }
 
 #[repr(C)]
@@ -183,6 +186,7 @@ extern "C" {
     // Hot local register handlers
     fn op_local_get_l0(); fn op_local_get_l1(); fn op_local_get_l2();
     fn op_local_set_l0(); fn op_local_set_l1(); fn op_local_set_l2();
+    fn op_local_tee_l0(); fn op_local_tee_l1(); fn op_local_tee_l2();
     fn op_halt();
     fn op_nop();
 
@@ -211,6 +215,7 @@ extern "C" {
     fn op_isnan_f32_f(); fn op_isinf_f32_f();
     fn op_local_get_l0_f(); fn op_local_get_l1_f(); fn op_local_get_l2_f();
     fn op_local_set_l0_f(); fn op_local_set_l1_f(); fn op_local_set_l2_f();
+    fn op_local_tee_l0_f(); fn op_local_tee_l1_f(); fn op_local_tee_l2_f();
     fn op_print_f32_f();
     fn op_fused_get_get_fadd_f(); fn op_fused_get_get_fsub_f(); fn op_fused_get_get_fmul_f();
     fn op_fused_get_fmul_f(); fn op_fused_get_fadd_f(); fn op_fused_get_fsub_f();
@@ -359,6 +364,9 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::LocalSetL0 => op_local_set_l0 as *const (),
         StackOp::LocalSetL1 => op_local_set_l1 as *const (),
         StackOp::LocalSetL2 => op_local_set_l2 as *const (),
+        StackOp::LocalTeeL0 => op_local_tee_l0 as *const (),
+        StackOp::LocalTeeL1 => op_local_tee_l1 as *const (),
+        StackOp::LocalTeeL2 => op_local_tee_l2 as *const (),
         StackOp::Halt => op_halt as *const (),
         StackOp::Nop => op_nop as *const (),
 
@@ -418,6 +426,9 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::LocalSetL0F => op_local_set_l0_f as *const (),
         StackOp::LocalSetL1F => op_local_set_l1_f as *const (),
         StackOp::LocalSetL2F => op_local_set_l2_f as *const (),
+        StackOp::LocalTeeL0F => op_local_tee_l0_f as *const (),
+        StackOp::LocalTeeL1F => op_local_tee_l1_f as *const (),
+        StackOp::LocalTeeL2F => op_local_tee_l2_f as *const (),
         StackOp::PrintF32F => op_print_f32_f as *const (),
         StackOp::FusedGetGetFAddF(_, _) => op_fused_get_get_fadd_f as *const (),
         StackOp::FusedGetGetFSubF(_, _) => op_fused_get_get_fsub_f as *const (),
@@ -436,6 +447,20 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedLocalArrayLoad32F(_, _) => op_fused_local_array_load32_f as *const (),
         StackOp::FusedLocalArrayStore32F(_, _) => op_fused_local_array_store32_f as *const (),
         StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => op_fused_f32const_fgt_jiz_f as *const (),
+    }
+}
+
+/// Pre-shift a float-window slot index into a byte offset for the
+/// aarch64 `ldr s, [base, imm]` fast path. Magic slot indices reserved
+/// for hot local dispatch (HOT_L0/1/2) are passed through unshifted so
+/// that the C handler's READ_F_OFF macro can match them against the
+/// same magic constants used by the int-window READ_I.
+fn shift_f_slot(n: u16) -> u64 {
+    use crate::stack_hot_locals::{HOT_L0, HOT_L1, HOT_L2};
+    if n == HOT_L0 || n == HOT_L1 || n == HOT_L2 {
+        n as u64
+    } else {
+        (n as u64) * 8
     }
 }
 
@@ -511,22 +536,22 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         // already fold the lsl via u64 addressing.
         StackOp::F32ConstF(v) => [f32::to_bits(*v) as u64, 0, 0],
         StackOp::LocalGetF(n) | StackOp::LocalSetF(n) | StackOp::LocalTeeF(n) => {
-            [(*n as u64) * 8, 0, 0]
+            [shift_f_slot(*n), 0, 0]
         }
         StackOp::LoadF32OffF(o) | StackOp::StoreF32OffF(o) => [*o as i64 as u64, 0, 0],
         StackOp::FusedGetGetFAddF(a, b)
         | StackOp::FusedGetGetFSubF(a, b)
-        | StackOp::FusedGetGetFMulF(a, b) => [(*a as u64) * 8, (*b as u64) * 8, 0],
+        | StackOp::FusedGetGetFMulF(a, b) => [shift_f_slot(*a), shift_f_slot(*b), 0],
         StackOp::FusedAddrGetSliceLoad32F(a, b)
         | StackOp::FusedAddrGetSliceStore32F(a, b)
         | StackOp::FusedLocalArrayLoad32F(a, b)
         | StackOp::FusedLocalArrayStore32F(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedGetFMulF(a) | StackOp::FusedGetFAddF(a) | StackOp::FusedGetFSubF(a) => {
-            [(*a as u64) * 8, 0, 0]
+            [shift_f_slot(*a), 0, 0]
         }
         StackOp::FusedGetAddrFMulFAddF(a, s, o)
         | StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
-            [(*a as u64) * 8, *s as u64, *o as i64 as u64]
+            [shift_f_slot(*a), *s as u64, *o as i64 as u64]
         }
         StackOp::FusedAddrLoad32OffF(s, o) => [*s as u64, *o as i64 as u64, 0],
         // imm[0] is the byte offset into locals[] for the tee target
@@ -534,7 +559,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         // slot holding the slice fat pointer; still a u64 index because
         // the handler loads it via `locals[imm[1]]` which folds the lsl.
         // imm[2] is the local index of the element index, also u64.
-        StackOp::FusedTeeSliceStore32F(n, s, i) => [(*n as u64) * 8, *s as u64, *i as u64],
+        StackOp::FusedTeeSliceStore32F(n, s, i) => [shift_f_slot(*n), *s as u64, *i as u64],
         StackOp::FusedF32ConstFGtJumpIfZeroF(v, off) => {
             [f32::to_bits(*v) as u64, *off as i64 as u64, 0]
         }
@@ -583,6 +608,9 @@ pub fn run(program: &StackProgram) -> i64 {
             saved_locals: std::ptr::null_mut(),
             func_idx: 0,
             saved_frame_size: 0,
+            saved_l0: 0,
+            saved_l1: 0,
+            saved_l2: 0,
         })
         .collect();
     let mut operand_stack: Vec<u64> = vec![0u64; 64 * 1024];

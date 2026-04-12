@@ -799,22 +799,28 @@ impl Compiler {
         for func in &mut program.functions {
             crate::stack_rebase_lm::rebase(func);
         }
-        // Hot local analysis: remap hottest locals to indices 0/1/2.
+        // Hot local analysis: pick the top-3 non-parameter scalar
+        // locals by weighted access count. No physical slot remap —
+        // hot locals stay at their original frame positions and are
+        // referenced via reserved magic slot indices (see
+        // stack_hot_locals::HOT_L0/1/2).
         for func in &mut program.functions {
-            let hot = crate::stack_hot_locals::analyze(func);
-            if hot[0].is_some() {
-                crate::stack_hot_locals::remap(func, &hot);
-                func.hot_locals = hot;
-            }
+            func.hot_locals = crate::stack_hot_locals::analyze(func);
         }
         // Fuse common instruction sequences into superinstructions.
+        // Fusion is unaware of hot slots — it matches on plain
+        // LocalGet / LocalSet / ... and emits the most aggressive fused
+        // pattern it can find over the original slot indices.
         for func in &mut program.functions {
             crate::stack_optimize::optimize(func);
         }
-        // Lower LocalGet/Set(0/1/2) to L-register ops AFTER fusion.
+        // Rewrite scalar-local slot references to route hot locals
+        // through l0/l1/l2 registers: raw LocalGet/Set/Tee → L-handler
+        // ops; fused op slot args → magic values recognized by the C
+        // handler's READ_I / WRITE_I macros.
         for func in &mut program.functions {
-            if func.hot_locals[0].is_some() {
-                crate::stack_hot_locals::lower(func);
+            if func.hot_locals.iter().any(|x| x.is_some()) {
+                crate::stack_hot_locals::rewrite_hot(func);
             }
         }
         // Fill in Call.preserve from static stack depth. Must run AFTER

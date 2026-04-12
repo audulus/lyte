@@ -172,6 +172,69 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
 
 // ============================================================================
+// Hot local register dispatch macros
+//
+// Hot local slots live exclusively in the preserve_none register args
+// l0/l1/l2 — there is no memory mirror. A fused handler discovers "this
+// operand is hot" by inspecting the slot-index immediate and matching it
+// against three reserved magic values:
+//
+//   HOT_L0 = 0xFFFC  →  l0
+//   HOT_L1 = 0xFFFD  →  l1
+//   HOT_L2 = 0xFFFE  →  l2
+//
+// The lowering pass (stack_hot_locals::lower) rewrites slot references
+// in fused ops to these magic values whenever `func.hot_locals[n]` is
+// populated. Legitimate slot indices are < func.local_count, which is
+// bounded by the u16 slot-index space — these magic values sit at the
+// very top of u16 and never collide with a real slot.
+//
+// Two coordinate systems use the same magic-value scheme:
+//   * Integer handlers treat pc->imm[k] as a u64 slot index. READ_I
+//     compares against the raw magic (0xFFFC/D/E).
+//   * Float handlers treat pc->imm[k] as a pre-shifted byte offset
+//     (slot * 8), but the bridge leaves magic values unshifted, so
+//     READ_F_OFF compares against the same raw magic values.
+//
+// The slot-index immediate is a per-instruction constant, so every
+// branch is perfectly predicted after the first few executions (one
+// path taken every time a given instruction fires) — roughly 0–1
+// cycles of overhead per dispatch.
+//
+// The l0/l1/l2 GPRs hold the full u64 for int values. For floats, the
+// low 32 bits hold the f32 bit pattern (set via `from_f32(f0)`).
+// as_f32 / from_f32 compile to `fmov s, w` / `fmov w, s` — one cycle
+// each on aarch64.
+// ============================================================================
+
+#define HOT_L0_MAGIC 0xFFFCULL
+#define HOT_L1_MAGIC 0xFFFDULL
+#define HOT_L2_MAGIC 0xFFFEULL
+
+#define READ_I(s) \
+    ((s) == HOT_L0_MAGIC ? l0 : (s) == HOT_L1_MAGIC ? l1 : (s) == HOT_L2_MAGIC ? l2 : locals[s])
+
+#define WRITE_I(s, v) do { \
+    uint64_t _wv = (v); \
+    if ((s) == HOT_L0_MAGIC) l0 = _wv; \
+    else if ((s) == HOT_L1_MAGIC) l1 = _wv; \
+    else if ((s) == HOT_L2_MAGIC) l2 = _wv; \
+    else locals[s] = _wv; \
+} while(0)
+
+#define READ_F_OFF(off) \
+    ((off) == HOT_L0_MAGIC ? as_f32(l0) : (off) == HOT_L1_MAGIC ? as_f32(l1) : (off) == HOT_L2_MAGIC ? as_f32(l2) \
+        : *(float*)((uint8_t*)locals + (off)))
+
+#define WRITE_F_OFF(off, v) do { \
+    float _wf = (v); \
+    if ((off) == HOT_L0_MAGIC) l0 = from_f32(_wf); \
+    else if ((off) == HOT_L1_MAGIC) l1 = from_f32(_wf); \
+    else if ((off) == HOT_L2_MAGIC) l2 = from_f32(_wf); \
+    else *(float*)((uint8_t*)locals + (off)) = _wf; \
+} while(0)
+
+// ============================================================================
 // Handlers
 // ============================================================================
 
@@ -195,18 +258,18 @@ HANDLER(op_f64_const) {
 // --- Local variables ---
 
 HANDLER(op_local_get) {
-    PUSH(locals[pc->imm[0]]);
+    PUSH(READ_I(pc->imm[0]));
     NEXT();
 }
 
 HANDLER(op_local_set) {
     uint64_t val; POP(val);
-    locals[pc->imm[0]] = val;
+    WRITE_I(pc->imm[0], val);
     NEXT();
 }
 
 HANDLER(op_local_tee) {
-    locals[pc->imm[0]] = t0; // peek, don't pop
+    WRITE_I(pc->imm[0], t0); // peek, don't pop
     NEXT();
 }
 
@@ -218,19 +281,28 @@ HANDLER(op_local_addr) {
 }
 
 // --- Hot local registers (l0/l1/l2) ---
+//
+// Register-only hot locals: the value lives exclusively in the l0/l1/l2
+// handler arguments (GPRs pinned by preserve_none). There is no memory
+// mirror in locals[0..2]. Reads are pure register reads; writes are pure
+// register writes. Coherence with fused ops that read/write locals[0..2]
+// from memory is enforced by the stack_optimize fusion pass, which
+// refuses to emit fused ops whose slot args intersect the function's
+// hot local set. At function call boundaries the caller's l0/l1/l2 are
+// saved into the CallFrame and restored on op_return.
+HANDLER(op_local_get_l0) { PUSH(l0); NEXT(); }
+HANDLER(op_local_get_l1) { PUSH(l1); NEXT(); }
+HANDLER(op_local_get_l2) { PUSH(l2); NEXT(); }
+HANDLER(op_local_set_l0) { POP(l0); NEXT(); }
+HANDLER(op_local_set_l1) { POP(l1); NEXT(); }
+HANDLER(op_local_set_l2) { POP(l2); NEXT(); }
+// Tee: peek TOS into the register without popping. Used for the
+// `var x = expr; use x` pattern where the initializer leaves its
+// value on the stack and the codegen wants to keep it around.
+HANDLER(op_local_tee_l0) { l0 = t0; NEXT(); }
+HANDLER(op_local_tee_l1) { l1 = t0; NEXT(); }
+HANDLER(op_local_tee_l2) { l2 = t0; NEXT(); }
 
-// Get handlers reload from locals[] to stay in sync with fused ops that
-// write to locals[0/1/2] via memory. The reload also refreshes the register
-// for subsequent accesses.
-HANDLER(op_local_get_l0) { l0 = locals[0]; PUSH(l0); NEXT(); }
-HANDLER(op_local_get_l1) { l1 = locals[1]; PUSH(l1); NEXT(); }
-HANDLER(op_local_get_l2) { l2 = locals[2]; PUSH(l2); NEXT(); }
-// Set handlers write to both register and locals[] to keep them in sync.
-// Fused ops that write to locals[0/1/2] via memory still work correctly
-// because the next LocalGetL0 will read from the register, which is also updated.
-HANDLER(op_local_set_l0) { POP(l0); locals[0] = l0; NEXT(); }
-HANDLER(op_local_set_l1) { POP(l1); locals[1] = l1; NEXT(); }
-HANDLER(op_local_set_l2) { POP(l2); locals[2] = l2; NEXT(); }
 
 // --- Global variables ---
 
@@ -646,6 +718,11 @@ HANDLER(op_call) {
     frame->saved_locals = locals;
     frame->func_idx = (uint32_t)pc->imm[2];
     frame->saved_frame_size = ctx->frame_stack_size;
+    // Save caller's hot local registers. The callee will overwrite
+    // l0/l1/l2 with its own hot locals; op_return restores them.
+    frame->saved_l0 = l0;
+    frame->saved_l1 = l1;
+    frame->saved_l2 = l2;
 
     uint64_t* new_locals;
     if (!enter_function(ctx, target, &new_locals)) {
@@ -710,13 +787,19 @@ HANDLER(op_call) {
         }
     }
 
-    // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2] and
-    // inherits the caller's TOS window (post-pop). The window holds
-    // garbage at depths < 4 — that's fine because well-formed callee
-    // code never reads t-registers it hasn't pushed first.
+    // Callee starts with l0/l1/l2 zeroed. The codegen emits an explicit
+    // initializer (LocalSet or FusedConstSetLn) for every non-parameter
+    // local before any read, so uninitialized l-register reads cannot
+    // happen in well-formed bytecode. Zeroing is a defence-in-depth
+    // choice so that a codegen bug manifests as a deterministic 0
+    // rather than as stale caller-frame data.
+    //
+    // The caller's TOS window flows through post-pop; deeper values
+    // below depth 4 are garbage but well-formed callee code only reads
+    // t-registers it has pushed itself.
     pc = ctx->functions[target].code;
     locals = new_locals;
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
+    l0 = 0; l1 = 0; l2 = 0;
     DISPATCH();
 }
 
@@ -748,6 +831,9 @@ HANDLER(op_call_closure) {
     frame->saved_locals = locals;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
+    frame->saved_l0 = l0;
+    frame->saved_l1 = l1;
+    frame->saved_l2 = l2;
 
     uint64_t* new_locals;
     if (!enter_function(ctx, target, &new_locals)) {
@@ -806,7 +892,7 @@ HANDLER(op_call_closure) {
 
     pc = ctx->functions[target].code;
     locals = new_locals;
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
+    l0 = 0; l1 = 0; l2 = 0;
     DISPATCH();
 }
 
@@ -824,6 +910,9 @@ HANDLER(op_call_indirect) {
     frame->saved_locals = locals;
     frame->func_idx = (uint32_t)pc->imm[1];
     frame->saved_frame_size = ctx->frame_stack_size;
+    frame->saved_l0 = l0;
+    frame->saved_l1 = l1;
+    frame->saved_l2 = l2;
 
     uint64_t* new_locals;
     if (!enter_function(ctx, target, &new_locals)) {
@@ -874,7 +963,7 @@ HANDLER(op_call_indirect) {
 
     pc = ctx->functions[target].code;
     locals = new_locals;
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
+    l0 = 0; l1 = 0; l2 = 0;
     DISPATCH();
 }
 
@@ -897,8 +986,12 @@ HANDLER(op_return) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    // Fill hot locals from restored caller's locals.
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
+    // Restore caller's hot local registers from the saved frame slot.
+    // locals[0..2] is not a mirror of the registers — the values only
+    // live here.
+    l0 = frame->saved_l0;
+    l1 = frame->saved_l1;
+    l2 = frame->saved_l2;
     pc = frame->return_pc;
     DISPATCH();
 }
@@ -914,8 +1007,9 @@ HANDLER(op_return_void) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    // Fill hot locals from restored caller's locals.
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
+    l0 = frame->saved_l0;
+    l1 = frame->saved_l1;
+    l2 = frame->saved_l2;
     pc = frame->return_pc;
     DISPATCH();
 }
@@ -1028,17 +1122,19 @@ HANDLER(op_get_closure_ptr) {
 
 // locals[a] + locals[b] (i64) -- push
 HANDLER(op_fused_get_get_iadd) {
-    PUSH((uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]));
+    PUSH((uint64_t)((int64_t)READ_I(pc->imm[0]) + (int64_t)READ_I(pc->imm[1])));
     NEXT();
 }
 
 // locals[a] < locals[b] (i64 signed) -- push
 HANDLER(op_fused_get_get_ilt) {
-    PUSH(((int64_t)locals[pc->imm[0]] < (int64_t)locals[pc->imm[1]]) ? 1 : 0);
+    PUSH(((int64_t)READ_I(pc->imm[0]) < (int64_t)READ_I(pc->imm[1])) ? 1 : 0);
     NEXT();
 }
 
-// Load i32 from frame slot*8 + offset -- push
+// Load i32 from frame slot*8 + offset -- push. The slot is always a
+// memory-backed slot (codegen emits this for struct/array field loads),
+// so the direct memory access is correct without dispatch.
 HANDLER(op_fused_addr_load32off) {
     PUSH((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
     NEXT();
@@ -1046,13 +1142,13 @@ HANDLER(op_fused_addr_load32off) {
 
 // locals[dst] = locals[src] + imm -- no stack change
 HANDLER(op_fused_get_addimm_set) {
-    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)pc->imm[1]);
+    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) + (int64_t)pc->imm[1]));
     NEXT();
 }
 
 // if !(locals[a] < locals[b]) jump -- no stack change
 HANDLER(op_fused_get_get_ilt_jiz) {
-    if ((int64_t)locals[pc->imm[0]] >= (int64_t)locals[pc->imm[1]]) {
+    if ((int64_t)READ_I(pc->imm[0]) >= (int64_t)READ_I(pc->imm[1])) {
         int64_t off = (int64_t)pc->imm[2];
         pc = pc + 1 + off;
         DISPATCH();
@@ -1062,20 +1158,22 @@ HANDLER(op_fused_get_get_ilt_jiz) {
 
 // locals[n] = i64 constant -- no stack change
 HANDLER(op_fused_const_set) {
-    locals[pc->imm[1]] = pc->imm[0];
+    WRITE_I(pc->imm[1], pc->imm[0]);
     NEXT();
 }
 
 // locals[n] = f32 constant (bits in imm[0]) -- no stack change
 HANDLER(op_fused_f32const_set) {
-    locals[pc->imm[1]] = pc->imm[0];
+    WRITE_I(pc->imm[1], pc->imm[0]);
     NEXT();
 }
 
-// Push slice_data[locals[idx_local] * 4] from slice at frame slot -- push
+// Push slice_data[locals[idx_local] * 4] from slice at frame slot -- push.
+// The slice fat-ptr lives in a memory slot (direct access), but the idx
+// operand is a scalar local and may be hot.
 HANDLER(op_fused_addr_get_sload32) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     uint8_t* data = *(uint8_t**)fat;
     PUSH((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
     NEXT();
@@ -1103,31 +1201,31 @@ HANDLER(op_nop) {
 // emitted directly by codegen for `x = a OP b` patterns when x, a, b are
 // simple scalar locals.
 HANDLER(op_fused_get_get_fadd_set) {
-    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) + as_f32(locals[pc->imm[1]]));
+    WRITE_I(pc->imm[2], from_f32(as_f32(READ_I(pc->imm[0])) + as_f32(READ_I(pc->imm[1]))));
     NEXT();
 }
 HANDLER(op_fused_get_get_fsub_set) {
-    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) - as_f32(locals[pc->imm[1]]));
+    WRITE_I(pc->imm[2], from_f32(as_f32(READ_I(pc->imm[0])) - as_f32(READ_I(pc->imm[1]))));
     NEXT();
 }
 HANDLER(op_fused_get_get_fmul_set) {
-    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) * as_f32(locals[pc->imm[1]]));
+    WRITE_I(pc->imm[2], from_f32(as_f32(READ_I(pc->imm[0])) * as_f32(READ_I(pc->imm[1]))));
     NEXT();
 }
 HANDLER(op_fused_get_get_fdiv_set) {
-    locals[pc->imm[2]] = from_f32(as_f32(locals[pc->imm[0]]) / as_f32(locals[pc->imm[1]]));
+    WRITE_I(pc->imm[2], from_f32(as_f32(READ_I(pc->imm[0])) / as_f32(READ_I(pc->imm[1]))));
     NEXT();
 }
 HANDLER(op_fused_get_get_iadd_set) {
-    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] + (int64_t)locals[pc->imm[1]]);
+    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) + (int64_t)READ_I(pc->imm[1])));
     NEXT();
 }
 HANDLER(op_fused_get_get_isub_set) {
-    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] - (int64_t)locals[pc->imm[1]]);
+    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) - (int64_t)READ_I(pc->imm[1])));
     NEXT();
 }
 HANDLER(op_fused_get_get_imul_set) {
-    locals[pc->imm[2]] = (uint64_t)((int64_t)locals[pc->imm[0]] * (int64_t)locals[pc->imm[1]]);
+    WRITE_I(pc->imm[2], (uint64_t)((int64_t)READ_I(pc->imm[0]) * (int64_t)READ_I(pc->imm[1])));
     NEXT();
 }
 
@@ -1142,10 +1240,11 @@ HANDLER(op_fused_field_copy32) {
 
 // --- Local fixed-size array load: push *(i32*)((u8*)(locals + slot) + locals[idx]*4). ---
 // Used for `arr[k]` where arr is a local [T; N] scalar array (inline in
-// the frame, not behind a fat pointer).
+// the frame, not behind a fat pointer). `slot` is always memory-backed
+// (struct/array storage); `idx` is a scalar and may be hot.
 HANDLER(op_fused_local_array_load32) {
     uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     PUSH((uint64_t)(int64_t)*(int32_t*)(base + idx * 4));
     NEXT();
 }
@@ -1153,7 +1252,7 @@ HANDLER(op_fused_local_array_load32) {
 // --- Local fixed-size array store: *(i32*)((u8*)(locals + slot) + locals[idx]*4) = t0. ---
 HANDLER(op_fused_local_array_store32) {
     uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     *(int32_t*)(base + idx * 4) = (int32_t)t0;
     DROP1();
     NEXT();
@@ -1162,7 +1261,7 @@ HANDLER(op_fused_local_array_store32) {
 // --- Slice store with fused address: *(data + locals[idx]*4) = t0. Pop 1. ---
 HANDLER(op_fused_addr_get_sstore32) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
     DROP1();
@@ -1171,9 +1270,9 @@ HANDLER(op_fused_addr_get_sstore32) {
 
 // --- Tee + slice store: locals[n] = TOS; slice[locals[idx]*4] = TOS; pop. ---
 HANDLER(op_fused_tee_sstore32) {
-    locals[pc->imm[0]] = t0;
+    WRITE_I(pc->imm[0], t0);
     uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
-    int64_t idx = (int64_t)locals[pc->imm[2]];
+    int64_t idx = (int64_t)READ_I(pc->imm[2]);
     uint8_t* data = *(uint8_t**)fat;
     *(int32_t*)(data + idx * 4) = (int32_t)t0;
     DROP1();
@@ -1188,7 +1287,7 @@ HANDLER(op_fused_tee_sstore32) {
 
 // --- Variable move: locals[b] = locals[a]. No stack change. ---
 HANDLER(op_fused_get_set) {
-    locals[pc->imm[1]] = locals[pc->imm[0]];
+    WRITE_I(pc->imm[1], READ_I(pc->imm[0]));
     NEXT();
 }
 
@@ -1202,14 +1301,17 @@ HANDLER(op_fused_get_set) {
 // and have been removed.)
 
 // --- Load struct field into local: locals[dst] = load(slot,off). No stack change. ---
+// `slot` is always a memory-backed struct slot (not scalar); `dst` is a
+// scalar local that may be hot.
 HANDLER(op_fused_addr_load32off_set) {
-    locals[pc->imm[2]] = (uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
+    int64_t v = (int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
+    WRITE_I(pc->imm[2], (uint64_t)v);
     NEXT();
 }
 
 // --- Store local into struct field: *(i32*)(fp + slot*8 + off) = locals[src]. No stack change. ---
 HANDLER(op_fused_addr_imm_get_store32) {
-    *(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)locals[pc->imm[2]];
+    *(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]) = (int32_t)READ_I(pc->imm[2]);
     NEXT();
 }
 
@@ -1250,23 +1352,23 @@ HANDLER(op_f32_const_f) {
 // [base, idx, lsl #SCALE] form, which doesn't match the 8-byte stride
 // of `locals[]`. Pre-shifting saves one instruction per handler call.
 HANDLER(op_local_get_f) {
-    FPUSH(*(float*)((uint8_t*)locals + pc->imm[0]));
+    FPUSH(READ_F_OFF(pc->imm[0]));
     NEXT();
 }
 
-// Direct f32 store to the low 32 bits of locals[n]. We deliberately
-// leave the upper 32 bits undefined: f32 locals are only ever read via
+// Float local set: hot slots land in l0/l1/l2 via from_f32, else direct
+// `*(float*)` store to the low 32 bits of locals[n]. The direct store
+// leaves the upper 32 bits undefined: f32 locals are only ever read via
 // `as_f32(locals[n])` or `*(float*)(locals + n)`, both of which ignore
-// the high bits. This saves an fmov (FP→GPR crossing) per handler vs
-// the old `locals[n] = from_f32(f0)` form.
+// the high bits.
 HANDLER(op_local_set_f) {
-    *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
+    WRITE_F_OFF(pc->imm[0], f0);
     FDROP1();
     NEXT();
 }
 
 HANDLER(op_local_tee_f) {
-    *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
+    WRITE_F_OFF(pc->imm[0], f0);
     NEXT();
 }
 
@@ -1437,36 +1539,28 @@ HANDLER(op_isinf_f32_f) {
 }
 
 // --- Hot local register get/set in float window ---
-// Like the integer LocalGetL0..L2, these stay in sync with locals[]
-// memory: gets reload from locals[] so concurrent fused ops that write
-// to those slots remain consistent.
+//
+// f32 hot locals share the int l0/l1/l2 GPR register cache on this
+// build (no separate fl0/fl1/fl2). The value is stored in the low 32
+// bits of l0/l1/l2 as an f32 bit pattern; `as_f32` / `from_f32` reinterpret
+// those bits. Like the int variants, these are register-only: no memory
+// mirror in locals[0..2]. Each read/write pays one `fmov s,w` or
+// `fmov w,s` GPR↔FP crossing instead of one memory load/store, which
+// is cheaper on M4 (1 cycle vs ~3 for L1 hit, no store-to-load stall).
 
-HANDLER(op_local_get_l0_f) { l0 = locals[0]; FPUSH(as_f32(l0)); NEXT(); }
-HANDLER(op_local_get_l1_f) { l1 = locals[1]; FPUSH(as_f32(l1)); NEXT(); }
-HANDLER(op_local_get_l2_f) { l2 = locals[2]; FPUSH(as_f32(l2)); NEXT(); }
-// Same direct-f32-store trick as op_local_set_f: write just the low 32
-// bits via `*(float*)`. The hot local register (l0/l1/l2) keeps the full
-// u64 bit pattern by copying from the memory slot after we've written it
-// — this avoids the FP→GPR `fmov` that `from_f32(f0)` would otherwise
-// force on the critical path.
-HANDLER(op_local_set_l0_f) {
-    *(float*)(locals + 0) = f0;
-    l0 = locals[0];
-    FDROP1();
-    NEXT();
-}
-HANDLER(op_local_set_l1_f) {
-    *(float*)(locals + 1) = f0;
-    l1 = locals[1];
-    FDROP1();
-    NEXT();
-}
-HANDLER(op_local_set_l2_f) {
-    *(float*)(locals + 2) = f0;
-    l2 = locals[2];
-    FDROP1();
-    NEXT();
-}
+HANDLER(op_local_get_l0_f) { FPUSH(as_f32(l0)); NEXT(); }
+HANDLER(op_local_get_l1_f) { FPUSH(as_f32(l1)); NEXT(); }
+HANDLER(op_local_get_l2_f) { FPUSH(as_f32(l2)); NEXT(); }
+HANDLER(op_local_set_l0_f) { l0 = from_f32(f0); FDROP1(); NEXT(); }
+HANDLER(op_local_set_l1_f) { l1 = from_f32(f0); FDROP1(); NEXT(); }
+HANDLER(op_local_set_l2_f) { l2 = from_f32(f0); FDROP1(); NEXT(); }
+// Float-window tee: peek f0 (top of float window) into l_n as bit
+// pattern, without popping. Used for `var x = fexpr; use x` when x is
+// a hot f32 local.
+HANDLER(op_local_tee_l0_f) { l0 = from_f32(f0); NEXT(); }
+HANDLER(op_local_tee_l1_f) { l1 = from_f32(f0); NEXT(); }
+HANDLER(op_local_tee_l2_f) { l2 = from_f32(f0); NEXT(); }
+
 
 // --- Debug ---
 
@@ -1488,33 +1582,33 @@ HANDLER(op_print_f32_f) {
 // emitted without an extra lsl. See the comment in
 // stack_interp_bridge.rs::encode_imm and op_local_get_f above.
 HANDLER(op_fused_get_get_fadd_f) {
-    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
-    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
+    float a = READ_F_OFF(pc->imm[0]);
+    float b = READ_F_OFF(pc->imm[1]);
     FPUSH(a + b);
     NEXT();
 }
 HANDLER(op_fused_get_get_fsub_f) {
-    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
-    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
+    float a = READ_F_OFF(pc->imm[0]);
+    float b = READ_F_OFF(pc->imm[1]);
     FPUSH(a - b);
     NEXT();
 }
 HANDLER(op_fused_get_get_fmul_f) {
-    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
-    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
+    float a = READ_F_OFF(pc->imm[0]);
+    float b = READ_F_OFF(pc->imm[1]);
     FPUSH(a * b);
     NEXT();
 }
 HANDLER(op_fused_get_fmul_f) {
-    f0 = f0 * *(float*)((uint8_t*)locals + pc->imm[0]);
+    f0 = f0 * READ_F_OFF(pc->imm[0]);
     NEXT();
 }
 HANDLER(op_fused_get_fadd_f) {
-    f0 = f0 + *(float*)((uint8_t*)locals + pc->imm[0]);
+    f0 = f0 + READ_F_OFF(pc->imm[0]);
     NEXT();
 }
 HANDLER(op_fused_get_fsub_f) {
-    f0 = f0 - *(float*)((uint8_t*)locals + pc->imm[0]);
+    f0 = f0 - READ_F_OFF(pc->imm[0]);
     NEXT();
 }
 // Pop f0=b, f1=a, f2=c (in f-window), push c + a*b. 3→1.
@@ -1533,25 +1627,30 @@ HANDLER(op_fused_fmul_fsub_f) {
     NEXT();
 }
 HANDLER(op_fused_get_addr_fmul_fadd_f) {
-    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
+    // imm[0] is a pre-shifted byte offset for the coeff local (may be
+    // hot); imm[1] is a memory-slot index for the state struct and
+    // imm[2] is a byte offset within that struct.
+    float coeff = READ_F_OFF(pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
     f0 = f0 + coeff * state;
     NEXT();
 }
 HANDLER(op_fused_get_addr_fmul_fsub_f) {
-    float coeff = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float coeff = READ_F_OFF(pc->imm[0]);
     float state = *(float*)((uint8_t*)locals + pc->imm[1] * 8 + (int32_t)pc->imm[2]);
     f0 = f0 - coeff * state;
     NEXT();
 }
 HANDLER(op_fused_addr_load32off_f) {
+    // Always a memory-backed struct slot (imm[0] is a u64 slot index,
+    // imm[1] a byte offset). No hot-local interaction.
     float v = *(float*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]);
     FPUSH(v);
     NEXT();
 }
 HANDLER(op_fused_addr_get_sload32_f) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     uint8_t* data = *(uint8_t**)fat;
     float v = *(float*)(data + idx * 4);
     FPUSH(v);
@@ -1559,7 +1658,7 @@ HANDLER(op_fused_addr_get_sload32_f) {
 }
 HANDLER(op_fused_addr_get_sstore32_f) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     uint8_t* data = *(uint8_t**)fat;
     *(float*)(data + idx * 4) = f0;
     FDROP1();
@@ -1573,9 +1672,11 @@ HANDLER(op_fused_addr_get_sstore32_f) {
 // pops f0. Both stores go through `str s, [...]` with no FP→GPR
 // crossing. See encode_imm in the bridge for the byte-offset rationale.
 HANDLER(op_fused_tee_sstore32_f) {
-    *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
+    // Tee target at imm[0] (byte offset, may be hot) and idx at imm[2]
+    // (u64 slot index, may be hot int local).
+    WRITE_F_OFF(pc->imm[0], f0);
     uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
-    int64_t idx = (int64_t)locals[pc->imm[2]];
+    int64_t idx = (int64_t)READ_I(pc->imm[2]);
     uint8_t* data = *(uint8_t**)fat;
     *(float*)(data + idx * 4) = f0;
     FDROP1();
@@ -1583,14 +1684,14 @@ HANDLER(op_fused_tee_sstore32_f) {
 }
 HANDLER(op_fused_local_array_load32_f) {
     uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     float v = *(float*)(base + idx * 4);
     FPUSH(v);
     NEXT();
 }
 HANDLER(op_fused_local_array_store32_f) {
     uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
-    int64_t idx = (int64_t)locals[pc->imm[1]];
+    int64_t idx = (int64_t)READ_I(pc->imm[1]);
     *(float*)(base + idx * 4) = f0;
     FDROP1();
     NEXT();
@@ -1641,10 +1742,14 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->current_fsp = ctx->float_stack;
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
+    // Hot local registers start zeroed — register-only semantics means
+    // there's no `entry_locals[0..2]` mirror to read from, and the
+    // codegen emits explicit initializers for every non-parameter local
+    // before first use.
 #if defined(__aarch64__)
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, 0, 0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
 #else
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, 0, 0, 0, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
 #endif
 
     return ctx->result;

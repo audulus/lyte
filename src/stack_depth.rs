@@ -76,6 +76,7 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::Load8 | StackOp::Load32 | StackOp::Load64 |
         StackOp::Load32Off(_) | StackOp::Load64Off(_) |
         StackOp::LocalTee(_) |
+        StackOp::LocalTeeL0 | StackOp::LocalTeeL1 | StackOp::LocalTeeL2 |
         StackOp::SinF64 | StackOp::CosF64 | StackOp::TanF64 |
         StackOp::AsinF64 | StackOp::AcosF64 | StackOp::AtanF64 |
         StackOp::SinhF64 | StackOp::CoshF64 | StackOp::TanhF64 |
@@ -139,6 +140,7 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::Atan2F32F
         | StackOp::LocalGetL0F | StackOp::LocalGetL1F | StackOp::LocalGetL2F
         | StackOp::LocalSetL0F | StackOp::LocalSetL1F | StackOp::LocalSetL2F
+        | StackOp::LocalTeeL0F | StackOp::LocalTeeL1F | StackOp::LocalTeeL2F
         | StackOp::PrintF32F
         | StackOp::FusedGetGetFAddF(_, _) | StackOp::FusedGetGetFSubF(_, _)
         | StackOp::FusedGetGetFMulF(_, _)

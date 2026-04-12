@@ -28,6 +28,13 @@ typedef struct CallFrame {
     uint64_t*    saved_locals; // caller's locals pointer (= caller's fp)
     uint32_t     func_idx;    // caller's function index (for looking up metadata)
     size_t       saved_frame_size; // frame_stack_size to restore on return
+    // Hot local registers are register-only (no memory mirror). The
+    // caller's l0/l1/l2 values are preserved here across the call
+    // because the callee will overwrite them with its own hot locals.
+    // Saved on op_call entry, restored on op_return.
+    uint64_t     saved_l0;
+    uint64_t     saved_l1;
+    uint64_t     saved_l2;
 } CallFrame;
 
 // Per-function metadata (set up by Rust, read by C).
