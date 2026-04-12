@@ -799,23 +799,9 @@ impl Compiler {
         for func in &mut program.functions {
             crate::stack_rebase_lm::rebase(func);
         }
-        // Hot local analysis: remap hottest locals to indices 0/1/2.
-        for func in &mut program.functions {
-            let hot = crate::stack_hot_locals::analyze(func);
-            if hot[0].is_some() {
-                crate::stack_hot_locals::remap(func, &hot);
-                func.hot_locals = hot;
-            }
-        }
         // Fuse common instruction sequences into superinstructions.
         for func in &mut program.functions {
             crate::stack_optimize::optimize(func);
-        }
-        // Lower LocalGet/Set(0/1/2) to L-register ops AFTER fusion.
-        for func in &mut program.functions {
-            if func.hot_locals[0].is_some() {
-                crate::stack_hot_locals::lower(func);
-            }
         }
         // Fill in Call.preserve from static stack depth. Must run AFTER
         // fusion since fusion can change op positions and stack_delta values.

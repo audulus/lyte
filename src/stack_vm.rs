@@ -117,15 +117,9 @@ impl StackVM {
 
                 // === Local variables ===
                 StackOp::LocalGet(n) => self.push(locals[n as usize]),
-                StackOp::LocalGetL0 => self.push(locals[0]),
-                StackOp::LocalGetL1 => self.push(locals[1]),
-                StackOp::LocalGetL2 => self.push(locals[2]),
                 StackOp::LocalSet(n) => {
                     locals[n as usize] = self.pop();
                 }
-                StackOp::LocalSetL0 => { locals[0] = self.pop(); }
-                StackOp::LocalSetL1 => { locals[1] = self.pop(); }
-                StackOp::LocalSetL2 => { locals[2] = self.pop(); }
                 StackOp::LocalTee(n) => {
                     locals[n as usize] = self.peek();
                 }

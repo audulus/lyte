@@ -100,9 +100,9 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // fmov/movq penalty that the old "f32 bit-pattern in u64" design
 // paid on every float arithmetic op.
 #if defined(__aarch64__)
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t* locals, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t* locals, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
 #else
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t l0, uint64_t l1, uint64_t l2, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
 // Reads expand to a load of ctx->current_locals / current_fsp; writes
 // (locals = X, fsp = X) store back to the same field. LLVM's TBAA rules
 // out aliasing with stores through sp, so the field read is CSEd per
@@ -117,9 +117,8 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 #define nh ((Handler)_nh_raw)
 
 // Dispatch macros. Parameterless — they reference the handler's in-scope
-// ctx/pc/sp/l0-l2/t0-t3/f0-f3/_nh_raw arguments directly (plus the
-// `locals` parameter on aarch64) and must only be used inside a
-// HANDLER() body.
+// ctx/pc/sp/t0-t3/f0-f3/_nh_raw arguments directly (plus the `locals`
+// parameter on aarch64) and must only be used inside a HANDLER() body.
 //
 // NEXT: linear fall-through. Branch to the preloaded nh and preload the
 // handler for the instruction after next.
@@ -128,28 +127,28 @@ static int64_t ipow(int64_t base, uint32_t exp) {
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #else
 #define NEXT() \
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, l0, l1, l2, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 #endif
 
@@ -216,21 +215,6 @@ HANDLER(op_local_addr) {
     PUSH((uint64_t)(locals + pc->imm[0]));
     NEXT();
 }
-
-// --- Hot local registers (l0/l1/l2) ---
-
-// Get handlers reload from locals[] to stay in sync with fused ops that
-// write to locals[0/1/2] via memory. The reload also refreshes the register
-// for subsequent accesses.
-HANDLER(op_local_get_l0) { l0 = locals[0]; PUSH(l0); NEXT(); }
-HANDLER(op_local_get_l1) { l1 = locals[1]; PUSH(l1); NEXT(); }
-HANDLER(op_local_get_l2) { l2 = locals[2]; PUSH(l2); NEXT(); }
-// Set handlers write to both register and locals[] to keep them in sync.
-// Fused ops that write to locals[0/1/2] via memory still work correctly
-// because the next LocalGetL0 will read from the register, which is also updated.
-HANDLER(op_local_set_l0) { POP(l0); locals[0] = l0; NEXT(); }
-HANDLER(op_local_set_l1) { POP(l1); locals[1] = l1; NEXT(); }
-HANDLER(op_local_set_l2) { POP(l2); locals[2] = l2; NEXT(); }
 
 // --- Global variables ---
 
@@ -629,9 +613,6 @@ HANDLER(op_call) {
     // copy the args into the callee's locals and pop them off the TOS
     // window. The caller's t0..t3 (post-pop) is handed to the callee
     // through DISPATCH.
-    //
-    // Note: do NOT spill l0/l1/l2. locals[0/1/2] are kept in sync with
-    // the hot-local registers by LocalSetL* and fused ops.
 
     uint32_t target = (uint32_t)pc->imm[0];
     uint32_t nargs  = (uint32_t)(pc->imm[1] & 0xFF);
@@ -710,13 +691,11 @@ HANDLER(op_call) {
         }
     }
 
-    // Callee starts with l0/l1/l2 loaded from its own locals[0/1/2] and
-    // inherits the caller's TOS window (post-pop). The window holds
-    // garbage at depths < 4 — that's fine because well-formed callee
-    // code never reads t-registers it hasn't pushed first.
+    // Callee inherits the caller's TOS window (post-pop). The window
+    // holds garbage at depths < 4 — that's fine because well-formed
+    // callee code never reads t-registers it hasn't pushed first.
     pc = ctx->functions[target].code;
     locals = new_locals;
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     DISPATCH();
 }
 
@@ -806,7 +785,6 @@ HANDLER(op_call_closure) {
 
     pc = ctx->functions[target].code;
     locals = new_locals;
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     DISPATCH();
 }
 
@@ -874,7 +852,6 @@ HANDLER(op_call_indirect) {
 
     pc = ctx->functions[target].code;
     locals = new_locals;
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     DISPATCH();
 }
 
@@ -897,8 +874,6 @@ HANDLER(op_return) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    // Fill hot locals from restored caller's locals.
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
     DISPATCH();
 }
@@ -914,8 +889,6 @@ HANDLER(op_return_void) {
     CallFrame* frame = &ctx->call_stack[--ctx->call_depth];
     ctx->frame_stack_size = frame->saved_frame_size;
     locals = frame->saved_locals;
-    // Fill hot locals from restored caller's locals.
-    l0 = locals[0]; l1 = locals[1]; l2 = locals[2];
     pc = frame->return_pc;
     DISPATCH();
 }
@@ -1436,38 +1409,6 @@ HANDLER(op_isinf_f32_f) {
     NEXT();
 }
 
-// --- Hot local register get/set in float window ---
-// Like the integer LocalGetL0..L2, these stay in sync with locals[]
-// memory: gets reload from locals[] so concurrent fused ops that write
-// to those slots remain consistent.
-
-HANDLER(op_local_get_l0_f) { l0 = locals[0]; FPUSH(as_f32(l0)); NEXT(); }
-HANDLER(op_local_get_l1_f) { l1 = locals[1]; FPUSH(as_f32(l1)); NEXT(); }
-HANDLER(op_local_get_l2_f) { l2 = locals[2]; FPUSH(as_f32(l2)); NEXT(); }
-// Same direct-f32-store trick as op_local_set_f: write just the low 32
-// bits via `*(float*)`. The hot local register (l0/l1/l2) keeps the full
-// u64 bit pattern by copying from the memory slot after we've written it
-// — this avoids the FP→GPR `fmov` that `from_f32(f0)` would otherwise
-// force on the critical path.
-HANDLER(op_local_set_l0_f) {
-    *(float*)(locals + 0) = f0;
-    l0 = locals[0];
-    FDROP1();
-    NEXT();
-}
-HANDLER(op_local_set_l1_f) {
-    *(float*)(locals + 1) = f0;
-    l1 = locals[1];
-    FDROP1();
-    NEXT();
-}
-HANDLER(op_local_set_l2_f) {
-    *(float*)(locals + 2) = f0;
-    l2 = locals[2];
-    FDROP1();
-    NEXT();
-}
-
 // --- Debug ---
 
 HANDLER(op_print_f32_f) {
@@ -1633,18 +1574,18 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     }
     uint64_t* entry_locals = ctx->current_locals;
 
-    // Start dispatch with hot locals loaded and both TOS windows zeroed.
-    // Preload the handler for the second instruction as nh. On aarch64
-    // fsp is a handler arg pinned to a GPR by preserve_none; on x86-64
-    // it lives in ctx->current_fsp and handlers reach it via a macro
-    // (see stack_interp.c's HANDLER_ARGS / fsp definitions).
+    // Start dispatch with both TOS windows zeroed. Preload the handler
+    // for the second instruction as nh. On aarch64 fsp is a handler arg
+    // pinned to a GPR by preserve_none; on x86-64 it lives in
+    // ctx->current_fsp and handlers reach it via a macro (see
+    // stack_interp.c's HANDLER_ARGS / fsp definitions).
     ctx->current_fsp = ctx->float_stack;
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
 #if defined(__aarch64__)
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
 #else
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, entry_locals[0], entry_locals[1], entry_locals[2], 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
 #endif
 
     return ctx->result;

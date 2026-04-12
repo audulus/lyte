@@ -135,13 +135,8 @@ fn fuse(func: &mut StackFunction) {
 
         // fw.local.get + fw.drop → nop
         if i + 1 < len && !spans_target(i, 2) {
-            if matches!(
-                ops[i],
-                StackOp::LocalGetF(_)
-                    | StackOp::LocalGetL0F
-                    | StackOp::LocalGetL1F
-                    | StackOp::LocalGetL2F
-            ) && matches!(ops[i + 1], StackOp::DropF)
+            if matches!(ops[i], StackOp::LocalGetF(_))
+                && matches!(ops[i + 1], StackOp::DropF)
             {
                 ops[i] = StackOp::Nop;
                 ops[i + 1] = StackOp::Nop;
