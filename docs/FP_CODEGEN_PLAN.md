@@ -95,7 +95,7 @@ FP/SIMD registers throughout expression evaluation."
 > | 4 — Flip default on                   | ✅ landed via #6        | `b818fd1`            |
 > | 5 — Float-aware fusion patterns       | ✅ landed, integrated   | `4b6f00e`, `f2a9c95` |
 > | 6 — Remove legacy FW path             | ✅ landed               | `b818fd1`            |
-> | 7 — Float hot local cache             | ⏸ skipped              |                      |
+> | 7 — Float hot local cache             | ❌ obsolete (entire hot local cache removed — see `docs/HOT_LOCALS.md`) | |
 > | **`fsp` register-arg promotion**      | ✅ unplanned            | `21f2949`            |
 > | **Float-typed window**                | ✅ unplanned            | `c67ed9e`            |
 > | **x86-64 `fsp` in ctx + min/max fix** | ✅ unplanned            | `821af8d`            |

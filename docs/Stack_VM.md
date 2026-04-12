@@ -5,8 +5,8 @@ register VM (`docs/VM.md`) for platforms where JIT compilation isn't
 available (e.g., iOS / Audulus). The Stack VM follows the Silverfir-nano
 design: each instruction is a direct-threaded handler function, dispatch
 is a `preserve_none` + `musttail` call chain, and hot state (operand
-window, hot locals, spill pointers) stays in hardware registers across
-the entire handler chain.
+window, spill pointers) stays in hardware registers across the entire
+handler chain.
 
 On bare-metal Apple M4, the Stack VM runs biquad at 0.104s, sort at
 0.080s, and FFT at 0.369s — within 2.5× of `-O3` C on DSP workloads and
@@ -19,7 +19,7 @@ On bare-metal Apple M4, the Stack VM runs biquad at 0.104s, sort at
   Dispatch never reads an opcode byte — the pc directly holds the
   handler to call.
 - **`preserve_none` + `musttail` handlers.** Every op handler is a
-  tail-call target with a fixed 16-argument signature on aarch64. The
+  tail-call target with a fixed 13-argument signature on aarch64. The
   compiler keeps the argument values in hardware registers across the
   entire handler chain; transitioning between ops is a single indirect
   branch with zero prologue / epilogue.
@@ -28,10 +28,10 @@ On bare-metal Apple M4, the Stack VM runs biquad at 0.104s, sort at
   arithmetic never crosses between register files. The int window spills
   to `*sp`; the float window spills to `*fsp`. Both spill pointers are
   themselves handler arguments, pinned to GPRs.
-- **Hot local cache.** The top three locals by access weight are
-  promoted to dedicated handler arguments `l0..l2`, backed by
-  `locals[0..2]` in memory. Writes go to both so fused locals-to-locals
-  ops and cached reads stay coherent.
+- **No hot local register cache.** An earlier version reserved three
+  preserve_none GPR args `l0..l2` as a top-3-most-accessed local cache.
+  It was deleted — see `docs/HOT_LOCALS.md` for the design exploration
+  and why the cache never paid off on this VM.
 - **No per-op runtime type check.** The codegen tracks each stack slot's
   type statically, and int vs f32 ops pick the right window at emit
   time — `IAdd` reads `t0/t1`, `FAddF` reads `f0/f1`, and so on. f64
@@ -63,8 +63,6 @@ window and spills to memory when depth exceeds 4.
 |--------|-------------|
 | `LocalGet(n)` / `LocalSet(n)` / `LocalTee(n)` | Int/f64 local read, write, peek-and-write |
 | `LocalGetF(n)` / `LocalSetF(n)` / `LocalTeeF(n)` | f32 local, float window |
-| `LocalGetL0..L2` / `LocalSetL0..L2` | Hot local cache, int |
-| `LocalGetL0F..L2F` / `LocalSetL0F..L2F` | Hot local cache, float |
 | `LocalAddr(n)` | Push address of local slot |
 
 ### Integer arithmetic (int window)
@@ -146,12 +144,12 @@ freed immediately, and `preserve_none` keeps all the hot state in
 registers across the jump.
 
 ```c
-// src/stack_interp.c:127 — aarch64 linear fall-through
+// src/stack_interp.c — aarch64 linear fall-through
 #define NEXT() do { \
     Instruction* _next = pc + 1; \
     void* _new_nh = (_next + 1)->handler; \
     __attribute__((musttail)) return ((Handler)_nh_raw)( \
-        ctx, _next, sp, fsp, locals, l0, l1, l2, \
+        ctx, _next, sp, fsp, locals, \
         t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
 } while(0)
 ```
@@ -163,21 +161,20 @@ preloaded `nh` pointer is no longer valid.
 ### Handler signature (aarch64)
 
 ```c
-// src/stack_interp.h:144
+// src/stack_interp.h
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,            // cold state
     Instruction*  pc,             // instruction pointer
     uint64_t*     sp,             // int spill pointer
     float*        fsp,            // float spill pointer
     uint64_t*     locals,         // frame pointer (aarch64 only)
-    uint64_t l0, l1, l2,          // hot local cache
     uint64_t t0, t1, t2, t3,      // int TOS window
     float f0, f1, f2, f3,         // float TOS window
     void*         nh              // preloaded next handler
 );
 ```
 
-That's 16 arguments; `preserve_none` places all of them in callee-unsaved
+That's 13 arguments; `preserve_none` places all of them in callee-unsaved
 GPRs and FP registers, and the entire dispatch loop runs without
 touching the hardware stack.
 
@@ -258,33 +255,17 @@ f32 and f64 coexist on the logical operand stack. The codegen tracks
 each slot's type statically; f32 slots live in the float window, f64
 slots (rare) ride the int window as bit patterns.
 
-## Hot local cache
+## Hot local cache (removed)
 
-`src/stack_hot_locals.rs` runs a loop-weighted access analysis per
-function: each local's score is the sum of `10^nesting_depth` for every
-read or write that references it, capped at `10^4`. The top three
-non-parameter locals get remapped to slots 0, 1, 2. After fusion,
-remaining `LocalGet(0/1/2)` / `LocalSet(0/1/2)` get lowered to
-`LocalGetL0..L2` / `LocalSetL0..L2` handlers, which read from and write
-to both the register arg **and** `locals[0..2]` in memory:
-
-```c
-// src/stack_interp.c:225
-HANDLER(op_local_get_l0) { l0 = locals[0]; PUSH(l0); NEXT(); }
-HANDLER(op_local_set_l0) { POP(l0); locals[0] = l0; NEXT(); }
-```
-
-The dual update is necessary because fused ops like `FusedGetGetIAddSet`
-write directly to `locals[]` without going through the register cache.
-Refreshing `l0` from memory on read keeps the two in sync without a
-separate invalidation pass.
-
-Float hot locals use `LocalGetL0F..L2F` / `LocalSetL0F..L2F`, which
-read from and write to `locals[]` as `float` (not bit-cast to u64),
-preserving the single-precision in-place representation. See the
-"float hot local" section of `FP_CODEGEN_PLAN.md` for why option A
-(share hot local slots with int) was chosen over option B (separate
-float cache slots).
+The VM originally reserved three preserve_none GPR args `l0..l2` as a
+top-3-most-accessed local cache. The design was flawed in practice —
+it turned out to be a no-op that never delivered its intended benefit,
+and the attempts to make it work either added runtime dispatch cost
+everywhere or exploded into a combinatorial number of specialized
+handlers. The cache was deleted; see `docs/HOT_LOCALS.md` for the full
+exploration, including the concrete numbers, the bugs that surfaced
+along the way, and three alternative directions (deeper TOS window,
+scoped specialization, or leaving the VM alone).
 
 ## Fusion / Superinstructions
 
@@ -418,17 +399,13 @@ AST  →  stack_codegen::FunctionTranslator  →  StackFunction (raw ops)
       stack_inline::inline_trivial      (inline leaf functions)
           │
           ▼
-      stack_hot_locals::analyze         (pick top-3 hot locals)
-      stack_hot_locals::remap           (swap to slots 0..2)
+      stack_rebase_lm::rebase           (shift memory-slot refs by local_count)
           │
           ▼
       stack_optimize::optimize          (3-pass fusion peephole)
           │
           ▼
-      stack_hot_locals::lower           (rewrite Get/Set to L0..L2)
-          │
-          ▼
-      stack_depth::compute_depths       (int + float window deltas)
+      stack_rebase_lm::patch_call_preserve  (fill Call.preserve from stack depth)
           │
           ▼
       stack_interp_bridge::encode       (StackOp → Instruction[])

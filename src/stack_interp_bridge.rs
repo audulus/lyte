@@ -180,9 +180,6 @@ extern "C" {
     fn op_fused_const_set();
     fn op_fused_f32const_set();
     fn op_fused_addr_get_sload32();
-    // Hot local register handlers
-    fn op_local_get_l0(); fn op_local_get_l1(); fn op_local_get_l2();
-    fn op_local_set_l0(); fn op_local_set_l1(); fn op_local_set_l2();
     fn op_halt();
     fn op_nop();
 
@@ -209,8 +206,6 @@ extern "C" {
     fn op_sqrt_f32_f(); fn op_abs_f32_f(); fn op_floor_f32_f(); fn op_ceil_f32_f();
     fn op_atan2_f32_f();
     fn op_isnan_f32_f(); fn op_isinf_f32_f();
-    fn op_local_get_l0_f(); fn op_local_get_l1_f(); fn op_local_get_l2_f();
-    fn op_local_set_l0_f(); fn op_local_set_l1_f(); fn op_local_set_l2_f();
     fn op_print_f32_f();
     fn op_fused_get_get_fadd_f(); fn op_fused_get_get_fsub_f(); fn op_fused_get_get_fmul_f();
     fn op_fused_get_fmul_f(); fn op_fused_get_fadd_f(); fn op_fused_get_fsub_f();
@@ -353,12 +348,6 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedConstSet(_, _) => op_fused_const_set as *const (),
         StackOp::FusedF32ConstSet(_, _) => op_fused_f32const_set as *const (),
         StackOp::FusedAddrGetSliceLoad32(_, _) => op_fused_addr_get_sload32 as *const (),
-        StackOp::LocalGetL0 => op_local_get_l0 as *const (),
-        StackOp::LocalGetL1 => op_local_get_l1 as *const (),
-        StackOp::LocalGetL2 => op_local_get_l2 as *const (),
-        StackOp::LocalSetL0 => op_local_set_l0 as *const (),
-        StackOp::LocalSetL1 => op_local_set_l1 as *const (),
-        StackOp::LocalSetL2 => op_local_set_l2 as *const (),
         StackOp::Halt => op_halt as *const (),
         StackOp::Nop => op_nop as *const (),
 
@@ -412,12 +401,6 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::Atan2F32F => op_atan2_f32_f as *const (),
         StackOp::IsnanF32F => op_isnan_f32_f as *const (),
         StackOp::IsinfF32F => op_isinf_f32_f as *const (),
-        StackOp::LocalGetL0F => op_local_get_l0_f as *const (),
-        StackOp::LocalGetL1F => op_local_get_l1_f as *const (),
-        StackOp::LocalGetL2F => op_local_get_l2_f as *const (),
-        StackOp::LocalSetL0F => op_local_set_l0_f as *const (),
-        StackOp::LocalSetL1F => op_local_set_l1_f as *const (),
-        StackOp::LocalSetL2F => op_local_set_l2_f as *const (),
         StackOp::PrintF32F => op_print_f32_f as *const (),
         StackOp::FusedGetGetFAddF(_, _) => op_fused_get_get_fadd_f as *const (),
         StackOp::FusedGetGetFSubF(_, _) => op_fused_get_get_fsub_f as *const (),

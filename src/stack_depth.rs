@@ -54,14 +54,12 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::I64Const(_) | StackOp::F32Const(_) | StackOp::F64Const(_) |
         StackOp::LocalGet(_) | StackOp::LocalAddr(_) | StackOp::GlobalAddr(_) |
         StackOp::GetClosurePtr |
-        StackOp::LocalGetL0 | StackOp::LocalGetL1 | StackOp::LocalGetL2 |
         StackOp::FusedGetGetIAdd(_, _) |
         StackOp::FusedGetGetILt(_, _) | StackOp::FusedAddrLoad32Off(_, _) |
         StackOp::FusedAddrGetSliceLoad32(_, _) => 1,
 
         // Pop 1
         StackOp::LocalSet(_) |
-        StackOp::LocalSetL0 | StackOp::LocalSetL1 | StackOp::LocalSetL2 |
         StackOp::Drop |
         StackOp::PrintI32 | StackOp::Putc | StackOp::Assert |
         StackOp::MemZero(_) |
@@ -137,8 +135,6 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::Log10F32F | StackOp::Log2F32F | StackOp::SqrtF32F
         | StackOp::AbsF32F | StackOp::FloorF32F | StackOp::CeilF32F
         | StackOp::Atan2F32F
-        | StackOp::LocalGetL0F | StackOp::LocalGetL1F | StackOp::LocalGetL2F
-        | StackOp::LocalSetL0F | StackOp::LocalSetL1F | StackOp::LocalSetL2F
         | StackOp::PrintF32F
         | StackOp::FusedGetGetFAddF(_, _) | StackOp::FusedGetGetFSubF(_, _)
         | StackOp::FusedGetGetFMulF(_, _)
@@ -182,7 +178,6 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
     match op {
         // Pushes
         StackOp::F32ConstF(_) | StackOp::LocalGetF(_)
-        | StackOp::LocalGetL0F | StackOp::LocalGetL1F | StackOp::LocalGetL2F
         | StackOp::FusedGetGetFAddF(_, _) | StackOp::FusedGetGetFSubF(_, _)
         | StackOp::FusedGetGetFMulF(_, _)
         | StackOp::FusedAddrLoad32OffF(_, _)
@@ -191,7 +186,6 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
 
         // Pops
         StackOp::LocalSetF(_) | StackOp::DropF
-        | StackOp::LocalSetL0F | StackOp::LocalSetL1F | StackOp::LocalSetL2F
         | StackOp::PrintF32F
         | StackOp::FusedAddrGetSliceStore32F(_, _)
         | StackOp::FusedTeeSliceStore32F(_, _, _)
