@@ -103,7 +103,7 @@ run_benchmark() {
     echo "Running benchmarks..."
     C_O2_TIME=$(avg "C -O2 ($NAME)" "$C_O2")
     C_O3_TIME=$(avg "C -O3 ($NAME)" "$C_O3")
-    LYTE_JIT=$(avg "Lyte JIT ($NAME)" "$LYTE --backend jit $LYTE_FILE --timing 2>&1 | grep 'jit exec:'")
+    LYTE_JIT=$(avg "Lyte Cranelift ($NAME)" "$LYTE --backend jit $LYTE_FILE --timing 2>&1 | grep 'jit exec:'")
     LYTE_VM=$(avg "Lyte VM ($NAME)" "$LYTE --backend vm $LYTE_FILE --timing 2>&1 | grep 'vm exec:'")
     if [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ]; then
         LYTE_ASM=$(avg "Lyte ASM ($NAME)" "$LYTE --backend asm $LYTE_FILE --timing 2>&1 | grep 'asm exec:'")
@@ -133,7 +133,7 @@ run_benchmark() {
     row "Lyte Stack VM"     "$LYTE_STACK" "$LUA"
     row "Lyte VM (ARM64)"   "$LYTE_ASM"   "$LUA"
     row "LuaJIT (JIT)"      "$LUAJIT_JIT" "$LUA"
-    row "Lyte JIT"          "$LYTE_JIT"   "$LUA"
+    row "Lyte Cranelift"    "$LYTE_JIT"   "$LUA"
     row "Lyte LLVM"         "$LYTE_LLVM"  "$LUA"
     row "C (-O2)"           "$C_O2_TIME"  "$LUA"
     row "C (-O3)"           "$C_O3_TIME"  "$LUA"
