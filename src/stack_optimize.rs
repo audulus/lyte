@@ -173,18 +173,7 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
-        // local.get a + local.set b → FusedGetSet (variable move)
-        if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGet(a), StackOp::LocalSet(b)) = (&ops[i], &ops[i+1]) {
-                let a = *a; let b = *b;
-                // FusedGetSet reads locals[a] and writes locals[b] via
-                // memory. Hot slots must stay raw.
-                ops[i] = StackOp::FusedGetSet(a, b);
-                ops[i+1] = StackOp::Nop;
-                i += 2;
-                continue;
-            }
-        }
+        // (FusedGetSet generated — see stack_optimize_fused.gen.rs.)
 
         // local.set N + local.get N → local.tee N
         // The tee handler writes locals[n] from the TOS window, which
@@ -416,95 +405,11 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
-        // local.get src + i64.add_imm v + local.set dst → FusedGetAddImmSet
-        if i + 2 < len && !spans_target(i, 3) {
-            if let (StackOp::LocalGet(src), StackOp::IAddImm(v), StackOp::LocalSet(dst)) =
-                (&ops[i], &ops[i+1], &ops[i+2])
-            {
-                let src = *src; let v = *v; let dst = *dst;
-                // Reads locals[src], writes locals[dst] via memory.
-                ops[i] = StackOp::FusedGetAddImmSet(src, v, dst);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                i += 3;
-                continue;
-            }
-        }
+        // (FusedGetAddImmSet, FusedGetGetFMulF, FusedGetGetFAddF,
+        // FusedGetGetFSubF, FusedGetGetIAdd, FusedGetGetILt generated
+        // — see stack_optimize_fused.gen.rs.)
 
         // === 3-instruction fusions ===
-
-        // Float-window: fw.local.get a + fw.local.get b + fw.f32.mul
-        //             → fw.fused.get_get_fmul.
-        if i + 2 < len && !spans_target(i, 3) {
-            if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FMulF) =
-                (&ops[i], &ops[i+1], &ops[i+2])
-            {
-                let a = *a; let b = *b;
-                ops[i] = StackOp::FusedGetGetFMulF(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                i += 3;
-                continue;
-            }
-        }
-
-        // Float-window: fw.local.get a + fw.local.get b + fw.f32.add
-        //             → fw.fused.get_get_fadd.
-        if i + 2 < len && !spans_target(i, 3) {
-            if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FAddF) =
-                (&ops[i], &ops[i+1], &ops[i+2])
-            {
-                let a = *a; let b = *b;
-                ops[i] = StackOp::FusedGetGetFAddF(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                i += 3;
-                continue;
-            }
-        }
-
-        // Float-window: fw.local.get a + fw.local.get b + fw.f32.sub
-        //             → fw.fused.get_get_fsub.
-        if i + 2 < len && !spans_target(i, 3) {
-            if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FSubF) =
-                (&ops[i], &ops[i+1], &ops[i+2])
-            {
-                let a = *a; let b = *b;
-                ops[i] = StackOp::FusedGetGetFSubF(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                i += 3;
-                continue;
-            }
-        }
-
-        // local.get a + local.get b + i64.add → FusedGetGetIAdd
-        if i + 2 < len && !spans_target(i, 3) {
-            if let (StackOp::LocalGet(a), StackOp::LocalGet(b), StackOp::IAdd) =
-                (&ops[i], &ops[i+1], &ops[i+2])
-            {
-                let a = *a; let b = *b;
-                ops[i] = StackOp::FusedGetGetIAdd(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                i += 3;
-                continue;
-            }
-        }
-
-        // local.get a + local.get b + i64.lt_s → FusedGetGetILt
-        if i + 2 < len && !spans_target(i, 3) {
-            if let (StackOp::LocalGet(a), StackOp::LocalGet(b), StackOp::ILt) =
-                (&ops[i], &ops[i+1], &ops[i+2])
-            {
-                let a = *a; let b = *b;
-                ops[i] = StackOp::FusedGetGetILt(a, b);
-                ops[i+1] = StackOp::Nop;
-                ops[i+2] = StackOp::Nop;
-                i += 3;
-                continue;
-            }
-        }
 
         // local.addr slot + i32.load offset=off → FusedAddrLoad32Off
         if i + 1 < len && !spans_target(i, 2) {
@@ -535,38 +440,8 @@ fn fuse(func: &mut StackFunction) {
 
         // === 2-instruction fusions ===
 
-        // Float-window: fw.local.get a + fw.f32.mul → fw.fused.get_fmul.
-        if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGetF(a), StackOp::FMulF) = (&ops[i], &ops[i+1]) {
-                let a = *a;
-                ops[i] = StackOp::FusedGetFMulF(a);
-                ops[i+1] = StackOp::Nop;
-                i += 2;
-                continue;
-            }
-        }
-
-        // Float-window: fw.local.get a + fw.f32.add → fw.fused.get_fadd.
-        if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGetF(a), StackOp::FAddF) = (&ops[i], &ops[i+1]) {
-                let a = *a;
-                ops[i] = StackOp::FusedGetFAddF(a);
-                ops[i+1] = StackOp::Nop;
-                i += 2;
-                continue;
-            }
-        }
-
-        // Float-window: fw.local.get a + fw.f32.sub → fw.fused.get_fsub.
-        if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::LocalGetF(a), StackOp::FSubF) = (&ops[i], &ops[i+1]) {
-                let a = *a;
-                ops[i] = StackOp::FusedGetFSubF(a);
-                ops[i+1] = StackOp::Nop;
-                i += 2;
-                continue;
-            }
-        }
+        // (FusedGetFMulF, FusedGetFAddF, FusedGetFSubF generated —
+        // see stack_optimize_fused.gen.rs.)
 
         // Float-window: fw.f32.mul + fw.f32.add → fw.fused.fmul_fadd.
         if i + 1 < len && !spans_target(i, 2) {
@@ -591,20 +466,7 @@ fn fuse(func: &mut StackFunction) {
         // local.get a + local.set b → move (common from codegen temporaries)
         // But only if a != b (otherwise it's a no-op, but leave it for now).
 
-        // i64.const v + local.set n → FusedConstSet[Ln]
-        //
-        // When n is a hot slot, emit the register-specialized variant
-        // that writes l_n directly; otherwise the generic memory-backed
-        // FusedConstSet is correct.
-        if i + 1 < len && !spans_target(i, 2) {
-            if let (StackOp::I64Const(v), StackOp::LocalSet(n)) = (&ops[i], &ops[i+1]) {
-                let v = *v; let n = *n;
-                ops[i] = StackOp::FusedConstSet(v, n);
-                ops[i+1] = StackOp::Nop;
-                i += 2;
-                continue;
-            }
-        }
+        // (FusedConstSet generated — see stack_optimize_fused.gen.rs.)
 
         // f32.const v + local.set n → FusedF32ConstSet
         if i + 1 < len && !spans_target(i, 2) {
@@ -630,6 +492,18 @@ fn fuse(func: &mut StackFunction) {
                 continue;
             }
         }
+
+        // === Generated peephole rules ===
+        //
+        // These replace the hand-written rules for FusedGetGetIAdd,
+        // FusedGetGetILt, FusedGetAddImmSet, FusedConstSet, FusedGetSet,
+        // FusedGetGetF{Add,Sub,Mul}F, and FusedGet{Add,Sub,Mul}F. Each
+        // `if let` block below can `continue` the enclosing while loop
+        // on a successful match, so this include has to live inside the
+        // loop body. Regenerate via
+        //   python3 scripts/gen_fused_handlers.py --mode rust \
+        //       -o src/stack_optimize_fused.gen.rs
+        include!("stack_optimize_fused.gen.rs");
 
         i += 1;
     }

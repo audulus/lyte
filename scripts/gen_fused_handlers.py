@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """
-Generate Lyte Stack VM fused handlers by concatenating base-op
-bodies from src/stack_interp.c.
+Generate Lyte Stack VM fused handlers from base-op bodies in
+src/stack_interp.c. Two output modes:
 
-To add a new fused handler, append an entry to FUSIONS below.
-A fusion is a list of base-op references; each base op contributes
-its body to the concatenated fused handler. The generator
+  --mode c     C handler bodies (concatenated base-op bodies with
+               pc->imm[0] rewrites and intermediate NEXT() stripped).
+               Relies on clang's store-to-load forwarding + DCE to
+               fold intermediate PUSH/POP spills — see the discussion
+               in docs/HOT_LOCALS_FUSED_HANDLERS_PLAN.md. Default.
 
-  1. pulls each base op's body out of src/stack_interp.c,
-  2. strips the trailing NEXT(); tail-call,
-  3. rewrites pc->imm[0] references to the fused op's chosen imm
-     slot (so e.g. the second local.get in a "get,get,iadd" fusion
-     reads pc->imm[1] instead of pc->imm[0]),
-  4. concatenates the rewritten bodies with one final NEXT().
+  --mode rust  Rust peephole-fusion clauses for stack_optimize.rs.
+               Emits one `if let (StackOp::Base, ..., StackOp::Base)`
+               match per fusion that has `gen_rust_rule=True`, which
+               fuses the pattern into the target StackOp variant and
+               Nops the remaining slots.
 
-This relies on clang's store-to-load forwarding + DCE to fold the
-intermediate PUSH/POP spills on `sp` that show up between base-op
-bodies — see the discussion in docs/HOT_LOCALS_FUSED_HANDLERS_PLAN.md.
-
-Fusions that can't be expressed as straight-line concatenation of
-base ops are deliberately excluded from this generator (e.g.
-ilt_jiz's conditional DISPATCH, slice/struct-field ops with no
-matching base op, the int-window f32 arithmetic path that no
-longer has base ops). Those stay hand-written.
+The same fusion spec (FUSIONS) drives both modes. Fusions that
+can't be expressed as straight-line concatenation are excluded
+entirely (e.g. ilt_jiz's conditional DISPATCH, slice/struct-field
+ops with no matching base op, the int-window f32 arithmetic path).
+Fusions with `gen_rust_rule=False` still generate a C handler but
+no Rust rule — used when codegen emits the fused op directly and
+the peephole fuser never sees the unfused sequence.
 
 Usage:
-    python3 scripts/gen_fused_handlers.py
     python3 scripts/gen_fused_handlers.py -o src/stack_interp_fused.gen.c
+    python3 scripts/gen_fused_handlers.py --mode rust \\
+        -o src/stack_optimize_fused.gen.rs
 """
 
 from __future__ import annotations
@@ -46,6 +46,58 @@ STACK_INTERP_C = ROOT / "src" / "stack_interp.c"
 # like "_gen" temporarily if you want to A/B the generated handlers
 # against hand-written versions without a symbol clash.
 NAME_SUFFIX = ""
+
+
+# ----------------------------------------------------------------------
+# Op-name → Rust StackOp variant mapping
+# ----------------------------------------------------------------------
+#
+# The C handler name (e.g. `op_iadd`) doesn't mechanically convert to
+# the Rust variant name (e.g. `IAdd`): `IAdd` is two capitalized
+# fragments "I" + "Add" with no underscore in the C name. Rather than
+# guess with heuristics that will break on `op_f32_const` vs `op_iadd`,
+# we keep an explicit table. Add to it when you add a new base or
+# fused op that this script needs to reference.
+VARIANTS: Dict[str, str] = {
+    # --- base ops referenced by fusions below ---
+    "op_local_get": "LocalGet",
+    "op_local_set": "LocalSet",
+    "op_local_get_f": "LocalGetF",
+    "op_local_set_f": "LocalSetF",
+    "op_i64_const": "I64Const",
+    "op_iadd": "IAdd",
+    "op_isub": "ISub",
+    "op_imul": "IMul",
+    "op_iadd_imm": "IAddImm",
+    "op_ilt": "ILt",
+    "op_fadd_f": "FAddF",
+    "op_fsub_f": "FSubF",
+    "op_fmul_f": "FMulF",
+    # --- fused target ops produced by fusions below ---
+    "op_fused_get_get_iadd": "FusedGetGetIAdd",
+    "op_fused_get_get_ilt": "FusedGetGetILt",
+    "op_fused_get_addimm_set": "FusedGetAddImmSet",
+    "op_fused_const_set": "FusedConstSet",
+    "op_fused_get_set": "FusedGetSet",
+    "op_fused_get_get_iadd_set": "FusedGetGetIAddSet",
+    "op_fused_get_get_isub_set": "FusedGetGetISubSet",
+    "op_fused_get_get_imul_set": "FusedGetGetIMulSet",
+    "op_fused_get_get_fadd_f": "FusedGetGetFAddF",
+    "op_fused_get_get_fsub_f": "FusedGetGetFSubF",
+    "op_fused_get_get_fmul_f": "FusedGetGetFMulF",
+    "op_fused_get_fmul_f": "FusedGetFMulF",
+    "op_fused_get_fadd_f": "FusedGetFAddF",
+    "op_fused_get_fsub_f": "FusedGetFSubF",
+}
+
+
+def rust_variant(op: str) -> str:
+    if op not in VARIANTS:
+        raise SystemExit(
+            f"no Rust variant known for {op!r}; add it to the VARIANTS "
+            f"table at the top of {Path(__file__).name}"
+        )
+    return VARIANTS[op]
 
 
 # ----------------------------------------------------------------------
@@ -72,6 +124,12 @@ class Fusion:
     name: str
     bases: List[BaseRef]
     note: str = ""
+    # If False, the script skips the Rust peephole rule for this
+    # fusion. Use for fusions that the Rust codegen emits directly
+    # (so the peephole fuser never sees the unfused sequence) — e.g.
+    # FusedGetGetIAddSet, which stack_codegen.rs emits directly for
+    # `x = a + b` patterns.
+    gen_rust_rule: bool = True
 
 
 def b(op: str, imm: Optional[int] = None) -> BaseRef:
@@ -105,24 +163,29 @@ FUSIONS: List[Fusion] = [
         b("op_local_get", 0),
         b("op_local_set", 1),
     ]),
+    # The three _set variants below are emitted directly by
+    # stack_codegen.rs for `x = a <op> b` patterns, so the peephole
+    # fuser never sees the unfused sequence. We still generate the
+    # C handlers, but gen_rust_rule=False skips the Rust peephole
+    # clause.
     Fusion("op_fused_get_get_iadd_set", [
         b("op_local_get", 0),
         b("op_local_get", 1),
         b("op_iadd"),
         b("op_local_set", 2),
-    ]),
+    ], gen_rust_rule=False),
     Fusion("op_fused_get_get_isub_set", [
         b("op_local_get", 0),
         b("op_local_get", 1),
         b("op_isub"),
         b("op_local_set", 2),
-    ]),
+    ], gen_rust_rule=False),
     Fusion("op_fused_get_get_imul_set", [
         b("op_local_get", 0),
         b("op_local_get", 1),
         b("op_imul"),
         b("op_local_set", 2),
-    ]),
+    ], gen_rust_rule=False),
 
     # ---- F-window ----
     Fusion("op_fused_get_get_fadd_f", [
@@ -295,7 +358,7 @@ def emit_fusion(f: Fusion, handlers: Dict[str, str]) -> str:
     )
 
 
-def emit_all(handlers: Dict[str, str]) -> str:
+def emit_all_c(handlers: Dict[str, str]) -> str:
     header = (
         "// ============================================================================\n"
         "// Generated by scripts/gen_fused_handlers.py from src/stack_interp.c.\n"
@@ -319,11 +382,113 @@ def emit_all(handlers: Dict[str, str]) -> str:
 
 
 # ----------------------------------------------------------------------
+# Rust peephole-rule emit
+# ----------------------------------------------------------------------
+
+# Variable names handed out in order for each base op that carries an
+# immediate. Matches the hand-written rules' convention (a, b, then
+# dst/v/c for a third slot).
+RUST_BIND_NAMES = ["a", "b", "c", "d", "e"]
+
+
+def emit_fusion_rust(f: Fusion) -> str:
+    """Emit a Rust peephole-fusion clause matching this fusion.
+
+    Produces an `if let (StackOp::..., ...) = (&ops[i], ...) { ... }`
+    block that, when matched, writes the target Fused variant into
+    ops[i], Nops out ops[i+1..i+n], sets `i += n`, and `continue`s
+    the enclosing while loop.
+
+    Must be embedded inside the body of `fuse()` in stack_optimize.rs
+    where `ops`, `i`, `len`, and `spans_target` are in scope.
+    """
+    n = len(f.bases)
+    target = rust_variant(f.name)
+    recipe = " + ".join(br.label() for br in f.bases)
+
+    # Hand out bind names only to base ops that carry an imm (and
+    # therefore a field in the base variant's tuple form). The bind
+    # order is the traversal order of the bases list, which matches
+    # the order of u16/i32 fields in the target variant.
+    binds: List[str] = []
+    pats: List[str] = []
+    for base in f.bases:
+        variant = rust_variant(base.op)
+        if base.imm is not None:
+            name = RUST_BIND_NAMES[len(binds)]
+            binds.append(name)
+            pats.append(f"StackOp::{variant}({name})")
+        else:
+            pats.append(f"StackOp::{variant}")
+
+    # "(&ops[i], &ops[i+1], &ops[i+2])"
+    refs = ", ".join(f"&ops[i+{k}]" if k > 0 else "&ops[i]" for k in range(n))
+    pat_tuple = ", ".join(pats)
+    len_check = f"i + {n - 1} < len"
+    span_check = f"!spans_target(i, {n})"
+
+    # Body lines (16-space indent, nested inside `if let { ... }`).
+    body_lines: List[str] = []
+    for name in binds:
+        body_lines.append(f"                let {name} = *{name};")
+    target_args = ", ".join(binds)
+    target_expr = (
+        f"StackOp::{target}({target_args})" if binds else f"StackOp::{target}"
+    )
+    body_lines.append(f"                ops[i] = {target_expr};")
+    for k in range(1, n):
+        body_lines.append(f"                ops[i + {k}] = StackOp::Nop;")
+    body_lines.append(f"                i += {n};")
+    body_lines.append("                continue;")
+    body = "\n".join(body_lines)
+
+    return (
+        f"        // {recipe} → {target}\n"
+        f"        if {len_check} && {span_check} {{\n"
+        f"            if let ({pat_tuple}) = ({refs}) {{\n"
+        f"{body}\n"
+        f"            }}\n"
+        f"        }}"
+    )
+
+
+def emit_all_rust() -> str:
+    header = (
+        "// ============================================================================\n"
+        "// Generated by scripts/gen_fused_handlers.py from the FUSIONS spec.\n"
+        "// DO NOT EDIT MANUALLY — regenerate via the script.\n"
+        "//\n"
+        "// Each block below is a peephole-fusion clause that matches a window of\n"
+        "// base StackOps and replaces it with the corresponding fused StackOp. This\n"
+        "// file is embedded via include!() inside stack_optimize.rs's fuse() loop,\n"
+        "// where it relies on the surrounding scope's `ops`, `i`, `len`, and\n"
+        "// `spans_target` closure. Generated rules match the same patterns (and in\n"
+        "// the same priority order — longest first) as the hand-written rules they\n"
+        "// replaced.\n"
+        "// ============================================================================\n"
+        "\n"
+    )
+    # Longest match first — avoids a 2-op rule swallowing the leading
+    # half of a 3-op sequence.
+    ordered = [f for f in FUSIONS if f.gen_rust_rule]
+    ordered.sort(key=lambda f: -len(f.bases))
+    body = "\n\n".join(emit_fusion_rust(f) for f in ordered)
+    return header + "{\n" + body + "\n}\n"
+
+
+# ----------------------------------------------------------------------
 # CLI
 # ----------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--mode",
+        choices=["c", "rust"],
+        default="c",
+        help="Which target to emit: 'c' (handler bodies) or 'rust' "
+             "(peephole rules). Default: c.",
+    )
     parser.add_argument(
         "-o", "--output",
         help="Write output to this file (default: stdout).",
@@ -335,14 +500,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    source = Path(args.source).read_text()
-    source = preprocess_cmp_ops(source)
-    handlers = extract_handlers(source)
-    out = emit_all(handlers)
+    if args.mode == "c":
+        source = Path(args.source).read_text()
+        source = preprocess_cmp_ops(source)
+        handlers = extract_handlers(source)
+        out = emit_all_c(handlers)
+        emitted = len(FUSIONS)
+    else:
+        out = emit_all_rust()
+        emitted = sum(1 for f in FUSIONS if f.gen_rust_rule)
 
     if args.output:
         Path(args.output).write_text(out)
-        print(f"Wrote {len(FUSIONS)} fused handlers to {args.output}")
+        print(
+            f"Wrote {emitted} {args.mode} fusion entries to {args.output}"
+        )
     else:
         print(out, end="")
 
