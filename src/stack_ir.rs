@@ -398,6 +398,10 @@ pub enum StackOp {
     FusedFMulFAddF,
     /// Same but a*b - c — i.e. push c - a*b.
     FusedFMulFSubF,
+    /// Pop f0=b, f1=a, f2=c; locals[dst] = c + a*b. 3→0.
+    FusedFMulFAddSetF(u16),
+    /// Pop f0=b, f1=a, f2=c; locals[dst] = c - a*b. 3→0.
+    FusedFMulFSubSetF(u16),
     /// f0 = f0 + locals[a] * locals[b] (f32). Pop 0, push 0.
     FusedGetGetFMulFAddF(u16, u16),
     /// f0 = f0 - locals[a] * locals[b] (f32). Pop 0, push 0.
@@ -828,6 +832,8 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetFSubF(a) => write!(f, "fw.fused.get_fsub {}", a),
             StackOp::FusedFMulFAddF => write!(f, "fw.fused.fmul_fadd"),
             StackOp::FusedFMulFSubF => write!(f, "fw.fused.fmul_fsub"),
+            StackOp::FusedFMulFAddSetF(dst) => write!(f, "fw.fused.fmul_fadd_set {}", dst),
+            StackOp::FusedFMulFSubSetF(dst) => write!(f, "fw.fused.fmul_fsub_set {}", dst),
             StackOp::FusedGetGetFMulFAddF(a, b) => {
                 write!(f, "fw.fused.get_get_fmul_fadd {} {}", a, b)
             }

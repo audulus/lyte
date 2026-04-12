@@ -1,0 +1,78 @@
+// Stack-IR check for terminal float-window fmul_fadd/fsub stores.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 8, memory: 32 bytes):
+//      0: local.addr 9
+//      1: fw.f32.const 1
+//      2: fw.f32.store offset=0
+//      3: local.addr 9
+//      4: fw.f32.const 2
+//      5: fw.f32.store offset=4
+//      6: local.addr 9
+//      7: local.set 0
+//      8: local.addr 8
+//      9: local.get 0
+//     10: memory.copy 8
+//     11: local.addr 11
+//     12: fw.f32.const 3
+//     13: fw.f32.store offset=0
+//     14: local.addr 11
+//     15: fw.f32.const 4
+//     16: fw.f32.store offset=4
+//     17: local.addr 11
+//     18: local.set 1
+//     19: local.addr 10
+//     20: local.get 1
+//     21: memory.copy 8
+//     22: fw.f32.const 5
+//     23: fw.local.set 2
+//     24: fw.f32.const 6
+//     25: fw.local.set 3
+//     26: fw.local.get 2
+//     27: local.addr 8
+//     28: i64.const 1
+//     29: i64.const 4
+//     30: i64.mul
+//     31: i64.add
+//     32: fw.f32.load
+//     33: fw.f32.mul
+//     34: fw.local.get 3
+//     35: local.addr 10
+//     36: i64.const 1
+//     37: i64.const 4
+//     38: i64.mul
+//     39: i64.add
+//     40: fw.f32.load
+//     41: fw.fused.fmul_fsub_set 4
+//     42: fw.local.get 2
+//     43: local.addr 10
+//     44: i64.const 1
+//     45: i64.const 4
+//     46: i64.mul
+//     47: i64.add
+//     48: fw.f32.load
+//     49: fw.f32.mul
+//     50: fw.local.get 3
+//     51: local.addr 8
+//     52: i64.const 1
+//     53: i64.const 4
+//     54: i64.mul
+//     55: i64.add
+//     56: fw.f32.load
+//     57: fw.fused.fmul_fadd_set 5
+//     58: fw.f32.const 0
+//     59: fw.local.set 6
+//     60: fw.f32.const 0
+//     61: fw.local.set 7
+//     62: return_void
+
+main {
+    var re = [1.0, 2.0]
+    var im = [3.0, 4.0]
+    var wr = 5.0
+    var wi = 6.0
+    var tr = wr * re[1] - wi * im[1]
+    var ti = wr * im[1] + wi * re[1]
+    var z0 = 0.0
+    var z1 = 0.0
+}

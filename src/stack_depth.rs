@@ -218,7 +218,9 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedGetSet5F(_)
         | StackOp::FusedGetSet6F(_)
         | StackOp::FusedGetSet7F(_)
-        | StackOp::FusedGetSet8F(_) => 0,
+        | StackOp::FusedGetSet8F(_)
+        | StackOp::FusedFMulFAddSetF(_)
+        | StackOp::FusedFMulFSubSetF(_) => 0,
 
         // === Float-window ops: integer-window deltas ===
         // Most don't touch the int window. Crossings do.
@@ -383,6 +385,8 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
 
         // FMA fused: pop 3, push 1 = -2
         StackOp::FusedFMulFAddF | StackOp::FusedFMulFSubF => -2,
+        // Terminal FMA-to-local-store: pop 3, push 0 = -3
+        StackOp::FusedFMulFAddSetF(_) | StackOp::FusedFMulFSubSetF(_) => -3,
 
         // Unary in float window: pop 1, push 1 = 0
         StackOp::FNegF

@@ -698,6 +698,24 @@ fn fuse(func: &mut StackFunction) {
                 continue;
             }
         }
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::FusedFMulFAddF, StackOp::LocalSetF(dst)) = (&ops[i], &ops[i + 1]) {
+                let dst = *dst;
+                ops[i] = StackOp::FusedFMulFAddSetF(dst);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::FusedFMulFSubF, StackOp::LocalSetF(dst)) = (&ops[i], &ops[i + 1]) {
+                let dst = *dst;
+                ops[i] = StackOp::FusedFMulFSubSetF(dst);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
 
         // Float-window mirror: fw.fused.addr_load32off s o + fw.local.set dst
         // → FusedAddrLoad32OffSet. The target handler loads 32 bits from

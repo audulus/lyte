@@ -1594,6 +1594,22 @@ HANDLER(op_fused_fmul_fsub_f) {
     f3 = *--fsp;
     NEXT();
 }
+HANDLER(op_fused_fmul_fadd_set_f) {
+    *(float*)((uint8_t*)locals + pc->imm[0]) = f2 + f1 * f0;
+    f0 = f3;
+    f1 = *--fsp;
+    f2 = *--fsp;
+    f3 = *--fsp;
+    NEXT();
+}
+HANDLER(op_fused_fmul_fsub_set_f) {
+    *(float*)((uint8_t*)locals + pc->imm[0]) = f2 - f1 * f0;
+    f0 = f3;
+    f1 = *--fsp;
+    f2 = *--fsp;
+    f3 = *--fsp;
+    NEXT();
+}
 HANDLER(op_fused_get_get_fmul_fadd_f) {
     float a = *(float*)((uint8_t*)locals + pc->imm[0]);
     float b = *(float*)((uint8_t*)locals + pc->imm[1]);

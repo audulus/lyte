@@ -253,6 +253,8 @@ extern "C" {
     fn op_fused_get_fsub_f();
     fn op_fused_fmul_fadd_f();
     fn op_fused_fmul_fsub_f();
+    fn op_fused_fmul_fadd_set_f();
+    fn op_fused_fmul_fsub_set_f();
     fn op_fused_get_get_fmul_fadd_f();
     fn op_fused_get_get_fmul_fsub_f();
     fn op_fused_get_get_fmul_sum2_f();
@@ -484,6 +486,8 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedGetFSubF(_) => op_fused_get_fsub_f as *const (),
         StackOp::FusedFMulFAddF => op_fused_fmul_fadd_f as *const (),
         StackOp::FusedFMulFSubF => op_fused_fmul_fsub_f as *const (),
+        StackOp::FusedFMulFAddSetF(_) => op_fused_fmul_fadd_set_f as *const (),
+        StackOp::FusedFMulFSubSetF(_) => op_fused_fmul_fsub_set_f as *const (),
         StackOp::FusedGetGetFMulFAddF(_, _) => op_fused_get_get_fmul_fadd_f as *const (),
         StackOp::FusedGetGetFMulFSubF(_, _) => op_fused_get_get_fmul_fsub_f as *const (),
         StackOp::FusedGetGetFMulSum2F(_, _) => op_fused_get_get_fmul_sum2_f as *const (),
@@ -663,6 +667,9 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         | StackOp::FusedLocalArrayStore32F(a, b) => [*a as u64, *b as u64, 0],
         StackOp::FusedGetFMulF(a) | StackOp::FusedGetFAddF(a) | StackOp::FusedGetFSubF(a) => {
             [(*a as u64) * 8, 0, 0]
+        }
+        StackOp::FusedFMulFAddSetF(dst) | StackOp::FusedFMulFSubSetF(dst) => {
+            [(*dst as u64) * 8, 0, 0]
         }
         StackOp::FusedGetGetFMulFAddF(a, b) | StackOp::FusedGetGetFMulFSubF(a, b) => {
             [(*a as u64) * 8, (*b as u64) * 8, 0]
