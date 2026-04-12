@@ -86,12 +86,10 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // Drop 3 values (t0, t1, t2 consumed, e.g. slice_store32).
 #define DROP3() do { t0 = t3; t1 = *--sp; t2 = *--sp; t3 = *--sp; } while(0)
 
-// Handler signature shorthand. The frame pointer `locals` is passed as
-// a handler argument on aarch64 (enough preserve_none arg regs) but
-// stashed in ctx->current_locals on other targets (tighter budget on
-// x86-64). Handler bodies read/write `locals` the same way on both
-// paths: on aarch64 it's a parameter; on x86-64 it's a macro that
-// expands to (ctx->current_locals).
+// Handler signature shorthand. `locals` and `fsp` are both handler
+// arguments pinned to GPRs by preserve_none on both aarch64 and
+// x86-64 — the hot-local cache removal (docs/HOT_LOCALS.md) freed up
+// enough GPR arg slots on x86-64 to carry them in registers too.
 //
 // The float TOS window (f0..f3) is a separate 4-slot register window
 // living in FP/SIMD registers, independent of the integer window
@@ -99,30 +97,18 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // cross between GPR and FP register files, dodging the ~3-cycle
 // fmov/movq penalty that the old "f32 bit-pattern in u64" design
 // paid on every float arithmetic op.
-#if defined(__aarch64__)
 #define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t* locals, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
-#else
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
-// Reads expand to a load of ctx->current_locals / current_fsp; writes
-// (locals = X, fsp = X) store back to the same field. LLVM's TBAA rules
-// out aliasing with stores through sp, so the field read is CSEd per
-// handler. The macros keep the source code identical between aarch64
-// and x86-64 — the only difference is where these values live.
-#define locals (ctx->current_locals)
-#define fsp (ctx->current_fsp)
-#endif
 
 #define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
 // Cast nh from void* for use in NEXT macro.
 #define nh ((Handler)_nh_raw)
 
 // Dispatch macros. Parameterless — they reference the handler's in-scope
-// ctx/pc/sp/t0-t3/f0-f3/_nh_raw arguments directly (plus the `locals`
-// parameter on aarch64) and must only be used inside a HANDLER() body.
+// ctx/pc/sp/fsp/locals/t0-t3/f0-f3/_nh_raw arguments directly and must
+// only be used inside a HANDLER() body.
 //
 // NEXT: linear fall-through. Branch to the preloaded nh and preload the
 // handler for the instruction after next.
-#if defined(__aarch64__)
 #define NEXT() \
     do { \
         Instruction* _next = pc + 1; \
@@ -136,21 +122,6 @@ static int64_t ipow(int64_t base, uint32_t exp) {
         void* _new_nh = (pc + 1)->handler; \
         __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
-#else
-#define NEXT() \
-    do { \
-        Instruction* _next = pc + 1; \
-        void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
-    } while(0)
-
-#define DISPATCH() \
-    do { \
-        Handler _target_h = (Handler)pc->handler; \
-        void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
-    } while(0)
-#endif
 
 // Float TOS window push/pop. Spills/refills through `fsp`, a handler
 // argument pinned to a GPR by preserve_none — analogous to the integer
@@ -1752,25 +1723,19 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->call_depth = 0;
 
     // Enter entry function. enter_function writes the new frame pointer
-    // into ctx->current_locals via the out-parameter.
-    if (!enter_function(ctx, entry_func, &ctx->current_locals)) {
+    // into entry_locals via the out-parameter.
+    uint64_t* entry_locals;
+    if (!enter_function(ctx, entry_func, &entry_locals)) {
         return ctx->result; // ctx->error already set.
     }
-    uint64_t* entry_locals = ctx->current_locals;
 
     // Start dispatch with both TOS windows zeroed. Preload the handler
-    // for the second instruction as nh. On aarch64 fsp is a handler arg
-    // pinned to a GPR by preserve_none; on x86-64 it lives in
-    // ctx->current_fsp and handlers reach it via a macro (see
-    // stack_interp.c's HANDLER_ARGS / fsp definitions).
-    ctx->current_fsp = ctx->float_stack;
+    // for the second instruction as nh. `locals` and `fsp` are both
+    // handler arguments pinned to GPRs by preserve_none on both aarch64
+    // and x86-64.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
-#if defined(__aarch64__)
     ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
-#else
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
-#endif
 
     return ctx->result;
 }

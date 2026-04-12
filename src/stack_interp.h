@@ -75,19 +75,6 @@ typedef struct Ctx {
     float*       float_stack;
     size_t       float_stack_cap;
 
-    // Current frame pointer: scalar locals start here, local memory follows.
-    // Stored in the context (rather than passed through the handler chain)
-    // to keep the handler argument count within preserve_none's register
-    // budget on x86-64. Updated on call/return.
-    uint64_t*    current_locals;
-
-    // Current float spill pointer. On aarch64 this lives in a GPR as a
-    // handler argument (`fsp`) — preserve_none has budget for it. On
-    // x86-64 we're out of GPRs, so it's stashed here and handlers access
-    // it via a `#define fsp (ctx->current_fsp)` macro, the same trick
-    // used for `locals`. Updated on call/return.
-    float*       current_fsp;
-
     // Closure pointer (set by call_closure, read by handlers)
     uint64_t     closure_ptr;
 
@@ -106,25 +93,20 @@ typedef struct Ctx {
 
 // Handler function signature.
 // Hot state is passed as arguments so it stays in registers:
-//   ctx     - execution context (cold state; also holds current_locals)
+//   ctx     - execution context (cold state)
 //   pc      - current instruction pointer
 //   sp      - operand stack pointer (grows upward, points BELOW TOS window)
-//   locals  - frame pointer (aarch64 only — see below)
-//   t0-t3   - TOS register window (t0 = top, t3 = deepest in window)
-//
-// On aarch64, preserve_none exposes enough argument registers that we
-// can pass `locals` as a dedicated parameter — fastest possible access.
-// On x86-64, the preserve_none GPR budget (~12) is tight, so `locals`
-// is stashed in ctx->current_locals instead and read via a macro in
-// the handler body. LLVM CSEs the field load so each handler pays at
-// most one extra ldr at entry.
+//   fsp     - float spill pointer (top of float TOS window's spill area)
+//   locals  - frame pointer (scalars, then local memory contiguously)
+//   t0-t3   - int TOS register window (t0 = top, t3 = deepest in window)
+//   f0-f3   - float TOS register window
 //
 // With preserve_none, all these arguments stay in hardware registers
 // across the entire handler chain — zero memory traffic for values in
-// the TOS window.
-//
-// See docs/HOT_LOCALS.md for why there is no l0/l1/l2 hot-local cache
-// in the handler signature.
+// the TOS window. Deleting the hot-local cache (see docs/HOT_LOCALS.md)
+// freed up three preserve_none GPR arg slots, which is what lets
+// `locals` and `fsp` live in registers on x86-64 too — a single handler
+// signature now serves both aarch64 and x86-64.
 #define PRESERVE_NONE __attribute__((preserve_none))
 
 // Handler type uses void* for the nh parameter since C can't have
@@ -142,7 +124,6 @@ typedef struct Ctx {
 // without the fcvt round-trips that a double-typed window forces on
 // every op. f64 values — rare in our hot workloads — still travel
 // through the integer window paying GPR↔FP crossings.
-#if defined(__aarch64__)
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
@@ -159,24 +140,6 @@ typedef PRESERVE_NONE void (*Handler)(
     float         f3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
-#else
-// x86-64 preserve_none has only ~12 GPR arg slots. `locals` and `fsp`
-// both live in ctx on this platform; handlers reach them via macros.
-typedef PRESERVE_NONE void (*Handler)(
-    Ctx*          ctx,
-    Instruction*  pc,
-    uint64_t*     sp,
-    uint64_t      t0,     // int TOS window (GPRs)
-    uint64_t      t1,
-    uint64_t      t2,
-    uint64_t      t3,
-    float         f0,     // float TOS window (xmm regs)
-    float         f1,
-    float         f2,
-    float         f3,
-    void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
-);
-#endif
 
 // Entry point: called from Rust via FFI.
 //

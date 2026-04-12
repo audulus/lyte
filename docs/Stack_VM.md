@@ -144,7 +144,7 @@ freed immediately, and `preserve_none` keeps all the hot state in
 registers across the jump.
 
 ```c
-// src/stack_interp.c — aarch64 linear fall-through
+// src/stack_interp.c — linear fall-through
 #define NEXT() do { \
     Instruction* _next = pc + 1; \
     void* _new_nh = (_next + 1)->handler; \
@@ -158,7 +158,7 @@ registers across the jump.
 `pc->handler` — used after branches, calls, and returns where the
 preloaded `nh` pointer is no longer valid.
 
-### Handler signature (aarch64)
+### Handler signature
 
 ```c
 // src/stack_interp.h
@@ -167,25 +167,20 @@ typedef PRESERVE_NONE void (*Handler)(
     Instruction*  pc,             // instruction pointer
     uint64_t*     sp,             // int spill pointer
     float*        fsp,            // float spill pointer
-    uint64_t*     locals,         // frame pointer (aarch64 only)
+    uint64_t*     locals,         // frame pointer
     uint64_t t0, t1, t2, t3,      // int TOS window
     float f0, f1, f2, f3,         // float TOS window
     void*         nh              // preloaded next handler
 );
 ```
 
-That's 13 arguments; `preserve_none` places all of them in callee-unsaved
+That's 14 arguments; `preserve_none` places all of them in callee-unsaved
 GPRs and FP registers, and the entire dispatch loop runs without
-touching the hardware stack.
-
-### x86-64
-
-`preserve_none`'s x86-64 GPR budget is tighter (~12 arg registers), so
-`locals` and `fsp` get stashed in `ctx->current_locals` and
-`ctx->current_fsp` and accessed via `#define` macros. LLVM's TBAA
-guarantees let each handler CSE these field loads, so the cost is at
-most one extra `mov` per handler entry. The handler source code is
-identical on both platforms.
+touching the hardware stack. A single handler signature serves both
+aarch64 and x86-64 — deleting the hot-local cache
+(`docs/HOT_LOCALS.md`) freed up three `preserve_none` GPR arg slots,
+which is what lets `locals` and `fsp` ride in registers on x86-64 as
+well as aarch64.
 
 ### Preloaded next handler
 
