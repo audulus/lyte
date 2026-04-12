@@ -3,10 +3,10 @@ use std::process::Command;
 
 fn main() {
     // Compile the C stack interpreter with preserve_none + musttail.
-    // Clang-only feature (skip on GCC). The handler signature has 12
-    // register arguments (ctx, pc, sp, locals, l0, l1, l2, t0, t1, t2,
-    // t3, nh) — fits within preserve_none's ~15 GPR arg window on both
-    // aarch64 and x86-64.
+    // Clang-only feature (skip on GCC). The handler signature keeps
+    // the TOS window (t0..t3), the int stack pointer, the float
+    // window (f0..f3), fsp, locals, ctx, pc, and nh all in
+    // preserve_none arg registers across the entire dispatch chain.
     let compiler = cc::Build::new().try_get_compiler();
     let is_clang = compiler
         .as_ref()

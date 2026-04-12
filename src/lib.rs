@@ -80,8 +80,6 @@ pub mod stack_discover;
 
 pub mod stack_vm;
 
-pub mod stack_hot_locals;
-
 pub mod stack_inline;
 
 pub mod stack_rebase_lm;

@@ -110,7 +110,6 @@ typedef struct Ctx {
 //   pc      - current instruction pointer
 //   sp      - operand stack pointer (grows upward, points BELOW TOS window)
 //   locals  - frame pointer (aarch64 only — see below)
-//   l0-l2   - hot local register cache (top 3 locals by access weight)
 //   t0-t3   - TOS register window (t0 = top, t3 = deepest in window)
 //
 // On aarch64, preserve_none exposes enough argument registers that we
@@ -123,6 +122,9 @@ typedef struct Ctx {
 // With preserve_none, all these arguments stay in hardware registers
 // across the entire handler chain — zero memory traffic for values in
 // the TOS window.
+//
+// See docs/HOT_LOCALS.md for why there is no l0/l1/l2 hot-local cache
+// in the handler signature.
 #define PRESERVE_NONE __attribute__((preserve_none))
 
 // Handler type uses void* for the nh parameter since C can't have
@@ -147,9 +149,6 @@ typedef PRESERVE_NONE void (*Handler)(
     uint64_t*     sp,
     float*        fsp,    // float spill pointer (lives in a GPR via preserve_none)
     uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
-    uint64_t      l0,     // hot local register 0
-    uint64_t      l1,     // hot local register 1
-    uint64_t      l2,     // hot local register 2
     uint64_t      t0,     // int TOS window (GPRs)
     uint64_t      t1,
     uint64_t      t2,
@@ -167,9 +166,6 @@ typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    uint64_t      l0,     // hot local register 0
-    uint64_t      l1,     // hot local register 1
-    uint64_t      l2,     // hot local register 2
     uint64_t      t0,     // int TOS window (GPRs)
     uint64_t      t1,
     uint64_t      t2,
