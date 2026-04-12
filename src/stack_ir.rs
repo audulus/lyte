@@ -389,6 +389,10 @@ pub enum StackOp {
     FusedFMulFAddF,
     /// Same but a*b - c — i.e. push c - a*b.
     FusedFMulFSubF,
+    /// f0 = f0 + locals[a] * locals[b] (f32). Pop 0, push 0.
+    FusedGetGetFMulFAddF(u16, u16),
+    /// f0 = f0 - locals[a] * locals[b] (f32). Pop 0, push 0.
+    FusedGetGetFMulFSubF(u16, u16),
     /// f0 = f0 + locals[a] * load_f32(slot, off). Pop 0, push 0.
     FusedGetAddrFMulFAddF(u16, u16, i32),
     /// f0 = f0 - locals[a] * load_f32(slot, off).
@@ -407,6 +411,16 @@ pub enum StackOp {
     FusedLocalArrayLoad32F(u16, u16),
     /// Pop f0, store to local_array[locals[idx] * 4] at slot.
     FusedLocalArrayStore32F(u16, u16),
+    /// locals[dst] = locals[src] (f32). No stack change.
+    FusedGetSetF(u8, u8),
+    /// Sequential float local copies packed as src0,dst0,src1,dst1,...
+    FusedGetSet2F([u8; 4]),
+    FusedGetSet3F([u8; 6]),
+    FusedGetSet4F([u8; 8]),
+    FusedGetSet5F([u8; 10]),
+    FusedGetSet6F([u8; 12]),
+    FusedGetSet7F([u8; 14]),
+    FusedGetSet8F([u8; 16]),
     /// if !(f0 > const) jump. Pop 1 (f-window), conditionally jump.
     FusedF32ConstFGtJumpIfZeroF(f32, i32),
     /// if !(locals[n] > const) jump. Pop 0, conditionally jump.
@@ -723,6 +737,12 @@ impl fmt::Display for StackOp {
             StackOp::FusedGetFSubF(a) => write!(f, "fw.fused.get_fsub {}", a),
             StackOp::FusedFMulFAddF => write!(f, "fw.fused.fmul_fadd"),
             StackOp::FusedFMulFSubF => write!(f, "fw.fused.fmul_fsub"),
+            StackOp::FusedGetGetFMulFAddF(a, b) => {
+                write!(f, "fw.fused.get_get_fmul_fadd {} {}", a, b)
+            }
+            StackOp::FusedGetGetFMulFSubF(a, b) => {
+                write!(f, "fw.fused.get_get_fmul_fsub {} {}", a, b)
+            }
             StackOp::FusedGetAddrFMulFAddF(a, s, o) => {
                 write!(f, "fw.fused.get_addr_fmul_fadd {} {} {}", a, s, o)
             }
@@ -745,6 +765,68 @@ impl fmt::Display for StackOp {
             StackOp::FusedLocalArrayStore32F(s, i) => {
                 write!(f, "fw.fused.local_array_store32 {} {}", s, i)
             }
+            StackOp::FusedGetSetF(src, dst) => write!(f, "fw.fused.get_set {} {}", src, dst),
+            StackOp::FusedGetSet2F(p) => {
+                write!(f, "fw.fused.get_set2 {} {} {} {}", p[0], p[1], p[2], p[3])
+            }
+            StackOp::FusedGetSet3F(p) => write!(
+                f,
+                "fw.fused.get_set3 {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5]
+            ),
+            StackOp::FusedGetSet4F(p) => write!(
+                f,
+                "fw.fused.get_set4 {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]
+            ),
+            StackOp::FusedGetSet5F(p) => write!(
+                f,
+                "fw.fused.get_set5 {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9]
+            ),
+            StackOp::FusedGetSet6F(p) => write!(
+                f,
+                "fw.fused.get_set6 {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11]
+            ),
+            StackOp::FusedGetSet7F(p) => write!(
+                f,
+                "fw.fused.get_set7 {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                p[4],
+                p[5],
+                p[6],
+                p[7],
+                p[8],
+                p[9],
+                p[10],
+                p[11],
+                p[12],
+                p[13]
+            ),
+            StackOp::FusedGetSet8F(p) => write!(
+                f,
+                "fw.fused.get_set8 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0],
+                p[1],
+                p[2],
+                p[3],
+                p[4],
+                p[5],
+                p[6],
+                p[7],
+                p[8],
+                p[9],
+                p[10],
+                p[11],
+                p[12],
+                p[13],
+                p[14],
+                p[15]
+            ),
             StackOp::FusedF32ConstFGtJumpIfZeroF(v, o) => {
                 write!(f, "fw.fused.f32const_fgt_jiz {} {}", v, o)
             }

@@ -32,6 +32,15 @@ lpf(fc: f32, fs: f32, q: f32) -> Biquad {
 
 main {
     var bq = lpf(1000.0, 44100.0, 0.707)
+    var b0 = bq.b0
+    var b1 = bq.b1
+    var b2 = bq.b2
+    var a1 = bq.a1
+    var a2 = bq.a2
+    var x1 = bq.x1
+    var x2 = bq.x2
+    var y1 = bq.y1
+    var y2 = bq.y2
 
     var n = 10000000
     var phase = 0.0
@@ -45,11 +54,11 @@ main {
         phase = phase + freq
         if phase > 1.0 { phase = phase - 1.0 }
 
-        var y = bq.b0 * x + bq.b1 * bq.x1 + bq.b2 * bq.x2 - bq.a1 * bq.y1 - bq.a2 * bq.y2
-        bq.x2 = bq.x1
-        bq.x1 = x
-        bq.y2 = bq.y1
-        bq.y1 = y
+        var y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2 = x1
+        x1 = x
+        y2 = y1
+        y1 = y
         last_y = y
     }
 

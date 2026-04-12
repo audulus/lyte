@@ -1,0 +1,27 @@
+// Stack-IR check for direct local-local FMA-style folds.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 6, memory: 0 bytes):
+//      0: fw.f32.const 10
+//      1: fw.local.set 0
+//      2: fw.f32.const 2
+//      3: fw.local.set 1
+//      4: fw.f32.const 3
+//      5: fw.local.set 2
+//      6: fw.local.get 0
+//      7: fw.fused.get_get_fmul_fadd 1 2
+//      8: fw.local.tee 3
+//      9: fw.fused.get_get_fmul_fsub 1 2
+//     10: fw.local.set 4
+//     11: fw.f32.const 0
+//     12: fw.local.set 5
+//     13: return_void
+
+main {
+    var acc = 10.0
+    var a = 2.0
+    var b = 3.0
+    var sum = acc + a * b
+    var diff = sum - a * b
+    var done = 0.0
+}

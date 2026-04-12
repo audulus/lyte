@@ -245,6 +245,8 @@ extern "C" {
     fn op_fused_get_fsub_f();
     fn op_fused_fmul_fadd_f();
     fn op_fused_fmul_fsub_f();
+    fn op_fused_get_get_fmul_fadd_f();
+    fn op_fused_get_get_fmul_fsub_f();
     fn op_fused_get_addr_fmul_fadd_f();
     fn op_fused_get_addr_fmul_fsub_f();
     fn op_fused_addr_load32off_f();
@@ -253,6 +255,14 @@ extern "C" {
     fn op_fused_tee_sstore32_f();
     fn op_fused_local_array_load32_f();
     fn op_fused_local_array_store32_f();
+    fn op_fused_get_set_f();
+    fn op_fused_get_set2_f();
+    fn op_fused_get_set3_f();
+    fn op_fused_get_set4_f();
+    fn op_fused_get_set5_f();
+    fn op_fused_get_set6_f();
+    fn op_fused_get_set7_f();
+    fn op_fused_get_set8_f();
     fn op_fused_f32const_fgt_jiz_f();
     fn op_fused_get_f32const_fgt_jiz_f();
 }
@@ -451,6 +461,8 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedGetFSubF(_) => op_fused_get_fsub_f as *const (),
         StackOp::FusedFMulFAddF => op_fused_fmul_fadd_f as *const (),
         StackOp::FusedFMulFSubF => op_fused_fmul_fsub_f as *const (),
+        StackOp::FusedGetGetFMulFAddF(_, _) => op_fused_get_get_fmul_fadd_f as *const (),
+        StackOp::FusedGetGetFMulFSubF(_, _) => op_fused_get_get_fmul_fsub_f as *const (),
         StackOp::FusedGetAddrFMulFAddF(_, _, _) => op_fused_get_addr_fmul_fadd_f as *const (),
         StackOp::FusedGetAddrFMulFSubF(_, _, _) => op_fused_get_addr_fmul_fsub_f as *const (),
         StackOp::FusedAddrLoad32OffF(_, _) => op_fused_addr_load32off_f as *const (),
@@ -459,11 +471,27 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedTeeSliceStore32F(_, _, _) => op_fused_tee_sstore32_f as *const (),
         StackOp::FusedLocalArrayLoad32F(_, _) => op_fused_local_array_load32_f as *const (),
         StackOp::FusedLocalArrayStore32F(_, _) => op_fused_local_array_store32_f as *const (),
+        StackOp::FusedGetSetF(_, _) => op_fused_get_set_f as *const (),
+        StackOp::FusedGetSet2F(_) => op_fused_get_set2_f as *const (),
+        StackOp::FusedGetSet3F(_) => op_fused_get_set3_f as *const (),
+        StackOp::FusedGetSet4F(_) => op_fused_get_set4_f as *const (),
+        StackOp::FusedGetSet5F(_) => op_fused_get_set5_f as *const (),
+        StackOp::FusedGetSet6F(_) => op_fused_get_set6_f as *const (),
+        StackOp::FusedGetSet7F(_) => op_fused_get_set7_f as *const (),
+        StackOp::FusedGetSet8F(_) => op_fused_get_set8_f as *const (),
         StackOp::FusedF32ConstFGtJumpIfZeroF(_, _) => op_fused_f32const_fgt_jiz_f as *const (),
         StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, _) => {
             op_fused_get_f32const_fgt_jiz_f as *const ()
         }
     }
+}
+
+fn pack_u8_imms(bytes: &[u8]) -> [u64; 3] {
+    let mut out = [0u64; 3];
+    for (i, byte) in bytes.iter().enumerate() {
+        out[i / 8] |= (*byte as u64) << ((i % 8) * 8);
+    }
+    out
 }
 
 /// Encode a StackOp's immediates into the instruction's imm slots.
@@ -560,10 +588,21 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetFMulF(a) | StackOp::FusedGetFAddF(a) | StackOp::FusedGetFSubF(a) => {
             [(*a as u64) * 8, 0, 0]
         }
+        StackOp::FusedGetGetFMulFAddF(a, b) | StackOp::FusedGetGetFMulFSubF(a, b) => {
+            [(*a as u64) * 8, (*b as u64) * 8, 0]
+        }
         StackOp::FusedGetAddrFMulFAddF(a, s, o) | StackOp::FusedGetAddrFMulFSubF(a, s, o) => {
             [(*a as u64) * 8, *s as u64, *o as i64 as u64]
         }
         StackOp::FusedAddrLoad32OffF(s, o) => [*s as u64, *o as i64 as u64, 0],
+        StackOp::FusedGetSetF(src, dst) => pack_u8_imms(&[*src, *dst]),
+        StackOp::FusedGetSet2F(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet3F(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet4F(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet5F(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet6F(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet7F(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet8F(p) => pack_u8_imms(p),
         // imm[0] is the byte offset into locals[] for the tee target
         // (pre-shifted — see the note on LocalGetF above). imm[1] is the
         // slot holding the slice fat pointer; still a u64 index because

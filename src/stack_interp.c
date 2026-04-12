@@ -1187,6 +1187,79 @@ HANDLER(op_fused_get_set) {
     NEXT();
 }
 
+static inline uint8_t imm_u8(const Instruction* pc, int idx) {
+    return (uint8_t)(pc->imm[idx / 8] >> ((idx % 8) * 8));
+}
+
+#define COPY_F_PAIR(N) do { \
+    uint8_t src = imm_u8(pc, (N) * 2); \
+    uint8_t dst = imm_u8(pc, (N) * 2 + 1); \
+    *(float*)((uint8_t*)locals + (size_t)dst * 8) = *(float*)((uint8_t*)locals + (size_t)src * 8); \
+} while (0)
+
+HANDLER(op_fused_get_set_f) {
+    COPY_F_PAIR(0);
+    NEXT();
+}
+HANDLER(op_fused_get_set2_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    NEXT();
+}
+HANDLER(op_fused_get_set3_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    COPY_F_PAIR(2);
+    NEXT();
+}
+HANDLER(op_fused_get_set4_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    COPY_F_PAIR(2);
+    COPY_F_PAIR(3);
+    NEXT();
+}
+HANDLER(op_fused_get_set5_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    COPY_F_PAIR(2);
+    COPY_F_PAIR(3);
+    COPY_F_PAIR(4);
+    NEXT();
+}
+HANDLER(op_fused_get_set6_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    COPY_F_PAIR(2);
+    COPY_F_PAIR(3);
+    COPY_F_PAIR(4);
+    COPY_F_PAIR(5);
+    NEXT();
+}
+HANDLER(op_fused_get_set7_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    COPY_F_PAIR(2);
+    COPY_F_PAIR(3);
+    COPY_F_PAIR(4);
+    COPY_F_PAIR(5);
+    COPY_F_PAIR(6);
+    NEXT();
+}
+HANDLER(op_fused_get_set8_f) {
+    COPY_F_PAIR(0);
+    COPY_F_PAIR(1);
+    COPY_F_PAIR(2);
+    COPY_F_PAIR(3);
+    COPY_F_PAIR(4);
+    COPY_F_PAIR(5);
+    COPY_F_PAIR(6);
+    COPY_F_PAIR(7);
+    NEXT();
+}
+
+#undef COPY_F_PAIR
+
 // (op_fused_get_addr_fmul_fadd / _fsub and their _fw variants —
 // int-window FMA terms and the narrow float_window_rewrite peephole
 // outputs — were removed along with the rest of the int f32 path.
@@ -1493,6 +1566,18 @@ HANDLER(op_fused_fmul_fsub_f) {
     f1 = f3;
     f2 = *--fsp;
     f3 = *--fsp;
+    NEXT();
+}
+HANDLER(op_fused_get_get_fmul_fadd_f) {
+    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
+    f0 = f0 + a * b;
+    NEXT();
+}
+HANDLER(op_fused_get_get_fmul_fsub_f) {
+    float a = *(float*)((uint8_t*)locals + pc->imm[0]);
+    float b = *(float*)((uint8_t*)locals + pc->imm[1]);
+    f0 = f0 - a * b;
     NEXT();
 }
 HANDLER(op_fused_get_addr_fmul_fadd_f) {

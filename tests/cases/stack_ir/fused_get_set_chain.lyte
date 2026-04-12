@@ -1,0 +1,46 @@
+// Stack-IR check for packed float local copy chains.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 10, memory: 0 bytes):
+//      0: fw.f32.const 1
+//      1: fw.local.set 0
+//      2: fw.f32.const 2
+//      3: fw.local.set 1
+//      4: fw.f32.const 3
+//      5: fw.local.set 2
+//      6: fw.f32.const 4
+//      7: fw.local.set 3
+//      8: fw.f32.const 5
+//      9: fw.local.set 4
+//     10: fw.f32.const 6
+//     11: fw.local.set 5
+//     12: fw.f32.const 7
+//     13: fw.local.set 6
+//     14: fw.f32.const 8
+//     15: fw.local.set 7
+//     16: fw.f32.const 9
+//     17: fw.local.set 8
+//     18: fw.fused.get_set5 0 1 2 3 4 5 6 7 6 8
+//     19: fw.f32.const 0
+//     20: fw.local.set 9
+//     21: return_void
+
+main {
+    var a = 1.0
+    var b = 2.0
+    var c = 3.0
+    var d = 4.0
+    var e = 5.0
+    var f = 6.0
+    var g = 7.0
+    var h = 8.0
+    var i = 9.0
+
+    b = a
+    d = c
+    f = e
+    h = g
+    i = g
+
+    var done = 0.0
+}

@@ -43,6 +43,48 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
     is_target
 }
 
+fn make_fused_get_set_f(bytes: &[u8]) -> StackOp {
+    match bytes.len() {
+        2 => StackOp::FusedGetSetF(bytes[0], bytes[1]),
+        4 => StackOp::FusedGetSet2F([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        6 => StackOp::FusedGetSet3F([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]]),
+        8 => StackOp::FusedGetSet4F([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]),
+        10 => StackOp::FusedGetSet5F([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9],
+        ]),
+        12 => StackOp::FusedGetSet6F([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+        ]),
+        14 => StackOp::FusedGetSet7F([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
+        ]),
+        16 => StackOp::FusedGetSet8F([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+        ]),
+        _ => unreachable!("unsupported float get/set chain length"),
+    }
+}
+
+fn packed_get_set_f_chain(ops: &[StackOp], start: usize, pairs: usize) -> Option<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(pairs * 2);
+    for j in 0..pairs {
+        match (&ops[start + j * 2], &ops[start + j * 2 + 1]) {
+            (StackOp::LocalGetF(src), StackOp::LocalSetF(dst)) if *src < 256 && *dst < 256 => {
+                bytes.push(*src as u8);
+                bytes.push(*dst as u8);
+            }
+            _ => return None,
+        }
+    }
+    Some(bytes)
+}
+
 /// Fuse instruction sequences into superinstructions.
 fn fuse(func: &mut StackFunction) {
     let ops = &mut func.ops;
@@ -205,6 +247,36 @@ fn fuse(func: &mut StackFunction) {
             }
         }
 
+        let mut fused_get_set_chain = false;
+        for pairs in (2..=8).rev() {
+            let span = pairs * 2;
+            if i + span <= len && !spans_target(i, span) {
+                if let Some(bytes) = packed_get_set_f_chain(ops, i, pairs) {
+                    ops[i] = make_fused_get_set_f(&bytes);
+                    for slot in ops.iter_mut().take(i + span).skip(i + 1) {
+                        *slot = StackOp::Nop;
+                    }
+                    i += span;
+                    fused_get_set_chain = true;
+                    break;
+                }
+            }
+        }
+        if fused_get_set_chain {
+            continue;
+        }
+
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalGetF(src), StackOp::LocalSetF(dst)) = (&ops[i], &ops[i + 1]) {
+                if *src < 256 && *dst < 256 {
+                    ops[i] = StackOp::FusedGetSetF(*src as u8, *dst as u8);
+                    ops[i + 1] = StackOp::Nop;
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
         // Float-window compare/jump from a local:
         // fw.local.get n + fw.fused.f32const_fgt_jiz v off
         //   → fw.fused.get_f32const_fgt_jiz n v off
@@ -312,6 +384,36 @@ fn fuse(func: &mut StackFunction) {
                 ops[i + 1] = StackOp::Nop;
                 ops[i + 2] = StackOp::Nop;
                 i += 3;
+                continue;
+            }
+        }
+
+        // Float-window: fw.local.get a + fw.local.get b + fw.f32.mul + fw.f32.add
+        //              → fw.fused.get_get_fmul_fadd.
+        if i + 3 < len && !spans_target(i, 4) {
+            if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FMulF, StackOp::FAddF) =
+                (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
+            {
+                ops[i] = StackOp::FusedGetGetFMulFAddF(*a, *b);
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
+                i += 4;
+                continue;
+            }
+        }
+
+        // Float-window: fw.local.get a + fw.local.get b + fw.f32.mul + fw.f32.sub
+        //              → fw.fused.get_get_fmul_fsub.
+        if i + 3 < len && !spans_target(i, 4) {
+            if let (StackOp::LocalGetF(a), StackOp::LocalGetF(b), StackOp::FMulF, StackOp::FSubF) =
+                (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
+            {
+                ops[i] = StackOp::FusedGetGetFMulFSubF(*a, *b);
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
+                i += 4;
                 continue;
             }
         }

@@ -194,7 +194,15 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedConstSet(_, _)
         | StackOp::FusedF32ConstSet(_, _)
         | StackOp::FusedGetAddImmSet(_, _, _)
-        | StackOp::FusedGetGetILtJumpIfZero(_, _, _) => 0,
+        | StackOp::FusedGetGetILtJumpIfZero(_, _, _)
+        | StackOp::FusedGetSetF(_, _)
+        | StackOp::FusedGetSet2F(_)
+        | StackOp::FusedGetSet3F(_)
+        | StackOp::FusedGetSet4F(_)
+        | StackOp::FusedGetSet5F(_)
+        | StackOp::FusedGetSet6F(_)
+        | StackOp::FusedGetSet7F(_)
+        | StackOp::FusedGetSet8F(_) => 0,
 
         // === Float-window ops: integer-window deltas ===
         // Most don't touch the int window. Crossings do.
@@ -276,7 +284,10 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         // Local-array variants don't take an address from the int window
         // (they read the slot from the imm). FusedTeeSliceStore32F also
         // touches only the float window + locals[].
-        StackOp::FusedLocalArrayLoad32F(_, _) | StackOp::FusedLocalArrayStore32F(_, _) => 0,
+        StackOp::FusedLocalArrayLoad32F(_, _)
+        | StackOp::FusedLocalArrayStore32F(_, _)
+        | StackOp::FusedGetGetFMulFAddF(_, _)
+        | StackOp::FusedGetGetFMulFSubF(_, _) => 0,
         StackOp::FusedTeeSliceStore32F(_, _, _) => 0,
     }
 }
@@ -309,6 +320,17 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
 
         // Direct local compare/jump doesn't touch the float window.
         StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, _) => 0,
+
+        StackOp::FusedGetSetF(_, _)
+        | StackOp::FusedGetSet2F(_)
+        | StackOp::FusedGetSet3F(_)
+        | StackOp::FusedGetSet4F(_)
+        | StackOp::FusedGetSet5F(_)
+        | StackOp::FusedGetSet6F(_)
+        | StackOp::FusedGetSet7F(_)
+        | StackOp::FusedGetSet8F(_)
+        | StackOp::FusedGetGetFMulFAddF(_, _)
+        | StackOp::FusedGetGetFMulFSubF(_, _) => 0,
 
         // LocalTeeF: peek (pop 0)
         StackOp::LocalTeeF(_) => 0,
