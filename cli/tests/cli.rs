@@ -42,7 +42,7 @@ fn golden_tests_asm() -> goldentests::TestResult<()> {
 }
 
 #[test]
-#[cfg(target_arch = "aarch64")]
+#[cfg(has_stack_interp)]
 fn golden_tests_stack() -> goldentests::TestResult<()> {
     run_golden_tests("stack")
 }

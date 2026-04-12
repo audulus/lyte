@@ -12,8 +12,19 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    # Force the cc crate to pick clang so build.rs / cli/build.rs detect
+    # a clang-like compiler and compile src/stack_interp.c (which needs
+    # preserve_none + musttail — clang-only features). Without this, the
+    # default cc on ubuntu-latest is gcc, has_stack_interp is never set,
+    # the stack backend is stubbed out, and the stack VM golden tests +
+    # benchmark row are silently skipped.
+    env:
+      CC: clang
+
     steps:
     - uses: actions/checkout@v5
+    - name: Install clang
+      run: sudo apt-get update && sudo apt-get install -y clang
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests
