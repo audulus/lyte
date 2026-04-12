@@ -194,13 +194,42 @@ windows.
 
 ## Why it didn't pay off
 
-The fundamental tension: Lyte's Stack VM aggressively fuses local
-operand patterns (inspired by the aggressive peephole fusion in
-`stack_optimize.rs`), while Silverfir-nano — the dispatch-design
-inspiration — is a WebAssembly interpreter and does essentially no
-fusion. In Silverfir-nano, each local access is its own op, so a
-3-variant hot local cache covers almost everything at zero
-interaction cost with surrounding ops.
+An earlier version of this doc blamed "Silverfir-nano does
+essentially no fusion, so its 3-variant hot local cache doesn't
+have to coexist with fused ops." That claim is wrong. Reading
+Silverfir-nano's `interp` branch shows a `handlers_fused.toml`
+with ~1,500 fused handlers, ~725 of which contain hot-local
+opcodes (`local_get_l0`, etc.) baked directly into the pattern.
+Silverfir-nano fuses aggressively *and* fuses across hot
+locals.
+
+The real difference is *how the fused handler set is produced*.
+Silverfir-nano treats `local_get_l0 / l1 / l2` (and set/tee
+variants) as distinct opcodes that participate in fusion
+pattern matching like any other op — a fused entry can literally
+contain `"local_get_l0"` in its pattern array
+(`handlers_fused.toml:46-53`). The fused handler set is
+*auto-generated* by a `sf-nano-cli discover-fusion` tool that
+profiles a real wasm workload, builds a pattern trie
+(`fusion_discovery.rs`), and emits `[[fused]]` TOML entries for
+only the sequences that actually occur. C handler bodies are
+built by concatenating ~12 hand-written base-op `.c` files under
+`handlers_c/`, so hot-local-aware fused handlers come for free
+as a byproduct of whichever patterns profiling picks. The TOS
+window's compile-time-constant stack offsets let the C compiler
+see through the concatenated body, and the hot-local args are
+passed through as pointer aliases so that `local_get_l0 →
+i32.add → local_set_l0` folds to a single machine `add`
+(Silverfir's `docs/DESIGN.md` Part VI, lines 401–475).
+
+Lyte's Stack VM hits the wall because its fusion surface is
+expressed the opposite way: hand-written `StackOp` enum
+variants, each with hand-written lowering, bridge wiring,
+`stack_depth` entry, fusion rule, Display impl, and C handler.
+Specializing `FusedGetGetFAddSet(a, b, d)` across every
+(hot/cold)³ combination means writing that surface N times.
+The combinatorial wall is real for Lyte's current architecture;
+it is not intrinsic to stack-VM fusion + register caching.
 
 In Lyte, fused 3-address ops like `FusedGetGetFAddSet(a, b, d)`
 combine a read, a read, and a write across three local slots in
@@ -221,7 +250,7 @@ L-handlers reloaded from memory on every read.
 
 ## What the Stack VM should probably do
 
-Three plausible next steps, none of which the branch currently
+Four plausible next steps, none of which the branch currently
 implements as the shipping answer:
 
 ### 1. Honestly delete the hot local cache
@@ -265,7 +294,52 @@ sort / FFT ahead of baseline because the registers finally do
 something *and* fusion keeps its 1-dispatch form on the patterns
 that matter.
 
-### 3. Leave it alone
+### 3. Profile-guided handler codegen (Silverfir-nano style)
+
+The most ambitious option, and the one Silverfir-nano's
+interpreter branch actually ships. Replace the hand-written
+`StackOp` enum variants for fused ops with a code generator
+driven by two inputs:
+
+- A TOML (or similar) file listing every base op with its C
+  body, TOS effect, and encoding.
+- A second TOML listing fused patterns, *auto-generated* by a
+  `discover-fusion`-style tool that profiles the golden suite
+  plus biquad / sort / FFT and emits the N most frequent fused
+  sequences observed in execution traces.
+
+The codegen emits: the `StackOp` enum, Display impl, handler
+function table, C handler bodies (built by concatenating
+base-op bodies with shared stack-offset substitution), bridge
+encoding, and `stack_depth` table. The hot-local opcodes
+(`LocalGetL0..L2` and float / tee counterparts) participate in
+pattern matching as first-class ops, so any fused pattern can
+contain them literally. Specialization per hot-slot combination
+becomes a function of which patterns the profiler observes,
+not a function of manual variant writing — Silverfir-nano's
+725 hot-local-containing fused handlers are not 725 hand
+decisions, they are what the trie happened to surface.
+
+Upfront cost: building the codegen tool, the fusion discovery
+tool, and rewriting the fusion rules in `stack_optimize.rs` as
+pattern matches rather than hand-coded transformations. Payoffs:
+
+- Lyte's ~50 hand-written fused ops become a profiling output
+  instead of a design doc.
+- Hot-local-aware specialization is automatic for whatever
+  patterns the workload actually executes.
+- `l0/l1/l2` keep their register slots *and* actually do work
+  on every fused handler that touches hot locals — no runtime
+  dispatch, no no-op cache.
+
+Probably a multi-week effort. Justified only if the Stack VM
+is going to be the primary backend on iOS (where JIT is
+blocked) for a long time and closing more of the 2.5–3× gap vs.
+`-O3` C is worth the investment. For the current workload mix
+and the JIT-first story on other targets, option 1 (delete) is
+still the honest shipping answer.
+
+### 4. Leave it alone
 
 Baseline's no-op cache is fast enough. Biquad at 0.098s is already
 within 2.5–3× of `-O3` C. Document that the hot local cache is a
@@ -280,3 +354,15 @@ vestigial design and move the optimization budget elsewhere.
 - Related doc: `docs/FP_CODEGEN_PLAN.md` — §Phase 7 "Float hot
   local cache" was also discussed during this exploration and
   shipped briefly on the stashed `fp-split` branch.
+- Silverfir-nano, `interp` branch:
+  `sf-nano-core/src/vm/interp/fast/` holds the fast
+  interpreter's fusion pattern trie (`pattern_trie.rs`,
+  `fusion_discovery.rs`), auto-generated `handlers_fused.toml`
+  (~1,500 entries), base `handlers.toml` with the nine
+  `local_{get,set,tee}_l{0,1,2}` opcodes, and the ~12
+  hand-written C handler bodies under `handlers_c/`. The
+  architectural rationale for the hot-local cache being a
+  first-class participant in fusion is in `docs/DESIGN.md`
+  Part VI. Note: Silverfir-nano's `main` branch is now a
+  native ARM64 micro-JIT — for the interpreter analog to
+  Lyte's Stack VM, use the `interp` branch.
