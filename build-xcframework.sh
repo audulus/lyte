@@ -49,13 +49,13 @@ export LIBRARY_PATH="${LLVM_SYS_180_PREFIX}/lib:$(brew --prefix zstd)/lib:$(brew
 echo "Building for macOS ($MACOS_ARM_TARGET) with LLVM..."
 cargo rustc --release --features llvm --target "$MACOS_ARM_TARGET" --crate-type staticlib
 
-echo "Building for macOS ($MACOS_X86_TARGET) (VM only)..."
+echo "Building for macOS ($MACOS_X86_TARGET) (stack VM)..."
 cargo rustc --release --target "$MACOS_X86_TARGET" --crate-type staticlib
 
-echo "Building for iOS ($IOS_TARGET) (VM only)..."
+echo "Building for iOS ($IOS_TARGET) (stack VM)..."
 cargo rustc --release --target "$IOS_TARGET" --crate-type staticlib
 
-echo "Building for iOS Simulator ($IOS_SIM_TARGET) (VM only)..."
+echo "Building for iOS Simulator ($IOS_SIM_TARGET) (stack VM)..."
 cargo rustc --release --target "$IOS_SIM_TARGET" --crate-type staticlib
 
 # Remove old xcframework and build dir

@@ -709,83 +709,118 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
 
 /// Convert a StackProgram to C instruction format and run it.
 pub fn run(program: &StackProgram) -> i64 {
-    // Convert each function's ops to C Instruction arrays.
-    let mut c_instructions: Vec<Vec<Instruction>> = Vec::new();
+    let mut backend = StackBackend::new(program);
+    let mut owned_globals: Vec<u8> = vec![0u8; program.globals_size];
+    backend.call_entry(program.entry, owned_globals.as_mut_ptr())
+}
 
-    for (fi, func) in program.functions.iter().enumerate() {
-        let mut instrs: Vec<Instruction> = Vec::with_capacity(func.ops.len());
-        for op in func.ops.iter() {
+/// A persistent stack interpreter backend.
+///
+/// Holds the pre-built C instruction arrays, function metadata, and all
+/// runtime stacks on the heap so the embedding host can call entry points
+/// repeatedly without re-allocating. Globals are passed per-call so a
+/// single backend can drive multiple independent globals buffers.
+///
+/// Pin-in-place semantics: once built, the struct must not move — `ctx`
+/// holds raw pointers into the backend's own vectors. The FFI layer boxes
+/// it (via `Box<LyteProgram>`) which keeps the address stable.
+pub struct StackBackend {
+    // Owned program data. The inner Vec<Instruction> never resizes after
+    // construction, so the raw pointers stored in `func_metas` stay valid.
+    _c_instructions: Vec<Vec<Instruction>>,
+    func_metas: Vec<FuncMeta>,
+    call_stack: Vec<CallFrame>,
+    operand_stack: Vec<u64>,
+    frame_stack: Vec<u64>,
+    float_stack: Vec<f32>,
+    ctx: Ctx,
+}
+
+impl StackBackend {
+    pub fn new(program: &StackProgram) -> Self {
+        let mut c_instructions: Vec<Vec<Instruction>> = Vec::with_capacity(program.functions.len());
+        for (fi, func) in program.functions.iter().enumerate() {
+            let mut instrs: Vec<Instruction> = Vec::with_capacity(func.ops.len() + 1);
+            for op in func.ops.iter() {
+                instrs.push(Instruction {
+                    handler: handler_for(op),
+                    imm: encode_imm(op, fi as u32),
+                });
+            }
             instrs.push(Instruction {
-                handler: handler_for(op),
-                imm: encode_imm(op, fi as u32),
+                handler: op_halt as *const (),
+                imm: [0, 0, 0],
+            });
+            c_instructions.push(instrs);
+        }
+
+        let mut func_metas: Vec<FuncMeta> = Vec::with_capacity(program.functions.len());
+        for (i, func) in program.functions.iter().enumerate() {
+            func_metas.push(FuncMeta {
+                code: c_instructions[i].as_mut_ptr(),
+                local_count: func.local_count as u32,
+                local_memory: func.local_memory,
+                param_count: func.param_count as u32,
             });
         }
-        // Sentinel instruction at end (halt handler).
-        instrs.push(Instruction {
-            handler: op_halt as *const (),
-            imm: [0, 0, 0],
-        });
-        c_instructions.push(instrs);
+
+        let mut call_stack: Vec<CallFrame> = (0..4096)
+            .map(|_| CallFrame {
+                return_pc: std::ptr::null_mut(),
+                saved_locals: std::ptr::null_mut(),
+                func_idx: 0,
+                saved_frame_size: 0,
+            })
+            .collect();
+        let mut operand_stack: Vec<u64> = vec![0u64; 64 * 1024];
+        let frame_stack_cap: usize = 512 * 1024;
+        let mut frame_stack: Vec<u64> = vec![0u64; frame_stack_cap];
+        let float_stack_cap: usize = 64 * 1024;
+        let mut float_stack: Vec<f32> = vec![0.0f32; float_stack_cap];
+
+        let ctx = Ctx {
+            call_stack: call_stack.as_mut_ptr(),
+            call_depth: 0,
+            call_stack_cap: 4096,
+            functions: func_metas.as_mut_ptr(),
+            func_count: func_metas.len() as u32,
+            globals: std::ptr::null_mut(),
+            frame_stack: frame_stack.as_mut_ptr(),
+            frame_stack_size: 0,
+            frame_stack_cap,
+            stack_base: operand_stack.as_mut_ptr(),
+            float_stack: float_stack.as_mut_ptr(),
+            float_stack_cap,
+            closure_ptr: 0,
+            result: 0,
+            done: 0,
+            error: std::ptr::null(),
+        };
+
+        Self {
+            _c_instructions: c_instructions,
+            func_metas,
+            call_stack,
+            operand_stack,
+            frame_stack,
+            float_stack,
+            ctx,
+        }
     }
 
-    // Build FuncMeta array.
-    let mut func_metas: Vec<FuncMeta> = Vec::new();
-    for (i, func) in program.functions.iter().enumerate() {
-        func_metas.push(FuncMeta {
-            code: c_instructions[i].as_mut_ptr(),
-            local_count: func.local_count as u32,
-            local_memory: func.local_memory,
-            param_count: func.param_count as u32,
-        });
+    /// Run `entry_func` with the given external globals buffer.
+    /// The globals buffer must remain valid for the duration of the call.
+    pub fn call_entry(&mut self, entry_func: u32, external_globals: *mut u8) -> i64 {
+        self.ctx.globals = external_globals;
+        let result = unsafe { stack_interp_run(&mut self.ctx, entry_func) };
+        if !self.ctx.error.is_null() {
+            let msg = unsafe { std::ffi::CStr::from_ptr(self.ctx.error) }.to_string_lossy();
+            eprintln!("trap: {}", msg);
+        }
+        // Suppress unused warnings: these fields exist to keep the
+        // buffers referenced by `ctx` alive.
+        let _ = (&self.func_metas, &self.call_stack, &self.operand_stack,
+                 &self.frame_stack, &self.float_stack);
+        result
     }
-
-    // Allocate all runtime buffers up front so stack_interp_run does not
-    // touch the heap. Realtime embeddings (audio threads) can mirror this
-    // setup once and then call stack_interp_run repeatedly.
-    let mut call_stack: Vec<CallFrame> = (0..4096)
-        .map(|_| CallFrame {
-            return_pc: std::ptr::null_mut(),
-            saved_locals: std::ptr::null_mut(),
-            func_idx: 0,
-            saved_frame_size: 0,
-        })
-        .collect();
-    let mut operand_stack: Vec<u64> = vec![0u64; 64 * 1024];
-    let frame_stack_cap: usize = 512 * 1024; // 4 MB worth of u64 slots
-    let mut frame_stack: Vec<u64> = vec![0u64; frame_stack_cap];
-    let float_stack_cap: usize = 64 * 1024;
-    let mut float_stack: Vec<f32> = vec![0.0f32; float_stack_cap];
-    let mut globals: Vec<u8> = vec![0u8; program.globals_size];
-
-    // Build context.
-    let mut ctx = Ctx {
-        call_stack: call_stack.as_mut_ptr(),
-        call_depth: 0,
-        call_stack_cap: 4096,
-        functions: func_metas.as_mut_ptr(),
-        func_count: func_metas.len() as u32,
-        globals: globals.as_mut_ptr(),
-        frame_stack: frame_stack.as_mut_ptr(),
-        frame_stack_size: 0,
-        frame_stack_cap,
-        stack_base: operand_stack.as_mut_ptr(),
-        float_stack: float_stack.as_mut_ptr(),
-        float_stack_cap,
-        closure_ptr: 0,
-        result: 0,
-        done: 0,
-        error: std::ptr::null(),
-    };
-
-    let result = unsafe { stack_interp_run(&mut ctx, program.entry) };
-
-    // Surface traps (stack overflow, assertion failed, etc.) to stderr.
-    // The C interpreter sets ctx.error to a static string and flips done;
-    // it never calls exit() so the embedding host can recover.
-    if !ctx.error.is_null() {
-        let msg = unsafe { std::ffi::CStr::from_ptr(ctx.error) }.to_string_lossy();
-        eprintln!("trap: {}", msg);
-    }
-
-    result
 }

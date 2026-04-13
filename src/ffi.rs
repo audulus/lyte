@@ -6,7 +6,7 @@ use std::ptr;
 use crate::compiler::Compiler;
 use crate::vm::PrintCallbackFn;
 #[cfg(not(feature = "llvm"))]
-use crate::vm::{LinkedProgram, VMProgram, VM};
+use crate::stack_interp_bridge::StackBackend;
 
 /// Info about a single global variable, with pre-computed C strings.
 struct GlobalInfo {
@@ -23,7 +23,7 @@ struct EntryPointInfo {
     #[cfg(feature = "llvm")]
     fn_addr: usize,
     #[cfg(not(feature = "llvm"))]
-    func_idx: crate::vm::FuncIdx,
+    func_idx: u32,
 }
 
 /// Opaque handle to a lyte compiler instance.
@@ -209,12 +209,12 @@ pub struct LyteProgram {
     print_userdata: *mut u8,
 }
 
-// On non-LLVM builds: VM backend with function indices.
+// On non-LLVM builds: stack interpreter backend via the C interp.
+// The cancel callback is stored for API compatibility but the stack
+// interpreter does not currently poll it.
 #[cfg(not(feature = "llvm"))]
 pub struct LyteProgram {
-    vm_program: VMProgram,
-    linked: LinkedProgram,
-    vm: VM,
+    backend: StackBackend,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
     entry_points: Vec<EntryPointInfo>,
@@ -305,24 +305,22 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
 
         #[cfg(not(feature = "llvm"))]
         {
-            match c.compiler.compile_vm() {
-                Ok(vm_program) => {
-                    let globals_size = vm_program.globals_size;
+            match c.compiler.compile_stack() {
+                Ok(stack_program) => {
+                    let globals_size = stack_program.globals_size;
                     let globals_info = make_globals_info(0);
-                    let linked = LinkedProgram::from_program(&vm_program);
-                    let vm = VM::new();
 
                     let mut entry_points = Vec::new();
                     for ep_name in &entry_point_names {
-                        if let Some(&func_idx) = vm_program.entry_points.get(ep_name) {
+                        if let Some(&func_idx) = stack_program.entry_points.get(ep_name) {
                             entry_points.push(EntryPointInfo { func_idx });
                         }
                     }
 
+                    let backend = StackBackend::new(&stack_program);
+
                     let program = Box::new(LyteProgram {
-                        vm_program,
-                        linked,
-                        vm,
+                        backend,
                         globals_size,
                         globals_info,
                         entry_points,
@@ -521,34 +519,12 @@ pub unsafe extern "C" fn lyte_entry_point_call(
 
     #[cfg(not(feature = "llvm"))]
     {
-        let func_idx = ep.func_idx;
-        if let Some(cb) = program.cancel_callback {
-            program
-                .vm
-                .set_cancel_callback(Some(cb), program.cancel_userdata);
-        }
-        let gs = program.globals_size;
-        #[cfg(target_arch = "aarch64")]
-        {
-            program.vm.call_with_external_globals_asm(
-                &program.linked,
-                &program.vm_program,
-                func_idx,
-                globals,
-                gs,
-            );
-        }
-        #[cfg(not(target_arch = "aarch64"))]
-        {
-            program.vm.call_with_external_globals(
-                &program.linked,
-                &program.vm_program,
-                func_idx,
-                globals,
-                gs,
-            );
-        }
-        result = !program.vm.cancelled;
+        // The stack interpreter does not currently poll a cancel callback.
+        // Binding it here is a no-op; stored only so the ffi surface
+        // matches other backends.
+        let _ = (program.cancel_callback, program.cancel_userdata);
+        program.backend.call_entry(ep.func_idx, globals);
+        result = true;
     }
 
     // Clear print callback.
