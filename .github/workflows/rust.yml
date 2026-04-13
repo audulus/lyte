@@ -48,22 +48,34 @@ jobs:
 
     runs-on: macos-latest
 
-    env:
-      LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
-      LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
-
     steps:
     - uses: actions/checkout@v5
-    - name: Install LLVM 18 and dependencies
+    - name: Install arm64 LLVM 18 and libffi
       run: brew install llvm@18 libffi
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests
       run: cargo test --workspace --verbose
     - name: Build with LLVM
+      env:
+        LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
+        LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
       run: cargo build -p lyte -p lyte-cli --features llvm --verbose
     - name: Run tests with LLVM
+      env:
+        LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
+        LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
       run: cargo test -p lyte -p lyte-cli --features llvm --verbose
+    - name: Install x86_64 Homebrew
+      # The xcframework's macOS x86_64 slice is built with cross-compiled
+      # LLVM, which requires a native x86_64 llvm-config + libs. Install
+      # an independent Homebrew under /usr/local via Rosetta so it can
+      # coexist with the arm64 Homebrew at /opt/homebrew.
+      run: |
+        NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
+          "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    - name: Install x86_64 LLVM 18 and libffi
+      run: arch -x86_64 /usr/local/bin/brew install llvm@18 libffi
     - name: Build xcframework
       run: ./build-xcframework.sh
     - name: Install Lua and LuaJIT
