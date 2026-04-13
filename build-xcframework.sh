@@ -8,6 +8,12 @@
 
 set -euo pipefail
 
+# Defensive: a globally-set LIBRARY_PATH leaks into host build scripts and
+# can break cross-arch builds (e.g. host build scripts linking against the
+# wrong arch). This script uses per-target CARGO_TARGET_<TRIPLE>_RUSTFLAGS
+# to scope library search paths instead, so we clear any inherited value.
+unset LIBRARY_PATH
+
 # Set deployment targets to suppress linker version mismatch warnings.
 export MACOSX_DEPLOYMENT_TARGET="15.0"
 export IPHONEOS_DEPLOYMENT_TARGET="16.0"
@@ -32,25 +38,44 @@ rm -f $XCFRAMEWORK.zip
 # Ensure targets are installed
 rustup target add "$MACOS_ARM_TARGET" "$MACOS_X86_TARGET" "$IOS_TARGET" "$IOS_SIM_TARGET"
 
-# Auto-detect LLVM 18 from Homebrew if not already set
-if [ -z "${LLVM_SYS_180_PREFIX:-}" ]; then
-    LLVM_SYS_180_PREFIX="$(brew --prefix llvm@18 2>/dev/null || true)"
-    if [ -z "$LLVM_SYS_180_PREFIX" ] || [ ! -d "$LLVM_SYS_180_PREFIX" ]; then
-        echo "Error: LLVM 18 not found. Install with: brew install llvm@18" >&2
-        exit 1
-    fi
-    export LLVM_SYS_180_PREFIX
-    echo "Using LLVM from $LLVM_SYS_180_PREFIX"
+# Homebrew prefixes: arm64 brew at /opt/homebrew, x86_64 brew at /usr/local.
+# Both are needed because llvm-sys/inkwell require a native llvm-config per
+# target arch, and the linker needs arch-matched libzstd / libffi static libs.
+ARM64_BREW="$(/opt/homebrew/bin/brew --prefix 2>/dev/null || true)"
+X86_BREW="$(arch -x86_64 /usr/local/bin/brew --prefix 2>/dev/null || true)"
+
+if [ -z "$ARM64_BREW" ] || [ ! -d "$ARM64_BREW/opt/llvm@18" ]; then
+    echo "Error: arm64 LLVM 18 not found. Install with: brew install llvm@18" >&2
+    exit 1
+fi
+if [ -z "$X86_BREW" ] || [ ! -d "$X86_BREW/opt/llvm@18" ]; then
+    echo "Error: x86_64 LLVM 18 not found. Install with:" >&2
+    echo "    arch -x86_64 /usr/local/bin/brew install llvm@18 zstd libffi" >&2
+    exit 1
 fi
 
-# Ensure linker can find LLVM's dependencies (zstd, zlib, etc.)
-export LIBRARY_PATH="${LLVM_SYS_180_PREFIX}/lib:$(brew --prefix zstd)/lib:$(brew --prefix)/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+ARM64_LLVM="$ARM64_BREW/opt/llvm@18"
+X86_LLVM="$X86_BREW/opt/llvm@18"
+echo "Using arm64 LLVM from $ARM64_LLVM"
+echo "Using x86_64 LLVM from $X86_LLVM"
+
+# Library search paths are passed per-target via CARGO_TARGET_<TRIPLE>_RUSTFLAGS
+# so they only affect the final-crate link and not the host build scripts
+# (which still need arm64 system libs from the host toolchain).
+ARM64_LINK_FLAGS="-L native=$ARM64_LLVM/lib -L native=$ARM64_BREW/opt/zstd/lib -L native=$ARM64_BREW/lib"
+X86_LINK_FLAGS="-L native=$X86_LLVM/lib -L native=$X86_BREW/opt/zstd/lib -L native=$X86_BREW/opt/libffi/lib -L native=$X86_BREW/lib"
 
 echo "Building for macOS ($MACOS_ARM_TARGET) with LLVM..."
-cargo rustc --release --features llvm --target "$MACOS_ARM_TARGET" --crate-type staticlib
+env \
+    LLVM_SYS_180_PREFIX="$ARM64_LLVM" \
+    CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="$ARM64_LINK_FLAGS" \
+    cargo rustc --release --features llvm --target "$MACOS_ARM_TARGET" --crate-type staticlib
 
-echo "Building for macOS ($MACOS_X86_TARGET) (stack VM)..."
-cargo rustc --release --target "$MACOS_X86_TARGET" --crate-type staticlib
+echo "Building for macOS ($MACOS_X86_TARGET) with LLVM..."
+env \
+    LLVM_SYS_180_PREFIX="$X86_LLVM" \
+    CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="$X86_LINK_FLAGS" \
+    cargo rustc --release --features llvm --target "$MACOS_X86_TARGET" --crate-type staticlib
 
 echo "Building for iOS ($IOS_TARGET) (stack VM)..."
 cargo rustc --release --target "$IOS_TARGET" --crate-type staticlib
@@ -70,18 +95,17 @@ find_libffi() {
 # Merge static dependencies into each target library so the xcframework is self-contained.
 echo "Merging static dependencies..."
 
-# macOS ARM64: merge LLVM deps (zstd, ffi from brew) + Rust-built libffi
-ZSTD_LIB="$(brew --prefix zstd)/lib/libzstd.a"
-BREW_FFI_LIB="$(brew --prefix libffi)/lib/libffi.a"
+# macOS ARM64: merge LLVM deps (zstd, ffi) from the arm64 brew.
 libtool -static -o "$BUILD_DIR/liblyte-arm64.a" \
     "$CARGO_TARGET_DIR/$MACOS_ARM_TARGET/release/liblyte.a" \
-    "$ZSTD_LIB" "$BREW_FFI_LIB"
+    "$ARM64_BREW/opt/zstd/lib/libzstd.a" \
+    "$ARM64_BREW/opt/libffi/lib/libffi.a"
 
-# macOS x86_64: merge cross-compiled libffi
-X86_FFI=$(find_libffi "$MACOS_X86_TARGET")
+# macOS x86_64: merge LLVM deps (zstd, ffi) from the x86_64 brew.
 libtool -static -o "$BUILD_DIR/liblyte-x86_64.a" \
     "$CARGO_TARGET_DIR/$MACOS_X86_TARGET/release/liblyte.a" \
-    "$X86_FFI"
+    "$X86_BREW/opt/zstd/lib/libzstd.a" \
+    "$X86_BREW/opt/libffi/lib/libffi.a"
 
 # iOS: merge cross-compiled libffi
 IOS_FFI=$(find_libffi "$IOS_TARGET")
