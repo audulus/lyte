@@ -5,7 +5,9 @@ use std::ptr;
 
 use crate::compiler::Compiler;
 use crate::vm::PrintCallbackFn;
-#[cfg(not(feature = "llvm"))]
+#[cfg(all(not(feature = "llvm"), not(target_os = "ios")))]
+use crate::vm::{LinkedProgram, VMProgram, VM};
+#[cfg(all(not(feature = "llvm"), target_os = "ios"))]
 use crate::stack_interp_bridge::StackBackend;
 
 /// Info about a single global variable, with pre-computed C strings.
@@ -22,7 +24,9 @@ struct GlobalInfo {
 struct EntryPointInfo {
     #[cfg(feature = "llvm")]
     fn_addr: usize,
-    #[cfg(not(feature = "llvm"))]
+    #[cfg(all(not(feature = "llvm"), not(target_os = "ios")))]
+    func_idx: crate::vm::FuncIdx,
+    #[cfg(all(not(feature = "llvm"), target_os = "ios"))]
     func_idx: u32,
 }
 
@@ -209,10 +213,28 @@ pub struct LyteProgram {
     print_userdata: *mut u8,
 }
 
-// On non-LLVM builds: stack interpreter backend via the C interp.
-// The cancel callback is stored for API compatibility but the stack
-// interpreter does not currently poll it.
-#[cfg(not(feature = "llvm"))]
+// On non-LLVM non-iOS builds: byte-VM backend with function indices.
+// Used by the default (non-xcframework) build, CLI, fuzz targets, etc.
+#[cfg(all(not(feature = "llvm"), not(target_os = "ios")))]
+pub struct LyteProgram {
+    vm_program: VMProgram,
+    linked: LinkedProgram,
+    vm: VM,
+    globals_size: usize,
+    globals_info: Vec<GlobalInfo>,
+    entry_points: Vec<EntryPointInfo>,
+    cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+    cancel_userdata: *mut u8,
+    print_callback: Option<PrintCallbackFn>,
+    print_userdata: *mut u8,
+}
+
+// On iOS (non-LLVM) builds: stack interpreter backend via the C interp.
+// Requires has_stack_interp (set by build.rs when compiling with clang,
+// which is always the case for iOS cross-builds). The cancel callback is
+// stored for API compatibility but the stack interpreter does not
+// currently poll it.
+#[cfg(all(not(feature = "llvm"), target_os = "ios"))]
 pub struct LyteProgram {
     backend: StackBackend,
     globals_size: usize,
@@ -303,7 +325,45 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             }
         }
 
-        #[cfg(not(feature = "llvm"))]
+        #[cfg(all(not(feature = "llvm"), not(target_os = "ios")))]
+        {
+            match c.compiler.compile_vm() {
+                Ok(vm_program) => {
+                    let globals_size = vm_program.globals_size;
+                    let globals_info = make_globals_info(0);
+                    let linked = LinkedProgram::from_program(&vm_program);
+                    let vm = VM::new();
+
+                    let mut entry_points = Vec::new();
+                    for ep_name in &entry_point_names {
+                        if let Some(&func_idx) = vm_program.entry_points.get(ep_name) {
+                            entry_points.push(EntryPointInfo { func_idx });
+                        }
+                    }
+
+                    let program = Box::new(LyteProgram {
+                        vm_program,
+                        linked,
+                        vm,
+                        globals_size,
+                        globals_info,
+                        entry_points,
+                        cancel_callback: None,
+                        cancel_userdata: ptr::null_mut(),
+                        print_callback: None,
+                        print_userdata: ptr::null_mut(),
+                    });
+
+                    Box::into_raw(program)
+                }
+                Err(e) => {
+                    c.set_error(&e);
+                    ptr::null_mut()
+                }
+            }
+        }
+
+        #[cfg(all(not(feature = "llvm"), target_os = "ios"))]
         {
             match c.compiler.compile_stack() {
                 Ok(stack_program) => {
@@ -517,7 +577,39 @@ pub unsafe extern "C" fn lyte_entry_point_call(
         }
     }
 
-    #[cfg(not(feature = "llvm"))]
+    #[cfg(all(not(feature = "llvm"), not(target_os = "ios")))]
+    {
+        let func_idx = ep.func_idx;
+        if let Some(cb) = program.cancel_callback {
+            program
+                .vm
+                .set_cancel_callback(Some(cb), program.cancel_userdata);
+        }
+        let gs = program.globals_size;
+        #[cfg(target_arch = "aarch64")]
+        {
+            program.vm.call_with_external_globals_asm(
+                &program.linked,
+                &program.vm_program,
+                func_idx,
+                globals,
+                gs,
+            );
+        }
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            program.vm.call_with_external_globals(
+                &program.linked,
+                &program.vm_program,
+                func_idx,
+                globals,
+                gs,
+            );
+        }
+        result = !program.vm.cancelled;
+    }
+
+    #[cfg(all(not(feature = "llvm"), target_os = "ios"))]
     {
         // The stack interpreter does not currently poll a cancel callback.
         // Binding it here is a no-op; stored only so the ffi surface
