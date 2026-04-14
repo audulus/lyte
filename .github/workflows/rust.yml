@@ -12,19 +12,31 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    # Force the cc crate to pick clang so build.rs / cli/build.rs detect
-    # a clang-like compiler and compile src/stack_interp.c (which needs
-    # preserve_none + musttail — clang-only features). Without this, the
-    # default cc on ubuntu-latest is gcc, has_stack_interp is never set,
-    # the stack backend is stubbed out, and the stack VM golden tests +
-    # benchmark row are silently skipped.
+    # Force the cc crate to pick clang-19 so build.rs / cli/build.rs detect
+    # a clang-like compiler and compile src/stack_interp.c with preserve_none
+    # + musttail honored. Two reasons clang-19 specifically:
+    #   1. The `clang` meta-package on ubuntu-latest currently installs
+    #      clang 18.0-59~exp2 (a pre-1.0 snapshot from Debian experimental).
+    #      preserve_none was added in upstream Clang 19 — Clang 18 silently
+    #      ignores `__attribute__((preserve_none))` with a warning, falling
+    #      back to System V cc, which makes musttail dispatch corrupt
+    #      register state mid-loop and crashes iir_filter.lyte before its
+    #      assert(true) ever runs.
+    #   2. Ubuntu 24.04's stable clang-N packages cap at 18; clang-19+ has
+    #      to come from apt.llvm.org.
+    # Without clang at all, cc-rs picks gcc, is_like_clang() returns false,
+    # has_stack_interp is never set, and the stack backend is stubbed out.
     env:
-      CC: clang
+      CC: clang-19
 
     steps:
     - uses: actions/checkout@v5
-    - name: Install clang
-      run: sudo apt-get update && sudo apt-get install -y clang
+    - name: Install clang-19 from apt.llvm.org
+      run: |
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/llvm.gpg
+        echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt-get update
+        sudo apt-get install -y clang-19
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests

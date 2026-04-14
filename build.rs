@@ -32,6 +32,18 @@ fn main() {
             // interpreter TU does no setjmp/longjmp and no native
             // unwinding runs through it, so dropping rbp is safe.
             .flag("-fomit-frame-pointer")
+            // Promote `unknown attribute ignored` to a hard error. The
+            // stack VM's correctness *depends* on `preserve_none` — it
+            // pins hot state (TOS window, pc, sp, locals, fsp, nh) to
+            // GPRs across the entire musttail dispatch chain. Clang
+            // before 19 silently ignored the attribute and fell back
+            // to System V cc, which quietly corrupted interpreter
+            // state mid-loop (seen in Ubuntu CI with clang 18). Turning
+            // this into an error means the next time someone builds
+            // with a clang that doesn't understand preserve_none, the
+            // build fails loudly instead of producing a subtly broken
+            // interpreter.
+            .flag("-Werror=unknown-attributes")
             .compile("stack_interp");
         println!("cargo:rustc-cfg=has_stack_interp");
     }
