@@ -53,6 +53,48 @@ static inline uint64_t from_f32(float f)  { uint32_t b; memcpy(&b, &f, 4); retur
 static inline double   as_f64(uint64_t v) { double d; memcpy(&d, &v, 8); return d; }
 static inline uint64_t from_f64(double d) { uint64_t v; memcpy(&v, &d, 8); return v; }
 
+static inline int32_t load_i32_unaligned(const void* p) {
+    int32_t v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline uint32_t load_u32_unaligned(const void* p) {
+    uint32_t v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline uint64_t load_u64_unaligned(const void* p) {
+    uint64_t v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline float load_f32_unaligned(const void* p) {
+    float v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline uint8_t* load_ptr_unaligned(const void* p) {
+    uint8_t* v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline void store_i32_unaligned(void* p, int32_t v) {
+    memcpy(p, &v, sizeof(v));
+}
+
+static inline void store_u64_unaligned(void* p, uint64_t v) {
+    memcpy(p, &v, sizeof(v));
+}
+
+static inline void store_f32_unaligned(void* p, float v) {
+    memcpy(p, &v, sizeof(v));
+}
+
 // ============================================================================
 // Integer power
 // ============================================================================
@@ -391,26 +433,26 @@ HANDLER(op_load8) {
 }
 
 HANDLER(op_load32) {
-    t0 = (uint64_t)(int64_t)*(int32_t*)t0;
+    t0 = (uint64_t)(int64_t)load_i32_unaligned((const void*)t0);
     NEXT();
 }
 
 HANDLER(op_load64) {
-    t0 = *(uint64_t*)t0;
+    t0 = load_u64_unaligned((const void*)t0);
     NEXT();
 }
 
 HANDLER(op_load32_off) {
     uint8_t* base = (uint8_t*)t0;
     int32_t off = (int32_t)pc->imm[0];
-    t0 = (uint64_t)(int64_t)*(int32_t*)(base + off);
+    t0 = (uint64_t)(int64_t)load_i32_unaligned(base + off);
     NEXT();
 }
 
 HANDLER(op_load64_off) {
     uint8_t* base = (uint8_t*)t0;
     int32_t off = (int32_t)pc->imm[0];
-    t0 = *(uint64_t*)(base + off);
+    t0 = load_u64_unaligned(base + off);
     NEXT();
 }
 
@@ -423,13 +465,13 @@ HANDLER(op_store8) {
 }
 
 HANDLER(op_store32) {
-    *(int32_t*)t1 = (int32_t)t0;
+    store_i32_unaligned((void*)t1, (int32_t)t0);
     DROP2();
     NEXT();
 }
 
 HANDLER(op_store64) {
-    *(uint64_t*)t1 = t0;
+    store_u64_unaligned((void*)t1, t0);
     DROP2();
     NEXT();
 }
@@ -441,13 +483,13 @@ HANDLER(op_store8_off) {
 }
 
 HANDLER(op_store32_off) {
-    *(int32_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = (int32_t)t0;
+    store_i32_unaligned((uint8_t*)t1 + (int32_t)pc->imm[0], (int32_t)t0);
     DROP2();
     NEXT();
 }
 
 HANDLER(op_store64_off) {
-    *(uint64_t*)((uint8_t*)t1 + (int32_t)pc->imm[0]) = t0;
+    store_u64_unaligned((uint8_t*)t1 + (int32_t)pc->imm[0], t0);
     DROP2();
     NEXT();
 }
@@ -492,15 +534,15 @@ HANDLER(op_slice_eq) {
     uint8_t* fat_b = (uint8_t*)t0;
     uint8_t* fat_a = (uint8_t*)t1;
     uint32_t elem_size = (uint32_t)pc->imm[0];
-    uint32_t len_a = *(uint32_t*)(fat_a + 8);
-    uint32_t len_b = *(uint32_t*)(fat_b + 8);
+    uint32_t len_a = load_u32_unaligned(fat_a + 8);
+    uint32_t len_b = load_u32_unaligned(fat_b + 8);
     if (len_a != len_b) {
         t0 = 0;
         BINOP_SHIFT();
         NEXT();
     }
-    uint8_t* data_a = *(uint8_t**)fat_a;
-    uint8_t* data_b = *(uint8_t**)fat_b;
+    uint8_t* data_a = load_ptr_unaligned(fat_a);
+    uint8_t* data_b = load_ptr_unaligned(fat_b);
     t0 = memcmp(data_a, data_b, (size_t)len_a * elem_size) == 0 ? 1 : 0;
     BINOP_SHIFT();
     NEXT();
@@ -510,15 +552,15 @@ HANDLER(op_slice_ne) {
     uint8_t* fat_b = (uint8_t*)t0;
     uint8_t* fat_a = (uint8_t*)t1;
     uint32_t elem_size = (uint32_t)pc->imm[0];
-    uint32_t len_a = *(uint32_t*)(fat_a + 8);
-    uint32_t len_b = *(uint32_t*)(fat_b + 8);
+    uint32_t len_a = load_u32_unaligned(fat_a + 8);
+    uint32_t len_b = load_u32_unaligned(fat_b + 8);
     if (len_a != len_b) {
         t0 = 1;
         BINOP_SHIFT();
         NEXT();
     }
-    uint8_t* data_a = *(uint8_t**)fat_a;
-    uint8_t* data_b = *(uint8_t**)fat_b;
+    uint8_t* data_a = load_ptr_unaligned(fat_a);
+    uint8_t* data_b = load_ptr_unaligned(fat_b);
     t0 = memcmp(data_a, data_b, (size_t)len_a * elem_size) != 0 ? 1 : 0;
     BINOP_SHIFT();
     NEXT();
@@ -528,8 +570,8 @@ HANDLER(op_slice_load32) {
     // binary: pop idx=t0, pop fat=t1, push result
     int64_t idx = (int64_t)t0;
     uint8_t* fat = (uint8_t*)t1;
-    uint8_t* data = *(uint8_t**)fat;
-    t0 = (uint64_t)(int64_t)*(int32_t*)(data + idx * 4);
+    uint8_t* data = load_ptr_unaligned(fat);
+    t0 = (uint64_t)(int64_t)load_i32_unaligned(data + idx * 4);
     BINOP_SHIFT();
     NEXT();
 }
@@ -539,8 +581,8 @@ HANDLER(op_slice_store32) {
     int32_t val = (int32_t)t0;
     int64_t idx = (int64_t)t1;
     uint8_t* fat = (uint8_t*)t2;
-    uint8_t* data = *(uint8_t**)fat;
-    *(int32_t*)(data + idx * 4) = val;
+    uint8_t* data = load_ptr_unaligned(fat);
+    store_i32_unaligned(data + idx * 4, val);
     DROP3();
     NEXT();
 }
@@ -549,8 +591,8 @@ HANDLER(op_slice_load32_f) {
     // pop idx=t0, pop fat=t1, push f32 to float window
     int64_t idx = (int64_t)t0;
     uint8_t* fat = (uint8_t*)t1;
-    uint8_t* data = *(uint8_t**)fat;
-    float v = *(float*)(data + idx * 4);
+    uint8_t* data = load_ptr_unaligned(fat);
+    float v = load_f32_unaligned(data + idx * 4);
     DROP2();
     FPUSH(v);
     NEXT();
@@ -560,8 +602,8 @@ HANDLER(op_slice_store32_f) {
     // pop f0 (value), pop idx=t0, pop fat=t1
     int64_t idx = (int64_t)t0;
     uint8_t* fat = (uint8_t*)t1;
-    uint8_t* data = *(uint8_t**)fat;
-    *(float*)(data + idx * 4) = f0;
+    uint8_t* data = load_ptr_unaligned(fat);
+    store_f32_unaligned(data + idx * 4, f0);
     DROP2();
     FDROP1();
     NEXT();
@@ -706,8 +748,8 @@ HANDLER(op_call) {
 HANDLER(op_call_closure) {
     // t0 is the fat_ptr address (last thing pushed before call_closure)
     uint8_t* fat_ptr = (uint8_t*)t0;
-    uint32_t target = (uint32_t)*(int64_t*)fat_ptr;
-    ctx->closure_ptr = *(uint64_t*)(fat_ptr + 8);
+    uint32_t target = (uint32_t)load_u64_unaligned(fat_ptr);
+    ctx->closure_ptr = load_u64_unaligned(fat_ptr + 8);
     uint32_t nargs = (uint32_t)pc->imm[0];
 
     if (ctx->call_depth >= ctx->call_stack_cap) {
@@ -1006,7 +1048,7 @@ HANDLER(op_fused_get_get_ilt) {
 
 // Load i32 from frame slot*8 + offset -- push
 HANDLER(op_fused_addr_load32off) {
-    PUSH((uint64_t)(int64_t)*(int32_t*)((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
+    PUSH((uint64_t)(int64_t)load_i32_unaligned((uint8_t*)locals + pc->imm[0] * 8 + (int32_t)pc->imm[1]));
     NEXT();
 }
 
@@ -1068,8 +1110,8 @@ HANDLER(op_fused_f32const_set) {
 HANDLER(op_fused_addr_get_sload32) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
-    uint8_t* data = *(uint8_t**)fat;
-    PUSH((uint64_t)(int64_t)*(int32_t*)(data + idx * 4));
+    uint8_t* data = load_ptr_unaligned(fat);
+    PUSH((uint64_t)(int64_t)load_i32_unaligned(data + idx * 4));
     NEXT();
 }
 
@@ -1128,7 +1170,7 @@ HANDLER(op_fused_field_copy32) {
     int32_t src_off = (int32_t)pc->imm[1];
     int32_t dst_off = (int32_t)pc->imm[2];
     uint8_t* base = (uint8_t*)(locals + pc->imm[0]);
-    *(int32_t*)(base + dst_off) = *(int32_t*)(base + src_off);
+    store_i32_unaligned(base + dst_off, load_i32_unaligned(base + src_off));
     NEXT();
 }
 
@@ -1155,8 +1197,8 @@ HANDLER(op_fused_local_array_store32) {
 HANDLER(op_fused_addr_get_sstore32) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
-    uint8_t* data = *(uint8_t**)fat;
-    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    uint8_t* data = load_ptr_unaligned(fat);
+    store_i32_unaligned(data + idx * 4, (int32_t)t0);
     DROP1();
     NEXT();
 }
@@ -1166,8 +1208,8 @@ HANDLER(op_fused_tee_sstore32) {
     locals[pc->imm[0]] = t0;
     uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
     int64_t idx = (int64_t)locals[pc->imm[2]];
-    uint8_t* data = *(uint8_t**)fat;
-    *(int32_t*)(data + idx * 4) = (int32_t)t0;
+    uint8_t* data = load_ptr_unaligned(fat);
+    store_i32_unaligned(data + idx * 4, (int32_t)t0);
     DROP1();
     NEXT();
 }
@@ -1423,14 +1465,14 @@ HANDLER(op_from_bits_f) {
 
 HANDLER(op_load_f32_f) {
     // Pop addr from int window, push f32 to float window.
-    float v = *(float*)t0;
+    float v = load_f32_unaligned((const void*)t0);
     DROP1();
     FPUSH(v);
     NEXT();
 }
 HANDLER(op_load_f32_off_f) {
     int32_t off = (int32_t)pc->imm[0];
-    float v = *(float*)((uint8_t*)t0 + off);
+    float v = load_f32_unaligned((uint8_t*)t0 + off);
     DROP1();
     FPUSH(v);
     NEXT();
@@ -1439,14 +1481,14 @@ HANDLER(op_load_f32_off_f) {
 // --- Float memory stores: pop f0 (value), pop t0 (addr) ---
 
 HANDLER(op_store_f32_f) {
-    *(float*)t0 = f0;
+    store_f32_unaligned((void*)t0, f0);
     DROP1();
     FDROP1();
     NEXT();
 }
 HANDLER(op_store_f32_off_f) {
     int32_t off = (int32_t)pc->imm[0];
-    *(float*)((uint8_t*)t0 + off) = f0;
+    store_f32_unaligned((uint8_t*)t0 + off, f0);
     DROP1();
     FDROP1();
     NEXT();
@@ -1636,16 +1678,16 @@ HANDLER(op_fused_addr_load32off_f) {
 HANDLER(op_fused_addr_get_sload32_f) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
-    uint8_t* data = *(uint8_t**)fat;
-    float v = *(float*)(data + idx * 4);
+    uint8_t* data = load_ptr_unaligned(fat);
+    float v = load_f32_unaligned(data + idx * 4);
     FPUSH(v);
     NEXT();
 }
 HANDLER(op_fused_addr_get_sstore32_f) {
     uint8_t* fat = (uint8_t*)(locals + pc->imm[0]);
     int64_t idx = (int64_t)locals[pc->imm[1]];
-    uint8_t* data = *(uint8_t**)fat;
-    *(float*)(data + idx * 4) = f0;
+    uint8_t* data = load_ptr_unaligned(fat);
+    store_f32_unaligned(data + idx * 4, f0);
     FDROP1();
     NEXT();
 }
@@ -1660,8 +1702,8 @@ HANDLER(op_fused_tee_sstore32_f) {
     *(float*)((uint8_t*)locals + pc->imm[0]) = f0;
     uint8_t* fat = (uint8_t*)(locals + pc->imm[1]);
     int64_t idx = (int64_t)locals[pc->imm[2]];
-    uint8_t* data = *(uint8_t**)fat;
-    *(float*)(data + idx * 4) = f0;
+    uint8_t* data = load_ptr_unaligned(fat);
+    store_f32_unaligned(data + idx * 4, f0);
     FDROP1();
     NEXT();
 }

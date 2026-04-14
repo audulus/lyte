@@ -819,8 +819,13 @@ impl StackBackend {
         }
         // Suppress unused warnings: these fields exist to keep the
         // buffers referenced by `ctx` alive.
-        let _ = (&self.func_metas, &self.call_stack, &self.operand_stack,
-                 &self.frame_stack, &self.float_stack);
+        let _ = (
+            &self.func_metas,
+            &self.call_stack,
+            &self.operand_stack,
+            &self.frame_stack,
+            &self.float_stack,
+        );
         result
     }
 }

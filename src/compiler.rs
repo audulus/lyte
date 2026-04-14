@@ -1675,6 +1675,87 @@ mod tests {
         );
     }
 
+    #[cfg(has_stack_interp)]
+    #[test]
+    fn stack_backend_handles_misaligned_global_slices() {
+        let prelude = r#"
+            var input: [f32]
+            var output: [f32]
+            var frames: i32
+            assume frames >= 0 && frames <= input.len && frames <= output.len
+        "#;
+        let code = r#"
+            process {
+                for i in 0 .. frames {
+                    output[i] = input[i] * 2.0
+                }
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.set_entry_points(&["process"]);
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let globals_info = compiler.globals_info_with_offset(0);
+        let input_offset = globals_info
+            .iter()
+            .find(|g| g.0 == "input")
+            .map(|g| g.1)
+            .expect("missing input global");
+        let output_offset = globals_info
+            .iter()
+            .find(|g| g.0 == "output")
+            .map(|g| g.1)
+            .expect("missing output global");
+        let frames_offset = globals_info
+            .iter()
+            .find(|g| g.0 == "frames")
+            .map(|g| g.1)
+            .expect("missing frames global");
+
+        assert!(
+            input_offset % 8 != 0 || output_offset % 8 != 0,
+            "test should exercise at least one unaligned slice fat pointer"
+        );
+
+        let stack_program = compiler.compile_stack().expect("stack compilation failed");
+        let mut backend = crate::stack_interp_bridge::StackBackend::new(&stack_program);
+        let process_idx = *stack_program
+            .entry_points
+            .get(&Name::str("process"))
+            .expect("missing process entry point");
+
+        let mut input = vec![1.0f32, 2.0, 3.0, 4.0];
+        let mut output = vec![0.0f32; input.len()];
+        let mut globals = vec![0u8; stack_program.globals_size];
+
+        unsafe {
+            crate::ffi::lyte_globals_bind_slice(
+                globals.as_mut_ptr(),
+                input_offset,
+                input.as_mut_ptr() as *const u8,
+                input.len() as i32,
+            );
+            crate::ffi::lyte_globals_bind_slice(
+                globals.as_mut_ptr(),
+                output_offset,
+                output.as_mut_ptr() as *const u8,
+                output.len() as i32,
+            );
+            std::ptr::write_unaligned(
+                globals.as_mut_ptr().add(frames_offset) as *mut i32,
+                input.len() as i32,
+            );
+        }
+
+        backend.call_entry(process_idx, globals.as_mut_ptr());
+
+        assert_eq!(output, vec![2.0, 4.0, 6.0, 8.0]);
+    }
+
     #[test]
     fn global_slices_without_assume_fails() {
         let prelude = r#"

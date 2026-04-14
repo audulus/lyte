@@ -4,11 +4,11 @@ use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
 
 use crate::compiler::Compiler;
+#[cfg(all(not(feature = "llvm"), target_os = "ios"))]
+use crate::stack_interp_bridge::StackBackend;
 use crate::vm::PrintCallbackFn;
 #[cfg(all(not(feature = "llvm"), not(target_os = "ios")))]
 use crate::vm::{LinkedProgram, VMProgram, VM};
-#[cfg(all(not(feature = "llvm"), target_os = "ios"))]
-use crate::stack_interp_bridge::StackBackend;
 
 /// Info about a single global variable, with pre-computed C strings.
 struct GlobalInfo {
@@ -527,10 +527,8 @@ pub unsafe extern "C" fn lyte_globals_bind_extern(
         return;
     }
     // Extern layout: {fn_ptr: *const (), context: *const ()} — 16 bytes
-    let ptr_slot = globals.add(offset) as *mut u64;
-    let ctx_slot = globals.add(offset + 8) as *mut u64;
-    *ptr_slot = func_ptr as u64;
-    *ctx_slot = context as u64;
+    ptr::write_unaligned(globals.add(offset) as *mut usize, func_ptr as usize);
+    ptr::write_unaligned(globals.add(offset + 8) as *mut usize, context as usize);
 }
 
 /// Call an entry point by index with an external globals buffer.
@@ -637,10 +635,8 @@ pub unsafe extern "C" fn lyte_globals_bind_slice(
         return;
     }
     // Slice layout: data_ptr (i64, 8 bytes) at offset, len (i32, 4 bytes) at offset+8
-    let ptr_slot = globals.add(offset) as *mut u64;
-    let len_slot = globals.add(offset + 8) as *mut i32;
-    *ptr_slot = data as u64;
-    *len_slot = len;
+    ptr::write_unaligned(globals.add(offset) as *mut usize, data as usize);
+    ptr::write_unaligned(globals.add(offset + 8) as *mut i32, len);
 }
 
 /// Allocate a zeroed globals buffer of the correct size.
