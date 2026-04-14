@@ -469,9 +469,20 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
-        // Translate body.
+        // Translate body. For void-returning functions, translate in
+        // void context so the body's final expression is consumed by
+        // the appropriate window-aware drop (Let → DropF/Drop, Var →
+        // nothing, etc.) rather than dropped blindly here. For
+        // value-returning functions, translate in non-void context so
+        // the last expression's value is left on the stack for Return.
+        let returns_void_no_sret =
+            !has_sret && matches!(&*self.decl.ret, Type::Void);
         if let Some(body) = self.decl.body {
-            self.translate_expr(body, func);
+            if returns_void_no_sret {
+                self.translate_void(body, func);
+            } else {
+                self.translate_expr(body, func);
+            }
 
             if !self.has_returned {
                 if has_sret {
@@ -487,7 +498,9 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::MemCopy(size));
                     func.emit(StackOp::ReturnVoid);
                 } else if matches!(&*self.decl.ret, Type::Void) {
-                    func.emit(StackOp::Drop);
+                    // translate_void has already consumed the body's
+                    // value (if any) through the window-aware drop
+                    // path. Just emit the return.
                     func.emit(StackOp::ReturnVoid);
                 } else {
                     // Fall-through return: bridge f32 results back to t0.
@@ -1832,16 +1845,21 @@ impl<'a> FunctionTranslator<'a> {
                 if let Some(Decl::Func(f)) = callee_decls.first() {
                     if f.is_extern {
                         // For extern calls, push all args then emit a regular Call
-                        // that goes through the globals-based dispatch.
-                        // The stack VM would need to handle this; for now we emit
-                        // args and a placeholder call.
+                        // that goes through the globals-based dispatch. op_call
+                        // copies args from the int TOS window into the callee's
+                        // locals, so f32 args that rode through the float window
+                        // have to be bridged to their bit pattern first — mirror
+                        // the regular-call path below.
                         for (i, arg_id) in arg_ids.iter().enumerate() {
                             let arg = *arg_id;
                             let param_ty = f.params[i].ty.unwrap();
                             self.translate_expr(arg, func);
+                            let arg_ty = self.expr_type(arg);
+                            if matches!(&*arg_ty, Type::Float32) {
+                                func.emit(StackOp::FToBitsF);
+                            }
                             if matches!(&*param_ty, Type::Slice(_)) {
-                                let actual_ty = self.expr_type(arg);
-                                self.emit_wrap_as_slice(actual_ty, func);
+                                self.emit_wrap_as_slice(arg_ty, func);
                             }
                         }
                         let instr_idx = func.pos();
@@ -1854,10 +1872,15 @@ impl<'a> FunctionTranslator<'a> {
                             instr_idx,
                             callee: callee_name,
                         });
-                        // Extern void functions: push a placeholder so
-                        // translate_call's +1 invariant holds.
-                        if matches!(&*self.expr_type(call_expr), Type::Void) {
+                        // Bridge the return value back to the window the
+                        // surrounding codegen expects. Void calls leave
+                        // nothing, so push a placeholder so translate_call's
+                        // +1 invariant holds.
+                        let ret_ty = self.expr_type(call_expr);
+                        if matches!(&*ret_ty, Type::Void) {
                             func.emit(StackOp::I64Const(0));
+                        } else if matches!(&*ret_ty, Type::Float32) {
+                            func.emit(StackOp::BitsToFF);
                         }
                         return;
                     }

@@ -7,15 +7,12 @@
 //      2: fw.f32.const 0.25
 //      3: fw.local.set 1
 //      4: fused.get_get_fadd_set 0 1 0
-//      5: fw.fused.get_f32const_fgt_jiz 0 1 5
+//      5: fw.fused.get_f32const_fgt_jiz 0 1 4
 //      6: fw.local.get 0
 //      7: fw.f32.const 1
 //      8: fw.f32.sub
-//      9: fw.local.tee 0
-//     10: jump 1
-//     11: i64.const 0
-//     12: drop
-//     13: return_void
+//      9: fw.local.set 0
+//     10: return_void
 
 main {
     var phase = 0.5

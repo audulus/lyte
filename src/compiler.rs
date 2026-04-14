@@ -1809,6 +1809,260 @@ mod tests {
         );
     }
 
+    // Check that the f-window depth returns to 0 at each Return/
+    // ReturnVoid — i.e. that every executed block pushes and pops the
+    // float TOS window in balance. The original bug (an `f32` let
+    // lowered as `LocalTeeF + Drop`) leaked one float-spill slot per
+    // execution; in a hot loop it eventually marched `fsp` past
+    // `float_stack_cap` and corrupted adjacent memory.
+    //
+    // Uses a worklist dataflow over the CFG: each op gets an entry
+    // f-depth propagated from its predecessors, and merges must agree.
+    // At Return/ReturnVoid the entry depth must be 0 (plus the op's
+    // own delta, which is 0 for both return ops).
+    fn assert_f_window_balanced(program: &crate::stack_ir::StackProgram, label: &str) {
+        use crate::stack_depth::float_stack_delta;
+        use crate::stack_ir::StackOp;
+
+        for func in &program.functions {
+            let n = func.ops.len();
+            if n == 0 {
+                continue;
+            }
+
+            // in_depth[i] = f-window depth at entry to op i.
+            // i32::MIN means "unvisited".
+            let mut in_depth = vec![i32::MIN; n];
+            in_depth[0] = 0;
+            let mut worklist: Vec<usize> = vec![0];
+
+            while let Some(i) = worklist.pop() {
+                let d_in = in_depth[i];
+                let d_out = d_in + float_stack_delta(&func.ops[i]);
+
+                // Compute successors.
+                let mut succs: Vec<usize> = Vec::new();
+                match &func.ops[i] {
+                    StackOp::Return | StackOp::ReturnVoid | StackOp::Halt => {}
+                    StackOp::Jump(off) => {
+                        let t = (i as i64 + 1 + *off as i64) as usize;
+                        if t < n {
+                            succs.push(t);
+                        }
+                    }
+                    StackOp::JumpIfZero(off) | StackOp::JumpIfNotZero(off) => {
+                        let t = (i as i64 + 1 + *off as i64) as usize;
+                        if t < n {
+                            succs.push(t);
+                        }
+                        if i + 1 < n {
+                            succs.push(i + 1);
+                        }
+                    }
+                    StackOp::FusedGetGetILtJumpIfZero(_, _, off) => {
+                        let t = (i as i64 + 1 + *off as i64) as usize;
+                        if t < n {
+                            succs.push(t);
+                        }
+                        if i + 1 < n {
+                            succs.push(i + 1);
+                        }
+                    }
+                    StackOp::FusedBoundsCheck1JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck2JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck3JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck4JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck5JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck6JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck7JumpIfZero(_, off)
+                    | StackOp::FusedBoundsCheck8JumpIfZero(_, off) => {
+                        let t = (i as i64 + 1 + *off as i64) as usize;
+                        if t < n {
+                            succs.push(t);
+                        }
+                        if i + 1 < n {
+                            succs.push(i + 1);
+                        }
+                    }
+                    StackOp::FusedF32ConstFGtJumpIfZeroF(_, off)
+                    | StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => {
+                        let t = (i as i64 + 1 + *off as i64) as usize;
+                        if t < n {
+                            succs.push(t);
+                        }
+                        if i + 1 < n {
+                            succs.push(i + 1);
+                        }
+                    }
+                    _ => {
+                        if i + 1 < n {
+                            succs.push(i + 1);
+                        }
+                    }
+                }
+
+                for s in succs {
+                    if in_depth[s] == i32::MIN {
+                        in_depth[s] = d_out;
+                        worklist.push(s);
+                    } else if in_depth[s] != d_out {
+                        panic!(
+                            "[{}] {}: f-window depth mismatch at op {} \
+                             (from op {}): {} vs {}",
+                            label, func.name, s, i, in_depth[s], d_out,
+                        );
+                    }
+                }
+            }
+
+            for (i, op) in func.ops.iter().enumerate() {
+                if in_depth[i] == i32::MIN {
+                    continue; // unreachable
+                }
+                if matches!(op, StackOp::Return | StackOp::ReturnVoid) {
+                    assert!(
+                        in_depth[i] == 0,
+                        "[{}] {}: f-window leaks {} slot(s) at return op {}",
+                        label,
+                        func.name,
+                        in_depth[i],
+                        i,
+                    );
+                }
+                let d_out = in_depth[i] + float_stack_delta(op);
+                assert!(
+                    d_out >= 0,
+                    "[{}] {}: f-window underflow at op {} ({:?}): in={} delta={}",
+                    label,
+                    func.name,
+                    i,
+                    op,
+                    in_depth[i],
+                    float_stack_delta(op),
+                );
+            }
+        }
+    }
+
+    // Verify every function's f-window depth returns to 0 at each
+    // Return/ReturnVoid for a handful of programs that mix f32 values
+    // with statement contexts — the same bug class as the `let` leak
+    // (push to f-window, pop from int window).
+    #[test]
+    fn f32_window_balanced_across_void_contexts() {
+        // Each program exercises a different codegen path that consumes
+        // a value in "statement position" after an f32 expression.
+        let programs: &[(&str, &str)] = &[
+            // Baseline: f32 let as intermediate statement.
+            ("f32 let intermediate", r#"
+                fn make_f32() -> f32 { 1.5 }
+                main {
+                    let x = make_f32()
+                    let y = x + x
+                    let z = y + y
+                }
+            "#),
+            // Bare f32 expression as block statement (should be dropped).
+            ("f32 call as statement", r#"
+                fn make_f32() -> f32 { 1.5 }
+                main {
+                    make_f32()
+                }
+            "#),
+            // f32 if-expression in void context.
+            ("f32 if in void ctx", r#"
+                main {
+                    var x = 0.0 as f32
+                    if true { x = 1.0 } else { x = 2.0 }
+                }
+            "#),
+            // f32 assignment RHS.
+            ("f32 assign chain", r#"
+                main {
+                    var x = 0.0 as f32
+                    var y = 0.0 as f32
+                    x = 1.5
+                    y = x + x
+                }
+            "#),
+        ];
+
+        for (label, code) in programs {
+            let mut compiler = Compiler::new();
+            compiler.parse(code, "test.lyte");
+            if !compiler.check() {
+                continue;
+            }
+            if compiler.specialize().is_err() {
+                continue;
+            }
+            let program = match compiler.compile_stack() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            assert_f_window_balanced(&program, label);
+        }
+    }
+
+    // Sweep every .lyte test case through the stack backend and verify
+    // the f-window stays balanced. This catches codegen leaks in any
+    // pattern that happens to be covered by our golden corpus, without
+    // each test having to opt in.
+    #[cfg(has_stack_interp)]
+    #[test]
+    fn f32_window_balanced_across_test_corpus() {
+        use std::fs;
+        use std::path::PathBuf;
+
+        fn collect_lyte(root: &std::path::Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = fs::read_dir(root) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    collect_lyte(&p, out);
+                } else if p.extension().map(|e| e == "lyte").unwrap_or(false) {
+                    out.push(p);
+                }
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
+        let mut paths = Vec::new();
+        collect_lyte(&root, &mut paths);
+        paths.sort();
+
+        let mut compiled = 0usize;
+        for path in &paths {
+            let Ok(src) = fs::read_to_string(path) else {
+                continue;
+            };
+            // Skip tests that use `// args: --check` or similar — we
+            // only want programs that are expected to compile all the
+            // way through.
+            let label = path
+                .strip_prefix(&root)
+                .unwrap_or(path)
+                .display()
+                .to_string();
+            let mut compiler = Compiler::new();
+            compiler.parse(&src, &label);
+            if !compiler.check() {
+                continue;
+            }
+            if compiler.specialize().is_err() {
+                continue;
+            }
+            let Ok(program) = compiler.compile_stack() else {
+                continue;
+            };
+            assert_f_window_balanced(&program, &label);
+            compiled += 1;
+        }
+        assert!(compiled > 50, "expected to sweep >50 corpus files, got {}", compiled);
+    }
+
     #[test]
     fn global_slices_without_assume_fails() {
         let prelude = r#"

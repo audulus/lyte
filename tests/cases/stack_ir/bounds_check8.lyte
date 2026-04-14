@@ -11,13 +11,9 @@
 //      6: fused.const_set 15 6
 //      7: fused.const_set 16 7
 //      8: fused.const_set 17 8
-//      9: fused.bounds_check8_jiz 0 1 0 2 0 3 0 4 0 5 0 6 0 7 0 8 3
+//      9: fused.bounds_check8_jiz 0 1 0 2 0 3 0 4 0 5 0 6 0 7 0 8 1
 //     10: fused.const_set 1 9
-//     11: i64.const 0
-//     12: jump 1
-//     13: i64.const 0
-//     14: drop
-//     15: return_void
+//     11: return_void
 
 main {
     var i = 1
