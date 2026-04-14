@@ -1,0 +1,635 @@
+// Test: large Freeverb-inspired DSP program parses and type-checks with DSP globals.
+// args: --check --allow-assume --entry init,process
+
+const MAX_FRAMES = 256
+extern fn send(buf: [i8]) -> bool
+var frames: i32
+var sampleRate: f32
+var inL: [f32]
+var inR: [f32]
+var wet: [f32]
+var room: [f32]
+var damp: [f32]
+var width: [f32]
+var active: [f32]
+var outL: [f32]
+var outR: [f32]
+var storage: [f32]
+assume frames >= 0 && frames <= MAX_FRAMES
+assume inL.len == MAX_FRAMES
+assume inR.len == MAX_FRAMES
+assume wet.len == MAX_FRAMES
+assume room.len == MAX_FRAMES
+assume damp.len == MAX_FRAMES
+assume width.len == MAX_FRAMES
+assume active.len == MAX_FRAMES
+assume outL.len == MAX_FRAMES
+assume outR.len == MAX_FRAMES
+assume storage.len == 16
+
+// Stereo reverb, Freeverb-inspired
+//
+// Not original Freeverb:
+// - original delay tunings are stored as
+//   44.1 kHz sample counts
+// - delay lengths are converted using
+//   sampleRate
+// - comb feedback is derived from RT60 (0.5..12 sec, matching
+//   original Freeverb's feedback range of 0.70..0.98)
+// - a small damping floor prevents zero-pole at damp=0
+//
+// Ports
+// inL    in   left input
+// inR    in   right input
+// wet    in   0..1 output dry/wet mix
+// room   in   0..1 decay / RT60 control
+// damp   in   0..1 comb lowpass damping
+// width  in   0..1 stereo width
+// outL   out  left output
+// outR   out  right output
+
+const STEREO_SPREAD = 23
+
+const COMB_T0 = 1116
+const COMB_T1 = 1188
+const COMB_T2 = 1277
+const COMB_T3 = 1356
+const COMB_T4 = 1422
+const COMB_T5 = 1491
+const COMB_T6 = 1557
+const COMB_T7 = 1617
+
+const AP_T0 = 556
+const AP_T1 = 441
+const AP_T2 = 341
+const AP_T3 = 225
+
+const COMB_BUF_LEN = 8192
+const AP_BUF_LEN = 2048
+
+var combL0: [f32; COMB_BUF_LEN]
+var combL1: [f32; COMB_BUF_LEN]
+var combL2: [f32; COMB_BUF_LEN]
+var combL3: [f32; COMB_BUF_LEN]
+var combL4: [f32; COMB_BUF_LEN]
+var combL5: [f32; COMB_BUF_LEN]
+var combL6: [f32; COMB_BUF_LEN]
+var combL7: [f32; COMB_BUF_LEN]
+
+var combR0: [f32; COMB_BUF_LEN]
+var combR1: [f32; COMB_BUF_LEN]
+var combR2: [f32; COMB_BUF_LEN]
+var combR3: [f32; COMB_BUF_LEN]
+var combR4: [f32; COMB_BUF_LEN]
+var combR5: [f32; COMB_BUF_LEN]
+var combR6: [f32; COMB_BUF_LEN]
+var combR7: [f32; COMB_BUF_LEN]
+
+var apL0: [f32; AP_BUF_LEN]
+var apL1: [f32; AP_BUF_LEN]
+var apL2: [f32; AP_BUF_LEN]
+var apL3: [f32; AP_BUF_LEN]
+
+var apR0: [f32; AP_BUF_LEN]
+var apR1: [f32; AP_BUF_LEN]
+var apR2: [f32; AP_BUF_LEN]
+var apR3: [f32; AP_BUF_LEN]
+
+var combLenL0: i32
+var combLenL1: i32
+var combLenL2: i32
+var combLenL3: i32
+var combLenL4: i32
+var combLenL5: i32
+var combLenL6: i32
+var combLenL7: i32
+
+var combLenR0: i32
+var combLenR1: i32
+var combLenR2: i32
+var combLenR3: i32
+var combLenR4: i32
+var combLenR5: i32
+var combLenR6: i32
+var combLenR7: i32
+
+var combWriteL0: i32
+var combWriteL1: i32
+var combWriteL2: i32
+var combWriteL3: i32
+var combWriteL4: i32
+var combWriteL5: i32
+var combWriteL6: i32
+var combWriteL7: i32
+
+var combWriteR0: i32
+var combWriteR1: i32
+var combWriteR2: i32
+var combWriteR3: i32
+var combWriteR4: i32
+var combWriteR5: i32
+var combWriteR6: i32
+var combWriteR7: i32
+
+var combStoreL0: f32
+var combStoreL1: f32
+var combStoreL2: f32
+var combStoreL3: f32
+var combStoreL4: f32
+var combStoreL5: f32
+var combStoreL6: f32
+var combStoreL7: f32
+
+var combStoreR0: f32
+var combStoreR1: f32
+var combStoreR2: f32
+var combStoreR3: f32
+var combStoreR4: f32
+var combStoreR5: f32
+var combStoreR6: f32
+var combStoreR7: f32
+
+var apLenL0: i32
+var apLenL1: i32
+var apLenL2: i32
+var apLenL3: i32
+
+var apLenR0: i32
+var apLenR1: i32
+var apLenR2: i32
+var apLenR3: i32
+
+var apWriteL0: i32
+var apWriteL1: i32
+var apWriteL2: i32
+var apWriteL3: i32
+
+var apWriteR0: i32
+var apWriteR1: i32
+var apWriteR2: i32
+var apWriteR3: i32
+
+// delay times in seconds, derived from actual sample counts / sampleRate
+var secL0: f32
+var secL1: f32
+var secL2: f32
+var secL3: f32
+var secL4: f32
+var secL5: f32
+var secL6: f32
+var secL7: f32
+
+var secR0: f32
+var secR1: f32
+var secR2: f32
+var secR3: f32
+var secR4: f32
+var secR5: f32
+var secR6: f32
+var secR7: f32
+
+clamp01(x: f32) -> f32 {
+  if x < 0.0 { return 0.0 }
+  if x > 1.0 { return 1.0 }
+  x
+}
+
+clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
+  if x < lo { return lo }
+  if x > hi { return hi }
+  x
+}
+
+init {
+  let d0 = (COMB_T0 as f32) * sampleRate / 44100.0
+  let d1 = (COMB_T1 as f32) * sampleRate / 44100.0
+  let d2 = (COMB_T2 as f32) * sampleRate / 44100.0
+  let d3 = (COMB_T3 as f32) * sampleRate / 44100.0
+  let d4 = (COMB_T4 as f32) * sampleRate / 44100.0
+  let d5 = (COMB_T5 as f32) * sampleRate / 44100.0
+  let d6 = (COMB_T6 as f32) * sampleRate / 44100.0
+  let d7 = (COMB_T7 as f32) * sampleRate / 44100.0
+
+  let dr0 = ((COMB_T0 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr1 = ((COMB_T1 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr2 = ((COMB_T2 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr3 = ((COMB_T3 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr4 = ((COMB_T4 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr5 = ((COMB_T5 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr6 = ((COMB_T6 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let dr7 = ((COMB_T7 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+
+  let a0 = (AP_T0 as f32) * sampleRate / 44100.0
+  let a1 = (AP_T1 as f32) * sampleRate / 44100.0
+  let a2 = (AP_T2 as f32) * sampleRate / 44100.0
+  let a3 = (AP_T3 as f32) * sampleRate / 44100.0
+
+  let ar0 = ((AP_T0 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let ar1 = ((AP_T1 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let ar2 = ((AP_T2 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+  let ar3 = ((AP_T3 + STEREO_SPREAD) as f32) * sampleRate / 44100.0
+
+  combLenL0 = clamp_i32(floor(d0 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL1 = clamp_i32(floor(d1 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL2 = clamp_i32(floor(d2 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL3 = clamp_i32(floor(d3 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL4 = clamp_i32(floor(d4 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL5 = clamp_i32(floor(d5 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL6 = clamp_i32(floor(d6 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenL7 = clamp_i32(floor(d7 + 0.5) as i32, 1, COMB_BUF_LEN)
+
+  combLenR0 = clamp_i32(floor(dr0 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR1 = clamp_i32(floor(dr1 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR2 = clamp_i32(floor(dr2 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR3 = clamp_i32(floor(dr3 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR4 = clamp_i32(floor(dr4 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR5 = clamp_i32(floor(dr5 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR6 = clamp_i32(floor(dr6 + 0.5) as i32, 1, COMB_BUF_LEN)
+  combLenR7 = clamp_i32(floor(dr7 + 0.5) as i32, 1, COMB_BUF_LEN)
+
+  apLenL0 = clamp_i32(floor(a0 + 0.5) as i32, 1, AP_BUF_LEN)
+  apLenL1 = clamp_i32(floor(a1 + 0.5) as i32, 1, AP_BUF_LEN)
+  apLenL2 = clamp_i32(floor(a2 + 0.5) as i32, 1, AP_BUF_LEN)
+  apLenL3 = clamp_i32(floor(a3 + 0.5) as i32, 1, AP_BUF_LEN)
+
+  apLenR0 = clamp_i32(floor(ar0 + 0.5) as i32, 1, AP_BUF_LEN)
+  apLenR1 = clamp_i32(floor(ar1 + 0.5) as i32, 1, AP_BUF_LEN)
+  apLenR2 = clamp_i32(floor(ar2 + 0.5) as i32, 1, AP_BUF_LEN)
+  apLenR3 = clamp_i32(floor(ar3 + 0.5) as i32, 1, AP_BUF_LEN)
+
+  combWriteL0 = 0
+  combWriteL1 = 0
+  combWriteL2 = 0
+  combWriteL3 = 0
+  combWriteL4 = 0
+  combWriteL5 = 0
+  combWriteL6 = 0
+  combWriteL7 = 0
+
+  combWriteR0 = 0
+  combWriteR1 = 0
+  combWriteR2 = 0
+  combWriteR3 = 0
+  combWriteR4 = 0
+  combWriteR5 = 0
+  combWriteR6 = 0
+  combWriteR7 = 0
+
+  combStoreL0 = 0.0
+  combStoreL1 = 0.0
+  combStoreL2 = 0.0
+  combStoreL3 = 0.0
+  combStoreL4 = 0.0
+  combStoreL5 = 0.0
+  combStoreL6 = 0.0
+  combStoreL7 = 0.0
+
+  combStoreR0 = 0.0
+  combStoreR1 = 0.0
+  combStoreR2 = 0.0
+  combStoreR3 = 0.0
+  combStoreR4 = 0.0
+  combStoreR5 = 0.0
+  combStoreR6 = 0.0
+  combStoreR7 = 0.0
+
+  apWriteL0 = 0
+  apWriteL1 = 0
+  apWriteL2 = 0
+  apWriteL3 = 0
+
+  apWriteR0 = 0
+  apWriteR1 = 0
+  apWriteR2 = 0
+  apWriteR3 = 0
+
+  // actual delay times in seconds for RT60 feedback formula
+  let inv_sr = 1.0 / sampleRate
+  secL0 = (combLenL0 as f32) * inv_sr
+  secL1 = (combLenL1 as f32) * inv_sr
+  secL2 = (combLenL2 as f32) * inv_sr
+  secL3 = (combLenL3 as f32) * inv_sr
+  secL4 = (combLenL4 as f32) * inv_sr
+  secL5 = (combLenL5 as f32) * inv_sr
+  secL6 = (combLenL6 as f32) * inv_sr
+  secL7 = (combLenL7 as f32) * inv_sr
+
+  secR0 = (combLenR0 as f32) * inv_sr
+  secR1 = (combLenR1 as f32) * inv_sr
+  secR2 = (combLenR2 as f32) * inv_sr
+  secR3 = (combLenR3 as f32) * inv_sr
+  secR4 = (combLenR4 as f32) * inv_sr
+  secR5 = (combLenR5 as f32) * inv_sr
+  secR6 = (combLenR6 as f32) * inv_sr
+  secR7 = (combLenR7 as f32) * inv_sr
+}
+
+process {
+  for i in 0 .. frames {
+    let wet0 = clamp01(wet[i])
+    let room0 = clamp01(room[i])
+    let damp0 = clamp01(damp[i])
+    let width0 = clamp01(width[i])
+
+    let rt60 = 0.5 + room0 * 11.5
+
+    let damp1 = 0.02 + damp0 * 0.48
+    let damp2 = 1.0 - damp1
+
+    let gL0 = exp(-6.90775527898 * secL0 / rt60)
+    let gL1 = exp(-6.90775527898 * secL1 / rt60)
+    let gL2 = exp(-6.90775527898 * secL2 / rt60)
+    let gL3 = exp(-6.90775527898 * secL3 / rt60)
+    let gL4 = exp(-6.90775527898 * secL4 / rt60)
+    let gL5 = exp(-6.90775527898 * secL5 / rt60)
+    let gL6 = exp(-6.90775527898 * secL6 / rt60)
+    let gL7 = exp(-6.90775527898 * secL7 / rt60)
+
+    let gR0 = exp(-6.90775527898 * secR0 / rt60)
+    let gR1 = exp(-6.90775527898 * secR1 / rt60)
+    let gR2 = exp(-6.90775527898 * secR2 / rt60)
+    let gR3 = exp(-6.90775527898 * secR3 / rt60)
+    let gR4 = exp(-6.90775527898 * secR4 / rt60)
+    let gR5 = exp(-6.90775527898 * secR5 / rt60)
+    let gR6 = exp(-6.90775527898 * secR6 / rt60)
+    let gR7 = exp(-6.90775527898 * secR7 / rt60)
+
+    let inputMono = (inL[i] + inR[i]) * 0.015
+
+    let wet1 = wet0 * (width0 * 0.5 + 0.5)
+    let wet2 = wet0 * ((1.0 - width0) * 0.5)
+    let dry = 1.0 - wet0
+
+    var accL = 0.0
+    var accR = 0.0
+
+    {
+      let idx = combWriteL0
+      var y = 0.0
+      if idx >= 0 && idx < combLenL0 && idx < COMB_BUF_LEN { y = combL0[idx] }
+      let f = y * damp2 + combStoreL0 * damp1
+      combStoreL0 = f
+      if idx >= 0 && idx < combLenL0 && idx < COMB_BUF_LEN { combL0[idx] = inputMono + f * gL0 }
+      let next = idx + 1
+      if next >= combLenL0 { combWriteL0 = 0 } else { combWriteL0 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL1
+      var y = 0.0
+      if idx >= 0 && idx < combLenL1 && idx < COMB_BUF_LEN { y = combL1[idx] }
+      let f = y * damp2 + combStoreL1 * damp1
+      combStoreL1 = f
+      if idx >= 0 && idx < combLenL1 && idx < COMB_BUF_LEN { combL1[idx] = inputMono + f * gL1 }
+      let next = idx + 1
+      if next >= combLenL1 { combWriteL1 = 0 } else { combWriteL1 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL2
+      var y = 0.0
+      if idx >= 0 && idx < combLenL2 && idx < COMB_BUF_LEN { y = combL2[idx] }
+      let f = y * damp2 + combStoreL2 * damp1
+      combStoreL2 = f
+      if idx >= 0 && idx < combLenL2 && idx < COMB_BUF_LEN { combL2[idx] = inputMono + f * gL2 }
+      let next = idx + 1
+      if next >= combLenL2 { combWriteL2 = 0 } else { combWriteL2 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL3
+      var y = 0.0
+      if idx >= 0 && idx < combLenL3 && idx < COMB_BUF_LEN { y = combL3[idx] }
+      let f = y * damp2 + combStoreL3 * damp1
+      combStoreL3 = f
+      if idx >= 0 && idx < combLenL3 && idx < COMB_BUF_LEN { combL3[idx] = inputMono + f * gL3 }
+      let next = idx + 1
+      if next >= combLenL3 { combWriteL3 = 0 } else { combWriteL3 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL4
+      var y = 0.0
+      if idx >= 0 && idx < combLenL4 && idx < COMB_BUF_LEN { y = combL4[idx] }
+      let f = y * damp2 + combStoreL4 * damp1
+      combStoreL4 = f
+      if idx >= 0 && idx < combLenL4 && idx < COMB_BUF_LEN { combL4[idx] = inputMono + f * gL4 }
+      let next = idx + 1
+      if next >= combLenL4 { combWriteL4 = 0 } else { combWriteL4 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL5
+      var y = 0.0
+      if idx >= 0 && idx < combLenL5 && idx < COMB_BUF_LEN { y = combL5[idx] }
+      let f = y * damp2 + combStoreL5 * damp1
+      combStoreL5 = f
+      if idx >= 0 && idx < combLenL5 && idx < COMB_BUF_LEN { combL5[idx] = inputMono + f * gL5 }
+      let next = idx + 1
+      if next >= combLenL5 { combWriteL5 = 0 } else { combWriteL5 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL6
+      var y = 0.0
+      if idx >= 0 && idx < combLenL6 && idx < COMB_BUF_LEN { y = combL6[idx] }
+      let f = y * damp2 + combStoreL6 * damp1
+      combStoreL6 = f
+      if idx >= 0 && idx < combLenL6 && idx < COMB_BUF_LEN { combL6[idx] = inputMono + f * gL6 }
+      let next = idx + 1
+      if next >= combLenL6 { combWriteL6 = 0 } else { combWriteL6 = next }
+      accL = accL + y
+    }
+    {
+      let idx = combWriteL7
+      var y = 0.0
+      if idx >= 0 && idx < combLenL7 && idx < COMB_BUF_LEN { y = combL7[idx] }
+      let f = y * damp2 + combStoreL7 * damp1
+      combStoreL7 = f
+      if idx >= 0 && idx < combLenL7 && idx < COMB_BUF_LEN { combL7[idx] = inputMono + f * gL7 }
+      let next = idx + 1
+      if next >= combLenL7 { combWriteL7 = 0 } else { combWriteL7 = next }
+      accL = accL + y
+    }
+
+    {
+      let idx = combWriteR0
+      var y = 0.0
+      if idx >= 0 && idx < combLenR0 && idx < COMB_BUF_LEN { y = combR0[idx] }
+      let f = y * damp2 + combStoreR0 * damp1
+      combStoreR0 = f
+      if idx >= 0 && idx < combLenR0 && idx < COMB_BUF_LEN { combR0[idx] = inputMono + f * gR0 }
+      let next = idx + 1
+      if next >= combLenR0 { combWriteR0 = 0 } else { combWriteR0 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR1
+      var y = 0.0
+      if idx >= 0 && idx < combLenR1 && idx < COMB_BUF_LEN { y = combR1[idx] }
+      let f = y * damp2 + combStoreR1 * damp1
+      combStoreR1 = f
+      if idx >= 0 && idx < combLenR1 && idx < COMB_BUF_LEN { combR1[idx] = inputMono + f * gR1 }
+      let next = idx + 1
+      if next >= combLenR1 { combWriteR1 = 0 } else { combWriteR1 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR2
+      var y = 0.0
+      if idx >= 0 && idx < combLenR2 && idx < COMB_BUF_LEN { y = combR2[idx] }
+      let f = y * damp2 + combStoreR2 * damp1
+      combStoreR2 = f
+      if idx >= 0 && idx < combLenR2 && idx < COMB_BUF_LEN { combR2[idx] = inputMono + f * gR2 }
+      let next = idx + 1
+      if next >= combLenR2 { combWriteR2 = 0 } else { combWriteR2 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR3
+      var y = 0.0
+      if idx >= 0 && idx < combLenR3 && idx < COMB_BUF_LEN { y = combR3[idx] }
+      let f = y * damp2 + combStoreR3 * damp1
+      combStoreR3 = f
+      if idx >= 0 && idx < combLenR3 && idx < COMB_BUF_LEN { combR3[idx] = inputMono + f * gR3 }
+      let next = idx + 1
+      if next >= combLenR3 { combWriteR3 = 0 } else { combWriteR3 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR4
+      var y = 0.0
+      if idx >= 0 && idx < combLenR4 && idx < COMB_BUF_LEN { y = combR4[idx] }
+      let f = y * damp2 + combStoreR4 * damp1
+      combStoreR4 = f
+      if idx >= 0 && idx < combLenR4 && idx < COMB_BUF_LEN { combR4[idx] = inputMono + f * gR4 }
+      let next = idx + 1
+      if next >= combLenR4 { combWriteR4 = 0 } else { combWriteR4 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR5
+      var y = 0.0
+      if idx >= 0 && idx < combLenR5 && idx < COMB_BUF_LEN { y = combR5[idx] }
+      let f = y * damp2 + combStoreR5 * damp1
+      combStoreR5 = f
+      if idx >= 0 && idx < combLenR5 && idx < COMB_BUF_LEN { combR5[idx] = inputMono + f * gR5 }
+      let next = idx + 1
+      if next >= combLenR5 { combWriteR5 = 0 } else { combWriteR5 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR6
+      var y = 0.0
+      if idx >= 0 && idx < combLenR6 && idx < COMB_BUF_LEN { y = combR6[idx] }
+      let f = y * damp2 + combStoreR6 * damp1
+      combStoreR6 = f
+      if idx >= 0 && idx < combLenR6 && idx < COMB_BUF_LEN { combR6[idx] = inputMono + f * gR6 }
+      let next = idx + 1
+      if next >= combLenR6 { combWriteR6 = 0 } else { combWriteR6 = next }
+      accR = accR + y
+    }
+    {
+      let idx = combWriteR7
+      var y = 0.0
+      if idx >= 0 && idx < combLenR7 && idx < COMB_BUF_LEN { y = combR7[idx] }
+      let f = y * damp2 + combStoreR7 * damp1
+      combStoreR7 = f
+      if idx >= 0 && idx < combLenR7 && idx < COMB_BUF_LEN { combR7[idx] = inputMono + f * gR7 }
+      let next = idx + 1
+      if next >= combLenR7 { combWriteR7 = 0 } else { combWriteR7 = next }
+      accR = accR + y
+    }
+
+    var diffL = accL
+    var diffR = accR
+
+    {
+      let idx = apWriteL0
+      var buf = 0.0
+      if idx >= 0 && idx < apLenL0 && idx < AP_BUF_LEN { buf = apL0[idx] }
+      let outAp = -diffL + buf
+      if idx >= 0 && idx < apLenL0 && idx < AP_BUF_LEN { apL0[idx] = diffL + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenL0 { apWriteL0 = 0 } else { apWriteL0 = next }
+      diffL = outAp
+    }
+    {
+      let idx = apWriteL1
+      var buf = 0.0
+      if idx >= 0 && idx < apLenL1 && idx < AP_BUF_LEN { buf = apL1[idx] }
+      let outAp = -diffL + buf
+      if idx >= 0 && idx < apLenL1 && idx < AP_BUF_LEN { apL1[idx] = diffL + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenL1 { apWriteL1 = 0 } else { apWriteL1 = next }
+      diffL = outAp
+    }
+    {
+      let idx = apWriteL2
+      var buf = 0.0
+      if idx >= 0 && idx < apLenL2 && idx < AP_BUF_LEN { buf = apL2[idx] }
+      let outAp = -diffL + buf
+      if idx >= 0 && idx < apLenL2 && idx < AP_BUF_LEN { apL2[idx] = diffL + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenL2 { apWriteL2 = 0 } else { apWriteL2 = next }
+      diffL = outAp
+    }
+    {
+      let idx = apWriteL3
+      var buf = 0.0
+      if idx >= 0 && idx < apLenL3 && idx < AP_BUF_LEN { buf = apL3[idx] }
+      let outAp = -diffL + buf
+      if idx >= 0 && idx < apLenL3 && idx < AP_BUF_LEN { apL3[idx] = diffL + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenL3 { apWriteL3 = 0 } else { apWriteL3 = next }
+      diffL = outAp
+    }
+
+    {
+      let idx = apWriteR0
+      var buf = 0.0
+      if idx >= 0 && idx < apLenR0 && idx < AP_BUF_LEN { buf = apR0[idx] }
+      let outAp = -diffR + buf
+      if idx >= 0 && idx < apLenR0 && idx < AP_BUF_LEN { apR0[idx] = diffR + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenR0 { apWriteR0 = 0 } else { apWriteR0 = next }
+      diffR = outAp
+    }
+    {
+      let idx = apWriteR1
+      var buf = 0.0
+      if idx >= 0 && idx < apLenR1 && idx < AP_BUF_LEN { buf = apR1[idx] }
+      let outAp = -diffR + buf
+      if idx >= 0 && idx < apLenR1 && idx < AP_BUF_LEN { apR1[idx] = diffR + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenR1 { apWriteR1 = 0 } else { apWriteR1 = next }
+      diffR = outAp
+    }
+    {
+      let idx = apWriteR2
+      var buf = 0.0
+      if idx >= 0 && idx < apLenR2 && idx < AP_BUF_LEN { buf = apR2[idx] }
+      let outAp = -diffR + buf
+      if idx >= 0 && idx < apLenR2 && idx < AP_BUF_LEN { apR2[idx] = diffR + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenR2 { apWriteR2 = 0 } else { apWriteR2 = next }
+      diffR = outAp
+    }
+    {
+      let idx = apWriteR3
+      var buf = 0.0
+      if idx >= 0 && idx < apLenR3 && idx < AP_BUF_LEN { buf = apR3[idx] }
+      let outAp = -diffR + buf
+      if idx >= 0 && idx < apLenR3 && idx < AP_BUF_LEN { apR3[idx] = diffR + buf * 0.5 }
+      let next = idx + 1
+      if next >= apLenR3 { apWriteR3 = 0 } else { apWriteR3 = next }
+      diffR = outAp
+    }
+
+    let wetL = diffL * wet1 + diffR * wet2
+    let wetR = diffR * wet1 + diffL * wet2
+
+    outL[i] = inL[i] * dry + wetL
+    outR[i] = inR[i] * dry + wetR
+  }
+}
