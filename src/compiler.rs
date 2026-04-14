@@ -1756,6 +1756,59 @@ mod tests {
         assert_eq!(output, vec![2.0, 4.0, 6.0, 8.0]);
     }
 
+    // Regression: an `f32` `let` used as an intermediate block statement
+    // was lowered as `LocalTeeF + Drop` — a mismatch between the float
+    // tee and the int-window drop. Fusion only rewrites `LocalTeeF +
+    // DropF`, so the bad pair survived all optimization passes and every
+    // execution leaked one float-spill slot. After enough iterations,
+    // `fsp` would march past `float_stack_cap` and corrupt whatever
+    // allocation happened to sit next to `float_stack` in memory.
+    //
+    // With the fix, `translate_void` emits `DropF` for an `f32` let, so
+    // no `LocalTeeF + Drop` pattern survives codegen.
+    #[test]
+    fn f32_let_in_block_does_not_emit_int_drop() {
+        use crate::stack_ir::StackOp;
+        // Two intermediate f32 `let`s in a block. Without the fix, each
+        // one emits `LocalTeeF(slot), Drop` directly from translate_void.
+        let code = r#"
+            var sink: [f32]
+            assume sink.len == 1
+            main {
+                for i in 0 .. 4 {
+                    let x = i as f32
+                    let y = x + x
+                    sink[0] = y
+                }
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+        let program = compiler.compile_stack().expect("stack compile failed");
+        let main = program
+            .functions
+            .iter()
+            .find(|f| f.name == "main")
+            .expect("missing main");
+
+        let bad_pair = main.ops.windows(2).enumerate().find_map(|(i, w)| {
+            match (&w[0], &w[1]) {
+                (StackOp::LocalTeeF(_), StackOp::Drop) => Some(i),
+                _ => None,
+            }
+        });
+        assert!(
+            bad_pair.is_none(),
+            "f32 `let` compiled to LocalTeeF + Drop (int-window drop) at op {}; \
+             this leaks one float-spill slot per execution.\nOps: {:#?}",
+            bad_pair.unwrap(),
+            main.ops,
+        );
+    }
+
     #[test]
     fn global_slices_without_assume_fails() {
         let prelude = r#"

@@ -518,10 +518,18 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_expr(expr, func);
                 func.emit(StackOp::Drop);
             }
-            // Let: translate then drop the result.
+            // Let: translate then drop the result. The let expression's
+            // type is the initializer type, so f32 lets leave the value
+            // on the f-window and need DropF — an int Drop here leaks the
+            // f-window value and eventually overflows the float spill.
             Expr::Let(..) => {
                 self.translate_expr(expr, func);
-                func.emit(StackOp::Drop);
+                let ty = self.expr_type(expr);
+                if matches!(&*ty, Type::Float32) {
+                    func.emit(StackOp::DropF);
+                } else {
+                    func.emit(StackOp::Drop);
+                }
             }
             // Assignment lowering already consults void_ctx and suppresses
             // result materialization when the assigned value is dead.
