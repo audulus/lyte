@@ -53,20 +53,20 @@ but not hot-path codegen:
   VM. LLVM path untouched.
 - `bc72b1c` — pure `cargo fmt`.
 
-## Proposed Fix: Reserve Worst-Case DAG Tail at SCC Entry
+## Fix Options Considered
 
-A non-recursive call graph is a DAG and therefore has bounded depth by
-construction, so functions that are not in any cycle can never on their
-own cause unbounded stack growth. A first cut would be "emit the check
-only for functions in a recursive SCC" — but that is **unsound**: a
-recursive function can walk the counter close to zero and then call a
-chain of non-SCC leaves that never touch the counter, pushing actual
-stack depth past the limit without the trap firing.
+Three approaches were discussed, in order of preference:
 
-The fix is to have each SCC member **reserve its worst-case DAG tail**
-on entry, rather than decrementing by 1.
+### 1. SCC-aware emission with DAG-tail reservation
 
-### Algorithm
+Only emit the check for functions that participate in a recursive cycle,
+but have each SCC member **reserve its worst-case DAG tail** on entry
+rather than just decrementing by 1. This preserves soundness (a
+recursive function cannot walk the counter close to zero and then push
+actual stack depth past the limit via a chain of non-SCC leaves that
+never touch the counter).
+
+**Algorithm:**
 
 1. Build the static call graph over the `DeclTable`.
 2. Run Tarjan's SCC and condense the graph.
@@ -91,7 +91,7 @@ on entry, rather than decrementing by 1.
      `max_dag_depth_from(main) ≤ MAX_CALL_DEPTH` at compile time
      discharges the bound.
 
-### Worked examples
+**Worked examples:**
 
 | Program                                             | Behaviour                                                            |
 | --------------------------------------------------- | -------------------------------------------------------------------- |
@@ -99,42 +99,119 @@ on entry, rather than decrementing by 1.
 | `walk_tree` ⟲ `walk_tree` → `process` → `hash` (tail depth 2) | `walk_tree` decrements by 3 on entry; `process` and `hash` skip |
 | Reverb DSP chain, no recursion anywhere             | Every function skips; all regression recovered                       |
 
-### Handling indirect calls conservatively
+**Indirect calls** must be modelled conservatively: at an indirect call
+site, add edges to every function whose address is taken (or, tighter,
+every function with a matching signature). Lyte's existing escape
+analysis on closures already bounds where closure values can flow, so
+the set of possible indirect targets is much smaller than in C. FFI and
+builtin calls (`assert`, `print`, `sincos`, etc.) are leaves from
+Lyte's perspective and can be ignored as call graph edges.
 
-Higher-order functions, function pointers, and closure invocations must
-be modelled so the analysis stays sound:
+**False positives:** reserving `subtree_max > 1` per recursive call
+means a recursion that previously succeeded at depth `D` now traps at
+roughly `D / subtree_max`. In practice `subtree_max` for typical tails
+is 5–10, and `MAX_CALL_DEPTH` can be raised to compensate since the
+accounting is now precise. For `fib`-shaped pure recursion the
+reservation is 1, unchanged.
 
-- At an indirect call site, add call graph edges to every function
-  whose address is taken (or, tighter, every function with a matching
-  signature).
-- Lyte's existing escape analysis on closures already bounds where
-  closure values can flow, so the set of possible indirect targets is
-  much smaller than in C.
-- FFI / builtin calls (`assert`, `print`, `sincos`, etc.) are leaves
-  from Lyte's perspective and can be ignored as call graph edges —
-  they cannot re-enter Lyte recursively.
+### 2. Disallow recursion entirely
 
-### False positives
+Since Lyte already forbids recursive data structures
+("no recursive data structures, use arrays with indices instead" from
+`CLAUDE.md`), a natural further step is to forbid recursive *functions*
+as well. DSP code — the dominant Lyte workload — essentially never uses
+recursion.
 
-Reserving `subtree_max > 1` per recursive call means a recursion that
-previously succeeded at depth `D` now traps at roughly
-`D / subtree_max`. In practice `subtree_max` for typical tails is 5–10,
-which is usually fine, and `MAX_CALL_DEPTH` can be raised to compensate
-since the accounting is now precise. For `fib`-shaped pure recursion
-the reservation is 1, unchanged.
+Gains:
 
-### Expected win
+- **Every backend gets simpler.** `emit_call_depth_check` /
+  `emit_call_depth_release` disappear from LLVM, Cranelift, the VMs,
+  and the ARM64 ASM path. No more `globals[CALL_DEPTH_OFFSET]`
+  load/store/branch per call.
+- **longjmp/setjmp machinery for stack overflow disappears too** —
+  the only trap kinds left are assert-fail and cancel, which already
+  need longjmp for other reasons.
+- **Fully bounded stack usage at compile time.** Since the call graph
+  is a DAG, `max_dag_depth_from(main)` is a compile-time constant and
+  can be statically checked against any target's stack budget. Free
+  stack-overflow safety, zero runtime cost.
+- **Inlining, escape analysis, and monomorphization all get simpler**
+  when the call graph has no cycles.
+- **Zero regression on reverb and every other DSP program**, because
+  DSP never uses recursion in practice.
 
-In typical DSP code — including the reverb that triggered this report —
-`main` and the entire per-sample call chain form a DAG. Every hot
-function on that path would skip the check entirely, recovering
-essentially all of the regression. Programs that do use recursion
-(`fib`, tree walks, etc.) keep the check only on the recursive SCC,
-which is exactly where the trap is meaningful.
+**Cost:** a handful of existing tests use recursion. As of
+`317cb1a`, the recursive tests in the suite are:
+
+| File | Functions | Kind |
+| --- | --- | --- |
+| `tests/cases/recursion.lyte` | `fact` | direct |
+| `tests/cases/recursion_advanced.lyte` | `fib`, `is_even` ↔ `is_odd` | direct + mutual |
+| `tests/cases/examples/functions.lyte` | `fact` | direct |
+| `tests/cases/traps/stack_overflow.lyte` | `recurse` | intentional infinite |
+
+The stdlib's recursive `quicksort` was already rewritten as iterative
+in commits `2b854ad` and `317cb1a`, using two explicit `[i32; 64]`
+stacks with the "push larger half, loop on smaller" discipline that
+caps stack depth at ⌈log2 a.len⌉ ≤ 31. This also fixed a latent O(n)
+recursion-depth bug on sorted / reverse-sorted / all-equal inputs.
+
+A global ban would require rewriting the three first tests iteratively
+(trivial: `fib`, `fact`, and `is_even`/`is_odd` → `n % 2`) and deleting
+the stack-overflow trap test — the trap machinery it exercises would
+no longer exist.
+
+### 3. Opt-in `--no-recursion` flag (recommended)
+
+Rather than globally banning recursion, expose it as a compile-time
+opt-in flag that mirrors Lyte's existing `--allow-assume` pattern. This
+is the preferred design because it preserves backward compatibility,
+keeps the existing test suite running under the default mode, and lets
+the xcframework build opt in without disturbing anyone else.
+
+**Flag semantics (`--no-recursion`):**
+
+1. **Safety checker:** build the static call graph, run Tarjan's SCC,
+   reject any cycle with a clear error pointing at the offending
+   function(s). Indirect calls handled conservatively as in option 1.
+2. **LLVM / Cranelift codegen:** skip `emit_call_depth_check` and
+   `emit_call_depth_release` entirely. Zero prologue/epilogue overhead,
+   full regression recovered.
+3. **Trap machinery:** stays compiled in for default mode, so
+   `tests/cases/traps/stack_overflow.lyte` continues to pass. Under
+   `--no-recursion`, the counter simply isn't decremented, so the trap
+   is unreachable.
+4. **Static guarantee:** with the flag set, emit
+   `max_dag_depth_from(main) ≤ MAX_CALL_DEPTH` as a compile-time
+   assertion. "Probably won't overflow the stack" becomes a proved
+   property.
+
+**Test suite:** nothing needs to change. Recursive tests run under the
+default mode. The `recursion*.lyte` and `examples/functions.lyte` tests
+would fail under `--no-recursion`, which is exactly the expected
+behaviour — they could optionally gain a `// skip-flag: --no-recursion`
+directive if the flag ever gets tested in CI.
+
+**Rollout plan:**
+
+1. Land the SCC-based safety-checker pass behind `--no-recursion`.
+2. Thread the flag through to the LLVM and Cranelift codegens so they
+   skip the call-depth emission.
+3. Update `build-xcframework.sh` to pass `--no-recursion`, recovering
+   the reverb regression without touching any user code or tests.
+4. Optionally: expose the flag in the Audulus host's compile call and
+   document it in `docs/lyte-dsp-quickstart.md` for DSP authors.
+
+**Naming note:** `--no-recursion` is precise but narrow. A broader name
+like `--realtime` could eventually gate other realtime-hostile features
+(allocation, unbounded loops, non-deterministic work) under one
+umbrella. Pick the broader name now if more such constraints are
+expected; otherwise stay specific and add `--realtime` later as a
+meta-flag that implies `--no-recursion`.
 
 ## Alternative Mitigations
 
-These are lower-priority but worth noting:
+Lower-priority fallbacks that don't require a call-graph pass:
 
 - Gate the depth counter behind a runtime flag that xcframework
   embedders can leave off, since host apps often rely on OS stack
