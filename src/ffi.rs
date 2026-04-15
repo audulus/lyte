@@ -73,12 +73,20 @@ unsafe fn catch_panic(c: *mut LyteCompiler, f: impl FnOnce(&mut LyteCompiler) ->
 
 /// Create a new compiler instance with the given entry point names.
 /// Pass NULL/0 to default to a single "main" entry point.
+///
+/// Compilers created through this FFI enable `--no-recursion` by
+/// default: the safety checker rejects any recursive call graph and
+/// the native backends skip the per-function call-depth check, which
+/// recovers the ~2x DSP regression documented in
+/// docs/LLVM_CALL_DEPTH_REGRESSION.md. Lyte code compiled through the
+/// xcframework must therefore have a DAG call graph.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_compiler_new(
     entry_points: *const *const c_char,
     count: usize,
 ) -> *mut LyteCompiler {
     let mut compiler = Compiler::new();
+    compiler.no_recursion = true;
 
     if !entry_points.is_null() && count > 0 {
         let mut names = Vec::with_capacity(count);
