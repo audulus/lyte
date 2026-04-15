@@ -1,0 +1,25 @@
+// args: --check --no-recursion
+// expected stdout:
+// ❌ ../tests/cases/checker/no_recursion_indirect.lyte:14:12: --no-recursion: indirect call is not allowed (callee must be a direct reference to a top-level function)
+//         return f(n - 1) + 1
+//                ^
+// ❌ ../tests/cases/checker/no_recursion_indirect.lyte:23:19: --no-recursion: indirect call is not allowed (callee must be a direct reference to a top-level function)
+//         g = (|n: i32| g(n - 1))
+//                       ^
+//
+// Indirect calls cannot be modelled by the direct-call graph, so they
+// could otherwise smuggle recursion past --no-recursion via a captured
+// var holding a lambda or a function passed as a parameter.
+apply(f: i32 -> i32, n: i32) -> i32 {
+    return f(n - 1) + 1
+}
+
+good(n: i32) -> i32 {
+    return n + 1
+}
+
+main {
+    var g = |n: i32| 0
+    g = (|n: i32| g(n - 1))
+    print(apply(good, 3))
+}

@@ -1147,14 +1147,20 @@ impl SafetyChecker {
         }
     }
 
-    /// Reject recursive functions (direct or mutual). Builds a static call
-    /// graph over user-defined functions (those with bodies) and runs
-    /// Tarjan's SCC algorithm; any SCC with size > 1 or a self-loop
-    /// produces a SafetyError pointing at the offending function(s).
+    /// Reject recursive functions (direct or mutual) and reject indirect
+    /// calls so that recursion cannot be smuggled in through a captured
+    /// var of function type or through a passed function parameter.
     ///
-    /// Only direct calls are modelled. Indirect calls through function
-    /// pointers or lambdas are ignored, which is sound for detecting
-    /// source-level recursion in DSP code.
+    /// The rule: every call must be a direct reference to a top-level
+    /// function declaration. An `Expr::Call` is direct iff its callee is
+    /// `Expr::Id(name)` where `name` is not locally bound in the enclosing
+    /// function and `name` resolves to at least one top-level function.
+    /// Anything else (calling through a parameter, a `var`/`let` binding,
+    /// a lambda expression, a struct field, etc.) is reported as an
+    /// indirect call at the call site.
+    ///
+    /// Direct calls feed a static call graph; Tarjan's SCC flags any
+    /// cycle with size > 1 or a self-loop.
     pub fn check_recursion(&mut self, decls: &DeclTable) {
         use std::collections::{HashMap, HashSet};
 
@@ -1166,34 +1172,99 @@ impl SafetyChecker {
         let mut nodes: Vec<usize> = Vec::new();
         for (i, decl) in decls.decls.iter().enumerate() {
             if let Decl::Func(f) = decl {
-                if f.body.is_some() && f.size_vars.is_empty() {
+                if f.body.is_some() {
                     node_of.insert(i, nodes.len());
                     nodes.push(i);
                 }
             }
         }
 
-        // 2. Build adjacency: for each function node, collect direct callees
-        //    that are themselves nodes. An unresolved call name (local var,
-        //    builtin without a body, non-function decl) contributes no edge.
+        // 2. Build adjacency AND report indirect calls. For each function,
+        //    first compute the set of lexically-visible local names
+        //    (parameters, var/let bindings, lambda parameters, for-loop
+        //    vars) so we can tell when a call name is shadowed. Then walk
+        //    every `Expr::Call`, classify it as direct or indirect, and
+        //    either add an edge or emit a diagnostic.
         let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
         for (node_idx, &decl_idx) in nodes.iter().enumerate() {
             let Decl::Func(func) = &decls.decls[decl_idx] else {
                 continue;
             };
-            let mut callees: HashSet<usize> = HashSet::new();
+
+            // Flat local-binding set. Over-approximates scope (a lambda
+            // param is treated as in-scope for the whole enclosing
+            // function), which is sound and only risks the mild false
+            // positive of a top-level function shadowed by a lambda
+            // parameter of the same name.
+            let mut local: HashSet<Name> = HashSet::new();
+            for p in &func.params {
+                local.insert(p.name);
+            }
             for expr in &func.arena.exprs {
-                if let Expr::Call(callee_id, _) = expr {
-                    if let Expr::Id(name) = &func.arena.exprs[*callee_id] {
-                        for (i, cand) in decls.decls.iter().enumerate() {
-                            if let Decl::Func(cand_fn) = cand {
-                                if cand_fn.name == *name && cand_fn.body.is_some() {
-                                    if let Some(&cn) = node_of.get(&i) {
+                match expr {
+                    Expr::Let(name, _, _) => {
+                        local.insert(*name);
+                    }
+                    Expr::Var(name, _, _) => {
+                        local.insert(*name);
+                    }
+                    Expr::For { var, .. } => {
+                        local.insert(*var);
+                    }
+                    Expr::Lambda { params, .. } => {
+                        for p in params {
+                            local.insert(p.name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut callees: HashSet<usize> = HashSet::new();
+            for (i, expr) in func.arena.exprs.iter().enumerate() {
+                let Expr::Call(callee_id, _) = expr else {
+                    continue;
+                };
+
+                // Direct iff callee is an Id naming a top-level function
+                // that isn't shadowed by a local binding. Builtins and
+                // extern decls (body: None) still count as direct — they
+                // just contribute no edges to the graph.
+                let direct_name: Option<Name> = match &func.arena.exprs[*callee_id] {
+                    Expr::Id(name) if !local.contains(name) => {
+                        let resolves_to_fn = decls
+                            .decls
+                            .iter()
+                            .any(|d| matches!(d, Decl::Func(df) if df.name == *name));
+                        if resolves_to_fn {
+                            Some(*name)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                match direct_name {
+                    Some(name) => {
+                        for (di, d) in decls.decls.iter().enumerate() {
+                            if let Decl::Func(df) = d {
+                                if df.name == name && df.body.is_some() {
+                                    if let Some(&cn) = node_of.get(&di) {
                                         callees.insert(cn);
                                     }
                                 }
                             }
                         }
+                    }
+                    None => {
+                        self.errors.push(SafetyError {
+                            location: func.arena.locs[i],
+                            message:
+                                "--no-recursion: indirect call is not allowed \
+                                 (callee must be a direct reference to a top-level function)"
+                                    .to_string(),
+                        });
                     }
                 }
             }
