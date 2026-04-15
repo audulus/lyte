@@ -159,28 +159,57 @@ cmp(lhs: f32, rhs: f32) -> i32 {
 
 // --- Sorting (in-place via slices, generic) ---
 
+// Push larger half, loop on smaller: caps stack depth at log2(a.len).
 quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
-    if lo < hi {
-        assume lo >= 0
-        assume hi >= 0
-        assume hi < a.len
+    var lo_stk: [i32; 64]
+    var hi_stk: [i32; 64]
+    lo_stk[0] = lo
+    hi_stk[0] = hi
+    var top = 1
 
-        let pivot_val = a[hi]
-        var i = lo
-        for j in lo .. hi {
-            if cmp(a[j], pivot_val) < 0 {
-                var tmp = a[i]
-                a[i] = a[j]
-                a[j] = tmp
-                i = i + 1
+    while top > 0 {
+        top = top - 1
+        assume top >= 0 && top < 64
+        var cur_lo = lo_stk[top]
+        var cur_hi = hi_stk[top]
+
+        while cur_lo < cur_hi {
+            assume cur_lo >= 0
+            assume cur_hi >= 0
+            assume cur_hi < a.len
+
+            let pivot_val = a[cur_hi]
+            var i = cur_lo
+            for j in cur_lo .. cur_hi {
+                if cmp(a[j], pivot_val) < 0 {
+                    var tmp = a[i]
+                    a[i] = a[j]
+                    a[j] = tmp
+                    i = i + 1
+                }
+            }
+            var tmp = a[i]
+            a[i] = a[cur_hi]
+            a[cur_hi] = tmp
+            var pivot = i
+
+            let left_hi = pivot - 1
+            let right_lo = pivot + 1
+            let left_size = left_hi - cur_lo
+            let right_size = cur_hi - right_lo
+            assume top >= 0 && top < 64
+            if left_size > right_size {
+                lo_stk[top] = cur_lo
+                hi_stk[top] = left_hi
+                top = top + 1
+                cur_lo = right_lo
+            } else {
+                lo_stk[top] = right_lo
+                hi_stk[top] = cur_hi
+                top = top + 1
+                cur_hi = left_hi
             }
         }
-        var tmp = a[i]
-        a[i] = a[hi]
-        a[hi] = tmp
-        var pivot = i
-        quicksort(a, lo, pivot - 1)
-        quicksort(a, pivot + 1, hi)
     }
 }
 
