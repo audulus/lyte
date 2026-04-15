@@ -53,21 +53,51 @@ but not hot-path codegen:
   VM. LLVM path untouched.
 - `bc72b1c` — pure `cargo fmt`.
 
-## Proposed Fix: Emit the Check Only for Functions in Recursive Cycles
+## Proposed Fix: Reserve Worst-Case DAG Tail at SCC Entry
 
 A non-recursive call graph is a DAG and therefore has bounded depth by
-construction, so functions that are not in any cycle can never
-contribute to unbounded recursion. The check only needs to exist for
-functions that are actually part of a recursive cycle, direct or
-indirect.
+construction, so functions that are not in any cycle can never on their
+own cause unbounded stack growth. A first cut would be "emit the check
+only for functions in a recursive SCC" — but that is **unsound**: a
+recursive function can walk the counter close to zero and then call a
+chain of non-SCC leaves that never touch the counter, pushing actual
+stack depth past the limit without the trap firing.
+
+The fix is to have each SCC member **reserve its worst-case DAG tail**
+on entry, rather than decrementing by 1.
 
 ### Algorithm
 
 1. Build the static call graph over the `DeclTable`.
-2. Run Tarjan's SCC.
-3. A function needs `emit_call_depth_check` / `emit_call_depth_release`
-   iff it lies in an SCC with a self-loop or size > 1.
-4. Everything else gets a clean prologue/epilogue.
+2. Run Tarjan's SCC and condense the graph.
+3. Compute, for every function `f`:
+
+   ```
+   subtree_max(f) = 1 + max over DAG successors of subtree_max(g)
+   ```
+
+   via a reverse-topological walk over the condensed graph. Each SCC is
+   treated as a single node whose `subtree_max` is the max across its
+   members.
+4. Codegen rules:
+   - **SCC members** (function in an SCC with size > 1 or a self-loop):
+     on entry, decrement counter by `subtree_max(f)` and check; on
+     return, add `subtree_max(f)` back.
+   - **Non-SCC functions**: skip both the check and the release. Any
+     enclosing SCC entry already reserved enough budget to cover their
+     frames.
+   - **Pure DAG programs**: no SCC members exist, so every function
+     skips. A single static assertion
+     `max_dag_depth_from(main) ≤ MAX_CALL_DEPTH` at compile time
+     discharges the bound.
+
+### Worked examples
+
+| Program                                             | Behaviour                                                            |
+| --------------------------------------------------- | -------------------------------------------------------------------- |
+| `fib` self-recursion, no descendants                | `subtree_max(fib) = 1` — decrements by 1 per call, same cost as today |
+| `walk_tree` ⟲ `walk_tree` → `process` → `hash` (tail depth 2) | `walk_tree` decrements by 3 on entry; `process` and `hash` skip |
+| Reverb DSP chain, no recursion anywhere             | Every function skips; all regression recovered                       |
 
 ### Handling indirect calls conservatively
 
@@ -84,6 +114,15 @@ be modelled so the analysis stays sound:
   from Lyte's perspective and can be ignored as call graph edges —
   they cannot re-enter Lyte recursively.
 
+### False positives
+
+Reserving `subtree_max > 1` per recursive call means a recursion that
+previously succeeded at depth `D` now traps at roughly
+`D / subtree_max`. In practice `subtree_max` for typical tails is 5–10,
+which is usually fine, and `MAX_CALL_DEPTH` can be raised to compensate
+since the accounting is now precise. For `fib`-shaped pure recursion
+the reservation is 1, unchanged.
+
 ### Expected win
 
 In typical DSP code — including the reverb that triggered this report —
@@ -92,15 +131,6 @@ function on that path would skip the check entirely, recovering
 essentially all of the regression. Programs that do use recursion
 (`fib`, tree walks, etc.) keep the check only on the recursive SCC,
 which is exactly where the trap is meaningful.
-
-### Cheaper first cut
-
-If threading a call graph pass through the existing codegen is
-inconvenient, a simpler intermediate step is to skip the check for any
-function with **no call instructions at all** (pure leaves). This
-captures trivial math helpers and gets a large fraction of the win
-without requiring SCC machinery, and the full cycle-aware version can
-be layered on afterwards.
 
 ## Alternative Mitigations
 
