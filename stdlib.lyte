@@ -160,11 +160,11 @@ cmp(lhs: f32, rhs: f32) -> i32 {
 // --- Sorting (in-place via slices, generic) ---
 
 // Push larger half, loop on smaller: caps stack depth at log2(a.len).
-quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
+quicksort<T>(a: [T]) where Compare<T> {
     var lo_stk: [i32; 64]
     var hi_stk: [i32; 64]
-    lo_stk[0] = lo
-    hi_stk[0] = hi
+    lo_stk[0] = 0
+    hi_stk[0] = a.len - 1
     var top = 1
 
     while top > 0 {
@@ -214,7 +214,7 @@ quicksort<T>(a: [T], lo: i32, hi: i32) where Compare<T> {
 }
 
 sort<T>(a: [T]) where Compare<T> {
-    quicksort(a, 0, a.len - 1)
+    quicksort(a)
 }
 
 // --- String functions ---

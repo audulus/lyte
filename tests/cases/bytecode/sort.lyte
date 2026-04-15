@@ -85,118 +85,114 @@ main {
 //     52: Move { dst: 0, src: 1 }
 //     53: RestoreRegs { start_reg: 1, count: 10, slot: 40024 }
 //     54: Return
-// fn sort$i32 (params: 1, locals: 88 bytes):
-//      0: SaveRegs { start_reg: 0, count: 9, slot: 16 }
+// fn sort$i32 (params: 1, locals: 40 bytes):
+//      0: SaveRegs { start_reg: 0, count: 3, slot: 16 }
 //      1: LocalAddr { dst: 1, slot: 0 }  ; a
 //      2: MemCopy { dst: 1, src: 0, size: 12 }
-//      3: LoadImm { dst: 2, value: 0 }
-//      4: Load32Off { dst: 3, base: 1, offset: 8 }
-//      5: LoadImm { dst: 4, value: 1 }
-//      6: ISub { dst: 5, a: 3, b: 4 }
-//      7: Move { dst: 6, src: 1 }
-//      8: Move { dst: 7, src: 2 }
-//      9: Move { dst: 8, src: 5 }
-//     10: Call { func: 2, args_start: 6, arg_count: 3 }
-//     11: RestoreRegs { start_reg: 1, count: 8, slot: 24 }
-//     12: Return
+//      3: Move { dst: 2, src: 1 }
+//      4: Call { func: 2, args_start: 2, arg_count: 1 }
+//      5: RestoreRegs { start_reg: 1, count: 2, slot: 24 }
+//      6: Return
 // locals:
 //   slot 0	a
-// fn quicksort$i32 (params: 3, locals: 624 bytes):
+// fn quicksort$i32 (params: 1, locals: 624 bytes):
 //      0: SaveRegs { start_reg: 0, count: 12, slot: 528 }
-//      1: LocalAddr { dst: 3, slot: 0 }  ; a
-//      2: MemCopy { dst: 3, src: 0, size: 12 }
-//      3: LocalAddr { dst: 4, slot: 2 }
-//      4: MemZero { dst: 4, size: 256 }
-//      5: LocalAddr { dst: 5, slot: 34 }
-//      6: MemZero { dst: 5, size: 256 }
-//      7: LoadImm { dst: 6, value: 0 }
-//      8: LoadImm { dst: 7, value: 4 }
-//      9: IMul { dst: 8, a: 6, b: 7 }
-//     10: IAdd { dst: 6, a: 4, b: 8 }
-//     11: Store32 { addr: 6, src: 1 }
-//     12: LoadImm { dst: 1, value: 0 }
-//     13: LoadImm { dst: 6, value: 4 }
-//     14: IMul { dst: 7, a: 1, b: 6 }
-//     15: IAdd { dst: 1, a: 5, b: 7 }
-//     16: Store32 { addr: 1, src: 2 }
-//     17: LoadImm { dst: 1, value: 1 }
-// =>  18: LoadImm { dst: 2, value: 0 }
-//     19: ILtJump { a: 2, b: 1, offset: 69 }
-//     20: LoadImm { dst: 2, value: 1 }
-//     21: ISub { dst: 1, a: 1, b: 2 }
-//     22: LocalAddr { dst: 4, slot: 2 }
-//     23: LoadImm { dst: 2, value: 4 }
-//     24: IMul { dst: 6, a: 1, b: 2 }
-//     25: IAdd { dst: 2, a: 4, b: 6 }
-//     26: Load32 { dst: 6, addr: 2 }
-//     27: LocalAddr { dst: 5, slot: 34 }
-//     28: LoadImm { dst: 2, value: 4 }
-//     29: IMul { dst: 7, a: 1, b: 2 }
-//     30: IAdd { dst: 2, a: 5, b: 7 }
-//     31: Load32 { dst: 7, addr: 2 }
-// =>  32: ILtJump { a: 6, b: 7, offset: 55 }
-//     33: LocalAddr { dst: 3, slot: 0 }  ; a
-//     34: SliceLoad32 { dst: 2, slice: 3, index: 7 }
-//     35: Move { dst: 8, src: 6 }
-//     36: Move { dst: 9, src: 6 }
-// =>  37: ILtJump { a: 9, b: 7, offset: 14 }
-//     38: LocalAddr { dst: 3, slot: 0 }  ; a
-//     39: SliceLoad32 { dst: 10, slice: 3, index: 9 }
-//     40: ISub { dst: 11, a: 10, b: 2 }
-//     41: LoadImm { dst: 10, value: 0 }
-//     42: ILtJump { a: 11, b: 10, offset: 7 }
-//     43: LocalAddr { dst: 3, slot: 0 }  ; a
-//     44: SliceLoad32 { dst: 10, slice: 3, index: 8 }
-//     45: SliceLoad32 { dst: 11, slice: 3, index: 9 }
-//     46: SliceStore32 { slice: 3, index: 8, src: 11 }
-//     47: SliceStore32 { slice: 3, index: 9, src: 10 }
-//     48: LoadImm { dst: 10, value: 1 }
-//     49: IAdd { dst: 8, a: 8, b: 10 }
-// =>  50: IAddImm { dst: 9, src: 9, imm: 1 }
-//     51: Jump { offset: -15 }
-// =>  52: LocalAddr { dst: 3, slot: 0 }  ; a
-//     53: SliceLoad32 { dst: 2, slice: 3, index: 8 }
-//     54: SliceLoad32 { dst: 9, slice: 3, index: 7 }
-//     55: SliceStore32 { slice: 3, index: 8, src: 9 }
-//     56: SliceStore32 { slice: 3, index: 7, src: 2 }
-//     57: LoadImm { dst: 2, value: 1 }
-//     58: ISub { dst: 9, a: 8, b: 2 }
-//     59: LoadImm { dst: 2, value: 1 }
-//     60: IAdd { dst: 10, a: 8, b: 2 }
-//     61: ISub { dst: 2, a: 9, b: 6 }
-//     62: ISub { dst: 8, a: 7, b: 10 }
-//     63: ILtJump { a: 8, b: 2, offset: 12 }
-//     64: LoadImm { dst: 2, value: 4 }
-//     65: IMul { dst: 8, a: 1, b: 2 }
-//     66: IAdd { dst: 2, a: 4, b: 8 }
-//     67: Store32 { addr: 2, src: 6 }
-//     68: LoadImm { dst: 2, value: 4 }
-//     69: IMul { dst: 8, a: 1, b: 2 }
-//     70: IAdd { dst: 2, a: 5, b: 8 }
-//     71: Store32 { addr: 2, src: 9 }
-//     72: LoadImm { dst: 2, value: 1 }
-//     73: IAdd { dst: 1, a: 1, b: 2 }
-//     74: Move { dst: 6, src: 10 }
-//     75: Jump { offset: 11 }
-// =>  76: LoadImm { dst: 2, value: 4 }
-//     77: IMul { dst: 8, a: 1, b: 2 }
-//     78: IAdd { dst: 2, a: 4, b: 8 }
-//     79: Store32 { addr: 2, src: 10 }
-//     80: LoadImm { dst: 2, value: 4 }
-//     81: IMul { dst: 8, a: 1, b: 2 }
-//     82: IAdd { dst: 2, a: 5, b: 8 }
-//     83: Store32 { addr: 2, src: 7 }
-//     84: LoadImm { dst: 2, value: 1 }
-//     85: IAdd { dst: 1, a: 1, b: 2 }
-//     86: Move { dst: 7, src: 9 }
-// =>  87: Jump { offset: -56 }
-// =>  88: Jump { offset: -71 }
-// =>  89: LoadImm { dst: 1, value: 0 }
-//     90: Move { dst: 0, src: 1 }
-//     91: RestoreRegs { start_reg: 1, count: 11, slot: 536 }
-//     92: Return
+//      1: LocalAddr { dst: 1, slot: 0 }  ; a
+//      2: MemCopy { dst: 1, src: 0, size: 12 }
+//      3: LocalAddr { dst: 2, slot: 2 }
+//      4: MemZero { dst: 2, size: 256 }
+//      5: LocalAddr { dst: 3, slot: 34 }
+//      6: MemZero { dst: 3, size: 256 }
+//      7: LoadImm { dst: 4, value: 0 }
+//      8: LoadImm { dst: 5, value: 0 }
+//      9: LoadImm { dst: 6, value: 4 }
+//     10: IMul { dst: 7, a: 5, b: 6 }
+//     11: IAdd { dst: 5, a: 2, b: 7 }
+//     12: Store32 { addr: 5, src: 4 }
+//     13: Load32Off { dst: 4, base: 1, offset: 8 }
+//     14: LoadImm { dst: 5, value: 1 }
+//     15: ISub { dst: 6, a: 4, b: 5 }
+//     16: LoadImm { dst: 4, value: 0 }
+//     17: LoadImm { dst: 5, value: 4 }
+//     18: IMul { dst: 7, a: 4, b: 5 }
+//     19: IAdd { dst: 4, a: 3, b: 7 }
+//     20: Store32 { addr: 4, src: 6 }
+//     21: LoadImm { dst: 4, value: 1 }
+// =>  22: LoadImm { dst: 5, value: 0 }
+//     23: ILtJump { a: 5, b: 4, offset: 69 }
+//     24: LoadImm { dst: 5, value: 1 }
+//     25: ISub { dst: 4, a: 4, b: 5 }
+//     26: LocalAddr { dst: 2, slot: 2 }
+//     27: LoadImm { dst: 5, value: 4 }
+//     28: IMul { dst: 6, a: 4, b: 5 }
+//     29: IAdd { dst: 5, a: 2, b: 6 }
+//     30: Load32 { dst: 6, addr: 5 }
+//     31: LocalAddr { dst: 3, slot: 34 }
+//     32: LoadImm { dst: 5, value: 4 }
+//     33: IMul { dst: 7, a: 4, b: 5 }
+//     34: IAdd { dst: 5, a: 3, b: 7 }
+//     35: Load32 { dst: 7, addr: 5 }
+// =>  36: ILtJump { a: 6, b: 7, offset: 55 }
+//     37: LocalAddr { dst: 1, slot: 0 }  ; a
+//     38: SliceLoad32 { dst: 5, slice: 1, index: 7 }
+//     39: Move { dst: 8, src: 6 }
+//     40: Move { dst: 9, src: 6 }
+// =>  41: ILtJump { a: 9, b: 7, offset: 14 }
+//     42: LocalAddr { dst: 1, slot: 0 }  ; a
+//     43: SliceLoad32 { dst: 10, slice: 1, index: 9 }
+//     44: ISub { dst: 11, a: 10, b: 5 }
+//     45: LoadImm { dst: 10, value: 0 }
+//     46: ILtJump { a: 11, b: 10, offset: 7 }
+//     47: LocalAddr { dst: 1, slot: 0 }  ; a
+//     48: SliceLoad32 { dst: 10, slice: 1, index: 8 }
+//     49: SliceLoad32 { dst: 11, slice: 1, index: 9 }
+//     50: SliceStore32 { slice: 1, index: 8, src: 11 }
+//     51: SliceStore32 { slice: 1, index: 9, src: 10 }
+//     52: LoadImm { dst: 10, value: 1 }
+//     53: IAdd { dst: 8, a: 8, b: 10 }
+// =>  54: IAddImm { dst: 9, src: 9, imm: 1 }
+//     55: Jump { offset: -15 }
+// =>  56: LocalAddr { dst: 1, slot: 0 }  ; a
+//     57: SliceLoad32 { dst: 5, slice: 1, index: 8 }
+//     58: SliceLoad32 { dst: 9, slice: 1, index: 7 }
+//     59: SliceStore32 { slice: 1, index: 8, src: 9 }
+//     60: SliceStore32 { slice: 1, index: 7, src: 5 }
+//     61: LoadImm { dst: 5, value: 1 }
+//     62: ISub { dst: 9, a: 8, b: 5 }
+//     63: LoadImm { dst: 5, value: 1 }
+//     64: IAdd { dst: 10, a: 8, b: 5 }
+//     65: ISub { dst: 5, a: 9, b: 6 }
+//     66: ISub { dst: 8, a: 7, b: 10 }
+//     67: ILtJump { a: 8, b: 5, offset: 12 }
+//     68: LoadImm { dst: 5, value: 4 }
+//     69: IMul { dst: 8, a: 4, b: 5 }
+//     70: IAdd { dst: 5, a: 2, b: 8 }
+//     71: Store32 { addr: 5, src: 6 }
+//     72: LoadImm { dst: 5, value: 4 }
+//     73: IMul { dst: 8, a: 4, b: 5 }
+//     74: IAdd { dst: 5, a: 3, b: 8 }
+//     75: Store32 { addr: 5, src: 9 }
+//     76: LoadImm { dst: 5, value: 1 }
+//     77: IAdd { dst: 4, a: 4, b: 5 }
+//     78: Move { dst: 6, src: 10 }
+//     79: Jump { offset: 11 }
+// =>  80: LoadImm { dst: 5, value: 4 }
+//     81: IMul { dst: 8, a: 4, b: 5 }
+//     82: IAdd { dst: 5, a: 2, b: 8 }
+//     83: Store32 { addr: 5, src: 10 }
+//     84: LoadImm { dst: 5, value: 4 }
+//     85: IMul { dst: 8, a: 4, b: 5 }
+//     86: IAdd { dst: 5, a: 3, b: 8 }
+//     87: Store32 { addr: 5, src: 7 }
+//     88: LoadImm { dst: 5, value: 1 }
+//     89: IAdd { dst: 4, a: 4, b: 5 }
+//     90: Move { dst: 7, src: 9 }
+// =>  91: Jump { offset: -56 }
+// =>  92: Jump { offset: -71 }
+// =>  93: LoadImm { dst: 1, value: 0 }
+//     94: Move { dst: 0, src: 1 }
+//     95: RestoreRegs { start_reg: 1, count: 11, slot: 536 }
+//     96: Return
 // locals:
-//   r4	lo
-//   r5	hi
 //   slot 0	a
 
