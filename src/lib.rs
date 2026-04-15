@@ -21,6 +21,9 @@ pub use checker::*;
 mod interval;
 pub use interval::*;
 
+mod scc;
+pub use scc::*;
+
 mod safety_checker;
 pub use safety_checker::*;
 

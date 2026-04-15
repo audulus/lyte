@@ -1483,69 +1483,8 @@ impl SafetyChecker {
             adj[node_idx] = callees.into_iter().collect();
         }
 
-        // 3. Tarjan's SCC (iterative, to avoid unbounded Rust stack growth
-        //    on deep DAGs — the stdlib alone contributes dozens of nodes).
-        let n = nodes.len();
-        let mut index_of: Vec<i32> = vec![-1; n];
-        let mut lowlink: Vec<i32> = vec![0; n];
-        let mut on_stack: Vec<bool> = vec![false; n];
-        let mut stack: Vec<usize> = Vec::new();
-        let mut sccs: Vec<Vec<usize>> = Vec::new();
-        let mut next_index: i32 = 0;
-
-        // Work item: (node, next adjacency slot to visit).
-        let mut work: Vec<(usize, usize)> = Vec::new();
-
-        for root in 0..n {
-            if index_of[root] != -1 {
-                continue;
-            }
-            index_of[root] = next_index;
-            lowlink[root] = next_index;
-            next_index += 1;
-            stack.push(root);
-            on_stack[root] = true;
-            work.push((root, 0));
-
-            while let Some(&(v, next_i)) = work.last() {
-                if next_i < adj[v].len() {
-                    let w = adj[v][next_i];
-                    work.last_mut().unwrap().1 += 1;
-                    if index_of[w] == -1 {
-                        index_of[w] = next_index;
-                        lowlink[w] = next_index;
-                        next_index += 1;
-                        stack.push(w);
-                        on_stack[w] = true;
-                        work.push((w, 0));
-                    } else if on_stack[w] {
-                        if index_of[w] < lowlink[v] {
-                            lowlink[v] = index_of[w];
-                        }
-                    }
-                } else {
-                    // Done with v: if it's an SCC root, pop the component.
-                    if lowlink[v] == index_of[v] {
-                        let mut scc = Vec::new();
-                        loop {
-                            let w = stack.pop().unwrap();
-                            on_stack[w] = false;
-                            scc.push(w);
-                            if w == v {
-                                break;
-                            }
-                        }
-                        sccs.push(scc);
-                    }
-                    work.pop();
-                    if let Some(&(parent, _)) = work.last() {
-                        if lowlink[v] < lowlink[parent] {
-                            lowlink[parent] = lowlink[v];
-                        }
-                    }
-                }
-            }
-        }
+        // 3. Run Tarjan's SCC on the adjacency list.
+        let sccs = strongly_connected_components(&adj);
 
         // 4. Report cycles. SCC size > 1 is always a cycle; size 1 is a
         //    cycle only if the single node has a self-edge.
@@ -1564,13 +1503,7 @@ impl SafetyChecker {
         };
 
         for scc in &sccs {
-            let is_cycle = if scc.len() > 1 {
-                true
-            } else {
-                let v = scc[0];
-                adj[v].contains(&v)
-            };
-            if !is_cycle {
+            if !scc_is_cycle(scc, &adj) {
                 continue;
             }
 
