@@ -1,0 +1,13 @@
+// args: --check --no-recursion
+// expected stdout:
+// ❌ ../tests/cases/checker/no_recursion_direct.lyte:6:5: --no-recursion: function `fact` is recursive
+//     fact(x: i32) -> i32 {
+//         ^
+fact(x: i32) -> i32 {
+    if x == 1 { return 1 }
+    return x * fact(x - 1)
+}
+
+main {
+    print(fact(4))
+}

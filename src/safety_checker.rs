@@ -1147,6 +1147,175 @@ impl SafetyChecker {
         }
     }
 
+    /// Reject recursive functions (direct or mutual). Builds a static call
+    /// graph over user-defined functions (those with bodies) and runs
+    /// Tarjan's SCC algorithm; any SCC with size > 1 or a self-loop
+    /// produces a SafetyError pointing at the offending function(s).
+    ///
+    /// Only direct calls are modelled. Indirect calls through function
+    /// pointers or lambdas are ignored, which is sound for detecting
+    /// source-level recursion in DSP code.
+    pub fn check_recursion(&mut self, decls: &DeclTable) {
+        use std::collections::{HashMap, HashSet};
+
+        // 1. Collect graph nodes: every function with a body becomes a node,
+        //    keyed by its index in `decls.decls`. Using indices (not names)
+        //    disambiguates overloads: two functions with the same name but
+        //    different signatures are distinct nodes.
+        let mut node_of: HashMap<usize, usize> = HashMap::new();
+        let mut nodes: Vec<usize> = Vec::new();
+        for (i, decl) in decls.decls.iter().enumerate() {
+            if let Decl::Func(f) = decl {
+                if f.body.is_some() && f.size_vars.is_empty() {
+                    node_of.insert(i, nodes.len());
+                    nodes.push(i);
+                }
+            }
+        }
+
+        // 2. Build adjacency: for each function node, collect direct callees
+        //    that are themselves nodes. An unresolved call name (local var,
+        //    builtin without a body, non-function decl) contributes no edge.
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        for (node_idx, &decl_idx) in nodes.iter().enumerate() {
+            let Decl::Func(func) = &decls.decls[decl_idx] else {
+                continue;
+            };
+            let mut callees: HashSet<usize> = HashSet::new();
+            for expr in &func.arena.exprs {
+                if let Expr::Call(callee_id, _) = expr {
+                    if let Expr::Id(name) = &func.arena.exprs[*callee_id] {
+                        for (i, cand) in decls.decls.iter().enumerate() {
+                            if let Decl::Func(cand_fn) = cand {
+                                if cand_fn.name == *name && cand_fn.body.is_some() {
+                                    if let Some(&cn) = node_of.get(&i) {
+                                        callees.insert(cn);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            adj[node_idx] = callees.into_iter().collect();
+        }
+
+        // 3. Tarjan's SCC (iterative, to avoid unbounded Rust stack growth
+        //    on deep DAGs — the stdlib alone contributes dozens of nodes).
+        let n = nodes.len();
+        let mut index_of: Vec<i32> = vec![-1; n];
+        let mut lowlink: Vec<i32> = vec![0; n];
+        let mut on_stack: Vec<bool> = vec![false; n];
+        let mut stack: Vec<usize> = Vec::new();
+        let mut sccs: Vec<Vec<usize>> = Vec::new();
+        let mut next_index: i32 = 0;
+
+        // Work item: (node, next adjacency slot to visit).
+        let mut work: Vec<(usize, usize)> = Vec::new();
+
+        for root in 0..n {
+            if index_of[root] != -1 {
+                continue;
+            }
+            index_of[root] = next_index;
+            lowlink[root] = next_index;
+            next_index += 1;
+            stack.push(root);
+            on_stack[root] = true;
+            work.push((root, 0));
+
+            while let Some(&(v, next_i)) = work.last() {
+                if next_i < adj[v].len() {
+                    let w = adj[v][next_i];
+                    work.last_mut().unwrap().1 += 1;
+                    if index_of[w] == -1 {
+                        index_of[w] = next_index;
+                        lowlink[w] = next_index;
+                        next_index += 1;
+                        stack.push(w);
+                        on_stack[w] = true;
+                        work.push((w, 0));
+                    } else if on_stack[w] {
+                        if index_of[w] < lowlink[v] {
+                            lowlink[v] = index_of[w];
+                        }
+                    }
+                } else {
+                    // Done with v: if it's an SCC root, pop the component.
+                    if lowlink[v] == index_of[v] {
+                        let mut scc = Vec::new();
+                        loop {
+                            let w = stack.pop().unwrap();
+                            on_stack[w] = false;
+                            scc.push(w);
+                            if w == v {
+                                break;
+                            }
+                        }
+                        sccs.push(scc);
+                    }
+                    work.pop();
+                    if let Some(&(parent, _)) = work.last() {
+                        if lowlink[v] < lowlink[parent] {
+                            lowlink[parent] = lowlink[v];
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Report cycles. SCC size > 1 is always a cycle; size 1 is a cycle
+        //    only if the single node has a self-edge.
+        for scc in &sccs {
+            let is_cycle = if scc.len() > 1 {
+                true
+            } else {
+                let v = scc[0];
+                adj[v].contains(&v)
+            };
+            if !is_cycle {
+                continue;
+            }
+
+            if scc.len() == 1 {
+                let decl_idx = nodes[scc[0]];
+                if let Decl::Func(f) = &decls.decls[decl_idx] {
+                    self.errors.push(SafetyError {
+                        location: f.loc,
+                        message: format!(
+                            "--no-recursion: function `{}` is recursive",
+                            f.name
+                        ),
+                    });
+                }
+            } else {
+                let names: Vec<String> = scc
+                    .iter()
+                    .map(|&n| {
+                        if let Decl::Func(f) = &decls.decls[nodes[n]] {
+                            f.name.to_string()
+                        } else {
+                            String::new()
+                        }
+                    })
+                    .collect();
+                let cycle_desc = names.join(", ");
+                for &n in scc {
+                    let decl_idx = nodes[n];
+                    if let Decl::Func(f) = &decls.decls[decl_idx] {
+                        self.errors.push(SafetyError {
+                            location: f.loc,
+                            message: format!(
+                                "--no-recursion: function `{}` participates in a recursive cycle [{}]",
+                                f.name, cycle_desc
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     pub fn print_errors(&self) {
         for err in &self.errors {
             print_error_with_context(err.location, &err.message);

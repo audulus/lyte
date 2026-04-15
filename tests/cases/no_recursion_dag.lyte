@@ -1,0 +1,15 @@
+// args: --no-recursion
+// expected stdout:
+// compilation successful
+// 42
+helper(x: i32) -> i32 {
+    return x + 1
+}
+
+pipeline(x: i32) -> i32 {
+    return helper(x) * 2
+}
+
+main {
+    print(pipeline(20))
+}

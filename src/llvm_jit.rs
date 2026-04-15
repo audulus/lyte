@@ -427,6 +427,9 @@ fn build_fn_type<'ctx>(
 pub struct LLVMJIT {
     pub print_ir: bool,
     pub ir_only: bool,
+    /// When true, skip emission of call-depth prologue/epilogue. Requires
+    /// the safety checker to have rejected recursion.
+    pub no_recursion: bool,
 }
 
 /// Compile entry points and prepare the LLVM module (shared by compile_and_run and compile-only).
@@ -436,6 +439,7 @@ fn compile_with_context<'ctx>(
     decls: &DeclTable,
     entry_points: &[Name],
     print_ir: bool,
+    no_recursion: bool,
 ) -> Result<(LLVMJITState<'ctx>, Duration), String> {
     let mut state = LLVMJITState {
         context,
@@ -446,6 +450,7 @@ fn compile_with_context<'ctx>(
         defined_functions: HashSet::new(),
         lambda_counter: 0,
         print_ir,
+        no_recursion,
         extern_fns: Vec::new(),
     };
 
@@ -526,8 +531,10 @@ fn compile_and_run_with_context(
     entry_points: &[Name],
     print_ir: bool,
     ir_only: bool,
+    no_recursion: bool,
 ) -> Result<(u32, Duration, Duration), String> {
-    let (state, compile_elapsed) = compile_with_context(context, decls, entry_points, print_ir)?;
+    let (state, compile_elapsed) =
+        compile_with_context(context, decls, entry_points, print_ir, no_recursion)?;
 
     if ir_only {
         return Ok((crate::cancel::TRAP_NONE, compile_elapsed, Duration::ZERO));
@@ -608,6 +615,7 @@ impl LLVMJIT {
         Self {
             print_ir: false,
             ir_only: false,
+            no_recursion: false,
         }
     }
 
@@ -627,7 +635,7 @@ impl LLVMJIT {
         let context_ref: &'static Context = unsafe { &*(context.as_ref() as *const Context) };
 
         let (state, _compile_elapsed) =
-            compile_with_context(context_ref, decls, entry_points, self.print_ir)?;
+            compile_with_context(context_ref, decls, entry_points, self.print_ir, self.no_recursion)?;
 
         let ee = state
             .module
@@ -679,7 +687,14 @@ impl LLVMJIT {
             .map_err(|e| format!("LLVM target init failed: {}", e))?;
 
         let context = Context::create();
-        compile_and_run_with_context(&context, decls, entry_points, self.print_ir, self.ir_only)
+        compile_and_run_with_context(
+            &context,
+            decls,
+            entry_points,
+            self.print_ir,
+            self.ir_only,
+            self.no_recursion,
+        )
     }
 }
 
@@ -694,6 +709,8 @@ struct LLVMJITState<'ctx> {
     defined_functions: HashSet<Name>,
     lambda_counter: usize,
     print_ir: bool,
+    /// When true, skip emission of call-depth prologue/epilogue.
+    no_recursion: bool,
     /// External function names and addresses, to be mapped after EE creation.
     /// We store names (not FunctionValues) because LLVM optimization passes may
     /// delete unused declarations, invalidating FunctionValue pointers.
@@ -878,7 +895,11 @@ impl<'ctx> LLVMJITState<'ctx> {
         };
 
         // Call-depth check + cancel-check at function entry.
-        trans.emit_call_depth_check();
+        // With --no-recursion the safety checker has proved the call graph
+        // is a DAG, so the counter traffic is unnecessary.
+        if !trans.state.no_recursion {
+            trans.emit_call_depth_check();
+        }
         trans.emit_cancel_check();
 
         let result = trans.translate_expr(body_id, decl);
@@ -886,7 +907,9 @@ impl<'ctx> LLVMJITState<'ctx> {
         // Emit return if the current block isn't already terminated
         // (e.g. by an explicit `return` statement).
         if !trans.is_block_terminated() {
-            trans.emit_call_depth_release();
+            if !trans.state.no_recursion {
+                trans.emit_call_depth_release();
+            }
             if returns_via_pointer(decl.ret) && result.is_pointer_value() {
                 // memcpy result to output_ptr, return void.
                 let out = trans.output_ptr.unwrap();
@@ -1970,7 +1993,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let result = self.translate_expr(ret_id, decl);
                 let ret_ty = decl.types[ret_id];
 
-                self.emit_call_depth_release();
+                if !self.state.no_recursion {
+                    self.emit_call_depth_release();
+                }
                 if returns_via_pointer(ret_ty) {
                     let out = self.output_ptr.unwrap();
                     let size = ret_ty.size(self.decls) as u64;

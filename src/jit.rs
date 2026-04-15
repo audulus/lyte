@@ -102,6 +102,10 @@ pub struct JIT {
 
     pub print_ir: bool,
 
+    /// When true, skip emission of call-depth prologue/epilogue. Requires
+    /// the safety checker to have rejected recursion.
+    pub no_recursion: bool,
+
     /// Counter for generating unique lambda names.
     lambda_counter: usize,
 }
@@ -140,6 +144,7 @@ impl Default for JIT {
             globals: HashMap::new(),
             globals_size: 0,
             print_ir: false,
+            no_recursion: false,
             lambda_counter: 0,
         }
     }
@@ -363,6 +368,7 @@ impl JIT {
             globals_base,
             output_ptr,
             &mut self.lambda_counter,
+            self.no_recursion,
         );
 
         // Set up captured variables from the closure pointer.
@@ -394,7 +400,9 @@ impl JIT {
         // Need a return instruction at the end of the function's block.
         // Skip if the block is already unreachable (e.g., body ended with explicit return).
         if !trans.builder.is_unreachable() {
-            trans.emit_call_depth_release();
+            if !trans.no_recursion {
+                trans.emit_call_depth_release();
+            }
             if returns_via_pointer(decl.ret) {
                 // Copy result to output pointer and return void.
                 let output = trans.output_ptr.unwrap();
@@ -533,6 +541,9 @@ struct FunctionTranslator<'a> {
 
     /// Stack of (continue_block, break_block) for nested loops.
     loop_stack: Vec<(Block, Block)>,
+
+    /// When true, skip emission of call-depth prologue/epilogue.
+    no_recursion: bool,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -543,6 +554,7 @@ impl<'a> FunctionTranslator<'a> {
         globals_base: Option<Value>,
         output_ptr: Option<Value>,
         lambda_counter: &'a mut usize,
+        no_recursion: bool,
     ) -> Self {
         Self {
             builder,
@@ -558,11 +570,16 @@ impl<'a> FunctionTranslator<'a> {
             output_ptr,
             lambda_counter,
             loop_stack: Vec::new(),
+            no_recursion,
         }
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
-        self.emit_call_depth_check();
+        // With --no-recursion the safety checker has proved the call graph
+        // is a DAG, so the counter traffic is unnecessary.
+        if !self.no_recursion {
+            self.emit_call_depth_check();
+        }
         self.emit_cancel_check();
         self.translate_expr(decl.body.unwrap(), decl, decls)
     }
@@ -1542,7 +1559,9 @@ impl<'a> FunctionTranslator<'a> {
                 let result = self.translate_expr(*expr_id, decl, decls);
                 let ret_ty = decl.types[*expr_id];
 
-                self.emit_call_depth_release();
+                if !self.no_recursion {
+                    self.emit_call_depth_release();
+                }
                 if returns_via_pointer(ret_ty) {
                     // Copy result to output pointer and return void.
                     let output = self

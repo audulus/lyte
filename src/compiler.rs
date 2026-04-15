@@ -426,6 +426,9 @@ pub struct Compiler {
     pub quiet: bool,
     /// When true, continue checking all declarations even after errors (for LSP).
     pub check_all: bool,
+    /// When true, reject recursive functions (direct or mutual) in the safety
+    /// checker and tell the native backends to skip call-depth runtime checks.
+    pub no_recursion: bool,
 }
 
 impl Compiler {
@@ -442,6 +445,7 @@ impl Compiler {
             last_safety_errors: Vec::new(),
             quiet: false,
             check_all: false,
+            no_recursion: false,
         };
         c.parse(STDLIB, "<stdlib>");
         c.stdlib_trees = c.ast.len();
@@ -594,6 +598,9 @@ impl Compiler {
 
         // Static safety checks (array bounds, division by zero).
         let mut safety_checker = SafetyChecker::new();
+        if self.no_recursion {
+            safety_checker.check_recursion(&self.decls);
+        }
         safety_checker.check(&self.decls);
         if !self.quiet {
             safety_checker.print_errors();
@@ -701,6 +708,7 @@ impl Compiler {
     pub fn run_llvm(&mut self) -> (std::time::Duration, std::time::Duration) {
         let mut jit = LLVMJIT::new();
         jit.print_ir = self.print_ir;
+        jit.no_recursion = self.no_recursion;
         let entry_points = self.effective_entry_points();
         match jit.compile_and_run_multi(&self.decls, &entry_points) {
             Ok((trap_reason, compile_time, exec_time)) => {
@@ -722,6 +730,7 @@ impl Compiler {
         let mut jit = LLVMJIT::new();
         jit.print_ir = true;
         jit.ir_only = true;
+        jit.no_recursion = self.no_recursion;
         let entry_points = self.effective_entry_points();
         match jit.compile_and_run_multi(&self.decls, &entry_points) {
             Ok(_) => {}
@@ -737,6 +746,7 @@ impl Compiler {
     pub fn jit(&self) -> Result<(*const u8, usize, JIT), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
+        jit.no_recursion = self.no_recursion;
         if self.decls.decls.is_empty() {
             return Err(String::from("No declarations to compile"));
         }
@@ -749,6 +759,7 @@ impl Compiler {
     pub fn jit_multi(&self) -> Result<(HashMap<Name, *const u8>, usize, JIT), String> {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
+        jit.no_recursion = self.no_recursion;
         if self.decls.decls.is_empty() {
             return Err(String::from("No declarations to compile"));
         }

@@ -47,6 +47,11 @@ struct Args {
     #[clap(long)]
     allow_assume: bool,
 
+    /// Reject recursive functions (direct or mutual) in the safety checker
+    /// and skip call-depth runtime checks in the JIT/LLVM backends.
+    #[clap(long)]
+    no_recursion: bool,
+
     /// Entry point function name(s), comma-separated. Defaults to "main".
     #[clap(long)]
     entry: Option<String>,
@@ -114,6 +119,7 @@ fn run(args: Args) -> i32 {
     }
 
     let mut compiler = lyte::Compiler::new();
+    compiler.no_recursion = args.no_recursion;
     for path in &paths {
         if let Ok(contents) = fs::read_to_string(path) {
             let parse_path = if args.allow_assume {
