@@ -1,15 +1,14 @@
 // args: --check --no-recursion
 // expected stdout:
-// ❌ ../tests/cases/checker/no_recursion_indirect.lyte:14:12: --no-recursion: indirect call is not allowed (callee must be a direct reference to a top-level function)
-//         return f(n - 1) + 1
-//                ^
-// ❌ ../tests/cases/checker/no_recursion_indirect.lyte:23:19: --no-recursion: indirect call is not allowed (callee must be a direct reference to a top-level function)
+// ❌ ../tests/cases/checker/no_recursion_indirect.lyte:22:27: --no-recursion: lambda in `main` is recursive
 //         g = (|n: i32| g(n - 1))
-//                       ^
+//                               ^
 //
-// Indirect calls cannot be modelled by the direct-call graph, so they
-// could otherwise smuggle recursion past --no-recursion via a captured
-// var holding a lambda or a function passed as a parameter.
+// `apply(f, x)` does an indirect call through a parameter and
+// `call_it(|n| n+y, ...)` passes a lambda with a non-fn capture: both
+// are benign under the edge-modelled rule. The only true recursion is
+// the lambda that reassigns `g` to call itself through the captured
+// fn-typed var — that forms a self-loop in the call graph.
 apply(f: i32 -> i32, n: i32) -> i32 {
     return f(n - 1) + 1
 }

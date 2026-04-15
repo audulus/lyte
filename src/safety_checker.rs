@@ -1147,55 +1147,260 @@ impl SafetyChecker {
         }
     }
 
-    /// Reject recursive functions (direct or mutual) and reject indirect
-    /// calls so that recursion cannot be smuggled in through a captured
-    /// var of function type or through a passed function parameter.
+    /// Reject recursion under `--no-recursion` by building a conservative
+    /// call graph that covers direct calls, inline lambda calls, and
+    /// indirect calls (through parameters, `var`/`let` bindings, struct
+    /// fields, etc.) and running Tarjan's SCC over it. Any cycle — whether
+    /// entirely between top-level functions, between lambdas, or spanning
+    /// both — is reported.
     ///
-    /// The rule: every call must be a direct reference to a top-level
-    /// function declaration. An `Expr::Call` is direct iff its callee is
-    /// `Expr::Id(name)` where `name` is not locally bound in the enclosing
-    /// function and `name` resolves to at least one top-level function.
-    /// Anything else (calling through a parameter, a `var`/`let` binding,
-    /// a lambda expression, a struct field, etc.) is reported as an
-    /// indirect call at the call site.
+    /// The graph has one node per top-level function with a body and one
+    /// node per `Expr::Lambda` literal in the program. Edges:
+    ///   * Direct call to a top-level function (unshadowed `Expr::Id`) →
+    ///     edge to that function's node.
+    ///   * Direct call to an inline lambda literal → edge to that
+    ///     lambda's node.
+    ///   * Indirect call (anything else — call through a parameter, a
+    ///     var/let/field, a lambda-valued expression, etc.) → conservative
+    ///     edges to every function whose address has been "taken"
+    ///     anywhere in the program. The address-taken set is:
+    ///       (a) every top-level function whose name appears in a
+    ///           non-callee position (passed as an argument, stored in a
+    ///           binding, returned, etc.), plus
+    ///       (b) every lambda literal in the program (creating a lambda
+    ///           produces a first-class function value).
     ///
-    /// Direct calls feed a static call graph; Tarjan's SCC flags any
-    /// cycle with size > 1 or a self-loop.
+    /// Calls inside a lambda body are attributed to the lambda's node,
+    /// not the enclosing function — so a lambda that calls through a
+    /// captured fn-typed var forms a self-loop via the indirect edge,
+    /// while a lambda with no fn-typed captures simply has no outgoing
+    /// indirect edges.
     pub fn check_recursion(&mut self, decls: &DeclTable) {
         use std::collections::{HashMap, HashSet};
 
-        // 1. Collect graph nodes: every function with a body becomes a node,
-        //    keyed by its index in `decls.decls`. Using indices (not names)
-        //    disambiguates overloads: two functions with the same name but
-        //    different signatures are distinct nodes.
-        let mut node_of: HashMap<usize, usize> = HashMap::new();
-        let mut nodes: Vec<usize> = Vec::new();
+        // --- Node representation ---
+        #[derive(Clone, Copy)]
+        enum NodeKind {
+            TopLevel,
+            Lambda { arena_idx: ExprID },
+        }
+        struct NodeInfo {
+            decl_idx: usize, // containing top-level decl
+            kind: NodeKind,
+        }
+
+        // --- Step 1: create top-level nodes. ---
+        let mut nodes: Vec<NodeInfo> = Vec::new();
+        let mut top_node_of: HashMap<usize, usize> = HashMap::new();
         for (i, decl) in decls.decls.iter().enumerate() {
             if let Decl::Func(f) = decl {
                 if f.body.is_some() {
-                    node_of.insert(i, nodes.len());
-                    nodes.push(i);
+                    top_node_of.insert(i, nodes.len());
+                    nodes.push(NodeInfo {
+                        decl_idx: i,
+                        kind: NodeKind::TopLevel,
+                    });
                 }
             }
         }
 
-        // 2. Build adjacency AND report indirect calls. For each function,
-        //    first compute the set of lexically-visible local names
-        //    (parameters, var/let bindings, lambda parameters, for-loop
-        //    vars) so we can tell when a call name is shadowed. Then walk
-        //    every `Expr::Call`, classify it as direct or indirect, and
-        //    either add an edge or emit a diagnostic.
-        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
-        for (node_idx, &decl_idx) in nodes.iter().enumerate() {
+        // --- Step 2: walk each top-level function recursively. ---
+        // Per-node call-site list and per-(decl,arena_idx) lambda node
+        // lookup for inline-lambda-call resolution.
+        let mut calls_at: Vec<Vec<ExprID>> = vec![Vec::new(); nodes.len()];
+        let mut lambda_node_of: HashMap<(usize, ExprID), usize> = HashMap::new();
+        let mut address_taken_names: HashSet<Name> = HashSet::new();
+
+        // Return the list of immediate subexpression IDs for a given expr.
+        // Lambda returns its body here because the walk needs to *start*
+        // at the body; the walk itself creates the lambda node and passes
+        // the new node as the current context before recursing.
+        fn subexprs(e: &Expr) -> Vec<ExprID> {
+            match e {
+                Expr::Id(_)
+                | Expr::Int(_)
+                | Expr::UInt(_)
+                | Expr::Real(_)
+                | Expr::String(_)
+                | Expr::Char(_)
+                | Expr::True
+                | Expr::False
+                | Expr::Enum(_)
+                | Expr::Break
+                | Expr::Continue
+                | Expr::TypeApp(_, _)
+                | Expr::Error => vec![],
+                Expr::Call(f, args) => {
+                    let mut v = vec![*f];
+                    v.extend(args.iter().copied());
+                    v
+                }
+                Expr::Macro(_, args) => args.clone(),
+                Expr::Binop(_, l, r) => vec![*l, *r],
+                Expr::Unop(_, e) => vec![*e],
+                Expr::Lambda { body, .. } => vec![*body],
+                Expr::Field(base, _) => vec![*base],
+                Expr::Array(t, s) => vec![*t, *s],
+                Expr::ArrayLiteral(es) => es.clone(),
+                Expr::ArrayIndex(a, i) => vec![*a, *i],
+                Expr::AsTy(e, _) => vec![*e],
+                Expr::Let(_, init, _) => vec![*init],
+                Expr::Var(_, init, _) => init.iter().copied().collect(),
+                Expr::If(c, t, el) => {
+                    let mut v = vec![*c, *t];
+                    if let Some(e) = el {
+                        v.push(*e);
+                    }
+                    v
+                }
+                Expr::While(c, b) => vec![*c, *b],
+                Expr::For { start, end, body, .. } => vec![*start, *end, *body],
+                Expr::Block(es) | Expr::Tuple(es) => es.clone(),
+                Expr::Return(e) | Expr::Arena(e) | Expr::Assume(e) => vec![*e],
+                Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| *e).collect(),
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn walk(
+            expr: ExprID,
+            arena: &ExprArena,
+            decl_idx: usize,
+            current: usize,
+            in_callee_pos: bool,
+            nodes: &mut Vec<NodeInfo>,
+            calls_at: &mut Vec<Vec<ExprID>>,
+            lambda_node_of: &mut HashMap<(usize, ExprID), usize>,
+            address_taken: &mut HashSet<Name>,
+        ) {
+            let e = &arena.exprs[expr];
+            match e {
+                Expr::Id(name) => {
+                    if !in_callee_pos {
+                        address_taken.insert(*name);
+                    }
+                }
+                Expr::Lambda { body, .. } => {
+                    let new_node = nodes.len();
+                    nodes.push(NodeInfo {
+                        decl_idx,
+                        kind: NodeKind::Lambda { arena_idx: expr },
+                    });
+                    calls_at.push(Vec::new());
+                    lambda_node_of.insert((decl_idx, expr), new_node);
+                    walk(
+                        *body,
+                        arena,
+                        decl_idx,
+                        new_node,
+                        false,
+                        nodes,
+                        calls_at,
+                        lambda_node_of,
+                        address_taken,
+                    );
+                }
+                Expr::Call(func_id, args) => {
+                    calls_at[current].push(expr);
+                    // Callee is walked in "callee position" so an `Expr::Id`
+                    // callee is not added to the address-taken set.
+                    walk(
+                        *func_id,
+                        arena,
+                        decl_idx,
+                        current,
+                        true,
+                        nodes,
+                        calls_at,
+                        lambda_node_of,
+                        address_taken,
+                    );
+                    for a in args {
+                        walk(
+                            *a,
+                            arena,
+                            decl_idx,
+                            current,
+                            false,
+                            nodes,
+                            calls_at,
+                            lambda_node_of,
+                            address_taken,
+                        );
+                    }
+                }
+                _ => {
+                    for child in subexprs(e) {
+                        walk(
+                            child,
+                            arena,
+                            decl_idx,
+                            current,
+                            false,
+                            nodes,
+                            calls_at,
+                            lambda_node_of,
+                            address_taken,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Snapshot the top-level node list to iterate independently of
+        // the growing `nodes` vector (we push lambda nodes during walk).
+        let top_level_starts: Vec<(usize, usize)> = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(n, info)| match info.kind {
+                NodeKind::TopLevel => Some((n, info.decl_idx)),
+                _ => None,
+            })
+            .collect();
+
+        for &(top_node, decl_idx) in &top_level_starts {
+            if let Decl::Func(func) = &decls.decls[decl_idx] {
+                if let Some(body) = func.body {
+                    walk(
+                        body,
+                        &func.arena,
+                        decl_idx,
+                        top_node,
+                        false,
+                        &mut nodes,
+                        &mut calls_at,
+                        &mut lambda_node_of,
+                        &mut address_taken_names,
+                    );
+                }
+            }
+        }
+
+        // --- Step 3: compute the address-taken node set. ---
+        // Every lambda is implicitly address-taken (it's a first-class
+        // function value). Top-level functions join it only if their
+        // name appeared outside callee position.
+        let mut at_nodes: Vec<usize> = Vec::new();
+        for (n, info) in nodes.iter().enumerate() {
+            match info.kind {
+                NodeKind::Lambda { .. } => at_nodes.push(n),
+                NodeKind::TopLevel => {
+                    if let Decl::Func(f) = &decls.decls[info.decl_idx] {
+                        if address_taken_names.contains(&f.name) {
+                            at_nodes.push(n);
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Step 4: compute per-top-level locals set (for shadowing
+        //     detection). Lambdas inside a top-level reuse this set.
+        let mut locals_by_decl: HashMap<usize, HashSet<Name>> = HashMap::new();
+        for &(_, decl_idx) in &top_level_starts {
             let Decl::Func(func) = &decls.decls[decl_idx] else {
                 continue;
             };
-
-            // Flat local-binding set. Over-approximates scope (a lambda
-            // param is treated as in-scope for the whole enclosing
-            // function), which is sound and only risks the mild false
-            // positive of a top-level function shadowed by a lambda
-            // parameter of the same name.
             let mut local: HashSet<Name> = HashSet::new();
             for p in &func.params {
                 local.insert(p.name);
@@ -1219,52 +1424,59 @@ impl SafetyChecker {
                     _ => {}
                 }
             }
+            locals_by_decl.insert(decl_idx, local);
+        }
+
+        // --- Step 5: build adjacency. For each node, classify its calls. ---
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        for node_idx in 0..nodes.len() {
+            let decl_idx = nodes[node_idx].decl_idx;
+            let Decl::Func(func) = &decls.decls[decl_idx] else {
+                continue;
+            };
+            let empty = HashSet::new();
+            let locals = locals_by_decl.get(&decl_idx).unwrap_or(&empty);
 
             let mut callees: HashSet<usize> = HashSet::new();
-            for (i, expr) in func.arena.exprs.iter().enumerate() {
-                let Expr::Call(callee_id, _) = expr else {
+            for &call_id in &calls_at[node_idx] {
+                let Expr::Call(callee_expr, _) = &func.arena.exprs[call_id] else {
                     continue;
                 };
 
-                // Direct iff callee is an Id naming a top-level function
-                // that isn't shadowed by a local binding. Builtins and
-                // extern decls (body: None) still count as direct — they
-                // just contribute no edges to the graph.
-                let direct_name: Option<Name> = match &func.arena.exprs[*callee_id] {
-                    Expr::Id(name) if !local.contains(name) => {
-                        let resolves_to_fn = decls
-                            .decls
-                            .iter()
-                            .any(|d| matches!(d, Decl::Func(df) if df.name == *name));
-                        if resolves_to_fn {
-                            Some(*name)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                match direct_name {
-                    Some(name) => {
+                let callee = &func.arena.exprs[*callee_expr];
+                let mut resolved_direct = false;
+                match callee {
+                    Expr::Id(name) if !locals.contains(name) => {
+                        let mut found_any = false;
                         for (di, d) in decls.decls.iter().enumerate() {
                             if let Decl::Func(df) = d {
-                                if df.name == name && df.body.is_some() {
-                                    if let Some(&cn) = node_of.get(&di) {
-                                        callees.insert(cn);
+                                if df.name == *name {
+                                    found_any = true;
+                                    if df.body.is_some() {
+                                        if let Some(&cn) = top_node_of.get(&di) {
+                                            callees.insert(cn);
+                                        }
                                     }
                                 }
                             }
                         }
+                        if found_any {
+                            resolved_direct = true;
+                        }
                     }
-                    None => {
-                        self.errors.push(SafetyError {
-                            location: func.arena.locs[i],
-                            message:
-                                "--no-recursion: indirect call is not allowed \
-                                 (callee must be a direct reference to a top-level function)"
-                                    .to_string(),
-                        });
+                    Expr::Lambda { .. } => {
+                        if let Some(&cn) = lambda_node_of.get(&(decl_idx, *callee_expr)) {
+                            callees.insert(cn);
+                            resolved_direct = true;
+                        }
+                    }
+                    _ => {}
+                }
+
+                if !resolved_direct {
+                    // Indirect call: add edges to every address-taken node.
+                    for &at in &at_nodes {
+                        callees.insert(at);
                     }
                 }
             }
@@ -1335,8 +1547,22 @@ impl SafetyChecker {
             }
         }
 
-        // 4. Report cycles. SCC size > 1 is always a cycle; size 1 is a cycle
-        //    only if the single node has a self-edge.
+        // 4. Report cycles. SCC size > 1 is always a cycle; size 1 is a
+        //    cycle only if the single node has a self-edge.
+        let describe = |n: usize| -> (Loc, String) {
+            let info = &nodes[n];
+            let Decl::Func(f) = &decls.decls[info.decl_idx] else {
+                unreachable!("non-function decl appears as a call-graph node");
+            };
+            match info.kind {
+                NodeKind::TopLevel => (f.loc, format!("function `{}`", f.name)),
+                NodeKind::Lambda { arena_idx } => (
+                    f.arena.locs[arena_idx],
+                    format!("lambda in `{}`", f.name),
+                ),
+            }
+        };
+
         for scc in &sccs {
             let is_cycle = if scc.len() > 1 {
                 true
@@ -1349,39 +1575,23 @@ impl SafetyChecker {
             }
 
             if scc.len() == 1 {
-                let decl_idx = nodes[scc[0]];
-                if let Decl::Func(f) = &decls.decls[decl_idx] {
+                let (loc, desc) = describe(scc[0]);
+                self.errors.push(SafetyError {
+                    location: loc,
+                    message: format!("--no-recursion: {} is recursive", desc),
+                });
+            } else {
+                let descs: Vec<String> = scc.iter().map(|&n| describe(n).1).collect();
+                let cycle_desc = descs.join(", ");
+                for &n in scc {
+                    let (loc, desc) = describe(n);
                     self.errors.push(SafetyError {
-                        location: f.loc,
+                        location: loc,
                         message: format!(
-                            "--no-recursion: function `{}` is recursive",
-                            f.name
+                            "--no-recursion: {} participates in a recursive cycle [{}]",
+                            desc, cycle_desc
                         ),
                     });
-                }
-            } else {
-                let names: Vec<String> = scc
-                    .iter()
-                    .map(|&n| {
-                        if let Decl::Func(f) = &decls.decls[nodes[n]] {
-                            f.name.to_string()
-                        } else {
-                            String::new()
-                        }
-                    })
-                    .collect();
-                let cycle_desc = names.join(", ");
-                for &n in scc {
-                    let decl_idx = nodes[n];
-                    if let Decl::Func(f) = &decls.decls[decl_idx] {
-                        self.errors.push(SafetyError {
-                            location: f.loc,
-                            message: format!(
-                                "--no-recursion: function `{}` participates in a recursive cycle [{}]",
-                                f.name, cycle_desc
-                            ),
-                        });
-                    }
                 }
             }
         }

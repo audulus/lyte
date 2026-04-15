@@ -1,9 +1,9 @@
 // args: --check --no-recursion
 // expected stdout:
-// ❌ ../tests/cases/checker/no_recursion_mutual.lyte:14:5: --no-recursion: function `pong` participates in a recursive cycle [pong, ping]
+// ❌ ../tests/cases/checker/no_recursion_mutual.lyte:14:5: --no-recursion: function `pong` participates in a recursive cycle [function `pong`, function `ping`]
 //     pong(n: i32) -> i32 {
 //         ^
-// ❌ ../tests/cases/checker/no_recursion_mutual.lyte:9:5: --no-recursion: function `ping` participates in a recursive cycle [pong, ping]
+// ❌ ../tests/cases/checker/no_recursion_mutual.lyte:9:5: --no-recursion: function `ping` participates in a recursive cycle [function `pong`, function `ping`]
 //     ping(n: i32) -> i32 {
 //         ^
 ping(n: i32) -> i32 {
