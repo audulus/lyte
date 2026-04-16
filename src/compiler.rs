@@ -878,6 +878,7 @@ impl Compiler {
         {
             let mut jit = crate::llvm_jit::LLVMJIT::new();
             jit.print_ir = self.print_ir;
+            jit.no_recursion = self.no_recursion;
             let llvm_prog = jit.compile_only(&self.decls, &entry_points)?;
             return Ok(CompiledProgram::Llvm(llvm_prog));
         }
