@@ -35,6 +35,8 @@ cc -O2 -o benchmark/sort_c_o2 benchmark/sort.c -lm
 cc -O3 -o benchmark/sort_c_o3 benchmark/sort.c -lm
 cc -O2 -o benchmark/fft_c_o2 benchmark/fft.c -lm
 cc -O3 -o benchmark/fft_c_o3 benchmark/fft.c -lm
+cc -O2 -o benchmark/sk_lpf_c_o2 benchmark/sk_lpf.c -lm
+cc -O3 -o benchmark/sk_lpf_c_o3 benchmark/sk_lpf.c -lm
 
 if ! command -v lua &>/dev/null; then
     echo "Error: lua not found. Install with: brew install lua" >&2
@@ -159,6 +161,13 @@ run_benchmark "FFT" \
     "benchmark/fft_c_o3" \
     "benchmark/fft.lua" \
     "1024-point FFT x 2000 iterations"
+
+run_benchmark "SK LPF" \
+    "benchmark/sk_lpf.lyte" \
+    "benchmark/sk_lpf_c_o2" \
+    "benchmark/sk_lpf_c_o3" \
+    "benchmark/sk_lpf.lua" \
+    "Sallen-Key LPF, 2M samples with per-sample coefficients"
 
 if [ "$FAIL" = "1" ]; then
     echo ""

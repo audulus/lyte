@@ -1,0 +1,62 @@
+// Sallen-Key low-pass filter benchmark
+// Process 2 million samples with per-sample coefficient recomputation
+// Based on Andrew Simper's nodal filter equations (SkfLinearTrapOptimised2.pdf)
+
+main {
+    var n = 2000000
+    var inv_sr = 1.0 / 44100.0
+    var f_min = ln(50.0)
+    var f_max = ln(16000.0)
+    var f_range = f_max - f_min
+
+    var ic1eq = 0.0
+    var ic2eq = 0.0
+    var last_y = 0.0
+
+    var phase = 0.0
+    var freq = 440.0 / 44100.0
+    var two_pi = 2.0 * 3.14159265
+
+    var fc_val = 0.5
+    var res_val = 0.3
+
+    for i in 0 .. n {
+        // generate input sample
+        var x = sin(phase * two_pi)
+        phase = phase + freq
+        if phase > 1.0 { phase = phase - 1.0 }
+
+        // clamp controls (modulate fc slightly so coefficients vary per sample)
+        var fc_norm = fc_val + 0.001 * x
+        if fc_norm < 0.0 { fc_norm = 0.0 }
+        if fc_norm > 1.0 { fc_norm = 1.0 }
+        var res_c = res_val
+        if res_c < 0.0 { res_c = 0.0 }
+        if res_c > 1.0 { res_c = 1.0 }
+
+        // map normalised fc to log frequency and compute coefficients
+        var cutoff = exp(fc_norm * f_range + f_min)
+        var g  = tan(3.14159265 * cutoff * inv_sr)
+        var k  = 2.0 * res_c
+        var g1 = 1.0 + g
+        var a0 = 1.0 / (g1 * g1 - g * k)
+        var a1 = k * a0
+        var a2 = g1 * a0
+        var a3 = g * a2
+        var a4 = 1.0 / g1
+        var a5 = g * a4
+
+        // trapezoidal integrators
+        var v1 = a1 * ic2eq + a2 * ic1eq + a3 * x
+        var v2 = a4 * ic2eq + a5 * v1
+
+        ic1eq = 2.0 * (v1 - k * v2) - ic1eq
+        ic2eq = 2.0 * v2 - ic2eq
+
+        last_y = v2
+    }
+
+    print(last_y as i32)
+    print(n)
+    println(" samples processed")
+}

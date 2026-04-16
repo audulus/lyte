@@ -30,6 +30,8 @@ benchmark/fft_c_o2
 benchmark/fft_c_o3
 benchmark/sort_c_o2
 benchmark/sort_c_o3
+benchmark/sk_lpf_c_o2
+benchmark/sk_lpf_c_o3
 benchmark/freeverb_bench
 
 vscode-lyte/node_modules/
