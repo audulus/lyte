@@ -32,6 +32,7 @@ if [ -z "$LLVM_PREFIX" ] || [ ! -d "$LLVM_PREFIX" ]; then
     exit 1
 fi
 export LLVM_SYS_180_PREFIX="$LLVM_PREFIX"
+export LIBRARY_PATH="${LIBRARY_PATH:+$LIBRARY_PATH:}$LLVM_PREFIX/lib"
 
 echo "Building liblyte.dylib (release, --features llvm)..."
 cargo build --release --features llvm --lib --quiet

@@ -78,6 +78,19 @@ jobs:
         LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
         LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
       run: cargo test -p lyte -p lyte-cli --features llvm --verbose
+    - name: Run freeverb FFI benchmark
+      env:
+        LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
+        LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
+      run: |
+        ./benchmark/run-freeverb.sh 3 10000 | tee freeverb_output.txt
+    - name: Post freeverb results to job summary
+      if: always()
+      run: |
+        echo '## Freeverb FFI Benchmark (macOS ARM64, LLVM)' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat freeverb_output.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
     - name: Install x86_64 Homebrew
       # The xcframework's macOS x86_64 slice is built with cross-compiled
       # LLVM, which requires a native x86_64 llvm-config + libs. Install
