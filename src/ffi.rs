@@ -206,6 +206,25 @@ pub unsafe extern "C" fn lyte_compiler_add_prelude(
     })
 }
 
+/// Parse and type-check (including safety checks) all added source,
+/// without specializing or invoking any backend.
+/// Returns true if the program is well-typed and safe; false otherwise.
+/// On failure, the error message is available via lyte_compiler_get_error.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_compiler_check(ptr: *mut LyteCompiler) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    catch_panic(ptr, |c| {
+        c.last_error = None;
+        if !c.compiler.check() {
+            c.set_error(&c.compiler.last_errors.join("\n"));
+            return false;
+        }
+        true
+    })
+}
+
 // ============ Program API ============
 
 // On LLVM builds: JIT backend with function pointers.

@@ -50,6 +50,12 @@ bool lyte_compiler_add_source(LyteCompiler* compiler, const char* source, const 
 /// Call before lyte_compiler_add_source. Returns true on success.
 bool lyte_compiler_add_prelude(LyteCompiler* compiler, const char* source);
 
+/// Parse and type-check (including safety checks) all added source,
+/// without specializing or invoking any backend. Useful for fast
+/// validation in editors. Returns true on success; on failure, the
+/// error message is available via lyte_compiler_get_error.
+bool lyte_compiler_check(LyteCompiler* compiler);
+
 /// Parse, type-check, specialize, and compile all added source into
 /// a LyteProgram (auto-selects JIT or VM backend).
 /// Returns NULL on error. Caller must free with lyte_program_free.
