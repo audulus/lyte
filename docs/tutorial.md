@@ -1,8 +1,6 @@
-# Learning Lyte — A Beginner's Guide
+# Learning Lyte
 
-*A walkthrough of the Lyte programming language for Audulus users familiar with Lua.*
-
-*Based on the official Lyte README, with notes for how Lyte currently behaves inside Audulus.*
+*A beginner-friendly guide to Lyte for Audulus users.*
 
 ---
 
@@ -33,22 +31,31 @@
 
 ## 1. What is Lyte?
 
-Lyte is a programming language designed specifically for writing Audulus nodes. Its job is the same as Lua in that context — take input signals, do math, produce output — but it approaches that job differently.
+Audulus has both a **Lyte DSP node** and a **DSP node**. The DSP node is for Lua scripting. The Lyte DSP node is for Lyte.
+
+Lyte is a language made for writing DSP code in Audulus. Like Lua in a DSP node, it takes input signals, does math, and produces output. The difference is mainly in how the language works and what it is best at.
+
+Both Lyte and Lua can essentially do the same core job in Audulus: take input signals, process frames of audio, and produce output. In practice, both use a similar `process` style where audio is handled sample by sample across a block of frames.
+
+They have different strengths:
+
+- **Lyte** is built for speed and optimized audio DSP.
+- **Lua** is a friendly, higher-level language with its own useful features, such as tables and string formatting.
 
 Lyte was designed with a few clear goals in mind:
 
-- **Familiar syntax** — it looks like a mix of two popular languages, Rust and Swift, but you don't need to know either of those to use it
-- **Fast** — it compiles directly to native machine code. An *interpreter* (like Lua uses) translates and executes your code on the fly as it runs. Lyte instead translates your entire program into instructions the CPU can run directly before it ever starts, which is generally much faster for math-heavy work like DSP.
-- **Safe** — it checks for common mistakes (like going out of bounds on an array) *before* your code runs, not during
-- **No memory management** — in many languages, the programmer has to manually request and release memory as they create and destroy data. Lyte avoids this entirely through its strict rules: because it doesn't allow certain kinds of complex data structures, it always knows exactly how much memory is needed upfront and never has to ask for more at runtime.
+- **Familiar syntax** — it looks a bit like other modern languages, but you do not need to know them first
+- **Fast** — Lyte turns your code into machine code ahead of time instead of interpreting it as it runs, which is helpful for heavy DSP math
+- **Safe** — it checks for common mistakes, like out-of-range array access, before the code runs
+- **Predictable** — it uses strict rules so the system knows what memory is needed up front
 
-Lyte is still new inside Audulus, and how it fits alongside Lua will become clearer as more people use it. As a rough starting point: Lyte may be well-suited for sample-rate DSP — filters, oscillators, waveshapers, anything that processes audio sample by sample at the highest speed. *(Lua may continue to be useful for control-rate work via `fill()`, for scripting that benefits from Lua's flexible tables, or anywhere Lua's looser rules are more convenient than Lyte's stricter ones — but this is a starting point for thinking, not a definitive guide.)*
+As a rough starting point, Lyte is a strong fit for sample-rate DSP: filters, oscillators, waveshapers, and other code that processes audio sample by sample at high speed. Lua is often a good fit when you want a more flexible scripting style.
 
 ---
 
 ## 2. Types — Static vs Dynamic Typing
 
-One of the most important conceptual shifts when coming from Lua is how Lyte handles types. It's worth spending a little extra time here, as it comes up in nearly everything else.
+One of the biggest differences from Lua is how Lyte handles types. This comes up everywhere, so it is worth getting comfortable with early.
 
 In Lua, variables have no fixed type — you can reassign a variable to a completely different kind of value at any time:
 
@@ -57,9 +64,9 @@ x = 42         -- a number
 x = "hello"    -- now x is text. totally fine in Lua!
 ```
 
-Lyte **won't allow that.** Once `x` holds a number, it always holds a number. This is called **static typing** — the *type* of every variable is locked in and checked before your code even runs.
+Lyte **won't allow that.** Once `x` is a number, it stays a number. This is called **static typing**. It means Lyte decides what kind of value each variable holds before the code runs.
 
-> 🔄 *Lua users: Lua is called "dynamically typed" — types are figured out as the program runs, so a variable can hold anything at any time. Lyte locks types in at compile time instead.*
+Note for Lua users: Lua lets one variable hold different kinds of values over time. Lyte does not.
 
 ### The basic types in Lyte
 
@@ -72,7 +79,7 @@ Lyte **won't allow that.** Once `x` holds a number, it always holds a number. Th
 | `i8` | A very small whole number, used for individual characters | `65` (the letter `A`) |
 | `u32` | A whole number that cannot be negative (unsigned) | `42`, `0` |
 
-Single characters can also be written with single quotes: `'a'`, `'Z'`, `'\n'` (newline). This is called a **character literal**.
+Single characters can also be written with single quotes: `'a'`, `'Z'`, `'\n'` (newline). This is called a character literal.
 
 Boolean values support the standard logical operators:
 
@@ -88,19 +95,19 @@ main {
 }
 ```
 
-**A note on `i32` vs `f32`:** The "32" refers to how many bits of memory the number uses — you don't need to worry about that detail. Just remember:
-- `i32` = whole numbers only (no decimal point)
-- `f32` = numbers with a decimal point
+**A note on `i32` vs `f32`:** The "32" is just part of the type name. You do not need to worry much about the low-level detail. The useful part is:
+- `i32` = 'i' is for integer, whole numbers only (no decimal point)
+- `f32` = 'f' is for float, numbers with a decimal point
 
-In audio and DSP work, you'll use `f32` constantly — audio signals, frequencies, and most math will be floating point values.
+In audio and DSP work, you will use `f32` constantly. Audio signals, frequencies, and most DSP math are floating-point values. This is especially true in Audulus, where normal input and output ports are `f32`.
 
-**A note on `f64`:** The language grammar also defines an `f64` type — a higher-precision decimal number. However, since Audulus currently works with 32-bit signal values throughout, `f64` may not be relevant or available in practice within Audulus nodes. It's listed here for completeness.
+**A note on `f64`:** The language grammar also defines an `f64` type, which is a higher-precision decimal number. In Audulus DSP work, `f32` is the type you'll usually use.
 
 ### Why does static typing matter?
 
-In audio DSP, you're doing thousands of math operations per second. If the language has to figure out what type something is while it's running (like Lua does), that takes extra time. By knowing the types upfront, Lyte can *compile* — translate your code into fast machine instructions — more efficiently. **Compile** just means the step where your written code gets translated into something the computer can actually run directly.
+In audio DSP, you are doing a lot of math very quickly. If the language has to keep figuring out what kind of value something is while it runs, that adds overhead. By knowing the types up front, Lyte can build faster code. Here, **compile** just means “turn your code into something the computer can run.”
 
-It also catches mistakes *before* they cause weird audio glitches. Instead of a bug silently producing wrong output, Lyte just refuses to compile and tells you what went wrong.
+It also catches many mistakes before they turn into weird behavior or broken audio. Instead of running bad code, Lyte stops and tells you what went wrong.
 
 For example, assigning an `f32` value to an `i32` variable is a type error:
 
@@ -118,24 +125,54 @@ The phrase "no solution for X == Y" is Lyte's general way of saying "I couldn't 
 ## 3. Your First Program — Hello World
 
 ```lyte
-main {
-    println("hello world")
+init {}
+
+process {
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+    println("Hello world!")
 }
 ```
 
 A few things to notice right away:
 
-**`main` is a special block, not a function.** In many languages, `main` is a function you have to define carefully. In Lyte, it's just a block of code — the starting point of your program. No parentheses, no return type, just `main { ... }`.
+**In an Audulus DSP node, `process` is where the audio work happens.** This example passes the input straight to the output, then prints a simple debug message once per processing block.
 
-**`println` prints text to the output.** It's a built-in function. You pass it a string (text in quotes) and it prints it.
+**`println` prints strings.** A plain text message is the simplest way to test that debug output is working.
 
-**Comments use `//`.** Anything after `//` on a line is ignored by Lyte — it's just a note for the reader.
+**Comments use `//`.** Anything after `//` on a line is ignored by Lyte. It is just a note for the reader.
 
-> 🔄 *Lua users: Lua comments use `--` instead of `//`.*
+Note for Lua users: Lua comments use `--` instead of `//`.
 
 ```lyte
-main {
-    println("hello world")   // this is a comment
+init {}
+
+process {
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+    println("Hello world!")   // this is a comment
+}
+```
+
+If you want to print a changing number, use a small counter and convert it to text:
+
+```lyte
+var calls: i32
+
+init {}
+
+process {
+    var buf: [i8; 16]
+
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+
+    itoa(buf, calls)
+    println(buf)
+    calls = calls + 1
 }
 ```
 
@@ -143,25 +180,25 @@ main {
 
 ## 4. Variables — `var` and `let`
 
-Lyte has two ways to create a variable, and they have an important difference:
+Lyte has two ways to create a variable, and the difference is simple:
 
 ```lyte
 main {
-    var x = 42      // mutable (changeable): x can be reassigned later
-    let y = x + 1   // immutable (fixed): y can never be changed
+    var x = 42      // can change later
+    let y = x + 1   // stays fixed after this line
 }
 ```
 
-- **`var`** = the value *can* change (*mutable* is the technical term for this — it just means "able to be changed"). Use this when you need to update something (like a running total, or a signal value).
-- **`let`** = the value *cannot* change after it's set (*immutable* — unable to be changed). Use this when something is fixed.
+- **`var`** = the value can change later
+- **`let`** = the value stays fixed after you set it
 
 ### Why have two kinds?
 
-This is a safety feature. If you mark something as `let`, Lyte guarantees it will never be accidentally overwritten. In complex DSP code with lots of variables, this helps prevent subtle bugs.
+This helps prevent mistakes. If something is written as `let`, Lyte knows it should not change later.
 
 ### Type inference
 
-Notice that in the examples above, we didn't write the type — Lyte figured it out automatically. `var x = 42` — Lyte sees `42` and knows `x` must be an `i32`. This is called **type inference**.
+Notice that in the examples above, we did not write the type. Lyte figured it out automatically. `var x = 42` means Lyte sees `42` and knows `x` must be an `i32`. This is called **type inference**.
 
 You *can* write the type explicitly if you want, and sometimes you have to (when declaring a variable without immediately giving it a value):
 
@@ -172,7 +209,7 @@ x = 10
 signal = 0.5
 ```
 
-When you declare a variable without a value, it is **zero-initialized** — numeric types start at `0`, `f32` starts at `0.0`, booleans start at `false`, and struct fields all start at their zero values too. This is confirmed behavior, not something you have to guess about:
+When you declare a variable without a value, Lyte starts it at zero. Numbers start at `0` or `0.0`, booleans start at `false`, and struct fields start at their own zero values too:
 
 ```lyte
 main {
@@ -181,11 +218,11 @@ main {
 }
 ```
 
-This is a meaningful safety guarantee. In some lower-level languages (like C), declaring a variable without a value leaves it containing whatever random data happened to be in that memory location. Lyte never does that.
+This is a useful safety feature. You do not get random leftover memory values.
 
 ### Variable shadowing
 
-You can declare a new variable with the same name as an existing one inside an inner block (like a loop or `if` body). The inner variable **shadows** the outer one — inside the block, the name refers to the new variable, not the original:
+You can declare a new variable with the same name inside an inner block, like a loop or an `if`. Inside that block, the new variable temporarily takes over the name:
 
 ```lyte
 main {
@@ -197,13 +234,13 @@ main {
 }
 ```
 
-The outer `x` is unaffected. This is confirmed valid — Lyte does not treat it as an error.
+The outer `x` is unchanged. Lyte allows this, but it can be confusing, so use it carefully.
 
 ---
 
 ### Global variables
 
-A variable declared outside of any function or `main` block is a **global** — it exists for the entire lifetime of the program and is accessible from any function:
+A variable declared outside of any function or `main` block is a **global**. It exists for the whole program and any function can use it:
 
 ```lyte
 var global: i32
@@ -219,9 +256,9 @@ main {
 }
 ```
 
-Global variables must be declared with an explicit type (`var global: i32`, not `var global = 0`). They are zero-initialized by default, just like local variables. Any function can access them by name — no special keyword needed.
+Global variables must be declared with an explicit type (`var global: i32`, not `var global = 0`). Like local variables, they start at zero. Any function can access them by name.
 
-In Audulus DSP nodes, globals are the natural place to store persistent state between processing blocks — things like filter memory, oscillator phase, or envelope position. Named ports are also exposed as globals, and DSP code typically loops over `frames` inside `process`.
+In Audulus DSP nodes, globals are the normal place to store state that must survive between processing blocks, such as filter memory, oscillator phase, or envelope position. Named ports also appear as globals, and DSP code usually loops over `frames` inside `process`.
 
 ---
 
@@ -243,9 +280,9 @@ main {
 }
 ```
 
-No `then` keyword, no `end` keyword — curly braces `{ }` mark the beginning and end of blocks. Parentheses around the condition are optional.
+There is no `then` and no `end`. Curly braces `{ }` mark the block. Parentheses around the condition are optional.
 
-> 🔄 *Lua users: Lyte uses `{ }` instead of `then`/`end`. `if x > 0 { }` in Lyte vs `if x > 0 then ... end` in Lua.*
+Note for Lua users: Lyte uses `{ }` instead of `then` and `end`.
 
 ### For loops
 
@@ -258,9 +295,9 @@ main {
 }
 ```
 
-The `0 .. 10` is a **range**. It means "from 0 up to but not including 10" — so it goes 0, 1, 2, 3, 4, 5, 6, 7, 8, 9. This is called an *exclusive* range (the end value is excluded).
+The `0 .. 10` is a range. It means "from 0 up to but not including 10" — so it goes 0, 1, 2, 3, 4, 5, 6, 7, 8, 9.
 
-> 🔄 *Lua users: Lyte's `for i in 0 .. 10 { }` is equivalent to Lua's `for i = 0, 9 do ... end`. Different syntax, same idea — though note Lyte's range excludes the end value.*
+Note for Lua users: `for i in 0 .. 10 { }` is similar to `for i = 0, 9 do ... end`.
 
 `i` is automatically created as the loop variable — you don't need `var i` beforehand.
 
@@ -345,7 +382,7 @@ This is called **overloading** — the same name, different types.
 
 A **struct** is a way to bundle related pieces of data into a single named unit.
 
-> 🔄 *Lua users: In Lua you'd use a table for this — `point = { x = 3.0, y = 4.0 }`. Lyte's structs serve the same purpose but with fixed, declared fields and types — you can't add new fields at runtime.*
+Note for Lua users: in Lua you would usually use a table for this, like `point = { x = 3.0, y = 4.0 }`. Lyte structs fill a similar role, but the fields and their types are fixed.
 
 Imagine you're working with a 2D point. It has an X coordinate and a Y coordinate. Instead of keeping two separate variables, you can define a struct:
 
@@ -385,7 +422,7 @@ main {
 }
 ```
 
-`sqrtf` is a built-in function that computes a square root. The `f` at the end stands for float — it works on `f32` values.
+`sqrt` is a built-in function that computes a square root.
 
 ---
 
@@ -393,7 +430,7 @@ main {
 
 Lyte lets you define exactly what `+`, `-`, `*`, and other operators mean for your custom types. This is called **operator overloading**.
 
-> 🔄 *Lua users: Lua supports this via metatables — the `__add`, `__mul` naming convention in Lyte is borrowed directly from Lua's metatable approach, so the names will look familiar.*
+Note for Lua users: this is similar in spirit to Lua metatables. Names like `__add` and `__mul` will probably look familiar.
 
 You do it by defining special functions with names like `__add`, `__sub`, `__mul`:
 
@@ -531,7 +568,7 @@ main {
 
 An **array** is an ordered list of values, all of the same type. In Lyte, arrays have a **fixed size** — you decide the size when you create the array, and it never changes.
 
-> 🔄 *Lua users: Lua tables can grow and shrink freely. Lyte's fixed-size arrays are a deliberate constraint — because the size is always known in advance, the language can make stronger safety guarantees and run faster.*
+Note for Lua users: Lua tables can grow and shrink. Lyte arrays have a fixed size.
 
 ```lyte
 main {
@@ -543,7 +580,7 @@ main {
 
 **Indexing starts at 0** — the first element is `a[0]`, the second is `a[1]`, and so on. This is standard in most programming languages.
 
-> 🔄 *Lua users: Lua starts at 1, so `a[1]` is the first element. In Lyte, as in most other languages, `a[0]` is first.*
+Note for Lua users: Lua starts at `1`, but Lyte starts at `0`.
 
 To declare an array with a specific type and size without filling it in right away:
 
@@ -614,7 +651,7 @@ main {
 
 This also applies when arrays are inside structs — assigning a struct copies the whole thing, including any arrays it contains.
 
-> 🔄 *Lua users: Lua tables are passed by reference — multiple variables can point to the same table, and changing one changes all of them. Lyte's copy-by-value behavior is the opposite: each variable owns its own data independently.*
+Note for Lua users: Lua tables are shared by reference. Lyte arrays are copied by value, so changing one copy does not change the other.
 
 ### Arrays inside structs
 
@@ -1198,7 +1235,7 @@ This helper takes a `Biquad` state and one input sample `x`, and returns a **tup
 - loop over `for i in 0 .. frames` inside `process`
 - use the block buffers (`input[i]`, `output[i]`) directly
 
-So this section is best read as the language idea behind a biquad. For current Audulus-ready code, the quickstart examples are the better reference.
+So this section is best read as the language idea behind a biquad. For practical Audulus node code, the quickstart examples are the better reference.
 
 > *Aside — why this runs efficiently: the multiply-add chains in the biquad formula (like `b0*x + b1*x1`) map directly to a hardware instruction called FMA, or fused multiply-add, which performs a multiplication and an addition in a single step rather than two. Lyte's compiler targets these instructions automatically when generating code for this kind of expression, which is one reason DSP code in Lyte can run efficiently.*
 
@@ -1379,11 +1416,16 @@ main {
 }
 ```
 
-> 🔄 *Lua users: Lua strings are immutable and managed automatically — you can't index into them and change individual characters. In Lyte, a string is just an array of `i8` values that you can read and write directly.*
+Note for Lua users: Lua strings cannot be changed in place. In Lyte, a string is just an array of `i8` values, so you can read and write individual characters.
 
-### Math functions (built into the language)
+### Math functions
 
-These functions are available without any setup — they're part of Lyte itself, not defined in `stdlib.lyte`. Their names follow the same unsuffixed style used by the Audulus Expr node: `sin`, `cos`, `atan2`, and so on.
+Lyte math comes from two places:
+
+- core builtins that are part of the language itself, such as `sin`, `cos`, `tan`, `atan2`, `sqrt`, `floor`, and `ceil`
+- helper functions from `stdlib.lyte`, such as `clamp`, `mix`, `fract`, `mod`, `step`, and `smoothstep`
+
+The function names follow the same unsuffixed style used by the Audulus Expr node: `sin`, `cos`, `atan2`, and so on.
 
 Unary math functions (`f32`/`f64` in, same type out):
 
@@ -1432,8 +1474,21 @@ This list is confirmed against the compiler and test suite. A few notes:
 - `ln` and `exp` are inverses: `ln(exp(x))` gives back `x`.
 - `atan2` takes **two** arguments — `y` first, then `x`. This is the standard convention for two-argument arctangent, useful for converting Cartesian coordinates to an angle.
 - `isinf` and `isnan` currently return an integer flag rather than a `bool`, so the tests use checks like `isnan(x) != 0`.
-- `pi` is not a built-in constant in current Audulus Lyte. If you want it, define your own `var pi: f32` and set it to `3.14159265`.
+- `pi` is not a built-in constant in Audulus Lyte. If you want it, define your own `var pi: f32` and set it to `3.14159265`.
 - These map directly to compiler/runtime intrinsics, so they're fast.
+
+Here are some common math helpers from `stdlib.lyte`:
+
+| Function | What it does |
+|----------|--------------|
+| `fract(x)` | Fractional part of `x` |
+| `mod(x, y)` | Floating-point modulo |
+| `clamp(x, lo, hi)` | Clamp `x` into a range |
+| `step(edge, x)` | `0` below the edge, `1` at or above it |
+| `smoothstep(edge0, edge1, x)` | Smooth curve between two edges |
+| `mix(a, b, t)` | Blend from `a` to `b` by amount `t` |
+
+One small difference from the Audulus Expr node: Lyte uses `mix(a, b, t)`, while Audulus Expr uses `mix(x, a, b)`.
 
 ### String functions (from `stdlib.lyte`)
 
@@ -1513,7 +1568,7 @@ Appends one string onto the end of another. For example, if `dst` contains `"hel
 
 ### A note on what's not here
 
-The stdlib is intentionally small. There's no separate math library defined in Lyte code — built-in math functions like `sin` and `cos` are handled directly by the compiler. `putc` is similarly built-in, sitting one level below `println`. For DSP work, the math you need is built in; the stdlib is mainly there to help with text output and debugging.
+The stdlib is still fairly small, but it does include useful math helpers as well as string utilities. Core functions like `sin`, `cos`, and `sqrt` are handled directly by the compiler, while helpers like `clamp`, `mix`, and `smoothstep` live in `stdlib.lyte`. `putc` is also built in, sitting one level below `println`.
 
 ---
 
@@ -1658,6 +1713,55 @@ Any type mismatch on assignment — not just `i32`/`f32` — produces the same e
 ```
 
 The left side of `==` in the message is always the *expected* type (the variable's declared type); the right side is the *actual* type of the value you tried to assign.
+
+### Inline `if` expressions can cause misleading parser errors
+
+In Lyte, block-form inline `if` expressions are not reliable in every context. Patterns like these can cause a long chain of parser errors:
+
+```lyte
+let x = if cond {
+    a
+} else {
+    b
+}
+```
+
+```lyte
+output[i] = if cond {
+    a
+} else {
+    b
+}
+```
+
+You may see messages like:
+
+```
+Expected expression
+Expected declaration, got Let
+Expected declaration, got Assign
+Expected declaration, got Lbracket
+```
+
+The safer pattern is:
+
+```lyte
+var x = b
+if cond {
+    x = a
+}
+```
+
+Or for an output:
+
+```lyte
+output[i] = b
+if cond {
+    output[i] = a
+}
+```
+
+This is a little more verbose, but it is much more dependable in current Lyte.
 
 ### Calling an undefined macro
 
