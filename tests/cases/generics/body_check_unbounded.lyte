@@ -1,0 +1,23 @@
+// `get` indexes arr without proving idx is in bounds. The body is skipped
+// pre-monomorph (because of size variable N), but the post-monomorph
+// safety check on `get$4` catches the unbounded access.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/generics/body_check_unbounded.lyte:17:5: couldn't prove index is >= 0
+//         arr[idx]
+//         ^
+// ❌ ../tests/cases/generics/body_check_unbounded.lyte:17:5: couldn't prove index is less than array length
+//         arr[idx]
+//         ^
+//
+// expected stderr:
+// safety check failed for 2 call(s)
+fn get<N>(arr: [i32; N], idx: i32) -> i32 {
+    arr[idx]
+}
+
+main {
+    let a = [10, 20, 30, 40]
+    assert(get(a, 99) == 0)
+}

@@ -618,6 +618,13 @@ impl MonomorphPass {
         &self.out_decls
     }
 
+    /// The mangled names of all functions newly created by monomorphization
+    /// (i.e., specialized versions of generic functions). Excludes entry
+    /// points and any pre-existing non-generic functions.
+    pub fn instantiated_names(&self) -> impl Iterator<Item = Name> + '_ {
+        self.instantiations.values().copied()
+    }
+
     /// Get the mangled name for a specific instantiation, if it exists
     pub fn get_instantiation(&self, key: &MonomorphKey) -> Option<Name> {
         self.instantiations.get(key).copied()
@@ -721,6 +728,7 @@ mod tests {
             size_vars: vec![],
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: mk_type(Type::Void),
             body: Some(body_expr),
             arena,
@@ -834,6 +842,7 @@ mod tests {
             size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: mk_type(Type::Void),
             body: Some(block),
             arena,
@@ -863,6 +872,7 @@ mod tests {
             size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: mk_type(Type::Void),
             body: Some(binop),
             arena,
@@ -892,6 +902,7 @@ mod tests {
             size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: mk_type(Type::Void),
             body: Some(array),
             arena,
@@ -1127,6 +1138,7 @@ mod tests {
             size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: mk_type(Type::Void),
             body: Some(if_expr),
             arena,
@@ -1160,6 +1172,7 @@ mod tests {
             size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: mk_type(Type::Int32),
             body: Some(body_expr),
             arena,
@@ -1199,6 +1212,7 @@ mod tests {
                 ty: Some(t_var),
             }],
             constraints: Vec::new(),
+            requires: vec![],
             ret: t_var,
             body: Some(id_param_expr),
             arena: id_arena,
@@ -1224,6 +1238,7 @@ mod tests {
             size_vars: Vec::new(),
             params: Vec::new(),
             constraints: Vec::new(),
+            requires: vec![],
             ret: i32_type,
             body: Some(call_expr),
             arena: main_arena,

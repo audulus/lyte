@@ -1,0 +1,15 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/generics/require_sized_array_unproven.lyte:14:12: couldn't prove require clause `idx < N` for call to `get`
+//         assert(get(a, 99) == 0)
+//                ^
+
+// idx=99 is out of bounds for [i32; 4]; the size-var-aware prover catches it.
+fn get<N>(arr: [i32; N], idx: i32) -> i32 require idx >= 0 require idx < N {
+    arr[idx]
+}
+
+main {
+    let a = [10, 20, 30, 40]
+    assert(get(a, 99) == 0)
+}

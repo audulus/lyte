@@ -149,6 +149,23 @@ fn run(args: Args) -> i32 {
         return 1;
     }
 
+    // For `--check`, also run monomorphization so the post-monomorph safety
+    // check (which catches bounds violations in `[T; N]` function bodies)
+    // fires here too. The actual compiled code is discarded. Skip if no
+    // entry point is defined — many test snippets are entry-point-less.
+    if args.check && compiler.has_decls() {
+        let has_entry = compiler
+            .effective_entry_points()
+            .iter()
+            .any(|name| !compiler.decls().find(*name).is_empty());
+        if has_entry {
+            if let Err(e) = compiler.specialize() {
+                eprintln!("{}", e);
+                return 1;
+            }
+        }
+    }
+
     compiler.print_ir = args.ir;
 
     // Select backend via --backend flag, falling back to LYTE_BACKEND env var.

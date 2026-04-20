@@ -2515,6 +2515,7 @@ impl<'a> FunctionTranslator<'a> {
                     body: Some(body),
                     ret: *rng,
                     constraints: vec![],
+                    requires: vec![],
                     loc: self.decl.loc,
                     arena: self.decl.arena.clone(),
                     types: self.decl.types.clone(),

@@ -945,6 +945,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
     let mut params = vec![];
     let mut all_vars = vec![];
     let mut constraints = vec![];
+    let mut requires = vec![];
     let loc = cx.lex.loc;
     let mut arena = ExprArena::new();
 
@@ -984,6 +985,16 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
         }
     }
 
+    skip_newlines(cx.lex);
+
+    // Parse zero or more `require <expr>` clauses.
+    while cx.lex.tok == Token::Require {
+        cx.next();
+        let cond = parse_expr(&mut arena, &all_vars, cx);
+        requires.push(cond);
+        skip_newlines(cx.lex);
+    }
+
     // Separate size vars (used as array sizes) from type vars.
     let mut size_vars: Vec<Name> = vec![];
     for param in &params {
@@ -1013,6 +1024,7 @@ fn parse_func_decl(name: Name, cx: &mut ParseContext) -> FuncDecl {
         body,
         ret,
         constraints,
+        requires,
         loc,
         arena,
         types: vec![],

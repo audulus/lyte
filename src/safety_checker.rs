@@ -1,6 +1,33 @@
 use crate::interval::{enclose, IndexInterval};
 use crate::*;
 
+/// Walk a parameter type and the corresponding caller-argument type in
+/// parallel, recording bindings of `ArraySize::Var(name)` to the concrete
+/// `Known(k)` value found in the argument.
+///
+/// This lets the call-site prover evaluate require clauses that reference
+/// size variables (e.g., `idx < N`) or `[T; N].len`, since N is determined
+/// by the actual array size passed in.
+fn collect_size_subst(param_ty: TypeID, arg_ty: TypeID, out: &mut Vec<(Name, i64)>) {
+    match (&*param_ty, &*arg_ty) {
+        (Type::Array(p_elem, ArraySize::Var(n)), Type::Array(a_elem, ArraySize::Known(k))) => {
+            if !out.iter().any(|(name, _)| name == n) {
+                out.push((*n, *k as i64));
+            }
+            collect_size_subst(*p_elem, *a_elem, out);
+        }
+        (Type::Array(p_elem, _), Type::Array(a_elem, _)) => {
+            collect_size_subst(*p_elem, *a_elem, out);
+        }
+        (Type::Tuple(ps), Type::Tuple(as_)) if ps.len() == as_.len() => {
+            for (p, a) in ps.iter().zip(as_) {
+                collect_size_subst(*p, *a, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Extract a trackable name from an expression for constraint tracking.
 /// Returns the variable name for `Expr::Id(name)`, or a synthetic compound
 /// name for `Expr::Field(base, field)` (e.g., `h.index` becomes a single
@@ -654,14 +681,72 @@ impl SafetyChecker {
 
                 if let Type::Array(_, ref n) = *lhs_ty {
                     if let ArraySize::Known(n) = n {
-                        if *n > 0 && rhs_r.max >= (*n).into() {
+                        let interval_ok = *n > 0 && rhs_r.max < (*n).into();
+                        // Also accept a `len_bound { idx, arr }` from a require
+                        // clause or `for`/`while` loop condition: this proves
+                        // `idx < arr.len`, and arr.len == n for a Known array.
+                        let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
+                            Some(*name)
+                        } else {
+                            None
+                        };
+                        let index_name = if let Expr::Id(name) = &decl.arena[*index_expr] {
+                            Some(*name)
+                        } else {
+                            None
+                        };
+                        let len_bound_ok = match (index_name, array_name) {
+                            (Some(idx), Some(arr)) => self
+                                .len_bounds
+                                .iter()
+                                .any(|b| b.index == idx && b.array == arr),
+                            _ => false,
+                        };
+                        if !interval_ok && !len_bound_ok {
                             self.errors.push(SafetyError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove index is less than array length"),
                             });
                         }
+                    } else if let ArraySize::Var(size_name) = n {
+                        // Symbolic size: prove `idx < size_name` via either
+                        //   (a) a `len_bound` recorded by `for i in 0 .. arr.len`
+                        //       or a require clause `idx < arr.len`, or
+                        //   (b) a `var_bound` from `for i in 0 .. N` or a
+                        //       require clause `idx < N`.
+                        let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
+                            Some(*name)
+                        } else {
+                            None
+                        };
+                        let index_name = if let Expr::Id(name) = &decl.arena[*index_expr] {
+                            Some(*name)
+                        } else {
+                            None
+                        };
+                        let has_len_bound = match (index_name, array_name) {
+                            (Some(idx), Some(arr)) => self
+                                .len_bounds
+                                .iter()
+                                .any(|b| b.index == idx && b.array == arr),
+                            _ => false,
+                        };
+                        let has_var_bound = if let Some(idx) = index_name {
+                            self.var_bounds
+                                .iter()
+                                .any(|b| b.lo == idx && b.hi == *size_name)
+                        } else {
+                            false
+                        };
+                        if !has_len_bound && !has_var_bound {
+                            self.errors.push(SafetyError {
+                                location: decl.arena.locs[expr],
+                                message: format!(
+                                    "couldn't prove index is less than array length"
+                                ),
+                            });
+                        }
                     }
-                    // Size variables can't be checked statically.
                 } else if let Type::Slice(_) = *lhs_ty {
                     // For slices, check if the index has been proven < slice.len.
                     let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
@@ -811,10 +896,11 @@ impl SafetyChecker {
                 self.check_expr(*rhs, decl, decls);
                 IndexInterval::default()
             }
-            Expr::Call(_, args) => {
+            Expr::Call(callee_expr, args) => {
                 for arg in args {
                     self.check_expr(*arg, decl, decls);
                 }
+                self.check_call_requires(*callee_expr, args, expr, decl, decls);
                 IndexInterval::default()
             }
             Expr::Unop(op, expr) => {
@@ -1084,6 +1170,7 @@ impl SafetyChecker {
                     body: None,
                     ret: mk_type(Type::Void),
                     constraints: vec![],
+                    requires: vec![],
                     loc: test_loc(),
                     arena: arena.clone(),
                     types: vec![],
@@ -1093,6 +1180,227 @@ impl SafetyChecker {
                 self.match_expr(*cond, &tmp, decls);
                 self.propagate_len_bounds();
             }
+        }
+    }
+
+    /// Check that all `require` clauses on the callee hold at this call site.
+    /// Reports a SafetyError for any clause that cannot be proved.
+    ///
+    /// Resolves the callee by name; if there are multiple overloads, picks the
+    /// one whose arity matches and whose param types match the caller's argument
+    /// types. Conservatively skips when the callee can't be uniquely resolved.
+    fn check_call_requires(
+        &mut self,
+        callee_expr: ExprID,
+        args: &[ExprID],
+        call_expr: ExprID,
+        caller: &FuncDecl,
+        decls: &DeclTable,
+    ) {
+        let Expr::Id(callee_name) = &caller.arena[callee_expr] else {
+            return;
+        };
+
+        // Find the callee FuncDecl. Disambiguate overloads by matching the
+        // function type recorded by the type checker for the callee expression.
+        let callee_ty = if callee_expr < caller.types.len() {
+            Some(caller.types[callee_expr])
+        } else {
+            None
+        };
+
+        let candidates = decls.find(*callee_name);
+        let mut callee: Option<&FuncDecl> = None;
+        for d in candidates {
+            if let Decl::Func(f) = d {
+                if f.params.len() != args.len() {
+                    continue;
+                }
+                if let Some(cty) = callee_ty {
+                    if f.ty() != cty {
+                        continue;
+                    }
+                }
+                callee = Some(f);
+                break;
+            }
+        }
+        let Some(callee) = callee else {
+            return;
+        };
+
+        if callee.requires.is_empty() {
+            return;
+        }
+
+        // Build name -> caller-arg-ExprID substitution.
+        let subst: Vec<(Name, ExprID)> = callee
+            .params
+            .iter()
+            .zip(args)
+            .map(|(p, &a)| (p.name, a))
+            .collect();
+
+        // Build size-var -> concrete-i64 substitution by matching declared
+        // param types (which may contain `[T; N]` with a size variable N)
+        // against the caller's resolved types for each arg.
+        let mut size_subst: Vec<(Name, i64)> = vec![];
+        for (param, &arg) in callee.params.iter().zip(args) {
+            if let Some(pty) = param.ty {
+                if arg < caller.types.len() {
+                    let aty = caller.types[arg];
+                    collect_size_subst(pty, aty, &mut size_subst);
+                }
+            }
+        }
+
+        for &req in &callee.requires {
+            if !self.prove_at_call(req, callee, caller, &subst, &size_subst, decls) {
+                let msg = format!(
+                    "couldn't prove require clause `{}` for call to `{}`",
+                    callee.arena.exprs[req].pretty_print(&callee.arena, 0),
+                    *callee.name
+                );
+                self.errors.push(SafetyError {
+                    location: caller.arena.locs[call_expr],
+                    message: msg,
+                });
+            }
+        }
+    }
+
+    /// Try to prove that the require expression `req` (in callee's arena)
+    /// holds in the caller's current bound state, after substituting params
+    /// for the corresponding caller argument expressions.
+    ///
+    /// Handles a small grammar of forms structurally:
+    ///   - `idx < arr.len`  where arr is a slice param: consult `len_bounds`.
+    ///   - `idx < arr.len`  where arr is a `[T; N]` param: compare idx's
+    ///       interval against the concrete N derived from the caller's arg.
+    ///   - `idx < N` where N is a size variable: same, via size_subst.
+    ///   - `lhs >= rhs` for constants: interval check.
+    ///   - `lhs && rhs`: prove both.
+    ///   - `true`: trivially provable.
+    /// Anything else is conservatively unprovable.
+    fn prove_at_call(
+        &mut self,
+        req: ExprID,
+        callee: &FuncDecl,
+        caller: &FuncDecl,
+        subst: &[(Name, ExprID)],
+        size_subst: &[(Name, i64)],
+        decls: &DeclTable,
+    ) -> bool {
+        let lookup = |n: &Name| -> Option<ExprID> {
+            subst.iter().find(|(p, _)| p == n).map(|(_, a)| *a)
+        };
+        let size_lookup = |n: &Name| -> Option<i64> {
+            size_subst.iter().find(|(s, _)| s == n).map(|(_, v)| *v)
+        };
+
+        match &callee.arena[req] {
+            Expr::True => true,
+            Expr::Binop(Binop::And, lhs, rhs) => {
+                self.prove_at_call(*lhs, callee, caller, subst, size_subst, decls)
+                    && self.prove_at_call(*rhs, callee, caller, subst, size_subst, decls)
+            }
+            Expr::Binop(Binop::Less, lhs, rhs) => {
+                // Pattern: <param_idx> < <param_arr>.len
+                if let (Expr::Id(idx_param), Expr::Field(arr_e, fld)) =
+                    (&callee.arena[*lhs], &callee.arena[*rhs])
+                {
+                    if fld.as_str() == "len" {
+                        if let Expr::Id(arr_param) = &callee.arena[*arr_e] {
+                            if let (Some(idx_arg), Some(arr_arg)) =
+                                (lookup(idx_param), lookup(arr_param))
+                            {
+                                // Slice path: consult len_bounds when both sides
+                                // resolve to plain Ids in the caller.
+                                if let (Expr::Id(idx_name), Expr::Id(arr_name)) =
+                                    (&caller.arena[idx_arg], &caller.arena[arr_arg])
+                                {
+                                    if self
+                                        .len_bounds
+                                        .iter()
+                                        .any(|b| b.index == *idx_name && b.array == *arr_name)
+                                    {
+                                        return true;
+                                    }
+                                }
+                                // Sized-array path: if the caller's arg has type
+                                // `[T; Known(K)]`, prove via interval check.
+                                if arr_arg < caller.types.len() {
+                                    if let Type::Array(_, ArraySize::Known(k)) =
+                                        *caller.types[arr_arg]
+                                    {
+                                        let li = self.check_expr(idx_arg, caller, decls);
+                                        if li.max != i64::MAX && li.max < k as i64 {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Pattern: <param> < <size_var>
+                if let (Expr::Id(lhs_param), Expr::Id(rhs_id)) =
+                    (&callee.arena[*lhs], &callee.arena[*rhs])
+                {
+                    if let (Some(la), Some(n_val)) = (lookup(lhs_param), size_lookup(rhs_id)) {
+                        let li = self.check_expr(la, caller, decls);
+                        if li.max != i64::MAX && li.max < n_val {
+                            return true;
+                        }
+                    }
+                }
+                // Fallback: interval comparison `lhs.max < rhs.min`. Resolve
+                // each side's interval — params via the caller arg, other
+                // expressions (constants, arithmetic) via the callee arena.
+                let li = if let Expr::Id(lhs_param) = &callee.arena[*lhs] {
+                    if let Some(la) = lookup(lhs_param) {
+                        Some(self.check_expr(la, caller, decls))
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(self.check_expr(*lhs, callee, decls))
+                };
+                let ri = if let Expr::Id(rhs_param) = &callee.arena[*rhs] {
+                    if let Some(ra) = lookup(rhs_param) {
+                        Some(self.check_expr(ra, caller, decls))
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(self.check_expr(*rhs, callee, decls))
+                };
+                if let (Some(li), Some(ri)) = (li, ri) {
+                    if li.max != i64::MAX && ri.min != i64::MIN && li.max < ri.min {
+                        return true;
+                    }
+                }
+                false
+            }
+            Expr::Binop(Binop::Geq, lhs, rhs) => {
+                // Pattern: <param> >= <const-or-expr>  →  check caller-arg.min >= rhs.min.
+                if let Expr::Id(lhs_param) = &callee.arena[*lhs] {
+                    if let Some(arg) = lookup(lhs_param) {
+                        let arg_iv = self.check_expr(arg, caller, decls);
+                        // Evaluate rhs in the callee's arena with no constraints —
+                        // works for constant expressions like `0`.
+                        let rhs_iv = self.check_expr(*rhs, callee, decls);
+                        if arg_iv.min != i64::MIN
+                            && rhs_iv.max != i64::MAX
+                            && arg_iv.min >= rhs_iv.max
+                        {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            _ => false,
         }
     }
 
@@ -1115,6 +1423,28 @@ impl SafetyChecker {
                 }
             }
 
+            // Size variables are i32-valued symbolic constants in the body.
+            // Treat them as non-negative (array sizes are always >= 1) so the
+            // checker can reason about `for i in 0 .. N` and `arr[idx]` for
+            // `[T; N]` parameters. The body still has to prove `idx < N` via
+            // a for-loop, require clause, or local check.
+            for &sv in &func_decl.size_vars {
+                self.vars.push(Var {
+                    name: sv,
+                    ty: mk_type(Type::Int32),
+                });
+                self.add(sv, Some(1), None);
+            }
+
+            // Inject require clauses as assumptions inside the function body.
+            // The clauses live in func_decl.arena and reference parameter names.
+            for &req in &func_decl.requires {
+                self.match_expr(req, func_decl, decls);
+            }
+            if !func_decl.requires.is_empty() {
+                self.propagate_len_bounds();
+            }
+
             self.check_expr(body, &func_decl, decls);
 
             self.vars.clear();
@@ -1126,7 +1456,7 @@ impl SafetyChecker {
         }
     }
 
-    fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
+    pub fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
         match decl {
             Decl::Func(func_decl) => {
                 // Skip generic functions with size variables — they'll be

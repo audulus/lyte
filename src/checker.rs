@@ -988,6 +988,17 @@ impl Checker {
                 }
             }
 
+            // Type-check require clauses: each must have type bool.
+            for &req in &func_decl.requires {
+                let req_ty = self.check_expr(req, &func_decl.arena, decls);
+                self.eq(
+                    req_ty,
+                    mk_type(Type::Bool),
+                    func_decl.arena.locs[req],
+                    "require clause must be a boolean expression",
+                );
+            }
+
             // Check the body of the function.
             let ty = self.check_expr(body, &func_decl.arena, decls);
 

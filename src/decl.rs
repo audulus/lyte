@@ -56,6 +56,11 @@ pub struct FuncDecl {
     /// The interfaces that must be available for this function.
     pub constraints: Vec<InterfaceConstraint>,
 
+    /// Precondition expressions checked by the safety checker:
+    /// assumed true inside the body, must be provable at every call site.
+    /// Each ExprID indexes into `arena`.
+    pub requires: Vec<ExprID>,
+
     /// Location of the declaration in source code.
     pub loc: Loc,
 
@@ -312,6 +317,12 @@ fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
         format!(" → {}", func.ret.pretty_print())
     };
     let constraints = format_constraints(&func.constraints);
+    let requires = func
+        .requires
+        .iter()
+        .map(|&r| format!(" require {}", func.arena.exprs[r].pretty_print(&func.arena, 0)))
+        .collect::<Vec<_>>()
+        .join("");
 
     let signature = if is_macro {
         format!("macro {}{}", func.name, typevars)
@@ -324,11 +335,14 @@ fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
     if let Some(body_id) = func.body {
         let body_str = func.arena.exprs[body_id].pretty_print(&func.arena, 0);
         format!(
-            "{}({}){}{} {}",
-            signature, params, ret_type, constraints, body_str
+            "{}({}){}{}{} {}",
+            signature, params, ret_type, constraints, requires, body_str
         )
     } else {
-        format!("{}({}){}{}", signature, params, ret_type, constraints)
+        format!(
+            "{}({}){}{}{}",
+            signature, params, ret_type, constraints, requires
+        )
     }
 }
 
@@ -400,6 +414,7 @@ mod tests {
             body: None,
             ret: mk_type(Type::Int32),
             constraints: vec![],
+            requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
@@ -428,6 +443,7 @@ mod tests {
             body: Some(body_id),
             ret: mk_type(Type::Var(Name::str("T"))),
             constraints: vec![],
+            requires: vec![],
             loc: test_loc(),
             arena,
             types: vec![],
@@ -486,6 +502,7 @@ mod tests {
                 body: None,
                 ret: mk_type(Type::Int32),
                 constraints: vec![],
+                requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
                 types: vec![],
@@ -546,6 +563,7 @@ mod tests {
             body: Some(body_id),
             ret: mk_type(Type::Int32),
             constraints: vec![],
+            requires: vec![],
             loc: test_loc(),
             arena,
             types: vec![],

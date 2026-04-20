@@ -1,0 +1,17 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/slices/require_unproven.lyte:16:5: couldn't prove require clause `idx >= 0` for call to `set`
+//         set(arr, i, 42)
+//         ^
+// ❌ ../tests/cases/slices/require_unproven.lyte:16:5: couldn't prove require clause `idx < arr.len` for call to `set`
+//         set(arr, i, 42)
+//         ^
+
+// Caller has no bound on i, so neither require can be proved.
+fn set(arr: [i32], idx: i32, value: i32) require idx >= 0 require idx < arr.len {
+    arr[idx] = value
+}
+
+caller(arr: [i32], i: i32) {
+    set(arr, i, 42)
+}

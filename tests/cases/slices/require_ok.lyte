@@ -1,0 +1,19 @@
+// args: --check
+// expected stdout:
+
+// Caller proves both requires, so no error.
+fn set(arr: [i32], idx: i32, value: i32) require idx >= 0 require idx < arr.len {
+    arr[idx] = value
+}
+
+// Same idea, but both bounds in a single `require` joined with `&&`.
+fn set_and(arr: [i32], idx: i32, value: i32) require idx >= 0 && idx < arr.len {
+    arr[idx] = value
+}
+
+caller(arr: [i32]) {
+    for i in 0 .. arr.len {
+        set(arr, i, 42)
+        set_and(arr, i, 42)
+    }
+}

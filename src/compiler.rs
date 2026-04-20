@@ -65,6 +65,7 @@ fn builtin_decls() -> Vec<Decl> {
             body: None,
             ret: mk_type(Type::Void),
             constraints: vec![],
+            requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
@@ -83,6 +84,7 @@ fn builtin_decls() -> Vec<Decl> {
             body: None,
             ret: mk_type(Type::Void),
             constraints: vec![],
+            requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
@@ -101,6 +103,7 @@ fn builtin_decls() -> Vec<Decl> {
             body: None,
             ret: mk_type(Type::Void),
             constraints: vec![],
+            requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
             types: vec![],
@@ -130,6 +133,7 @@ fn builtin_decls() -> Vec<Decl> {
                 body: None,
                 ret: ret_ty,
                 constraints: vec![],
+                requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
                 types: vec![],
@@ -155,6 +159,7 @@ fn builtin_decls() -> Vec<Decl> {
                 body: None,
                 ret: bool_ty,
                 constraints: vec![],
+                requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
                 types: vec![],
@@ -188,6 +193,7 @@ fn builtin_decls() -> Vec<Decl> {
                 body: None,
                 ret: ret_ty,
                 constraints: vec![],
+                requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
                 types: vec![],
@@ -225,6 +231,7 @@ fn builtin_decls() -> Vec<Decl> {
         body: None,
         ret: f32x4_ty,
         constraints: vec![],
+        requires: vec![],
         loc: test_loc(),
         arena: ExprArena::new(),
         types: vec![],
@@ -244,6 +251,7 @@ fn builtin_decls() -> Vec<Decl> {
         body: None,
         ret: f32x4_ty,
         constraints: vec![],
+        requires: vec![],
         loc: test_loc(),
         arena: ExprArena::new(),
         types: vec![],
@@ -627,7 +635,11 @@ impl Compiler {
         let mut pass = MonomorphPass::new();
         let entry_points = self.effective_entry_points();
         let all_decls = pass.monomorphize_multi(&self.decls, &entry_points)?;
-        // monomorphize now returns all decls (original + specialized)
+        // Capture the names of newly-generated specialized decls so we can
+        // run a focused safety-check pass on them (their bodies were skipped
+        // pre-monomorph because they contained size variables).
+        let specialized_names: std::collections::HashSet<Name> =
+            pass.instantiated_names().collect();
         self.decls = DeclTable::new(all_decls);
 
         // Rename non-generic overloaded functions to unique symbols.
@@ -635,6 +647,32 @@ impl Compiler {
         // can resolve overloaded calls (e.g. cmp in a generic quicksort).
         rename_overloaded_functions(&mut self.decls);
         self.decls = DeclTable::new(self.decls.decls.clone());
+
+        // Re-run the safety checker on specialized declarations only.
+        // Their bodies were skipped pre-monomorph because they had non-empty
+        // size_vars; now sizes are concrete (`[T; Known(K)]`) so bounds and
+        // require clauses can be verified properly.
+        if !specialized_names.is_empty() {
+            let mut sc = SafetyChecker::new();
+            for decl in &self.decls.decls {
+                if let Decl::Func(f) = decl {
+                    if specialized_names.contains(&f.name) {
+                        sc.check_decl(decl, &self.decls);
+                    }
+                }
+            }
+            if !self.quiet {
+                sc.print_errors();
+            }
+            for err in &sc.errors {
+                self.last_errors
+                    .push(format_error(err.location, &err.message));
+            }
+            self.last_safety_errors.extend(sc.errors.iter().cloned());
+            if !sc.errors.is_empty() {
+                return Err(format!("safety check failed for {} call(s)", sc.errors.len()));
+            }
+        }
 
         // Hoist loop-invariant struct field reads (after monomorphization
         // so we operate on concrete types, and after safety checking).

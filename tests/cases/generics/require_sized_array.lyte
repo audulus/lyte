@@ -1,0 +1,22 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+// `get` is parameterized by the array size N. The require clauses reference
+// both `arr.len` (which equals N for `[i32; N]`) and the size variable `N`
+// directly. The call-site prover derives N from the actual array passed in.
+
+fn get<N>(arr: [i32; N], idx: i32) -> i32 require idx >= 0 require idx < arr.len {
+    arr[idx]
+}
+
+fn get_n<N>(arr: [i32; N], idx: i32) -> i32 require idx >= 0 require idx < N {
+    arr[idx]
+}
+
+main {
+    let a = [10, 20, 30, 40]
+    assert(get(a, 2) == 30)
+    assert(get_n(a, 3) == 40)
+}

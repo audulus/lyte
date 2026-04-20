@@ -3400,6 +3400,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     body: Some(body),
                     ret: rng,
                     constraints: vec![],
+                    requires: vec![],
                     loc: decl.loc,
                     arena: decl.arena.clone(),
                     types: decl.types.clone(),
