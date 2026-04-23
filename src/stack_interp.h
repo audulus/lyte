@@ -17,6 +17,13 @@
 // CancelCallback in src/cancel.rs.
 typedef bool (*CancelCallback)(void* user_data);
 
+// Trap reason codes. Must stay in sync with TRAP_* in src/cancel.rs so
+// the host can read ctx->trap_reason uniformly across backends.
+#define STACK_TRAP_NONE                0u
+#define STACK_TRAP_CANCELLED           1u
+#define STACK_TRAP_CALL_STACK_OVERFLOW 2u
+#define STACK_TRAP_ASSERTION_FAILED    3u
+
 // Instruction encoding: 32 bytes (4 x u64).
 // [0] handler function pointer
 // [1] imm0 (local index, constant, jump offset, etc.)
@@ -104,6 +111,13 @@ typedef struct Ctx {
     // Set to true if the callback returned true. The host distinguishes
     // a clean exit from cancellation by reading this after run() returns.
     bool           cancelled;
+
+    // Structural trap reason set alongside `error` at each trap site (and
+    // on cancellation). Lets the host distinguish assertion-failed vs
+    // call-stack-overflow vs cancelled without string matching. Matches
+    // the TRAP_* codes in src/cancel.rs so read_trap_reason() in the
+    // globals buffer can surface the same value across backends.
+    uint32_t       trap_reason;
 } Ctx;
 
 // Handler function signature.

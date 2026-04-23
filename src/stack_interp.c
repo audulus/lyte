@@ -35,6 +35,7 @@ static int enter_function(Ctx* ctx, uint32_t func_idx, uint64_t** out_locals) {
     size_t fs_needed = fs_base + total_slots;
     if (fs_needed > ctx->frame_stack_cap) {
         ctx->error = "stack overflow";
+        ctx->trap_reason = STACK_TRAP_CALL_STACK_OVERFLOW;
         ctx->done = 1;
         *out_locals = NULL;
         return 0;
@@ -178,6 +179,7 @@ static int64_t ipow(int64_t base, uint32_t exp) {
             ctx->cancel_counter = CANCEL_CHECK_INTERVAL; \
             if (ctx->cancel_callback && ctx->cancel_callback(ctx->cancel_userdata)) { \
                 ctx->cancelled = true; \
+                ctx->trap_reason = STACK_TRAP_CANCELLED; \
                 ctx->done = 1; \
                 return; \
             } \
@@ -676,6 +678,7 @@ HANDLER(op_call) {
 
     if (ctx->call_depth >= ctx->call_stack_cap) {
         ctx->error = "call stack overflow";
+        ctx->trap_reason = STACK_TRAP_CALL_STACK_OVERFLOW;
         ctx->done = 1;
         return;
     }
@@ -776,6 +779,7 @@ HANDLER(op_call_closure) {
 
     if (ctx->call_depth >= ctx->call_stack_cap) {
         ctx->error = "call stack overflow";
+        ctx->trap_reason = STACK_TRAP_CALL_STACK_OVERFLOW;
         ctx->done = 1;
         return;
     }
@@ -851,6 +855,7 @@ HANDLER(op_call_indirect) {
 
     if (ctx->call_depth >= ctx->call_stack_cap) {
         ctx->error = "call stack overflow";
+        ctx->trap_reason = STACK_TRAP_CALL_STACK_OVERFLOW;
         ctx->done = 1;
         return;
     }
@@ -1033,6 +1038,7 @@ HANDLER(op_assert) {
     fflush(stdout);
     if (val == 0) {
         ctx->error = "assertion failed";
+        ctx->trap_reason = STACK_TRAP_ASSERTION_FAILED;
         ctx->done = 1;
         return; // Break the tail-call chain back to stack_interp_run.
     }
@@ -1787,6 +1793,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->done = 0;
     ctx->result = 0;
     ctx->error = NULL;
+    ctx->trap_reason = STACK_TRAP_NONE;
     ctx->frame_stack_size = 0;
     ctx->call_depth = 0;
     ctx->cancelled = false;

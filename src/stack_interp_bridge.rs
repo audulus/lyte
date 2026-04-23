@@ -50,6 +50,7 @@ struct Ctx {
     cancel_userdata: *mut u8,
     cancel_counter: i32,
     cancelled: bool,
+    trap_reason: u32,
 }
 
 extern "C" {
@@ -803,6 +804,7 @@ impl StackBackend {
             cancel_userdata: std::ptr::null_mut(),
             cancel_counter: crate::cancel::CANCEL_CHECK_INTERVAL,
             cancelled: false,
+            trap_reason: crate::cancel::TRAP_NONE,
         };
 
         Self {
@@ -830,6 +832,13 @@ impl StackBackend {
     /// True if the most recent `call_entry` exited via cancellation.
     pub fn cancelled(&self) -> bool {
         self.ctx.cancelled
+    }
+
+    /// Structural trap reason from the most recent `call_entry`. Matches
+    /// the TRAP_* constants in `crate::cancel` so the host can handle
+    /// this value the same way as `read_trap_reason()` on JIT/LLVM.
+    pub fn trap_reason(&self) -> u32 {
+        self.ctx.trap_reason
     }
 
     /// Run `entry_func` with the given external globals buffer.
@@ -881,6 +890,39 @@ mod tests {
         assert!(
             backend.cancelled(),
             "expected the C interp's infinite loop to be cancelled"
+        );
+        assert_eq!(
+            backend.trap_reason(),
+            crate::cancel::TRAP_CANCELLED,
+            "cancel callback should surface as TRAP_CANCELLED"
+        );
+    }
+
+    #[test]
+    fn test_assert_failure_surfaces_trap_reason() {
+        // `0 debug.assert` fires the assertion trap. The bridge should
+        // expose it as TRAP_ASSERTION_FAILED instead of only printing to
+        // stderr — this is the iOS gap vs. the LLVM/JIT path.
+        let mut func = StackFunction::new("entry");
+        func.emit(StackOp::I64Const(0));
+        func.emit(StackOp::Assert);
+        func.local_count = 3; // min scalar slots used by enter_function
+
+        let mut program = StackProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut backend = StackBackend::new(&program);
+        let mut globals: Vec<u8> = vec![0u8; program.globals_size.max(1)];
+        backend.call_entry(program.entry, globals.as_mut_ptr());
+
+        assert!(
+            !backend.cancelled(),
+            "assertion trap is not a cancellation"
+        );
+        assert_eq!(
+            backend.trap_reason(),
+            crate::cancel::TRAP_ASSERTION_FAILED,
+            "failed debug.assert should surface as TRAP_ASSERTION_FAILED"
         );
     }
 }

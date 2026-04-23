@@ -1749,7 +1749,8 @@ mod tests {
         assert!(compiler.check(), "type check failed");
         compiler.specialize().expect("specialize failed");
 
-        let globals_info = compiler.globals_info_with_offset(0);
+        let globals_info =
+            compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
         let input_offset = globals_info
             .iter()
             .find(|g| g.0 == "input")

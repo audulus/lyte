@@ -395,7 +395,8 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
             match c.compiler.compile_stack() {
                 Ok(stack_program) => {
                     let globals_size = stack_program.globals_size;
-                    let globals_info = make_globals_info(0);
+                    let globals_info =
+                        make_globals_info(crate::cancel::CANCEL_FLAG_RESERVED as usize);
 
                     let mut entry_points = Vec::new();
                     for ep_name in &entry_point_names {
@@ -639,8 +640,18 @@ pub unsafe extern "C" fn lyte_entry_point_call(
         program
             .backend
             .set_cancel_callback(program.cancel_callback, program.cancel_userdata);
+        // Clear any prior trap reason so read_trap_reason() reflects only
+        // this invocation even if the caller reuses the globals buffer.
+        *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) =
+            crate::cancel::TRAP_NONE;
         program.backend.call_entry(ep.func_idx, globals);
-        result = !program.backend.cancelled();
+        let reason = program.backend.trap_reason();
+        // Mirror the structural trap reason into the globals header so
+        // read_trap_reason() works uniformly across JIT/LLVM/VM/stack.
+        *(globals.add(crate::cancel::TRAP_REASON_OFFSET as usize) as *mut u32) = reason;
+        // Any trap (cancelled / call-stack-overflow / assertion-failed)
+        // surfaces as a failed call, matching the LLVM setjmp path.
+        result = reason == crate::cancel::TRAP_NONE;
     }
 
     // Clear print callback.

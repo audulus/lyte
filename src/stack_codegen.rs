@@ -91,8 +91,15 @@ impl StackCodegen {
     }
 
     /// Collect global variables and compute their offsets.
+    ///
+    /// Reserves `CANCEL_FLAG_RESERVED` bytes at the start of the globals
+    /// buffer for the cancel/trap header (cancel counter, callback,
+    /// trap_reason, jmp_buf). The header layout matches the one used by
+    /// the JIT/LLVM backends, which lets the FFI layer write the stack
+    /// interp's structural trap reason to `TRAP_REASON_OFFSET` so hosts
+    /// can call `read_trap_reason(globals)` uniformly across backends.
     fn declare_globals(&mut self, decls: &DeclTable) {
-        let mut offset: i32 = 0;
+        let mut offset: i32 = crate::cancel::CANCEL_FLAG_RESERVED;
         for decl in &decls.decls {
             match decl {
                 Decl::Global {
