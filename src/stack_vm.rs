@@ -863,3 +863,31 @@ impl StackVM {
         self.push(f64::to_bits(f(v)));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stack_ir::{StackFunction, StackOp, StackProgram};
+
+    #[test]
+    fn test_infinite_loop_cancels() {
+        // Single backward Jump(-1) — after the loop's `ip += 1`, this lands
+        // back on itself, polling the cancel callback each time the counter
+        // hits zero.
+        let mut func = StackFunction::new("entry");
+        func.emit(StackOp::Jump(-1));
+
+        let mut program = StackProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut vm = StackVM::new();
+
+        unsafe extern "C" fn always_cancel(_user_data: *mut u8) -> bool {
+            true
+        }
+        vm.set_cancel_callback(Some(always_cancel), std::ptr::null_mut());
+
+        vm.run(&program);
+        assert!(vm.cancelled, "expected the infinite loop to be cancelled");
+    }
+}
