@@ -9,8 +9,13 @@
 #ifndef STACK_INTERP_H
 #define STACK_INTERP_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+
+// Cancel callback type: returns true to cancel execution. Mirrors
+// CancelCallback in src/cancel.rs.
+typedef bool (*CancelCallback)(void* user_data);
 
 // Instruction encoding: 32 bytes (4 x u64).
 // [0] handler function pointer
@@ -89,6 +94,16 @@ typedef struct Ctx {
     // op_return/op_halt leaves this unchanged. Statically-allocated string
     // pointer; not owned by the context.
     const char*  error;
+
+    // Cancel callback, polled at backward jumps. NULL disables polling.
+    CancelCallback cancel_callback;
+    void*          cancel_userdata;
+    // Counter decremented on each backward jump; on hit zero, the callback
+    // is invoked and the counter reset. Initialized by stack_interp_run.
+    int32_t        cancel_counter;
+    // Set to true if the callback returned true. The host distinguishes
+    // a clean exit from cancellation by reading this after run() returns.
+    bool           cancelled;
 } Ctx;
 
 // Handler function signature.

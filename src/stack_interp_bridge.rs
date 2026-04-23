@@ -46,6 +46,10 @@ struct Ctx {
     result: i64,
     done: i32,
     error: *const std::os::raw::c_char,
+    cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+    cancel_userdata: *mut u8,
+    cancel_counter: i32,
+    cancelled: bool,
 }
 
 extern "C" {
@@ -795,6 +799,10 @@ impl StackBackend {
             result: 0,
             done: 0,
             error: std::ptr::null(),
+            cancel_callback: None,
+            cancel_userdata: std::ptr::null_mut(),
+            cancel_counter: crate::cancel::CANCEL_CHECK_INTERVAL,
+            cancelled: false,
         };
 
         Self {
@@ -806,6 +814,22 @@ impl StackBackend {
             float_stack,
             ctx,
         }
+    }
+
+    /// Set a cancel callback that the C interp will poll at backward jumps.
+    /// If it returns true, `call_entry` exits early and `cancelled()` is true.
+    pub fn set_cancel_callback(
+        &mut self,
+        callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+        user_data: *mut u8,
+    ) {
+        self.ctx.cancel_callback = callback;
+        self.ctx.cancel_userdata = user_data;
+    }
+
+    /// True if the most recent `call_entry` exited via cancellation.
+    pub fn cancelled(&self) -> bool {
+        self.ctx.cancelled
     }
 
     /// Run `entry_func` with the given external globals buffer.
@@ -827,5 +851,36 @@ impl StackBackend {
             &self.float_stack,
         );
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stack_ir::{StackFunction, StackOp};
+
+    #[test]
+    fn test_infinite_loop_cancels() {
+        // Tight backward jump — the C interp's POLL_CANCEL fires after
+        // CANCEL_CHECK_INTERVAL iterations and the callback aborts.
+        let mut func = StackFunction::new("entry");
+        func.emit(StackOp::Jump(-1));
+
+        let mut program = StackProgram::new();
+        program.entry = program.add_function(func);
+
+        let mut backend = StackBackend::new(&program);
+        let mut globals: Vec<u8> = vec![0u8; program.globals_size.max(1)];
+
+        unsafe extern "C" fn always_cancel(_user_data: *mut u8) -> bool {
+            true
+        }
+        backend.set_cancel_callback(Some(always_cancel), std::ptr::null_mut());
+
+        backend.call_entry(program.entry, globals.as_mut_ptr());
+        assert!(
+            backend.cancelled(),
+            "expected the C interp's infinite loop to be cancelled"
+        );
     }
 }

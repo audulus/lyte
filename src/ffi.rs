@@ -259,8 +259,8 @@ pub struct LyteProgram {
 // On iOS (non-LLVM) builds: stack interpreter backend via the C interp.
 // Requires has_stack_interp (set by build.rs when compiling with clang,
 // which is always the case for iOS cross-builds). The cancel callback is
-// stored for API compatibility but the stack interpreter does not
-// currently poll it.
+// forwarded into the C interp's Ctx by lyte_entry_point_call and polled
+// at backward jumps.
 #[cfg(all(not(feature = "llvm"), target_os = "ios"))]
 pub struct LyteProgram {
     backend: StackBackend,
@@ -636,12 +636,11 @@ pub unsafe extern "C" fn lyte_entry_point_call(
 
     #[cfg(all(not(feature = "llvm"), target_os = "ios"))]
     {
-        // The stack interpreter does not currently poll a cancel callback.
-        // Binding it here is a no-op; stored only so the ffi surface
-        // matches other backends.
-        let _ = (program.cancel_callback, program.cancel_userdata);
+        program
+            .backend
+            .set_cancel_callback(program.cancel_callback, program.cancel_userdata);
         program.backend.call_entry(ep.func_idx, globals);
-        result = true;
+        result = !program.backend.cancelled();
     }
 
     // Clear print callback.

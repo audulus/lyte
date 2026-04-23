@@ -165,6 +165,25 @@ static int64_t ipow(int64_t base, uint32_t exp) {
         __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
     } while(0)
 
+// How many backward jumps between cancel-callback invocations. Must match
+// CANCEL_CHECK_INTERVAL in src/cancel.rs (asserted at startup by the bridge).
+#define CANCEL_CHECK_INTERVAL 1024
+
+// Decrement the cancel counter; on expiry invoke the callback and, if it
+// returns true, mark cancelled and break the tail-call chain. Use this
+// after applying any backward `pc = pc + 1 + off` (off < 0).
+#define POLL_CANCEL() \
+    do { \
+        if (--ctx->cancel_counter <= 0) { \
+            ctx->cancel_counter = CANCEL_CHECK_INTERVAL; \
+            if (ctx->cancel_callback && ctx->cancel_callback(ctx->cancel_userdata)) { \
+                ctx->cancelled = true; \
+                ctx->done = 1; \
+                return; \
+            } \
+        } \
+    } while(0)
+
 // Float TOS window push/pop. Spills/refills through `fsp`, a handler
 // argument pinned to a GPR by preserve_none — analogous to the integer
 // `sp`. Each op pays a single register-indirect store/load (one cycle
@@ -614,6 +633,7 @@ HANDLER(op_slice_store32_f) {
 HANDLER(op_jump) {
     int64_t off = (int64_t)pc->imm[0];
     pc = pc + 1 + off;
+    if (off < 0) POLL_CANCEL();
     DISPATCH();
 }
 
@@ -623,6 +643,7 @@ HANDLER(op_jump_if_zero) {
     if (cond == 0) {
         int64_t off = (int64_t)pc->imm[0];
         pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
         DISPATCH();
     }
     NEXT();
@@ -634,6 +655,7 @@ HANDLER(op_jump_if_not_zero) {
     if (cond != 0) {
         int64_t off = (int64_t)pc->imm[0];
         pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
         DISPATCH();
     }
     NEXT();
@@ -1063,6 +1085,7 @@ HANDLER(op_fused_get_get_ilt_jiz) {
     if ((int64_t)locals[pc->imm[0]] >= (int64_t)locals[pc->imm[1]]) {
         int64_t off = (int64_t)pc->imm[2];
         pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
         DISPATCH();
     }
     NEXT();
@@ -1078,6 +1101,7 @@ HANDLER(name) { \
         if ((int64_t)locals[idx] >= (int64_t)locals[len]) { \
             int64_t off = (int64_t)pc->imm[2]; \
             pc = pc + 1 + off; \
+            if (off < 0) POLL_CANCEL(); \
             DISPATCH(); \
         } \
     } \
@@ -1730,6 +1754,7 @@ HANDLER(op_fused_f32const_fgt_jiz_f) {
     if (!(val > limit)) {
         int64_t off = (int64_t)pc->imm[1];
         pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
         DISPATCH();
     }
     NEXT();
@@ -1742,6 +1767,7 @@ HANDLER(op_fused_get_f32const_fgt_jiz_f) {
     if (!(val > limit)) {
         int64_t off = (int64_t)pc->imm[2];
         pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
         DISPATCH();
     }
     NEXT();
@@ -1763,6 +1789,8 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     ctx->error = NULL;
     ctx->frame_stack_size = 0;
     ctx->call_depth = 0;
+    ctx->cancelled = false;
+    ctx->cancel_counter = CANCEL_CHECK_INTERVAL;
 
     // Enter entry function. enter_function writes the new frame pointer
     // into entry_locals via the out-parameter.
