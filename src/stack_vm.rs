@@ -42,6 +42,14 @@ impl StackVM {
         }
     }
 
+    pub fn globals(&self) -> &[u8] {
+        &self.globals
+    }
+
+    pub fn globals_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.globals
+    }
+
     #[inline(always)]
     fn push(&mut self, val: u64) {
         self.operand_stack.push(val);
