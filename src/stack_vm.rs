@@ -17,6 +17,15 @@ pub struct StackVM {
     globals: Vec<u8>,
     local_memory: Vec<u8>,
     closure_ptr: u64,
+
+    /// Set to true if execution was cancelled via the callback.
+    pub cancelled: bool,
+
+    /// Cancel callback, polled at backward jumps. Returns true to cancel.
+    cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+
+    /// User data passed to the cancel callback.
+    cancel_userdata: *mut u8,
 }
 
 fn ipow(mut base: i64, mut exp: u32) -> i64 {
@@ -39,6 +48,9 @@ impl StackVM {
             globals: Vec::new(),
             local_memory: Vec::with_capacity(64 * 1024),
             closure_ptr: 0,
+            cancelled: false,
+            cancel_callback: None,
+            cancel_userdata: std::ptr::null_mut(),
         }
     }
 
@@ -48,6 +60,33 @@ impl StackVM {
 
     pub fn globals_mut(&mut self) -> &mut Vec<u8> {
         &mut self.globals
+    }
+
+    /// Set a cancel callback that is polled periodically at backward jumps.
+    /// If it returns true, `run` returns 0 with `cancelled` set.
+    pub fn set_cancel_callback(
+        &mut self,
+        callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
+        user_data: *mut u8,
+    ) {
+        self.cancel_callback = callback;
+        self.cancel_userdata = user_data;
+    }
+
+    #[inline]
+    fn poll_cancel(&mut self, counter: &mut i32) -> bool {
+        *counter -= 1;
+        if *counter > 0 {
+            return false;
+        }
+        *counter = crate::cancel::CANCEL_CHECK_INTERVAL;
+        if let Some(cb) = self.cancel_callback {
+            if unsafe { cb(self.cancel_userdata) } {
+                self.cancelled = true;
+                return true;
+            }
+        }
+        false
     }
 
     #[inline(always)]
@@ -85,11 +124,13 @@ impl StackVM {
 
     pub fn run(&mut self, program: &StackProgram) -> i64 {
         self.globals.resize(program.globals_size, 0);
+        self.cancelled = false;
 
         let mut func_idx = program.entry;
         let (mut locals, mut lm_base) = self.enter_function(program, func_idx, &[]);
         let mut ip: usize = 0;
         let mut os_base = self.operand_stack.len();
+        let mut cancel_counter: i32 = crate::cancel::CANCEL_CHECK_INTERVAL;
 
         loop {
             let func = &program.functions[func_idx as usize];
@@ -532,17 +573,26 @@ impl StackVM {
                 // === Control flow ===
                 StackOp::Jump(off) => {
                     ip = (ip as i64 + off as i64) as usize;
+                    if off < 0 && self.poll_cancel(&mut cancel_counter) {
+                        return 0;
+                    }
                 }
                 StackOp::JumpIfZero(off) => {
                     let cond = self.pop();
                     if cond == 0 {
                         ip = (ip as i64 + off as i64) as usize;
+                        if off < 0 && self.poll_cancel(&mut cancel_counter) {
+                            return 0;
+                        }
                     }
                 }
                 StackOp::JumpIfNotZero(off) => {
                     let cond = self.pop();
                     if cond != 0 {
                         ip = (ip as i64 + off as i64) as usize;
+                        if off < 0 && self.poll_cancel(&mut cancel_counter) {
+                            return 0;
+                        }
                     }
                 }
 
