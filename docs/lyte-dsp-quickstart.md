@@ -1,13 +1,12 @@
-# Lyte DSP Quick Start — Building Audio DSP in Lyte
+# Lyte DSP Quick Start
 
-*A practical guide to common DSP building blocks in Audulus Lyte. The examples are meant to be
-small, pasteable, and easy to adapt.*
+*A practical starting guide for building audio tools in Audulus Lyte. The examples are small, easy to paste in, and meant to be changed.*
 
 ---
 
 ## The DSP Node
 
-When a new Lyte DSP node is created in Audulus, it shows this template:
+When you create a new Lyte DSP node in Audulus, it starts with this template:
 
 ```lyte
 // Inputs, outputs, `frames`, `sampleRate`, and `storage` are globals.
@@ -23,48 +22,46 @@ process {
 }
 ```
 
-That template is the whole interface. Everything below builds from it.
+That is the basic shape of a Lyte DSP node. Everything below builds on that pattern.
 
 ## Terms for New Users
 
-These words show up right away in the fresh-node comments:
+These are the main words you will see right away:
 
-- `input`, `output`: audio buffers for the current block. `input[i]` means “sample `i`.”
-- `frames`: how many samples are in the current block.
-- `sampleRate`: how many samples happen per second, usually `44100.0` or `48000.0`.
-- `storage`: extra sample memory for things like delay lines.
-- `globals`: variables declared outside `process`. They remember values between blocks.
-- `slice`: a buffer you index with `[...]`.
-- `MAX_FRAMES`: the largest block size Audulus may give the node. Use it for temporary arrays when needed.
+- `input`, `output`: the audio coming in and going out for the current block. `input[i]` means “sample number `i`”
+- `frames`: how many samples are in this block
+- `sampleRate`: how many samples happen each second, usually `44100.0` or `48000.0`
+- `storage`: extra memory for things like delay lines
+- `globals`: variables declared outside `process`. They keep their value from one block to the next
+- `slice`: a buffer you read with `[...]`
+- `MAX_FRAMES`: the biggest block size Audulus may send to the node. Use it when you need a temporary array
 
-You do not declare `input`, `output`, `frames`, `sampleRate`, or `storage` yourself.
-Audulus provides them.
+You do not create `frames`, `sampleRate`, or `storage` yourself. Audulus gives them to the node automatically.
 
 | Global | Type | Description |
 |---|---|---|
-| `input`, `output` | `[f32]` | Default port slices. Additional named ports are added in the Inspector. |
+| `input`, `output` | `[f32]` | Default port slices. Add ports as needed above the code viewer in the Inspector. |
 | `frames` | `i32` | Number of samples in this processing block. |
 | `sampleRate` | `f32` | Current sample rate, e.g. `44100.0`. |
-| `storage` | `[f32]` | Pre-allocated buffer for delay lines etc., sized in the Inspector. |
+| `storage` | `[f32]` | Pre-allocated buffer for delay lines etc., set the size in the Inspector. |
 | `MAX_FRAMES` | `i32` | Maximum possible block size — use to declare stack arrays. |
 
-**`init {}`** runs once when the node loads. Use it for setup.
+**`init {}`** runs once when the node loads. Use it for setup values.
 
-**`process { ... }`** runs once per block. Loop over `for i in 0 .. frames` and read or
-write the buffers.
+**`process { ... }`** runs once per block. Most audio work happens here inside `for i in 0 .. frames`.
 
 **Global `var`** is for state that should survive between blocks. Globals start at zero.
 
-**Indexing is zero-based.** In `for i in 0 .. frames`, valid indices are `0` through
-`frames - 1`. Use `freq[i]` for normal per-sample processing. Use `freq[0]` only when you
-intentionally want the first sample in the block.
+**Indexing starts at zero.** In `for i in 0 .. frames`, valid indices are `0` through
+`frames - 1`. Use `freq[i]` for normal sample-by-sample processing. Use `freq[0]` only when you
+intentionally want one control value for the whole block. If you are coming from Lua, this is different because Lua starts at `1`.
 
 ---
 
-## A Note on `sampleRate`
+## Using `sampleRate`
 
-`sampleRate` now behaves like a normal float. The usual pattern is to compute
-`1.0 / sampleRate` once in `init` and multiply by that inside `process`.
+`sampleRate` is a float. A common pattern is to compute `1.0 / sampleRate` once in
+`init` and then multiply by that inside `process`.
 
 ```lyte
 var inv_sr: f32
@@ -74,13 +71,13 @@ init {
 }
 ```
 
-This also avoids doing a division every sample.
+This also avoids doing a division on every sample.
 
 ---
 
 ## Do's and Don'ts
 
-These habits gave the most reliable results in the current Audulus build.
+These are good default habits for writing Lyte in Audulus.
 
 **Do:**
 - Prefer `f32` almost everywhere in DSP code.
@@ -90,13 +87,60 @@ These habits gave the most reliable results in the current Audulus build.
 - Read a port sample into a scratch `f32` first if the compiler gets ambiguous about expressions like `input[i] * inv_sr`.
 - Keep slice index proofs inline near `storage[...]` accesses when the safety checker complains.
 - Use `freq[i]`, `cutoff[i]`, and similar forms for normal per-sample processing. Use `freq[0]` only when you intentionally want one control value for the whole block.
+- Move expensive math out of the sample loop when true audio-rate updates are not needed.
+- Try block-rate control first when it sounds good enough. It is usually simpler and cheaper.
 
 **Don't:**
-- Don't assume Expr-node conveniences exist in Lyte. For example, `pi` is not built in here.
-- Don't use `sinf`, `cosf`, or other suffixed math names in Audulus Lyte.
+- Don't assume every Expr-node feature maps over exactly. Lyte does have built-in trig/math functions and stdlib helpers like `clamp(x, lo, hi)` and `mix(a, b, t)`, but constants like `pi` are still not built in.
+- Don't use `sinf`, `cosf`, or other suffixed math names in Audulus Lyte. Use unsuffixed names like `sin`, `cos`, `tan`, `atan2`, `sqrt`, `clamp`, and `mix`.
 - Don't rely on helper functions to prove slice indices are safe; the checker usually wants the bounds checks inline.
 - Don't use `assume` in node code — it is only allowed in the standard library or prelude.
 - Don't assume examples from the standalone Lyte repo will drop into Audulus unchanged.
+- Don't rely on block-form inline `if` expressions in assignments such as `let x = if ...` or `output[i] = if ...`. In Lyte those can trigger confusing parser errors. Use a normal assignment first, then a plain `if` block.
+
+---
+
+## Debug Printing
+
+`println` is useful for simple debugging. For numbers, write into a
+small text buffer first with `itoa` or `ftoa`, then print the buffer.
+
+### Hello World
+
+```lyte
+init {
+    println("hello world")
+}
+
+process {
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+}
+```
+
+### Block Counter
+
+This prints how many times `process` has run so far.
+
+```lyte
+var calls: i32
+
+init {}
+
+process {
+    var buf: [i8; 32]
+    itoa(buf, calls)
+    println(buf)
+    calls = calls + 1
+
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+}
+```
+
+Use debug printing sparingly. Printing every block gets noisy fast.
 
 ---
 
@@ -141,8 +185,7 @@ process {
 }
 ```
 
-`phase` remembers where the oscillator is in its cycle. `hz` is a scratch `f32` used to
-keep the compiler happy when doing math with `input[i]`.
+`phase` remembers where the oscillator is in its cycle. `hz` is just a temporary variable that makes the math clearer and avoids compiler confusion around `input[i]`.
 
 ---
 
@@ -169,7 +212,7 @@ process {
 }
 ```
 
-Use `let` for one-time values inside the loop. Use `var` for values that change.
+Use `let` for a value you set once and do not change. Use `var` for a value that changes.
 
 ---
 ## 1. Timer
@@ -242,8 +285,8 @@ process {
 `sync` is a rising-edge trigger. `hz * inv_sr` is the fraction of one cycle that passes
 per sample.
 
-> 🔄 *Audulus users: The built-in Audulus Phasor outputs `0` to `2π`. This one uses `0` to
-> `1`, which is often simpler in DSP code.*
+Note for Audulus users: the built-in Audulus Phasor outputs `0` to `2π`. This example uses `0` to
+`1`, which is often easier to work with in Lyte code.
 
 ### Clock
 
@@ -363,12 +406,15 @@ output[i] = phase * 2.0 - 1.0
 // triangle: fold the sawtooth
 output[i] = abs(phase * 2.0 - 1.0) * 2.0 - 1.0
 
-// square: if/else is an expression in Lyte
+// square
 var pw: f32   // global pulse width; 0.5 = 50% duty cycle
-output[i] = if phase < pw { 1.0 } else { -1.0 }
+output[i] = -1.0
+if phase < pw {
+    output[i] = 1.0
+}
 ```
 
-`if/else` can return a value directly, so there is no ternary operator to learn.
+This plain assignment style is a safe habit in Lyte and avoids parser trouble from inline `if` expressions.
 
 ---
 ## 4. Sample and Hold
@@ -526,7 +572,10 @@ process {
     for i in 0 .. frames {
         let x   = input[i]
         let fc  = cutoff[i]
-        let res = if q[i] < 0.001 { 0.001 } else { q[i] }
+        var res = q[i]
+        if res < 0.001 {
+            res = 0.001
+        }
         let w0    = 2.0 * 3.14159265 * fc * inv_sr
         let alpha = sin(w0) / (2.0 * res)
         let cs    = cos(w0)
@@ -549,7 +598,7 @@ process {
 ```
 
 This is direct form I using plain `f32` globals for the saved state. This flatter version
-is the one verified to behave correctly in the current Audulus build.
+is the one used in this guide.
 
 ### DC Blocker
 
@@ -619,10 +668,9 @@ process {
         }
 
         let read_pos_0 = write as f32 - delay
-        let read_pos = if read_pos_0 < 0.0 {
-            read_pos_0 + len as f32
-        } else {
-            read_pos_0
+        var read_pos = read_pos_0
+        if read_pos < 0.0 {
+            read_pos = read_pos + len as f32
         }
 
         let i0 = floor(read_pos) as i32
