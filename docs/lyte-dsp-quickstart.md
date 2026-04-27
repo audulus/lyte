@@ -11,6 +11,7 @@ When you create a new Lyte DSP node in Audulus, it starts with this template:
 ```lyte
 // Inputs, outputs, `frames`, `sampleRate`, and `storage` are globals.
 // Inputs, outputs, and `storage` are slices bound to the engine buffers.
+// `storage` is persistent host storage, not the normal place for large DSP buffers.
 // MAX_FRAMES is the max processing frames (used to declare temporary arrays).
 
 init {}
@@ -31,19 +32,19 @@ These are the main words you will see right away:
 - `input`, `output`: the audio coming in and going out for the current block. `input[i]` means “sample number `i`”
 - `frames`: how many samples are in this block
 - `sampleRate`: how many samples happen each second, usually `44100.0` or `48000.0`
-- `storage`: extra memory for things like delay lines
+- `storage`: persistent host storage provided by Audulus. Use it for node-owned values that should live outside the audio block, not as the default location for large delay lines or scratch buffers
 - `globals`: variables declared outside `process`. They keep their value from one block to the next
 - `slice`: a buffer you read with `[...]`
 - `MAX_FRAMES`: the biggest block size Audulus may send to the node. Use it when you need a temporary array
 
-You do not create `frames`, `sampleRate`, or `storage` yourself. Audulus gives them to the node automatically.
+You do not create `frames`, `sampleRate`, or `storage` yourself. Audulus gives them to the node automatically. For large DSP buffers, declare a dedicated global array with the size you need.
 
 | Global | Type | Description |
 |---|---|---|
 | `input`, `output` | `[f32]` | Default port slices. Add ports as needed above the code viewer in the Inspector. |
 | `frames` | `i32` | Number of samples in this processing block. |
 | `sampleRate` | `f32` | Current sample rate, e.g. `44100.0`. |
-| `storage` | `[f32]` | Pre-allocated buffer for delay lines etc., set the size in the Inspector. |
+| `storage` | `[f32]` | Persistent host storage supplied by Audulus. Use dedicated global arrays for large DSP buffers such as delay lines. |
 | `MAX_FRAMES` | `i32` | Maximum possible block size — use to declare stack arrays. |
 
 **`init {}`** runs once when the node loads. Use it for setup values.
@@ -85,7 +86,8 @@ These are good default habits for writing Lyte in Audulus.
 - Start from the fresh-node block template and change one thing at a time when debugging.
 - Use `sin`, `cos`, `tan`, and other unsuffixed math builtins.
 - Read a port sample into a scratch `f32` first if the compiler gets ambiguous about expressions like `input[i] * inv_sr`.
-- Keep slice index proofs inline near `storage[...]` accesses when the safety checker complains.
+- Keep slice index proofs inline near buffer accesses when the safety checker complains.
+- Use `require` on slice helpers when the caller can prove the index is valid.
 - Use `freq[i]`, `cutoff[i]`, and similar forms for normal per-sample processing. Use `freq[0]` only when you intentionally want one control value for the whole block.
 - Move expensive math out of the sample loop when true audio-rate updates are not needed.
 - Try block-rate control first when it sounds good enough. It is usually simpler and cheaper.
@@ -93,10 +95,36 @@ These are good default habits for writing Lyte in Audulus.
 **Don't:**
 - Don't assume every Expr-node feature maps over exactly. Lyte does have built-in trig/math functions and stdlib helpers like `clamp(x, lo, hi)` and `mix(a, b, t)`, but constants like `pi` are still not built in.
 - Don't use `sinf`, `cosf`, or other suffixed math names in Audulus Lyte. Use unsuffixed names like `sin`, `cos`, `tan`, `atan2`, `sqrt`, `clamp`, and `mix`.
-- Don't rely on helper functions to prove slice indices are safe; the checker usually wants the bounds checks inline.
+- Don't rely on helper functions to prove slice indices by context alone. Use inline guards, or add explicit `require` clauses to the helper.
 - Don't use `assume` in node code — it is only allowed in the standard library or prelude.
 - Don't assume examples from the standalone Lyte repo will drop into Audulus unchanged.
 - Don't rely on block-form inline `if` expressions in assignments such as `let x = if ...` or `output[i] = if ...`. In Lyte those can trigger confusing parser errors. Use a normal assignment first, then a plain `if` block.
+
+---
+
+## Slice Helper Preconditions
+
+Audulus beta 983 and newer Lyte builds support `require` clauses on helper functions. Use them when a helper indexes into a slice and every caller must prove the index is valid.
+
+```lyte
+set(arr: [i32], idx: i32, value: i32) require idx >= 0 require idx < arr.len {
+    arr[idx] = value
+}
+```
+
+The `require` clauses do two jobs. Inside the helper, they let the safety checker treat `idx` as a valid index for `arr`. At each call site, the checker makes sure the caller has already proved those conditions.
+
+You can also combine the bounds into one clause:
+
+```lyte
+set(arr: [i32], idx: i32, value: i32) require idx >= 0 && idx < arr.len {
+    arr[idx] = value
+}
+```
+
+If the caller cannot prove a clause, Lyte reports that it `couldn't prove require clause` for that call. Add a nearby guard such as `if idx >= 0 && idx < arr.len { ... }`, or restructure the loop so the range proves the bound.
+
+The release-note form places `require` immediately after the parameter list. Until a return-valued helper form is confirmed for the Audulus build you are targeting, keep `require` examples to setter-style helpers like `set` and `write_delay`, and keep reads guarded inline.
 
 ---
 
@@ -626,8 +654,12 @@ process {
 ---
 ## 7. Delay Line
 
-A delay line stores past samples in `storage` and reads them back later. This is the core
-of echo, comb filters, chorus, flanging, and many reverb designs.
+A delay line stores past samples in a dedicated memory block and reads them back later.
+This is the core of echo, comb filters, chorus, flanging, and many reverb designs.
+
+`storage` is persistent Audulus node storage, but it is not the preferred place for a
+large delay buffer. For delay lines, declare a global array with the length you need.
+This example dedicates 65536 samples of memory to the delay line.
 
 This is different from unit delay. Unit delay is always one sample. A delay line is a
 larger buffer measured in samples, milliseconds, or seconds.
@@ -635,10 +667,15 @@ larger buffer measured in samples, milliseconds, or seconds.
 *Ports: `input`, `secs` in, `output` out.*
 
 ```lyte
+var delay_mem: [f32; 65536]
 var write: i32
 
 lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
+}
+
+write_delay(buffer: [f32], idx: i32, value: f32) require idx >= 0 require idx < buffer.len {
+    buffer[idx] = value
 }
 
 init {}
@@ -646,7 +683,7 @@ init {}
 process {
     for i in 0 .. frames {
         let x = input[i]
-        let len = storage.len
+        let len = delay_mem.len
 
         var delay = secs[i] * sampleRate
         if delay < 0.0 {
@@ -664,7 +701,7 @@ process {
         }
 
         if write >= 0 && write < len {
-            storage[write] = x
+            write_delay(delay_mem, write, x)
         }
 
         let read_pos_0 = write as f32 - delay
@@ -683,8 +720,8 @@ process {
 
         if i0 >= 0 && i0 < len {
             if i1 >= 0 && i1 < len {
-                let a = storage[i0]
-                let b = storage[i1]
+                let a = delay_mem[i0]
+                let b = delay_mem[i1]
                 output[i] = lerp(a, b, frac)
             } else {
                 output[i] = 0.0
@@ -705,8 +742,12 @@ This is a ring buffer. The write head moves forward one sample at a time and wra
 start. The read position trails behind by the amount set by `secs`, and the output is
 linearly interpolated for fractional delays.
 
-This assumes `storage` is longer than the maximum delay you want. Set the Inspector
-Samples value high enough to cover the longest delay time in your patch.
+The `write_delay` helper uses `require` clauses so the checker knows its index is valid
+inside the helper body. The call site still keeps a nearby guard, which proves the
+`require` clauses before the helper call. The reads stay inline under explicit guards.
+
+This assumes `delay_mem` is longer than the maximum delay you want. At 48 kHz, 65536
+samples is about 1.36 seconds.
 
 ---
 ## 8. ADSR Envelope
