@@ -362,6 +362,9 @@ struct FunctionTranslator<'a> {
     /// Set of variable names that are register-promoted (value in register, not memory).
     reg_promoted: HashSet<Name>,
 
+    /// Set of variable names whose register stores a reference address.
+    reference_vars: HashSet<Name>,
+
     /// Map from variable names to their local slot indices (for addressable vars).
     local_slots: HashMap<Name, u16>,
 
@@ -435,6 +438,7 @@ fn type_to_extern_types(ty: TypeID) -> Vec<crate::vm::ExternType> {
         Type::Float32 => vec![crate::vm::ExternType::F32],
         Type::Float64 => vec![crate::vm::ExternType::F64],
         Type::Slice(_) => vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32],
+        Type::Reference(_) => vec![crate::vm::ExternType::Ptr],
         _ => panic!(
             "unsupported extern function parameter type: {}",
             ty.pretty_print()
@@ -464,6 +468,7 @@ impl<'a> FunctionTranslator<'a> {
             variables: HashMap::new(),
             variable_types: HashMap::new(),
             reg_promoted: HashSet::new(),
+            reference_vars: HashSet::new(),
             local_slots: HashMap::new(),
             next_reg: 0,
             next_slot: 0,
@@ -538,7 +543,16 @@ impl<'a> FunctionTranslator<'a> {
             let src_reg = i as Reg + param_offset as Reg;
             let ty = param.ty.expect("parameter must have type");
 
-            if !self.is_ptr_type(&ty) {
+            if let Type::Reference(inner) = &*ty {
+                let reg = self.alloc_reg();
+                func.emit(Opcode::Move {
+                    dst: reg,
+                    src: src_reg,
+                });
+                self.variables.insert(param.name, reg);
+                self.variable_types.insert(param.name, *inner);
+                self.reference_vars.insert(param.name);
+            } else if !self.is_ptr_type(&ty) {
                 // Scalar parameter: copy to a dedicated register so the param
                 // register can be reused. The copy will be eliminated by
                 // move forwarding if possible.
@@ -784,7 +798,7 @@ impl<'a> FunctionTranslator<'a> {
                 })
                 .unwrap_or_else(|| self.expr_type(expr)),
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
-                Type::Array(elem, _) | Type::Slice(elem) => *elem,
+                Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => *elem,
                 _ => self.expr_type(expr),
             },
             _ => self.expr_type(expr),
@@ -867,7 +881,11 @@ impl<'a> FunctionTranslator<'a> {
 
                 // Check if it's a local variable.
                 if let Some(&reg) = self.variables.get(name) {
-                    if self.reg_promoted.contains(name) {
+                    if self.reference_vars.contains(name) {
+                        let dst = self.alloc_reg();
+                        self.emit_load(&ty, dst, reg, func);
+                        dst
+                    } else if self.reg_promoted.contains(name) {
                         // Register-promoted scalar: value is already in the register.
                         reg
                     } else if self.is_ptr_type(&ty) {
@@ -2052,7 +2070,19 @@ impl<'a> FunctionTranslator<'a> {
         match &self.decl.arena.exprs[expr] {
             Expr::Id(name) => {
                 if let Some(&reg) = self.variables.get(name) {
-                    reg
+                    if self.reg_promoted.contains(name) {
+                        let ty = self.variable_types.get(name).copied().unwrap_or(self.expr_type(expr));
+                        let slot = self.alloc_local(ty.size(self.decls) as u32);
+                        let addr = self.alloc_reg();
+                        func.emit(Opcode::LocalAddr { dst: addr, slot });
+                        self.emit_store(&ty, addr, reg, func);
+                        self.variables.insert(*name, addr);
+                        self.local_slots.insert(*name, slot);
+                        self.reg_promoted.remove(name);
+                        addr
+                    } else {
+                        reg
+                    }
                 } else if let Some(&offset) = self.globals.get(name) {
                     // Global variable - return its address.
                     let dst = self.alloc_reg();
@@ -2466,8 +2496,12 @@ impl<'a> FunctionTranslator<'a> {
                         // Translate arguments, wrapping arrays as slices where needed.
                         let mut arg_values = Vec::new();
                         for (i, arg_id) in arg_ids.iter().enumerate() {
-                            let arg_reg = self.translate_expr(*arg_id, func);
                             let param_ty = f.params[i].ty.unwrap();
+                            let arg_reg = if matches!(&*param_ty, Type::Reference(_)) {
+                                self.translate_lvalue(*arg_id, func)
+                            } else {
+                                self.translate_expr(*arg_id, func)
+                            };
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 // Coerce array → slice if needed.
                                 let wrapped = self.wrap_as_slice(
@@ -2584,15 +2618,18 @@ impl<'a> FunctionTranslator<'a> {
             // because translation may allocate temporary registers.
             let mut arg_values = Vec::new();
             for (i, arg_id) in arg_ids.iter().enumerate() {
-                let arg_reg = self.translate_expr(*arg_id, func);
+                let param_ty = param_types.get(i).copied();
+                let arg_reg = if param_ty.is_some_and(|ty| matches!(&*ty, Type::Reference(_))) {
+                    self.translate_lvalue(*arg_id, func)
+                } else {
+                    self.translate_expr(*arg_id, func)
+                };
                 // If the callee expects a slice, wrap sized arrays in a fat pointer.
-                if i < param_types.len() {
-                    if matches!(&*param_types[i], Type::Slice(_)) {
-                        let wrapped =
-                            self.wrap_as_slice(arg_reg, self.representation_type(*arg_id), func);
-                        arg_values.push(wrapped);
-                        continue;
-                    }
+                if param_ty.is_some_and(|ty| matches!(&*ty, Type::Slice(_))) {
+                    let wrapped =
+                        self.wrap_as_slice(arg_reg, self.representation_type(*arg_id), func);
+                    arg_values.push(wrapped);
+                    continue;
                 }
                 arg_values.push(arg_reg);
             }
@@ -3376,6 +3413,7 @@ impl<'a> FunctionTranslator<'a> {
                 | Type::Tuple(_)
                 | Type::Array(_, _)
                 | Type::Slice(_)
+                | Type::Reference(_)
                 | Type::Func(_, _)
                 | Type::Float32x4
         )

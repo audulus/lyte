@@ -57,17 +57,32 @@ pub struct Checker {
     loop_depth: usize,
 }
 
-/// Returns true if the type is or contains a slice (unsized array `[T]`).
+/// Returns true if the type is or contains a borrowed type (`[T]` or `&T`).
 ///
-/// Slices are only allowed as function parameters, not in struct fields or return types.
-/// For function types, only the return type is checked (slice parameters are fine).
-fn type_contains_bad_slice(ty: TypeID) -> bool {
+/// Borrowed types are only allowed as function parameters, not in struct fields or return types.
+/// For function types, only the return type is checked (borrowed parameters are fine).
+fn type_contains_bad_borrow(ty: TypeID) -> bool {
     match &*ty {
-        Type::Slice(_) => true,
-        Type::Array(elem, _) => type_contains_bad_slice(*elem),
-        Type::Tuple(types) => types.iter().any(|t| type_contains_bad_slice(*t)),
-        Type::Func(_, ret) => type_contains_bad_slice(*ret),
+        Type::Slice(_) | Type::Reference(_) => true,
+        Type::Array(elem, _) => type_contains_bad_borrow(*elem),
+        Type::Tuple(types) => types.iter().any(|t| type_contains_bad_borrow(*t)),
+        Type::Func(_, ret) => type_contains_bad_borrow(*ret),
         _ => false,
+    }
+}
+
+fn bad_borrow_kind(ty: TypeID) -> &'static str {
+    match &*ty {
+        Type::Slice(_) => "slice",
+        Type::Reference(_) => "reference",
+        Type::Array(elem, _) => bad_borrow_kind(*elem),
+        Type::Tuple(types) => types
+            .iter()
+            .find(|t| type_contains_bad_borrow(**t))
+            .map(|t| bad_borrow_kind(*t))
+            .unwrap_or("borrowed"),
+        Type::Func(_, ret) => bad_borrow_kind(*ret),
+        _ => "borrowed",
     }
 }
 
@@ -107,7 +122,7 @@ fn type_is_recursive(ty: TypeID, decls: &DeclTable, visiting: &mut HashSet<Name>
                 false
             }
         }
-        Type::Array(elem, _) => type_is_recursive(*elem, decls, visiting),
+        Type::Array(elem, _) | Type::Reference(elem) => type_is_recursive(*elem, decls, visiting),
         Type::Tuple(types) => types.iter().any(|t| type_is_recursive(*t, decls, visiting)),
         _ => false,
     }
@@ -903,12 +918,13 @@ impl Checker {
     }
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
-        // Disallow slice types in return position.
-        if type_contains_bad_slice(func_decl.ret) {
+        // Disallow borrowed types in return position.
+        if type_contains_bad_borrow(func_decl.ret) {
             self.errors.push(TypeError {
                 location: func_decl.loc,
                 message: format!(
-                    "slice type {} is not allowed as a return type",
+                    "{} type {} is not allowed as a return type",
+                    bad_borrow_kind(func_decl.ret),
                     func_decl.ret.pretty_print()
                 ),
             });
@@ -938,10 +954,14 @@ impl Checker {
                         return;
                     }
                 };
+                let (var_ty, mutable) = match &*ty {
+                    Type::Reference(inner) => (*inner, true),
+                    _ => (ty, false),
+                };
                 self.vars.push(Var {
                     name: param.name,
-                    ty,
-                    mutable: false,
+                    ty: var_ty,
+                    mutable,
                 });
             }
 
@@ -1024,10 +1044,10 @@ impl Checker {
 
             // Check lvalue validity now that types are solved.
             if self.errors.is_empty() {
-                self.check_lvalues(func_decl);
+                self.check_lvalues(func_decl, decls);
             }
 
-            // Check that no two slice parameters alias (Fortran-style no-alias rule).
+            // Check that no two borrowed parameters alias (Fortran-style no-alias rule).
             if self.errors.is_empty() {
                 self.check_slice_aliasing(func_decl, decls);
             }
@@ -1036,7 +1056,7 @@ impl Checker {
 
     /// Check that all assignments have valid lvalue targets, using solved types
     /// to determine slice mutability.
-    fn check_lvalues(&mut self, func_decl: &FuncDecl) {
+    fn check_lvalues(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
         for id in 0..func_decl.arena.exprs.len() {
             if let Expr::Binop(Binop::Assign, lhs, _) = &func_decl.arena[id] {
                 if !self.is_lvalue(*lhs, func_decl) {
@@ -1046,10 +1066,46 @@ impl Checker {
                     });
                 }
             }
+
+            if let Expr::Call(f, args) = &func_decl.arena[id] {
+                for pos in self.reference_arg_positions(*f, decls, func_decl) {
+                    if pos < args.len() && !self.is_lvalue(args[pos], func_decl) {
+                        self.errors.push(TypeError {
+                            location: func_decl.arena.locs[args[pos]],
+                            message: "reference argument must be assignable".to_string(),
+                        });
+                    }
+                }
+            }
         }
     }
 
-    /// Enforce the no-alias rule: two slice parameters in the same call must not
+    fn reference_arg_positions(
+        &self,
+        callee: ExprID,
+        decls: &DeclTable,
+        func_decl: &FuncDecl,
+    ) -> Vec<usize> {
+        let Expr::Id(callee_name) = &func_decl.arena[callee] else {
+            return Vec::new();
+        };
+
+        let mut positions = Vec::new();
+        for d in decls.find(*callee_name) {
+            if let Decl::Func(fd) = d {
+                for (i, param) in fd.params.iter().enumerate() {
+                    if let Some(ty) = param.ty {
+                        if matches!(*ty, Type::Reference(_)) && !positions.contains(&i) {
+                            positions.push(i);
+                        }
+                    }
+                }
+            }
+        }
+        positions
+    }
+
+    /// Enforce the no-alias rule: two borrowed parameters in the same call must not
     /// refer to the same underlying memory. Since Lyte has no sub-slicing, two
     /// arguments alias iff they are the same variable (or same field path).
     ///
@@ -1068,41 +1124,44 @@ impl Checker {
                 continue;
             };
 
-            // Find which parameter positions are slices in the callee's declaration.
-            // For overloaded functions, union all slice positions (conservative).
+            // Find which parameter positions are borrowed in the callee's declaration.
+            // For overloaded functions, union all borrowed positions (conservative).
             let callee_decls = decls.find(*callee_name);
-            let mut slice_positions: Vec<usize> = Vec::new();
+            let mut borrow_positions: Vec<(usize, bool)> = Vec::new();
             for d in callee_decls {
                 if let Decl::Func(fd) = d {
                     for (i, param) in fd.params.iter().enumerate() {
                         if let Some(ty) = param.ty {
-                            if matches!(*ty, Type::Slice(_)) && !slice_positions.contains(&i) {
-                                slice_positions.push(i);
+                            let is_slice = matches!(*ty, Type::Slice(_));
+                            if matches!(*ty, Type::Slice(_) | Type::Reference(_))
+                                && !borrow_positions.iter().any(|(pos, _)| *pos == i)
+                            {
+                                borrow_positions.push((i, is_slice));
                             }
                         }
                     }
                 }
             }
 
-            if slice_positions.len() < 2 {
+            if borrow_positions.len() < 2 {
                 continue;
             }
 
-            // Collect (position, base_path) for arguments at slice positions.
-            let mut slice_args: Vec<(usize, Vec<Name>)> = Vec::new();
-            for &pos in &slice_positions {
+            // Collect (position, base_path) for arguments at borrowed positions.
+            let mut borrow_args: Vec<(usize, Vec<Name>)> = Vec::new();
+            for &(pos, _) in &borrow_positions {
                 if pos < args.len() {
                     if let Some(path) = expr_base_path(args[pos], &func_decl.arena) {
-                        slice_args.push((pos, path));
+                        borrow_args.push((pos, path));
                     }
                 }
             }
 
             // Check all pairs for aliasing.
-            for i in 0..slice_args.len() {
-                for j in (i + 1)..slice_args.len() {
-                    if slice_args[i].1 == slice_args[j].1 {
-                        let name = slice_args[i]
+            for i in 0..borrow_args.len() {
+                for j in (i + 1)..borrow_args.len() {
+                    if borrow_args[i].1 == borrow_args[j].1 {
+                        let name = borrow_args[i]
                             .1
                             .iter()
                             .map(|n| n.as_str())
@@ -1110,11 +1169,19 @@ impl Checker {
                             .join(".");
                         self.errors.push(TypeError {
                             location: func_decl.arena.locs[id],
-                            message: format!(
-                                "cannot pass '{}' to multiple slice parameters \
-                                 (slices must not alias)",
-                                name
-                            ),
+                            message: if borrow_positions.iter().all(|(_, is_slice)| *is_slice) {
+                                format!(
+                                    "cannot pass '{}' to multiple slice parameters \
+                                     (slices must not alias)",
+                                    name
+                                )
+                            } else {
+                                format!(
+                                    "cannot pass '{}' to multiple borrowed parameters \
+                                     (borrowed arguments must not alias)",
+                                    name
+                                )
+                            },
                         });
                     }
                 }
@@ -1165,11 +1232,12 @@ impl Checker {
 
         // Disallow slice types in struct fields.
         for field in &st.fields {
-            if type_contains_bad_slice(field.ty) {
+            if type_contains_bad_borrow(field.ty) {
                 self.errors.push(TypeError {
                     location: field.loc,
                     message: format!(
-                        "slice type {} is not allowed in struct fields (use a sized array instead)",
+                        "{} type {} is not allowed in struct fields (use a sized array instead)",
+                        bad_borrow_kind(field.ty),
                         field.ty.pretty_print()
                     ),
                 })

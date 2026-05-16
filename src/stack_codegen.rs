@@ -41,6 +41,8 @@ enum LocalKind {
     Scalar(u16),
     /// Memory-backed local; LocalAddr(slot) gives its address.
     Memory(u16),
+    /// Thin reference stored as an address in a scalar local slot.
+    Reference(u16),
 }
 
 /// Code generator for the stack-based VM.
@@ -409,7 +411,7 @@ impl<'a> FunctionTranslator<'a> {
                 })
                 .unwrap_or_else(|| self.expr_type(expr)),
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
-                Type::Array(elem, _) | Type::Slice(elem) => *elem,
+                Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => *elem,
                 _ => self.expr_type(expr),
             },
             _ => self.expr_type(expr),
@@ -424,6 +426,7 @@ impl<'a> FunctionTranslator<'a> {
                 | Type::Tuple(_)
                 | Type::Array(_, _)
                 | Type::Slice(_)
+                | Type::Reference(_)
                 | Type::Func(_, _)
                 | Type::Float32x4
         )
@@ -456,7 +459,14 @@ impl<'a> FunctionTranslator<'a> {
             let param_slot = param_offset + i as u16;
             let ty = param.ty.expect("parameter must have type");
 
-            if !self.is_ptr_type(&ty) {
+            if let Type::Reference(inner) = &*ty {
+                while self.next_scalar <= param_slot {
+                    self.alloc_scalar();
+                }
+                self.variables
+                    .insert(param.name, LocalKind::Reference(param_slot));
+                self.variable_types.insert(param.name, *inner);
+            } else if !self.is_ptr_type(&ty) {
                 // Scalar parameter: already in local slot param_slot by calling convention.
                 // Just make sure our allocator accounts for it.
                 while self.next_scalar <= param_slot {
@@ -1054,6 +1064,10 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalGet(slot));
                     }
                 }
+                LocalKind::Reference(slot) => {
+                    func.emit(StackOp::LocalGet(slot));
+                    self.emit_load(&ty, func);
+                }
                 LocalKind::Memory(slot) => {
                     if self.is_ptr_type(&ty) {
                         // Pointer types: push address.
@@ -1532,9 +1546,11 @@ impl<'a> FunctionTranslator<'a> {
                             if self.is_ptr_type(&ty) {
                                 func.emit(StackOp::LocalGet(slot));
                             } else {
-                                // Scalar variables in assignment are handled in translate_assign.
-                                func.emit(StackOp::I64Const(0));
+                                self.emit_var_address(&name, func);
                             }
+                        }
+                        LocalKind::Reference(slot) => {
+                            func.emit(StackOp::LocalGet(slot));
                         }
                         LocalKind::Memory(slot) => {
                             func.emit(StackOp::LocalAddr(slot));
@@ -1911,10 +1927,14 @@ impl<'a> FunctionTranslator<'a> {
                         for (i, arg_id) in arg_ids.iter().enumerate() {
                             let arg = *arg_id;
                             let param_ty = f.params[i].ty.unwrap();
-                            self.translate_expr(arg, func);
-                            let arg_ty = self.expr_type(arg);
-                            if matches!(&*arg_ty, Type::Float32) {
-                                func.emit(StackOp::FToBitsF);
+                            if matches!(&*param_ty, Type::Reference(_)) {
+                                self.translate_lvalue(arg, func);
+                            } else {
+                                self.translate_expr(arg, func);
+                                let arg_ty = self.expr_type(arg);
+                                if matches!(&*arg_ty, Type::Float32) {
+                                    func.emit(StackOp::FToBitsF);
+                                }
                             }
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 self.emit_wrap_as_slice(self.representation_type(arg), func);
@@ -1977,12 +1997,17 @@ impl<'a> FunctionTranslator<'a> {
             // into the callee's locals, so f32 args that rode through the
             // float window have to be bridged back to their bit pattern.
             for (i, arg_id) in arg_ids.iter().enumerate() {
-                self.translate_expr(*arg_id, func);
-                let arg_ty = self.expr_type(*arg_id);
-                if matches!(&*arg_ty, Type::Float32) {
-                    func.emit(StackOp::FToBitsF);
+                let param_ty = param_types.get(i).copied();
+                if param_ty.is_some_and(|t| matches!(&*t, Type::Reference(_))) {
+                    self.translate_lvalue(*arg_id, func);
+                } else {
+                    self.translate_expr(*arg_id, func);
+                    let arg_ty = self.expr_type(*arg_id);
+                    if matches!(&*arg_ty, Type::Float32) {
+                        func.emit(StackOp::FToBitsF);
+                    }
                 }
-                if i < param_types.len() && matches!(&*param_types[i], Type::Slice(_)) {
+                if param_ty.is_some_and(|t| matches!(&*t, Type::Slice(_))) {
                     let actual_ty = self.representation_type(*arg_id);
                     self.emit_wrap_as_slice(actual_ty, func);
                 }
@@ -2636,6 +2661,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 LocalKind::Memory(slot) => {
                     func.emit(StackOp::LocalAddr(slot));
+                }
+                LocalKind::Reference(slot) => {
+                    func.emit(StackOp::LocalGet(slot));
                 }
             }
         } else {

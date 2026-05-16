@@ -154,6 +154,11 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
                 Type::Slice(r)
             }
         }
+        Token::Ampersand => {
+            cx.next();
+            let r = parse_basic_type(typevars, cx);
+            Type::Reference(r)
+        }
         Token::Id(name) => {
             cx.next();
 
@@ -930,7 +935,7 @@ fn collect_size_vars_in_type(ty: TypeID, out: &mut Vec<Name>) {
             }
             collect_size_vars_in_type(*elem, out);
         }
-        Type::Array(elem, _) => collect_size_vars_in_type(*elem, out),
+        Type::Array(elem, _) | Type::Reference(elem) => collect_size_vars_in_type(*elem, out),
         Type::Tuple(vs) => vs.iter().for_each(|t| collect_size_vars_in_type(*t, out)),
         Type::Func(a, b) => {
             collect_size_vars_in_type(*a, out);
@@ -1289,6 +1294,7 @@ mod tests {
         test_type("⟨T⟩", typevar("T"));
         test_type("typevar T", typevar("T"));
         test_type("[i32]", mk_type(Type::Slice(int32)));
+        test_type("&i32", mk_type(Type::Reference(int32)));
         test_type("[i32; 4]", mk_type(Type::Array(int32, ArraySize::Known(4))));
         test_type("i8 -> i8", func);
         test_type("(i32)", int32);

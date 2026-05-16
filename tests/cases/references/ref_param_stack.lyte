@@ -1,0 +1,15 @@
+// skip-backend: asm
+// skip-backend: llvm
+// expected stdout:
+// compilation successful
+// 42
+
+fn set(x: &i32, value: i32) {
+    x = value
+}
+
+main {
+    var x = 1
+    set(x, 42)
+    print(x)
+}

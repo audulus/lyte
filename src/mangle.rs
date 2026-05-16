@@ -79,6 +79,10 @@ fn type_to_string(ty: TypeID) -> String {
             format!("[{}]", type_to_string(*elem_ty))
         }
 
+        Type::Reference(elem_ty) => {
+            format!("&{}", type_to_string(*elem_ty))
+        }
+
         Type::Anon(idx) => {
             format!("#{}", idx)
         }
