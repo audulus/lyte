@@ -953,8 +953,9 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Call(fn_id, arg_ids) => self.translate_call(*fn_id, arg_ids, expr, func),
 
             Expr::Let(name, init, _) => {
-                let init_reg = self.translate_expr(*init, func);
                 let ty = self.expr_type(expr);
+                let init_reg = self.translate_expr(*init, func);
+                let init_reg = self.wrap_for_expected_slice(init_reg, ty, *init, func);
 
                 if !self.is_ptr_type(&ty) {
                     // Scalar: keep value in a register (SaveRegs preserves it across calls).
@@ -1014,6 +1015,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     if let Some(init_id) = init {
                         let init_reg = self.translate_expr(*init_id, func);
+                        let init_reg = self.wrap_for_expected_slice(init_reg, ty, *init_id, func);
                         func.emit(Opcode::LocalAddr {
                             dst: addr_reg,
                             slot,
@@ -1088,6 +1090,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Save variable scope — declarations inside this block
                     // shadow outer names only for the duration of the block.
                     let saved_vars = self.variables.clone();
+                    let saved_types = self.variable_types.clone();
                     let saved_slots = self.local_slots.clone();
                     let saved_promoted = self.reg_promoted.clone();
                     let mut result = 0;
@@ -1095,6 +1098,7 @@ impl<'a> FunctionTranslator<'a> {
                         result = self.translate_expr(*expr_id, func);
                     }
                     self.variables = saved_vars;
+                    self.variable_types = saved_types;
                     self.local_slots = saved_slots;
                     self.reg_promoted = saved_promoted;
                     result
@@ -1226,6 +1230,8 @@ impl<'a> FunctionTranslator<'a> {
                 if let Type::Array(elem_ty, sz) = &*ty {
                     let count = sz.known();
                     let elem_size = elem_ty.size(self.decls);
+                    let fill_val =
+                        self.wrap_for_expected_slice(fill_val, *elem_ty, *value_expr, func);
                     for i in 0..count {
                         let offset = i * elem_size;
                         self.emit_store_offset(elem_ty, addr_reg, offset, fill_val, func);
@@ -1969,6 +1975,8 @@ impl<'a> FunctionTranslator<'a> {
         if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
             if self.captured_vars.contains(name) {
                 let rhs = self.translate_expr(rhs_id, func);
+                let ty = self.representation_type(lhs_id);
+                let rhs = self.wrap_for_expected_slice(rhs, ty, rhs_id, func);
                 let slot = *self.local_slots.get(name).unwrap();
                 let slot_addr = self.alloc_reg();
                 func.emit(Opcode::LocalAddr {
@@ -1980,7 +1988,6 @@ impl<'a> FunctionTranslator<'a> {
                     dst: captured_addr,
                     addr: slot_addr,
                 });
-                let ty = self.expr_type(lhs_id);
                 self.emit_store(&ty, captured_addr, rhs, func);
                 return rhs;
             }
@@ -2015,9 +2022,10 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
+        let ty = self.representation_type(lhs_id);
         let rhs = self.translate_expr(rhs_id, func);
+        let rhs = self.wrap_for_expected_slice(rhs, ty, rhs_id, func);
         let lhs_addr = self.translate_lvalue(lhs_id, func);
-        let ty = self.expr_type(lhs_id);
         // Struct field assignment of Func type: only copy 8 bytes (func_idx).
         // The struct field stores only the func_idx, not the full 16-byte fat pointer.
         if matches!(&*ty, Type::Func(_, _)) {
@@ -3228,6 +3236,7 @@ impl<'a> FunctionTranslator<'a> {
             // Store each element.
             for (i, &elem_id) in elements.iter().enumerate() {
                 let elem_val = self.translate_expr(elem_id, func);
+                let elem_val = self.wrap_for_expected_slice(elem_val, *elem_ty, elem_id, func);
                 let offset = (i as i32) * elem_size;
                 self.emit_store_offset(elem_ty, addr_reg, offset, elem_val, func);
             }
@@ -3341,6 +3350,21 @@ impl<'a> FunctionTranslator<'a> {
                 "VM codegen wrap_as_slice: expected array type, got {:?}",
                 actual_ty
             ),
+        }
+    }
+
+    fn wrap_for_expected_slice(
+        &mut self,
+        val: Reg,
+        expected_ty: TypeID,
+        actual_expr: ExprID,
+        func: &mut VMFunction,
+    ) -> Reg {
+        if matches!(&*expected_ty, Type::Slice(_)) {
+            let actual_ty = self.representation_type(actual_expr);
+            self.wrap_as_slice(val, actual_ty, func)
+        } else {
+            val
         }
     }
 

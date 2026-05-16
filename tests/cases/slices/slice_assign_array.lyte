@@ -1,0 +1,19 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+const W = 3
+
+main {
+    var row: [f32; W]
+    var s: [f32]
+
+    s = row
+    if 1 < s.len {
+        s[1] = 4.0
+    }
+
+    assert(s.len == W)
+    assert(row[1] == 4.0)
+}

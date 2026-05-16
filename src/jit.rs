@@ -7,6 +7,7 @@ use crate::defs::*;
 use crate::expr::*;
 use crate::DeclTable;
 use crate::Instance;
+use crate::TypeID;
 extern crate cranelift_codegen;
 use core::panic;
 use cranelift::codegen::{self, settings};
@@ -382,15 +383,20 @@ impl JIT {
                         .load(I64, MemFlags::new(), closure_ptr_val, (i * 8) as i32);
                 let var = trans.declare_variable(&cv.name.to_string(), I64);
                 trans.builder.def_var(var, var_ptr);
+                trans.variable_types.insert(cv.name.to_string(), cv.ty);
                 // NOT added to let_bindings → acts as a var binding (accessed through the pointer).
             }
         }
 
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
-            let ty = param.ty.expect("expected type").cranelift_type();
+            let param_ty = param.ty.expect("expected type");
+            let ty = param_ty.cranelift_type();
             let var = trans.declare_variable(&param.name, ty);
             trans.builder.def_var(var, block_params[i + param_idx]);
+            trans
+                .variable_types
+                .insert(param.name.to_string(), param_ty);
             // Function parameters are like let bindings - they hold values directly.
             trans.let_bindings.insert(param.name.to_string());
         }
@@ -510,6 +516,7 @@ fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signatu
 struct FunctionTranslator<'a> {
     builder: FunctionBuilder<'a>,
     variables: HashMap<String, Variable>,
+    variable_types: HashMap<String, TypeID>,
     module: &'a mut JITModule,
 
     /// Next variable index.
@@ -559,6 +566,7 @@ impl<'a> FunctionTranslator<'a> {
         Self {
             builder,
             variables: HashMap::new(),
+            variable_types: HashMap::new(),
             module,
             next_index: 0,
             current_instance: Instance::new(),
@@ -968,7 +976,7 @@ impl<'a> FunctionTranslator<'a> {
                             let arg_val = self.translate_expr(*arg_id, decl, decls);
                             let param_ty = callee_decl.params[i].ty.unwrap();
                             if matches!(&*param_ty, crate::Type::Slice(_)) {
-                                let actual_ty = decl.types[*arg_id];
+                                let actual_ty = self.representation_type(*arg_id, decl, decls);
                                 match &*actual_ty {
                                     crate::Type::Slice(_) => {
                                         // Already a fat pointer: load data_ptr and len.
@@ -1054,7 +1062,7 @@ impl<'a> FunctionTranslator<'a> {
                                 if is_slice(param_types[i]) {
                                     args.push(self.wrap_as_slice(
                                         arg_val,
-                                        decl.types[*arg_id],
+                                        self.representation_type(*arg_id, decl, decls),
                                         decls,
                                     ));
                                     continue;
@@ -1086,8 +1094,10 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Let(name, init, _) => {
                 let ty = &decl.types[expr];
                 let init_val = self.translate_expr(*init, decl, decls);
+                let init_val = self.wrap_for_expected_slice(init_val, *ty, *init, decl, decls);
                 let var = self.declare_variable(name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
+                self.variable_types.insert(name.to_string(), *ty);
                 self.let_bindings.insert(name.to_string());
                 init_val
             }
@@ -1108,11 +1118,13 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().splat(F32X4, zero)
                     };
                     self.builder.def_var(var, init_val);
+                    self.variable_types.insert(name.to_string(), *ty);
                     self.let_bindings.insert(name.to_string());
                     return init_val;
                 }
 
                 let var = self.declare_variable(name, I64);
+                self.variable_types.insert(name.to_string(), *ty);
 
                 let sz = ty.size(decls) as u32;
                 if sz == 0 {
@@ -1136,6 +1148,8 @@ impl<'a> FunctionTranslator<'a> {
 
                 if let Some(init_id) = init {
                     let init_value = self.translate_expr(*init_id, decl, decls);
+                    let init_value =
+                        self.wrap_for_expected_slice(init_value, *ty, *init_id, decl, decls);
                     self.gen_copy(*ty, addr, init_value, decls);
                 } else {
                     self.gen_zero(*ty, addr, decls);
@@ -1393,6 +1407,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Save variable scope — variables declared inside this block
                     // shadow outer names only for the duration of the block.
                     let saved_vars = self.variables.clone();
+                    let saved_types = self.variable_types.clone();
                     let saved_lets = self.let_bindings.clone();
                     let mut result = None;
                     for expr in exprs {
@@ -1403,6 +1418,7 @@ impl<'a> FunctionTranslator<'a> {
                         }
                     }
                     self.variables = saved_vars;
+                    self.variable_types = saved_types;
                     self.let_bindings = saved_lets;
                     result.unwrap()
                 }
@@ -1492,6 +1508,8 @@ impl<'a> FunctionTranslator<'a> {
                 // Create a variable for the loop counter.
                 let loop_var = self.declare_variable(var, I32);
                 self.builder.def_var(loop_var, start_val);
+                self.variable_types
+                    .insert(var.to_string(), crate::types::mk_type(crate::Type::Int32));
                 self.let_bindings.insert(var.to_string());
 
                 // Create blocks for header, body, latch, and exit.
@@ -2147,7 +2165,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Binop::Assign => {
-                let t = decl.types[lhs_id];
+                let t = self.representation_type(lhs_id, decl, decls);
                 // f32x4 field assignment: v.x = val → insertlane
                 if let Expr::Field(vec_id, field_name) = &decl.arena[lhs_id] {
                     let vec_ty = decl.types[*vec_id];
@@ -2182,6 +2200,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
+                let rhs = self.wrap_for_expected_slice(rhs, t, rhs_id, decl, decls);
                 self.gen_copy(t, lhs, rhs, decls);
                 rhs
             }
@@ -2456,6 +2475,51 @@ impl<'a> FunctionTranslator<'a> {
                     actual_ty
                 );
             }
+        }
+    }
+
+    fn representation_type(
+        &self,
+        expr: ExprID,
+        decl: &FuncDecl,
+        decls: &crate::DeclTable,
+    ) -> crate::TypeID {
+        match &decl.arena.exprs[expr] {
+            Expr::Id(name) => self
+                .variable_types
+                .get(name.as_str())
+                .copied()
+                .or_else(|| {
+                    decls.find(*name).iter().find_map(|decl| {
+                        if let crate::Decl::Global { ty, .. } = decl {
+                            Some(*ty)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or(decl.types[expr]),
+            Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl, decls) {
+                crate::Type::Array(elem, _) | crate::Type::Slice(elem) => *elem,
+                _ => decl.types[expr],
+            },
+            _ => decl.types[expr],
+        }
+    }
+
+    fn wrap_for_expected_slice(
+        &mut self,
+        val: Value,
+        expected_ty: crate::TypeID,
+        actual_expr: ExprID,
+        decl: &FuncDecl,
+        decls: &crate::DeclTable,
+    ) -> Value {
+        if matches!(&*expected_ty, crate::Type::Slice(_)) {
+            let actual_ty = self.representation_type(actual_expr, decl, decls);
+            self.wrap_as_slice(val, actual_ty, decls)
+        } else {
+            val
         }
     }
 

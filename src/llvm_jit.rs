@@ -5,6 +5,7 @@ use crate::decl::*;
 use crate::defs::*;
 use crate::expr::*;
 use crate::DeclTable;
+use crate::TypeID;
 
 use std::convert::TryFrom;
 
@@ -822,6 +823,7 @@ impl<'ctx> LLVMJITState<'ctx> {
 
         // Set up local variable map: name → alloca pointer.
         let mut variables: HashMap<String, PointerValue<'ctx>> = HashMap::new();
+        let mut variable_types: HashMap<String, TypeID> = HashMap::new();
         let mut let_bindings: HashSet<String> = HashSet::new();
 
         // Load closure variables (captured variables).
@@ -850,6 +852,7 @@ impl<'ctx> LLVMJITState<'ctx> {
                 .unwrap();
             self.builder.build_store(alloca, var_ptr).unwrap();
             variables.insert(cv.name.to_string(), alloca);
+            variable_types.insert(cv.name.to_string(), cv.ty);
             // closure vars are treated like var bindings (pointer-indirected)
         }
 
@@ -878,6 +881,7 @@ impl<'ctx> LLVMJITState<'ctx> {
                 .unwrap();
             self.builder.build_store(alloca, param_val).unwrap();
             variables.insert(param.name.to_string(), alloca);
+            variable_types.insert(param.name.to_string(), ty);
             let_bindings.insert(param.name.to_string());
         }
 
@@ -885,6 +889,7 @@ impl<'ctx> LLVMJITState<'ctx> {
             state: self,
             function,
             variables,
+            variable_types,
             let_bindings,
             globals_base,
             output_ptr,
@@ -965,6 +970,7 @@ struct FunctionTranslator<'a, 'ctx> {
     /// name → alloca. For let-bindings the alloca holds the value directly.
     /// For var-bindings the alloca holds a pointer to the actual stack slot.
     variables: HashMap<String, PointerValue<'ctx>>,
+    variable_types: HashMap<String, TypeID>,
     let_bindings: HashSet<String>,
     globals_base: PointerValue<'ctx>,
     output_ptr: Option<PointerValue<'ctx>>,
@@ -1313,6 +1319,48 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         }
     }
 
+    fn representation_type(&self, expr: ExprID, decl: &FuncDecl) -> crate::TypeID {
+        match &decl.arena.exprs[expr] {
+            Expr::Id(name) => self
+                .variable_types
+                .get(name.as_str())
+                .copied()
+                .or_else(|| {
+                    self.decls.find(*name).iter().find_map(|decl| {
+                        if let crate::Decl::Global { ty, .. } = decl {
+                            Some(*ty)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or(decl.types[expr]),
+            Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl) {
+                crate::Type::Array(elem, _) | crate::Type::Slice(elem) => *elem,
+                _ => decl.types[expr],
+            },
+            _ => decl.types[expr],
+        }
+    }
+
+    fn wrap_for_expected_slice(
+        &self,
+        val: BasicValueEnum<'ctx>,
+        expected_ty: crate::TypeID,
+        actual_expr: ExprID,
+        decl: &FuncDecl,
+    ) -> BasicValueEnum<'ctx> {
+        if matches!(&*expected_ty, crate::Type::Slice(_)) {
+            self.wrap_as_slice(
+                val.into_pointer_value(),
+                self.representation_type(actual_expr, decl),
+            )
+            .into()
+        } else {
+            val
+        }
+    }
+
     fn gen_zero_mem(&self, dst: PointerValue<'ctx>, size: usize) {
         self.emit_memzero(dst, size);
     }
@@ -1620,9 +1668,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let (name, init_id) = (*name, *init_id);
                 let ty = decl.types[expr];
                 let init_val = self.translate_expr(init_id, decl);
+                let init_val = self.wrap_for_expected_slice(init_val, ty, init_id, decl);
                 let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
                 self.builder().build_store(alloca, init_val).unwrap();
                 self.variables.insert(name.to_string(), alloca);
+                self.variable_types.insert(name.to_string(), ty);
                 self.let_bindings.insert(name.to_string());
                 init_val
             }
@@ -1644,6 +1694,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         self.builder().build_store(alloca, zero).unwrap();
                     }
                     self.variables.insert(name.to_string(), alloca);
+                    self.variable_types.insert(name.to_string(), ty);
                     self.let_bindings.insert(name.to_string());
                 } else {
                     // Pointer/struct var: allocate byte storage + ptr alloca.
@@ -1655,9 +1706,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
                     self.builder().build_store(alloca, storage).unwrap();
                     self.variables.insert(name.to_string(), alloca);
+                    self.variable_types.insert(name.to_string(), ty);
 
                     if let Some(init_id) = init_id {
                         let init_val = self.translate_expr(init_id, decl);
+                        let init_val = self.wrap_for_expected_slice(init_val, ty, init_id, decl);
                         self.gen_copy(ty, storage, init_val);
                     } else {
                         self.gen_zero_mem(storage, sz);
@@ -1772,6 +1825,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     // Save variable scope — declarations inside this block
                     // shadow outer names only for the duration of the block.
                     let saved_vars = self.variables.clone();
+                    let saved_types = self.variable_types.clone();
                     let saved_lets = self.let_bindings.clone();
                     let mut result = self.zero_i32();
                     for e in &exprs {
@@ -1781,6 +1835,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         result = self.translate_expr(*e, decl);
                     }
                     self.variables = saved_vars;
+                    self.variable_types = saved_types;
                     self.let_bindings = saved_lets;
                     result
                 }
@@ -1927,6 +1982,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.builder().build_store(loop_alloca, start_val).unwrap();
                 // Treat as let binding (holds value directly).
                 self.variables.insert(var.to_string(), loop_alloca);
+                self.variable_types
+                    .insert(var.to_string(), crate::types::mk_type(crate::Type::Int32));
                 self.let_bindings.insert(var.to_string());
 
                 let header_bb = self.append_bb("for_header");
@@ -2408,7 +2465,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     }
                 }
                 // f32x4 full assignment: v = expr → store vector to alloca
-                let t = decl.types[lhs_id];
+                let t = self.representation_type(lhs_id, decl);
                 if matches!(*t, crate::Type::Float32x4) {
                     if let Expr::Id(name) = &decl.arena.exprs[lhs_id] {
                         if let Some(&alloca) = self.variables.get(&**name) {
@@ -2420,6 +2477,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
                 let lhs_addr = self.translate_lvalue(lhs_id, decl);
                 let rhs_val = self.translate_expr(rhs_id, decl);
+                let rhs_val = self.wrap_for_expected_slice(rhs_val, t, rhs_id, decl);
                 self.gen_copy(t, lhs_addr, rhs_val);
                 rhs_val
             }
@@ -2896,7 +2954,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let arg_val = self.translate_expr(*arg_id, decl);
                     let param_ty = callee_decl.params[i].ty.unwrap();
                     if matches!(&*param_ty, crate::Type::Slice(_)) {
-                        let actual_ty = decl.types[*arg_id];
+                        let actual_ty = self.representation_type(*arg_id, decl);
                         match &*actual_ty {
                             crate::Type::Slice(_) => {
                                 // Already a fat pointer: load data_ptr and len.
@@ -3025,8 +3083,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 for (i, arg_id) in arg_ids.iter().enumerate() {
                     let arg_val = self.translate_expr(*arg_id, decl);
                     if i < param_types.len() && is_slice(param_types[i]) {
-                        let wrapped =
-                            self.wrap_as_slice(arg_val.into_pointer_value(), decl.types[*arg_id]);
+                        let wrapped = self.wrap_as_slice(
+                            arg_val.into_pointer_value(),
+                            self.representation_type(*arg_id, decl),
+                        );
                         args.push(wrapped.into());
                     } else {
                         let pi = arg_start + i;

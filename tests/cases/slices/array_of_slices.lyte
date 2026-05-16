@@ -1,0 +1,18 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+const W = 3
+
+main {
+    var row0: [f32; W]
+    var row1: [f32; W]
+    var table: [[f32]; 2]
+
+    table[0] = row0
+    table[1] = row1
+
+    assert(table[0].len == W)
+    assert(table[1].len == W)
+}

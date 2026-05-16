@@ -592,10 +592,12 @@ impl<'a> FunctionTranslator<'a> {
                 let exprs = exprs.clone();
                 if !exprs.is_empty() {
                     let saved_vars = self.variables.clone();
+                    let saved_types = self.variable_types.clone();
                     for &expr_id in exprs.iter() {
                         self.translate_void(expr_id, func);
                     }
                     self.variables = saved_vars;
+                    self.variable_types = saved_types;
                 }
             }
             // If in void context: no need to produce a value on both branches.
@@ -786,6 +788,7 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     // Pointer-represented let bindings carry the address value.
                     self.translate_expr(init, func);
+                    self.emit_wrap_for_expected_slice(ty, init, func);
                     let local = self.alloc_scalar();
                     if self.void_ctx {
                         func.emit(StackOp::LocalSet(local));
@@ -828,6 +831,7 @@ impl<'a> FunctionTranslator<'a> {
                     let mem_slot = self.alloc_memory(size);
                     if let Some(init_id) = init {
                         self.translate_expr(init_id, func);
+                        self.emit_wrap_for_expected_slice(ty, init_id, func);
                         let tmp = self.alloc_scalar();
                         func.emit(StackOp::LocalSet(tmp));
                         func.emit(StackOp::LocalAddr(mem_slot));
@@ -854,6 +858,7 @@ impl<'a> FunctionTranslator<'a> {
                     }
                 } else {
                     let saved_vars = self.variables.clone();
+                    let saved_types = self.variable_types.clone();
                     for (i, &expr_id) in exprs.iter().enumerate() {
                         if i < exprs.len() - 1 {
                             // Intermediate expressions: void context.
@@ -867,6 +872,7 @@ impl<'a> FunctionTranslator<'a> {
                         }
                     }
                     self.variables = saved_vars;
+                    self.variable_types = saved_types;
                 }
             }
 
@@ -974,6 +980,7 @@ impl<'a> FunctionTranslator<'a> {
                     let elem_ty = *elem_ty;
                     // Translate fill value once.
                     self.translate_expr(value_expr, func);
+                    self.emit_wrap_for_expected_slice(elem_ty, value_expr, func);
                     let val_local = self.alloc_scalar();
                     func.emit(StackOp::LocalSet(val_local));
                     for i in 0..count {
@@ -1245,7 +1252,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an assignment expression.
     fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut StackFunction) {
-        let lhs_ty = self.expr_type(lhs_id);
+        let lhs_ty = self.representation_type(lhs_id);
         let lhs_is_f32 = matches!(&*lhs_ty, Type::Float32);
 
         // Check for captured variable assignment (double indirection).
@@ -1394,10 +1401,24 @@ impl<'a> FunctionTranslator<'a> {
         // General assignment: compute rhs, compute lvalue address, store.
         // Optimization: if RHS is a simple local variable, reuse it directly
         // instead of creating a temp (avoids get_set + get pattern).
-        let val_local = if let Some(rhs_local) = self.get_scalar_local(rhs_id) {
-            rhs_local
+        let needs_slice_wrap = self.needs_slice_wrap(lhs_ty, rhs_id);
+        let val_local = if !needs_slice_wrap {
+            if let Some(rhs_local) = self.get_scalar_local(rhs_id) {
+                rhs_local
+            } else {
+                self.translate_expr(rhs_id, func);
+                self.emit_wrap_for_expected_slice(lhs_ty, rhs_id, func);
+                let tmp = self.alloc_scalar();
+                if lhs_is_f32 {
+                    func.emit(StackOp::LocalSetF(tmp));
+                } else {
+                    func.emit(StackOp::LocalSet(tmp));
+                }
+                tmp
+            }
         } else {
             self.translate_expr(rhs_id, func);
+            self.emit_wrap_for_expected_slice(lhs_ty, rhs_id, func);
             let tmp = self.alloc_scalar();
             if lhs_is_f32 {
                 func.emit(StackOp::LocalSetF(tmp));
@@ -2396,6 +2417,7 @@ impl<'a> FunctionTranslator<'a> {
             for (i, &elem_id) in elements.iter().enumerate() {
                 func.emit(StackOp::LocalAddr(mem_slot));
                 self.translate_expr(elem_id, func);
+                self.emit_wrap_for_expected_slice(elem_ty, elem_id, func);
                 let offset = (i as i32) * elem_size;
                 self.emit_store_offset(&elem_ty, offset, func);
             }
@@ -2792,6 +2814,23 @@ impl<'a> FunctionTranslator<'a> {
             _ => {
                 // Not an array type; leave as-is.
             }
+        }
+    }
+
+    fn needs_slice_wrap(&self, expected_ty: TypeID, actual_expr: ExprID) -> bool {
+        matches!(&*expected_ty, Type::Slice(_))
+            && matches!(&*self.representation_type(actual_expr), Type::Array(_, _))
+    }
+
+    fn emit_wrap_for_expected_slice(
+        &mut self,
+        expected_ty: TypeID,
+        actual_expr: ExprID,
+        func: &mut StackFunction,
+    ) {
+        if matches!(&*expected_ty, Type::Slice(_)) {
+            let actual_ty = self.representation_type(actual_expr);
+            self.emit_wrap_as_slice(actual_ty, func);
         }
     }
 }
