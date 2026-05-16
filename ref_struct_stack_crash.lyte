@@ -1,0 +1,26 @@
+// Minimal repro for stack backend handling of reference parameters to structs.
+// Expected behavior: both stack and LLVM finish successfully.
+// Observed with lyte rev 1e780c772cbf68eeec7584a188d16eb24b5ca830:
+//   --backend llvm  finishes successfully
+//   --backend stack exits abruptly with code -1 and no diagnostic
+
+struct Grain {
+  phase: f32,
+  gain: f32
+}
+
+process_grain(grain: &Grain, amount: f32) -> f32 {
+  grain.phase = grain.phase + amount
+  grain.gain = grain.gain * 2.0
+  grain.phase + grain.gain
+}
+
+main {
+  var grain: Grain
+  grain.phase = 1.0
+  grain.gain = 2.0
+  let out = process_grain(grain, 1.0)
+  assert(out == 6.0)
+  assert(grain.phase == 2.0)
+  assert(grain.gain == 4.0)
+}

@@ -882,6 +882,9 @@ impl<'a> FunctionTranslator<'a> {
                 // Check if it's a local variable.
                 if let Some(&reg) = self.variables.get(name) {
                     if self.reference_vars.contains(name) {
+                        if self.is_ptr_type(&ty) {
+                            return reg;
+                        }
                         let dst = self.alloc_reg();
                         self.emit_load(&ty, dst, reg, func);
                         dst

@@ -1066,7 +1066,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 LocalKind::Reference(slot) => {
                     func.emit(StackOp::LocalGet(slot));
-                    self.emit_load(&ty, func);
+                    if !self.is_ptr_type(&ty) {
+                        self.emit_load(&ty, func);
+                    }
                 }
                 LocalKind::Memory(slot) => {
                     if self.is_ptr_type(&ty) {
