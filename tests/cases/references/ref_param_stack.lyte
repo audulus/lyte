@@ -1,4 +1,3 @@
-// skip-backend: asm
 // expected stdout:
 // compilation successful
 // 42
