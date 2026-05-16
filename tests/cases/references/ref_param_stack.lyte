@@ -1,5 +1,4 @@
 // skip-backend: asm
-// skip-backend: llvm
 // expected stdout:
 // compilation successful
 // 42
