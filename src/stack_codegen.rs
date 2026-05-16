@@ -287,6 +287,9 @@ struct FunctionTranslator<'a> {
     /// Map from variable names to their local storage kind.
     variables: HashMap<Name, LocalKind>,
 
+    /// Declared representation type for local bindings.
+    variable_types: HashMap<Name, TypeID>,
+
     /// Next available scalar local slot.
     next_scalar: u16,
 
@@ -345,6 +348,7 @@ impl<'a> FunctionTranslator<'a> {
             decl,
             decls,
             variables: HashMap::new(),
+            variable_types: HashMap::new(),
             next_scalar: 0,
             next_memory_slot: 0,
             pending_functions,
@@ -382,6 +386,34 @@ impl<'a> FunctionTranslator<'a> {
     /// Get the type of an expression.
     fn expr_type(&self, expr: ExprID) -> TypeID {
         self.decl.types[expr]
+    }
+
+    /// Get the type that determines how an expression is represented at runtime.
+    ///
+    /// A call site can solve an array expression as a slice, while codegen still
+    /// has an array address and must explicitly build the slice fat pointer.
+    fn representation_type(&self, expr: ExprID) -> TypeID {
+        match &self.decl.arena.exprs[expr] {
+            Expr::Id(name) => self
+                .variable_types
+                .get(name)
+                .copied()
+                .or_else(|| {
+                    self.decls.find(*name).iter().find_map(|decl| {
+                        if let Decl::Global { ty, .. } = decl {
+                            Some(*ty)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or_else(|| self.expr_type(expr)),
+            Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
+                Type::Array(elem, _) | Type::Slice(elem) => *elem,
+                _ => self.expr_type(expr),
+            },
+            _ => self.expr_type(expr),
+        }
     }
 
     /// Check if a type is represented as a pointer.
@@ -432,20 +464,16 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 self.variables
                     .insert(param.name, LocalKind::Scalar(param_slot));
+                self.variable_types.insert(param.name, ty);
             } else {
-                // Pointer parameter: the value passed is an address (scalar).
-                // Copy it to a memory-backed local.
+                // Pointer-represented parameters are passed as addresses.
+                // Keep the address value directly, matching the JIT/LLVM ABI.
                 while self.next_scalar <= param_slot {
                     self.alloc_scalar();
                 }
-                let size = self.vm_type_size(&ty);
-                let mem_slot = self.alloc_memory(size);
-                // Copy: LocalAddr(mem_slot), LocalGet(param_slot) -> MemCopy or Store
-                func.emit(StackOp::LocalAddr(mem_slot));
-                func.emit(StackOp::LocalGet(param_slot));
-                func.emit(StackOp::MemCopy(size));
                 self.variables
-                    .insert(param.name, LocalKind::Memory(mem_slot));
+                    .insert(param.name, LocalKind::Scalar(param_slot));
+                self.variable_types.insert(param.name, ty);
             }
         }
 
@@ -473,6 +501,7 @@ impl<'a> FunctionTranslator<'a> {
                 // Also register in variables so nested closures can find this capture.
                 self.variables
                     .insert(cv.name, LocalKind::Scalar(addr_local));
+                self.variable_types.insert(cv.name, cv.ty);
             }
         }
 
@@ -482,8 +511,7 @@ impl<'a> FunctionTranslator<'a> {
         // nothing, etc.) rather than dropped blindly here. For
         // value-returning functions, translate in non-void context so
         // the last expression's value is left on the stack for Return.
-        let returns_void_no_sret =
-            !has_sret && matches!(&*self.decl.ret, Type::Void);
+        let returns_void_no_sret = !has_sret && matches!(&*self.decl.ret, Type::Void);
         if let Some(body) = self.decl.body {
             if returns_void_no_sret {
                 self.translate_void(body, func);
@@ -754,20 +782,18 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalTee(local));
                     }
                     self.variables.insert(name, LocalKind::Scalar(local));
+                    self.variable_types.insert(name, ty);
                 } else {
-                    // Pointer type: translate init (pushes address), copy to memory local.
+                    // Pointer-represented let bindings carry the address value.
                     self.translate_expr(init, func);
-                    let size = self.vm_type_size(&ty);
-                    let mem_slot = self.alloc_memory(size);
-                    let tmp = self.alloc_scalar();
-                    func.emit(StackOp::LocalSet(tmp)); // save source addr
-                    func.emit(StackOp::LocalAddr(mem_slot)); // push dst
-                    func.emit(StackOp::LocalGet(tmp)); // push src
-                    func.emit(StackOp::MemCopy(size));
-                    if !self.void_ctx {
-                        func.emit(StackOp::LocalAddr(mem_slot)); // push result addr
+                    let local = self.alloc_scalar();
+                    if self.void_ctx {
+                        func.emit(StackOp::LocalSet(local));
+                    } else {
+                        func.emit(StackOp::LocalTee(local));
                     }
-                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variables.insert(name, LocalKind::Scalar(local));
+                    self.variable_types.insert(name, ty);
                 }
             }
 
@@ -796,6 +822,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalSet(local));
                     }
                     self.variables.insert(name, LocalKind::Scalar(local));
+                    self.variable_types.insert(name, ty);
                 } else {
                     let size = self.vm_type_size(&ty);
                     let mem_slot = self.alloc_memory(size);
@@ -811,6 +838,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::MemZero(size));
                     }
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
                 }
                 // Var expressions produce void; push 0 only if result is needed.
                 if !self.void_ctx {
@@ -1288,7 +1316,7 @@ impl<'a> FunctionTranslator<'a> {
         if let Expr::ArrayIndex(arr_id, idx_id) = &self.decl.arena.exprs[lhs_id] {
             let arr_id = *arr_id;
             let idx_id = *idx_id;
-            let arr_ty = self.expr_type(arr_id);
+            let arr_ty = self.representation_type(arr_id);
             let (elem_ty, is_slice) = match &*arr_ty {
                 Type::Slice(elem) => (Some(*elem), true),
                 Type::Array(elem, _) => (Some(*elem), false),
@@ -1478,12 +1506,14 @@ impl<'a> FunctionTranslator<'a> {
                 let name = *name;
                 if let Some(&kind) = self.variables.get(&name) {
                     match kind {
-                        LocalKind::Scalar(_slot) => {
-                            // Scalar variables in assignment are handled in translate_assign.
-                            // If we get here, it's for a memory-backed access.
-                            // This shouldn't happen for scalars used as lvalues in
-                            // the general path. Push 0 as fallback.
-                            func.emit(StackOp::I64Const(0));
+                        LocalKind::Scalar(slot) => {
+                            let ty = self.expr_type(expr);
+                            if self.is_ptr_type(&ty) {
+                                func.emit(StackOp::LocalGet(slot));
+                            } else {
+                                // Scalar variables in assignment are handled in translate_assign.
+                                func.emit(StackOp::I64Const(0));
+                            }
                         }
                         LocalKind::Memory(slot) => {
                             func.emit(StackOp::LocalAddr(slot));
@@ -1534,7 +1564,7 @@ impl<'a> FunctionTranslator<'a> {
                 let arr_id = *arr_id;
                 let idx_id = *idx_id;
                 self.translate_lvalue(arr_id, func);
-                let arr_ty = self.expr_type(arr_id);
+                let arr_ty = self.representation_type(arr_id);
 
                 let (elem_ty, is_slice) = match &*arr_ty {
                     Type::Array(elem_ty, _) => (*elem_ty, false),
@@ -1866,7 +1896,7 @@ impl<'a> FunctionTranslator<'a> {
                                 func.emit(StackOp::FToBitsF);
                             }
                             if matches!(&*param_ty, Type::Slice(_)) {
-                                self.emit_wrap_as_slice(arg_ty, func);
+                                self.emit_wrap_as_slice(self.representation_type(arg), func);
                             }
                         }
                         let instr_idx = func.pos();
@@ -1932,7 +1962,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::FToBitsF);
                 }
                 if i < param_types.len() && matches!(&*param_types[i], Type::Slice(_)) {
-                    let actual_ty = self.expr_type(*arg_id);
+                    let actual_ty = self.representation_type(*arg_id);
                     self.emit_wrap_as_slice(actual_ty, func);
                 }
             }
@@ -2273,7 +2303,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an array index.
     fn translate_array_index(&mut self, arr_id: ExprID, idx_id: ExprID, func: &mut StackFunction) {
-        let arr_ty = self.expr_type(arr_id);
+        let arr_ty = self.representation_type(arr_id);
 
         // f32x4 element extraction. Result is an f32 pushed to the float window.
         if matches!(&*arr_ty, Type::Float32x4) {

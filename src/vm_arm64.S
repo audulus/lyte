@@ -951,6 +951,17 @@ Lop_global_addr:
     next
 
 // =============================================================================
+// 169: GLOBAL_ADDR_WIDE — regs[A] = globals_ptr + next_word
+// =============================================================================
+Lop_global_addr_wide:
+    extract_a w0
+    ldr     w1, [x19, x21, lsl #2]     // u32 offset from data word
+    add     x21, x21, #1
+    add     x2, x26, x1
+    str     x2, [x20, x0, lsl #3]
+    next
+
+// =============================================================================
 // 67-71: Control flow (jumps)
 // =============================================================================
 Lop_jump:
@@ -2240,7 +2251,7 @@ Ljump_table:
     .quad Lop_dmul_sub          // 166: DMUL_SUB
     .quad Lop_fnmul_add         // 167: FNMUL_ADD
     .quad Lop_dnmul_add         // 168: DNMUL_ADD
-    .quad 0                     // 169: unused
+    .quad Lop_global_addr_wide  // 169: GLOBAL_ADDR_WIDE
     .quad Lop_f32x4_add         // 170: F32X4_ADD
     .quad Lop_f32x4_sub         // 171: F32X4_SUB
     .quad Lop_f32x4_mul         // 172: F32X4_MUL

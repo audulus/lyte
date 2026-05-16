@@ -1012,6 +1012,73 @@ mod tests {
         compiler.run_vm().expect("VM execution failed");
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn run_arm64_vm(code: &str) -> (i64, Option<&'static str>) {
+        let mut compiler = Compiler::new();
+        compiler.quiet = true;
+        compiler.parse(code, "arm64_regression.lyte");
+        assert!(
+            compiler.check(),
+            "type check failed: {:?}",
+            compiler.last_errors
+        );
+        compiler.specialize().expect("specialize failed");
+        assert!(compiler.decls.decls.len() > 0);
+
+        let program = compiler.compile_vm().expect("VM compile failed");
+        let mut vm = VM::new();
+        let result = vm.run_asm(&program);
+        (result, vm.trap)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn assert_arm64_vm_result(code: &str, expected: i64) {
+        let (result, trap) = run_arm64_vm(code);
+        assert_eq!(trap, None, "ARM64 VM trapped unexpectedly");
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn arm64_vm_global_addr_uses_wide_offsets() {
+        let code = r#"
+            var pad: [i32; 20000]
+            var target: [i32; 4]
+
+            fn main() -> i32 {
+                target[0] = 11
+                target[3] = 31
+                target[0] + target[3] + pad[3616]
+            }
+        "#;
+
+        assert_arm64_vm_result(code, 42);
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn arm64_vm_array_param_is_passed_by_address_and_survives_calls() {
+        let code = r#"
+            var big: [i32; 262144]
+
+            fn clobber() -> i32 {
+                7
+            }
+
+            fn pick(buf: [i32; 262144]) -> i32 {
+                let ignored = clobber()
+                buf[1]
+            }
+
+            fn main() -> i32 {
+                big[1] = 42
+                pick(big)
+            }
+        "#;
+
+        assert_arm64_vm_result(code, 42);
+    }
+
     #[test]
     fn basic() {
         let code = r#"

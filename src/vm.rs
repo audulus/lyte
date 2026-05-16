@@ -311,6 +311,7 @@ pub(crate) mod tags {
     pub const DMUL_SUB: u8 = 166; // ABC+data: A=dst, B=a, C=b, next word=c (dst = a*b - c)
     pub const FNMUL_ADD: u8 = 167; // ABC+data: A=dst, B=a, C=b, next word=c (dst = c - a*b)
     pub const DNMUL_ADD: u8 = 168; // ABC+data: A=dst, B=a, C=b, next word=c (dst = c - a*b)
+    pub const GLOBAL_ADDR_WIDE: u8 = 169; // A+data: A=dst, next word=offset (u32)
     pub const F32X4_ADD: u8 = 170; // ABC: A=dst, B=a, C=b (ptr-represented, lane-wise)
     pub const F32X4_SUB: u8 = 171;
     pub const F32X4_MUL: u8 = 172;
@@ -739,7 +740,13 @@ impl LinkedProgram {
             // Addressing — AD
             Opcode::LocalAddr { dst, slot } => PackedOp::ad(tags::LOCAL_ADDR, r(dst), slot as i16),
             Opcode::GlobalAddr { dst, offset } => {
-                PackedOp::ad(tags::GLOBAL_ADDR, r(dst), offset as i16)
+                if (0..=u16::MAX as i32).contains(&offset) {
+                    PackedOp::ad(tags::GLOBAL_ADDR, r(dst), offset as i16)
+                } else {
+                    ops.push(PackedOp::abc(tags::GLOBAL_ADDR_WIDE, r(dst), 0, 0));
+                    ops.push(PackedOp::data(offset as u32));
+                    return;
+                }
             }
             // Control flow — jump offsets are placeholders, fixed up after packing
             Opcode::Jump { offset } => PackedOp::ad(tags::JUMP, 0, offset as i16),
@@ -1787,6 +1794,12 @@ impl VM {
                             op.a(),
                             self.globals.as_ptr().add(op.d_u16() as usize) as u64
                         );
+                    }
+
+                    tags::GLOBAL_ADDR_WIDE => {
+                        let offset = (*ops.add(ip)).0 as usize;
+                        ip += 1;
+                        r_set!(op.a(), self.globals.as_ptr().add(offset) as u64);
                     }
 
                     // Control flow — AD format (i16 offset)

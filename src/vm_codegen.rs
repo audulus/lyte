@@ -356,6 +356,9 @@ struct FunctionTranslator<'a> {
     /// For register-promoted scalars, the register holds the value directly.
     variables: HashMap<Name, Reg>,
 
+    /// Declared representation type for local bindings.
+    variable_types: HashMap<Name, TypeID>,
+
     /// Set of variable names that are register-promoted (value in register, not memory).
     reg_promoted: HashSet<Name>,
 
@@ -459,6 +462,7 @@ impl<'a> FunctionTranslator<'a> {
             decl,
             decls,
             variables: HashMap::new(),
+            variable_types: HashMap::new(),
             reg_promoted: HashSet::new(),
             local_slots: HashMap::new(),
             next_reg: 0,
@@ -544,18 +548,19 @@ impl<'a> FunctionTranslator<'a> {
                     src: src_reg,
                 });
                 self.variables.insert(param.name, reg);
+                self.variable_types.insert(param.name, ty);
                 self.reg_promoted.insert(param.name);
             } else {
-                let size = self.vm_type_size(&ty);
-                let slot = self.alloc_local(size);
-                self.local_slots.insert(param.name, slot);
-                let addr_reg = self.alloc_reg();
-                func.emit(Opcode::LocalAddr {
-                    dst: addr_reg,
-                    slot,
+                // Pointer-represented parameters are passed as addresses.
+                // Copy them out of the call argument registers so scalar
+                // returns in r0 cannot clobber long-lived pointer params.
+                let reg = self.alloc_reg();
+                func.emit(Opcode::Move {
+                    dst: reg,
+                    src: src_reg,
                 });
-                self.emit_store(&ty, addr_reg, src_reg, func);
-                self.variables.insert(param.name, addr_reg);
+                self.variables.insert(param.name, reg);
+                self.variable_types.insert(param.name, ty);
             }
         }
 
@@ -589,6 +594,7 @@ impl<'a> FunctionTranslator<'a> {
                 // The variable maps to the address of the captured storage (a pointer).
                 // Access goes: load addr from local slot → load/store value through addr.
                 self.variables.insert(cv.name, addr_reg);
+                self.variable_types.insert(cv.name, cv.ty);
                 // Mark as a captured variable (accessed via double indirection).
                 self.captured_vars.insert(cv.name);
             }
@@ -754,6 +760,35 @@ impl<'a> FunctionTranslator<'a> {
     /// Get the type of an expression.
     fn expr_type(&self, expr: ExprID) -> TypeID {
         self.decl.types[expr]
+    }
+
+    /// Get the type that determines how an expression is represented at runtime.
+    ///
+    /// Type solving may coerce an array expression to a slice at a call site, but
+    /// codegen still receives an array address and must build the slice fat
+    /// pointer itself.
+    fn representation_type(&self, expr: ExprID) -> TypeID {
+        match &self.decl.arena.exprs[expr] {
+            Expr::Id(name) => self
+                .variable_types
+                .get(name)
+                .copied()
+                .or_else(|| {
+                    self.decls.find(*name).iter().find_map(|decl| {
+                        if let Decl::Global { ty, .. } = decl {
+                            Some(*ty)
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or_else(|| self.expr_type(expr)),
+            Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
+                Type::Array(elem, _) | Type::Slice(elem) => *elem,
+                _ => self.expr_type(expr),
+            },
+            _ => self.expr_type(expr),
+        }
     }
 
     /// Translate an expression and return the register containing the result.
@@ -929,20 +964,18 @@ impl<'a> FunctionTranslator<'a> {
                         src: init_reg,
                     });
                     self.variables.insert(*name, reg);
+                    self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
                 } else {
-                    // Pointer type: store to local slot.
-                    let size = self.vm_type_size(&ty);
-                    let slot = self.alloc_local(size);
-                    self.local_slots.insert(*name, slot);
-
-                    let addr_reg = self.alloc_reg();
-                    func.emit(Opcode::LocalAddr {
-                        dst: addr_reg,
-                        slot,
+                    // Pointer-represented let bindings carry the address value.
+                    let reg = self.alloc_reg();
+                    func.emit(Opcode::Move {
+                        dst: reg,
+                        src: init_reg,
                     });
-                    self.emit_store(&ty, addr_reg, init_reg, func);
-                    self.variables.insert(*name, addr_reg);
+                    self.variables.insert(*name, reg);
+                    self.variable_types.insert(*name, ty);
+                    return reg;
                 }
                 init_reg
             }
@@ -963,6 +996,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(Opcode::LoadImm { dst: reg, value: 0 });
                     }
                     self.variables.insert(*name, reg);
+                    self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
                 } else {
                     // Pointer type: store to local slot.
@@ -976,6 +1010,7 @@ impl<'a> FunctionTranslator<'a> {
                         slot,
                     });
                     self.variables.insert(*name, addr_reg);
+                    self.variable_types.insert(*name, ty);
 
                     if let Some(init_id) = init {
                         let init_reg = self.translate_expr(*init_id, func);
@@ -2427,8 +2462,11 @@ impl<'a> FunctionTranslator<'a> {
                             let param_ty = f.params[i].ty.unwrap();
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 // Coerce array → slice if needed.
-                                let wrapped =
-                                    self.wrap_as_slice(arg_reg, self.expr_type(*arg_id), func);
+                                let wrapped = self.wrap_as_slice(
+                                    arg_reg,
+                                    self.representation_type(*arg_id),
+                                    func,
+                                );
                                 arg_values.push(wrapped);
                             } else {
                                 arg_values.push(arg_reg);
@@ -2542,7 +2580,8 @@ impl<'a> FunctionTranslator<'a> {
                 // If the callee expects a slice, wrap sized arrays in a fat pointer.
                 if i < param_types.len() {
                     if matches!(&*param_types[i], Type::Slice(_)) {
-                        let wrapped = self.wrap_as_slice(arg_reg, self.expr_type(*arg_id), func);
+                        let wrapped =
+                            self.wrap_as_slice(arg_reg, self.representation_type(*arg_id), func);
                         arg_values.push(wrapped);
                         continue;
                     }
@@ -3003,7 +3042,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Reg {
         let arr = self.translate_expr(arr_id, func);
         let idx = self.translate_expr(idx_id, func);
-        let arr_ty = self.expr_type(arr_id);
+        let arr_ty = self.representation_type(arr_id);
 
         // f32x4 element extraction: base[idx] where base is a ptr to 4 f32s
         if matches!(&*arr_ty, Type::Float32x4) {
