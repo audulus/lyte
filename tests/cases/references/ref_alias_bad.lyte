@@ -1,0 +1,14 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/references/ref_alias_bad.lyte:13:5: cannot pass 'x' to multiple borrowed parameters (borrowed arguments must not alias)
+//         swap(x, x)
+//         ^
+
+fn swap(a: &i32, b: &i32) {
+    a = b
+}
+
+main {
+    var x = 1
+    swap(x, x)
+}

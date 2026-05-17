@@ -378,6 +378,7 @@ impl crate::Type {
             crate::Type::Name(_, _) => ptr_ty.into(),
             crate::Type::Array(_, _) => ptr_ty.into(),
             crate::Type::Slice(_) => ptr_ty.into(),
+            crate::Type::Reference(_) => ptr_ty.into(),
             crate::Type::Tuple(_) => ptr_ty.into(),
             crate::Type::Anon(_) => panic!("anonymous type in codegen"),
             crate::Type::Var(_) => panic!("type var in codegen"),
@@ -860,10 +861,15 @@ impl<'ctx> LLVMJITState<'ctx> {
         for (i, param) in decl.params.iter().enumerate() {
             let param_val = params[param_idx + i];
             let ty = param.ty.expect("param ty");
+            let storage_ty = if let crate::Type::Reference(inner) = &*ty {
+                *inner
+            } else {
+                ty
+            };
 
             // Slice parameters get noalias: the type checker enforces that no two
             // slice arguments in a call can alias (Fortran-style restrict).
-            if matches!(&*ty, crate::Type::Slice(_)) {
+            if matches!(&*ty, crate::Type::Slice(_) | crate::Type::Reference(_)) {
                 let noalias = self.context.create_enum_attribute(
                     inkwell::attributes::Attribute::get_named_enum_kind_id("noalias"),
                     0,
@@ -881,8 +887,10 @@ impl<'ctx> LLVMJITState<'ctx> {
                 .unwrap();
             self.builder.build_store(alloca, param_val).unwrap();
             variables.insert(param.name.to_string(), alloca);
-            variable_types.insert(param.name.to_string(), ty);
-            let_bindings.insert(param.name.to_string());
+            variable_types.insert(param.name.to_string(), storage_ty);
+            if !matches!(&*ty, crate::Type::Reference(_)) {
+                let_bindings.insert(param.name.to_string());
+            }
         }
 
         let mut trans = FunctionTranslator {
@@ -1336,7 +1344,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 })
                 .unwrap_or(decl.types[expr]),
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl) {
-                crate::Type::Array(elem, _) | crate::Type::Slice(elem) => *elem,
+                crate::Type::Array(elem, _) | crate::Type::Slice(elem) | crate::Type::Reference(elem) => *elem,
                 _ => decl.types[expr],
             },
             _ => decl.types[expr],
@@ -1510,10 +1518,24 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             alloca
                         }
                     } else {
-                        self.builder()
-                            .build_load(self.ptr_ty(), alloca, "var_addr")
-                            .unwrap()
-                            .into_pointer_value()
+                        if let Some(ty) = self.variable_types.get(name.as_str()).copied() {
+                            if ty.is_ptr() {
+                                self.builder()
+                                    .build_load(ty.llvm_basic_type(self.ctx()), alloca, "var_addr")
+                                    .unwrap()
+                                    .into_pointer_value()
+                            } else {
+                                self.builder()
+                                    .build_load(self.ptr_ty(), alloca, "var_addr")
+                                    .unwrap()
+                                    .into_pointer_value()
+                            }
+                        } else {
+                            self.builder()
+                                .build_load(self.ptr_ty(), alloca, "var_addr")
+                                .unwrap()
+                                .into_pointer_value()
+                        }
                     }
                 } else if let Some(&offset) = self.state.globals.get(name) {
                     self.ptr_at_offset(self.globals_base, offset as u64)
@@ -1626,15 +1648,20 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
                             .unwrap()
                     } else {
-                        // var binding: alloca holds a pointer to the slot; load ptr, then load value.
-                        let slot_ptr = self
-                            .builder()
-                            .build_load(self.ptr_ty(), alloca, "var_ptr")
-                            .unwrap()
-                            .into_pointer_value();
-                        self.builder()
-                            .build_load(ty.llvm_basic_type(self.ctx()), slot_ptr, &**name)
-                            .unwrap()
+                        let stored = self.builder().build_load(self.ptr_ty(), alloca, "var_ptr").unwrap();
+                        if let Some(var_ty) = self.variable_types.get(name.as_str()).copied() {
+                            if var_ty.is_ptr() {
+                                stored
+                            } else {
+                                self.builder()
+                                    .build_load(ty.llvm_basic_type(self.ctx()), stored.into_pointer_value(), &**name)
+                                    .unwrap()
+                            }
+                        } else {
+                            self.builder()
+                                .build_load(ty.llvm_basic_type(self.ctx()), stored.into_pointer_value(), &**name)
+                                .unwrap()
+                        }
                     }
                 } else if let Some(&offset) = self.state.globals.get(name) {
                     let addr = self.ptr_at_offset(self.globals_base, offset as u64);
@@ -2951,8 +2978,12 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![context.into()];
                 for (i, arg_id) in arg_ids.iter().enumerate() {
-                    let arg_val = self.translate_expr(*arg_id, decl);
                     let param_ty = callee_decl.params[i].ty.unwrap();
+                    let arg_val = if matches!(&*param_ty, crate::Type::Reference(_)) {
+                        self.translate_lvalue(*arg_id, decl).into()
+                    } else {
+                        self.translate_expr(*arg_id, decl)
+                    };
                     if matches!(&*param_ty, crate::Type::Slice(_)) {
                         let actual_ty = self.representation_type(*arg_id, decl);
                         match &*actual_ty {
@@ -3081,8 +3112,15 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let full_param_types = full_fn_ty.get_param_types();
                 let arg_start = args.len(); // offset for globals+closure+output_ptr
                 for (i, arg_id) in arg_ids.iter().enumerate() {
-                    let arg_val = self.translate_expr(*arg_id, decl);
-                    if i < param_types.len() && is_slice(param_types[i]) {
+                    let expected_ty = param_types.get(i).copied();
+                    let arg_val = if expected_ty
+                        .is_some_and(|ty| matches!(&*ty, crate::Type::Reference(_)))
+                    {
+                        self.translate_lvalue(*arg_id, decl).into()
+                    } else {
+                        self.translate_expr(*arg_id, decl)
+                    };
+                    if expected_ty.is_some_and(is_slice) {
                         let wrapped = self.wrap_as_slice(
                             arg_val.into_pointer_value(),
                             self.representation_type(*arg_id, decl),

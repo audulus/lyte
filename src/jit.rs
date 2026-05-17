@@ -391,14 +391,23 @@ impl JIT {
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
             let param_ty = param.ty.expect("expected type");
-            let ty = param_ty.cranelift_type();
+            let ty = if matches!(&*param_ty, crate::Type::Reference(_)) {
+                I64
+            } else {
+                param_ty.cranelift_type()
+            };
             let var = trans.declare_variable(&param.name, ty);
             trans.builder.def_var(var, block_params[i + param_idx]);
-            trans
-                .variable_types
-                .insert(param.name.to_string(), param_ty);
-            // Function parameters are like let bindings - they hold values directly.
-            trans.let_bindings.insert(param.name.to_string());
+            if let crate::Type::Reference(inner) = &*param_ty {
+                trans.variable_types.insert(param.name.to_string(), *inner);
+                trans.let_bindings.remove(&param.name.to_string());
+            } else {
+                trans
+                    .variable_types
+                    .insert(param.name.to_string(), param_ty);
+                // Function parameters are like let bindings - they hold values directly.
+                trans.let_bindings.insert(param.name.to_string());
+            }
         }
 
         let result = trans.translate_fn(decl, decls);
@@ -467,6 +476,9 @@ impl crate::Type {
 
             // Slice is a pointer to a fat pointer {data_ptr, len}.
             crate::Type::Slice(_) => I64,
+
+            // Reference is a thin pointer.
+            crate::Type::Reference(_) => I64,
 
             // Tuple is a pointer.
             crate::Type::Tuple(_) => I64,
@@ -973,8 +985,12 @@ impl<'a> FunctionTranslator<'a> {
 
                         let mut args = vec![context];
                         for (i, arg_id) in arg_ids.iter().enumerate() {
-                            let arg_val = self.translate_expr(*arg_id, decl, decls);
                             let param_ty = callee_decl.params[i].ty.unwrap();
+                            let arg_val = if matches!(&*param_ty, crate::Type::Reference(_)) {
+                                self.translate_lvalue(*arg_id, decl, decls)
+                            } else {
+                                self.translate_expr(*arg_id, decl, decls)
+                            };
                             if matches!(&*param_ty, crate::Type::Slice(_)) {
                                 let actual_ty = self.representation_type(*arg_id, decl, decls);
                                 match &*actual_ty {
@@ -1056,17 +1072,22 @@ impl<'a> FunctionTranslator<'a> {
                             args.push(addr);
                         }
                         for (i, arg_id) in arg_ids.iter().enumerate() {
-                            let arg_val = self.translate_expr(*arg_id, decl, decls);
+                            let param_ty = param_types.get(i).copied();
+                            let arg_val = if param_ty
+                                .is_some_and(|ty| matches!(&*ty, crate::Type::Reference(_)))
+                            {
+                                self.translate_lvalue(*arg_id, decl, decls)
+                            } else {
+                                self.translate_expr(*arg_id, decl, decls)
+                            };
                             // If the callee expects a slice, wrap sized arrays in a fat pointer.
-                            if i < param_types.len() {
-                                if is_slice(param_types[i]) {
-                                    args.push(self.wrap_as_slice(
-                                        arg_val,
-                                        self.representation_type(*arg_id, decl, decls),
-                                        decls,
-                                    ));
-                                    continue;
-                                }
+                            if param_ty.is_some_and(is_slice) {
+                                args.push(self.wrap_as_slice(
+                                    arg_val,
+                                    self.representation_type(*arg_id, decl, decls),
+                                    decls,
+                                ));
+                                continue;
                             }
                             args.push(arg_val);
                         }

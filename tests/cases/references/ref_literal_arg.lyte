@@ -1,0 +1,13 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/references/ref_literal_arg.lyte:12:9: reference argument must be assignable
+//         set(1)
+//             ^
+
+fn set(x: &i32) {
+    x = 2
+}
+
+main {
+    set(1)
+}

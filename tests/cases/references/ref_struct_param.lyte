@@ -1,0 +1,26 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct Grain {
+  phase: f32,
+  gain: f32
+}
+
+process_grain(grain: &Grain, amount: f32) -> f32 {
+  grain.phase = grain.phase + amount
+  grain.gain = grain.gain * 2.0
+  grain.phase + grain.gain
+}
+
+main {
+  var grain: Grain
+  grain.phase = 1.0
+  grain.gain = 2.0
+  let out = process_grain(grain, 1.0)
+  assert(out == 6.0)
+  assert(grain.phase == 2.0)
+  assert(grain.gain == 4.0)
+}

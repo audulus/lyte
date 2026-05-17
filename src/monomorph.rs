@@ -207,7 +207,9 @@ fn type_complexity(ty: TypeID) -> usize {
         Type::Var(_) | Type::Anon(_) => 0,
 
         // Arrays/slices add 1 + complexity of element
-        Type::Array(elem, _) | Type::Slice(elem) => 1 + type_complexity(*elem),
+        Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => {
+            1 + type_complexity(*elem)
+        }
 
         // Tuples: 1 + max complexity of elements
         Type::Tuple(types) => 1 + types.iter().map(|t| type_complexity(*t)).max().unwrap_or(0),

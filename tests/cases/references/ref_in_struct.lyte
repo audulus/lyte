@@ -1,0 +1,9 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/references/ref_in_struct.lyte:8:5: reference type &i32 is not allowed in struct fields (use a sized array instead)
+//         x: &i32
+//         ^
+
+struct Box {
+    x: &i32
+}

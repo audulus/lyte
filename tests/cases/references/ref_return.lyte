@@ -1,0 +1,9 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/references/ref_return.lyte:7:4: reference type &i32 is not allowed as a return type
+//     bad(x: &i32) → &i32 {
+//        ^
+
+bad(x: &i32) → &i32 {
+    return x
+}

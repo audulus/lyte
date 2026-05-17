@@ -72,6 +72,9 @@ pub enum Type {
     /// Only valid as a function parameter type.
     Slice(TypeID),
 
+    /// Reference: a thin pointer to a value. Only valid as a function parameter type.
+    Reference(TypeID),
+
     /// A named type which may include type parameters.
     Name(Name, Vec<TypeID>),
 }
@@ -85,6 +88,7 @@ impl Type {
                 | Type::Tuple(_)
                 | Type::Array(_, _)
                 | Type::Slice(_)
+                | Type::Reference(_)
                 | Type::Func(_, _)
                 | Type::Float32x4
         )
@@ -107,7 +111,7 @@ impl TypeID {
         match &*self {
             Type::Anon(_) | Type::Var(_) => true,
             Type::Tuple(v) => v.iter().any(|t| t.contains_var()),
-            Type::Array(t, _) | Type::Slice(t) => t.contains_var(),
+            Type::Array(t, _) | Type::Slice(t) | Type::Reference(t) => t.contains_var(),
             Type::Func(a, b) => a.contains_var() || b.contains_var(),
             Type::Name(_, args) => args.iter().any(|t| t.contains_var()),
             _ => false,
@@ -120,7 +124,7 @@ impl TypeID {
             Type::Anon(_) => true,
             Type::Var(_) => false,
             Type::Tuple(v) => v.iter().any(|t| t.contains_anon()),
-            Type::Array(t, _) | Type::Slice(t) => t.contains_anon(),
+            Type::Array(t, _) | Type::Slice(t) | Type::Reference(t) => t.contains_anon(),
             Type::Func(a, b) => a.contains_anon() || b.contains_anon(),
             Type::Name(_, args) => args.iter().any(|t| t.contains_anon()),
             _ => false,
@@ -136,6 +140,7 @@ impl TypeID {
             }
             Type::Array(a, sz) => mk_type(Type::Array(a.fresh_aux(index, inst), sz.clone())),
             Type::Slice(a) => mk_type(Type::Slice(a.fresh_aux(index, inst))),
+            Type::Reference(a) => mk_type(Type::Reference(a.fresh_aux(index, inst))),
             Type::Var(_) => *inst.entry(self).or_insert_with(|| {
                 let t = mk_type(Type::Anon(*index));
                 *index += 1;
@@ -173,6 +178,7 @@ impl TypeID {
             Type::Func(a, b) => mk_type(Type::Func(a.subst(inst), b.subst(inst))),
             Type::Array(a, n) => mk_type(Type::Array(a.subst(inst), n.clone())),
             Type::Slice(a) => mk_type(Type::Slice(a.subst(inst))),
+            Type::Reference(a) => mk_type(Type::Reference(a.subst(inst))),
             Type::Anon(_) => find(t, inst),
             Type::Name(name, vars) => mk_type(Type::Name(
                 *name,
@@ -187,7 +193,7 @@ impl TypeID {
         match &*self {
             Type::Tuple(v) => v.iter().all(|t| t.solved()),
             Type::Func(a, b) => a.solved() && b.solved(),
-            Type::Array(a, _) | Type::Slice(a) => a.solved(),
+            Type::Array(a, _) | Type::Slice(a) | Type::Reference(a) => a.solved(),
             Type::Var(_) => true,
             Type::Anon(_) => false,
             _ => true,
@@ -200,7 +206,7 @@ impl TypeID {
         match &*tt {
             Type::Tuple(v) => v.iter().all(|t| t.solved_inst(inst)),
             Type::Func(a, b) => a.solved_inst(inst) && b.solved_inst(inst),
-            Type::Array(a, _) | Type::Slice(a) => a.solved_inst(inst),
+            Type::Array(a, _) | Type::Slice(a) | Type::Reference(a) => a.solved_inst(inst),
             Type::Var(_) => true,
             Type::Anon(_) => false,
             _ => true,
@@ -215,6 +221,7 @@ impl TypeID {
             }
             Type::Array(a, _sz) => a.typevars(f),
             Type::Slice(a) => a.typevars(f),
+            Type::Reference(a) => a.typevars(f),
             Type::Func(dom, rng) => {
                 dom.typevars(f);
                 rng.typevars(f);
@@ -274,6 +281,7 @@ impl TypeID {
             }
             Type::Array(ty, sz) => ty.size(decls) * sz.known(),
             Type::Slice(_) => 12, // fat pointer: data_ptr (8) + len (4)
+            Type::Reference(_) => 8,
             Type::Func(_, _) => 16,
             Type::Anon(i) => {
                 eprintln!(
@@ -329,6 +337,7 @@ impl TypeID {
                 format!("{} → {}", dom.pretty_print(), rng.pretty_print())
             }
             Type::Slice(elem) => format!("[{}]", elem.pretty_print()),
+            Type::Reference(elem) => format!("&{}", elem.pretty_print()),
             Type::Array(elem, size) => format!("[{}; {}]", elem.pretty_print(), size),
             Type::Name(name, params) => {
                 if params.is_empty() {
@@ -485,6 +494,10 @@ pub fn unify(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
             (Type::Slice(a), Type::Array(b, _)) | (Type::Array(b, _), Type::Slice(a)) => {
                 unify(*a, *b, inst)
             }
+            (Type::Reference(a), Type::Reference(b)) => unify(*a, *b, inst),
+            (Type::Reference(a), b) | (b, Type::Reference(a)) => {
+                unify(*a, mk_type(b.clone()), inst)
+            }
             (Type::Func(a, b), Type::Func(c, d)) => unify(*a, *c, inst) && unify(*b, *d, inst),
             _ => false,
         }
@@ -521,6 +534,10 @@ pub fn unify_with_vars(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
                 sizes_ok && unify_with_vars(*a, *b, inst)
             }
             (Type::Slice(a), Type::Slice(b)) => unify_with_vars(*a, *b, inst),
+            (Type::Reference(a), Type::Reference(b)) => unify_with_vars(*a, *b, inst),
+            (Type::Reference(a), b) | (b, Type::Reference(a)) => {
+                unify_with_vars(*a, mk_type(b.clone()), inst)
+            }
             (Type::Func(a, b), Type::Func(c, d)) => {
                 unify_with_vars(*a, *c, inst) && unify_with_vars(*b, *d, inst)
             }
