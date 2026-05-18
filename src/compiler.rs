@@ -554,7 +554,13 @@ impl Compiler {
         // Expand macros in all function bodies.
         for decl in &mut decls {
             if let Decl::Func(ref mut fdecl) = decl {
-                fdecl.expand_macros(&macros);
+                if let Err((loc, msg)) = fdecl.expand_macros(&macros) {
+                    if !self.quiet {
+                        print_error_with_context(loc, &msg);
+                    }
+                    self.last_errors.push(format_error(loc, &msg));
+                    return false;
+                }
             }
         }
 

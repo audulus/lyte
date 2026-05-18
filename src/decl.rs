@@ -97,12 +97,25 @@ impl FuncDecl {
     }
 
     /// Expand all macro invocations in this function's arena.
-    pub fn expand_macros(&mut self, macros: &std::collections::HashMap<Name, FuncDecl>) {
-        let n = self.arena.exprs.len();
-        for i in 0..n {
+    pub fn expand_macros(
+        &mut self,
+        macros: &std::collections::HashMap<Name, FuncDecl>,
+    ) -> Result<(), (Loc, String)> {
+        let mut i = 0;
+        let mut expansion_count = 0;
+        while i < self.arena.exprs.len() {
             if let Expr::Macro(name, ref args) = self.arena.exprs[i] {
+                let loc = self.arena.locs[i];
                 let args = args.clone();
                 if let Some(mac) = macros.get(&name) {
+                    expansion_count += 1;
+                    if expansion_count > 100_000 {
+                        return Err((
+                            loc,
+                            format!("macro expansion limit exceeded while expanding {}", name),
+                        ));
+                    }
+
                     let subst: Vec<(Name, ExprID)> = mac
                         .params
                         .iter()
@@ -115,9 +128,12 @@ impl FuncDecl {
 
                     self.arena.exprs[i] = self.arena.exprs[new_body].clone();
                     self.arena.locs[i] = self.arena.locs[new_body];
+                    continue;
                 }
             }
+            i += 1;
         }
+        Ok(())
     }
 }
 
