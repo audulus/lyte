@@ -56,15 +56,21 @@ struct Args {
     #[clap(long)]
     entry: Option<String>,
 
-    /// Ahead-of-time compile to an arm64-apple-ios Mach-O object file at the
-    /// given path. A companion `.h` is written next to it. Requires the
-    /// `llvm` feature and implies `--no-recursion`.
+    /// Ahead-of-time compile to a Mach-O object file at the given path. A
+    /// companion `.h` is written next to it. Requires the `llvm` feature and
+    /// implies `--no-recursion`. Combine outputs from multiple `--target`
+    /// runs with `lipo -create` to produce a fat universal object.
     #[clap(long)]
     aot: Option<String>,
 
     /// Symbol prefix for AOT outputs. Defaults to the stem of the --aot path.
     #[clap(long)]
     aot_prefix: Option<String>,
+
+    /// Target for `--aot`. One of: `ios-arm64` (default), `macos-arm64`,
+    /// `macos-x86_64`.
+    #[clap(long, default_value = "ios-arm64")]
+    target: String,
 }
 
 fn run(args: Args) -> i32 {
@@ -182,7 +188,12 @@ fn run(args: Args) -> i32 {
     #[cfg(feature = "llvm")]
     {
         if let Some(out) = args.aot.as_deref() {
-            return run_aot(&mut compiler, out, args.aot_prefix.as_deref());
+            return run_aot(
+                &mut compiler,
+                out,
+                args.aot_prefix.as_deref(),
+                &args.target,
+            );
         }
     }
     #[cfg(not(feature = "llvm"))]
@@ -422,6 +433,7 @@ fn run_aot(
     compiler: &mut lyte::Compiler,
     output: &str,
     prefix_override: Option<&str>,
+    target_str: &str,
 ) -> i32 {
     if !compiler.no_recursion {
         eprintln!("--aot requires --no-recursion");
@@ -431,6 +443,13 @@ fn run_aot(
         eprintln!("--aot: no declarations to compile");
         return 1;
     }
+    let target = match lyte::llvm_aot::AotTarget::parse(target_str) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{}", e);
+            return 1;
+        }
+    };
     if let Err(e) = compiler.specialize() {
         eprintln!("{}", e);
         return 1;
@@ -448,7 +467,7 @@ fn run_aot(
         eprintln!("--aot: prefix is empty (use --aot-prefix to override)");
         return 1;
     }
-    match compiler.compile_aot(&path, &prefix) {
+    match compiler.compile_aot(&path, &prefix, target) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("{}", e);

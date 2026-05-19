@@ -78,34 +78,86 @@ pub struct AotEntry {
     pub returns_via_ptr: bool,
 }
 
-/// Compile entry points to a Mach-O arm64 object file and write a companion
-/// `.h` header. Output paths are derived from `output_path` (e.g. for
-/// `path/to/biquad.o` we also write `path/to/biquad.h`).
+/// Apple platform target for AOT compile. Each produces a thin Mach-O object
+/// for one architecture; combine multiple outputs with `lipo -create` if a fat
+/// universal object is needed (matches the pattern in build-xcframework.sh).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AotTarget {
+    IosArm64,
+    MacosArm64,
+    MacosX86_64,
+}
+
+impl AotTarget {
+    /// Parse a CLI-style identifier. Accepts ios-arm64, macos-arm64,
+    /// macos-x86_64 (and aliases macos-x64, macos-intel).
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "ios-arm64" => Ok(Self::IosArm64),
+            "macos-arm64" => Ok(Self::MacosArm64),
+            "macos-x86_64" | "macos-x64" | "macos-intel" => Ok(Self::MacosX86_64),
+            other => Err(format!(
+                "unknown --target '{}'. Expected one of: ios-arm64, macos-arm64, macos-x86_64",
+                other
+            )),
+        }
+    }
+
+    fn triple(self) -> &'static str {
+        match self {
+            // iOS deployment target matches build-xcframework.sh.
+            Self::IosArm64 => "arm64-apple-ios16.0",
+            // macOS deployment target matches build-xcframework.sh (15.0).
+            Self::MacosArm64 => "arm64-apple-macosx15.0",
+            Self::MacosX86_64 => "x86_64-apple-macosx15.0",
+        }
+    }
+
+    fn cpu(self) -> &'static str {
+        match self {
+            // apple-a12 covers every iPhone since the XS / Apple silicon Macs.
+            Self::IosArm64 | Self::MacosArm64 => "apple-a12",
+            // macOS requires x86-64-v2 (Haswell) at minimum.
+            Self::MacosX86_64 => "x86-64",
+        }
+    }
+}
+
+/// Compile entry points to a Mach-O object file for `target` and write a
+/// companion `.h` header. Output paths are derived from `output_path`
+/// (e.g. for `path/to/biquad.o` we also write `path/to/biquad.h`).
 pub fn compile_aot(
     decls: &DeclTable,
     entry_points: &[Name],
     output_path: &Path,
     prefix: &str,
+    target: AotTarget,
     print_ir: bool,
 ) -> Result<(), String> {
-    // Set up the iOS target machine. Must initialize AArch64 specifically;
-    // `Target::initialize_native` only sets up the host arch, which on x86_64
-    // hosts wouldn't be enough.
-    Target::initialize_aarch64(&InitializationConfig::default());
+    // Initialize the LLVM backend for this target. We do this rather than
+    // `initialize_native` because the host arch may not match the AOT target.
+    match target {
+        AotTarget::IosArm64 | AotTarget::MacosArm64 => {
+            Target::initialize_aarch64(&InitializationConfig::default());
+        }
+        AotTarget::MacosX86_64 => {
+            Target::initialize_x86(&InitializationConfig::default());
+        }
+    }
 
-    let triple = inkwell::targets::TargetTriple::create("arm64-apple-ios16.0");
-    let target =
+    let triple = inkwell::targets::TargetTriple::create(target.triple());
+    let llvm_target =
         Target::from_triple(&triple).map_err(|e| format!("LLVM target from triple: {}", e))?;
-    let machine = target
+    let machine = llvm_target
         .create_target_machine(
             &triple,
-            "apple-a12",
+            target.cpu(),
             "",
             OptimizationLevel::Aggressive,
             RelocMode::PIC,
             CodeModel::Default,
         )
-        .ok_or("failed to create AArch64 target machine")?;
+        .ok_or_else(|| format!("failed to create target machine for {:?}", target))?;
 
     let context = Context::create();
     let (mut state, _build_elapsed) = build_module(
@@ -171,7 +223,12 @@ pub fn compile_aot(
 
     // Header lives next to the object file, with the same stem.
     let header_path = output_path.with_extension("h");
-    let header = build_header(prefix, &entries, &collect_globals(decls, state.globals_size));
+    let header = build_header(
+        prefix,
+        &entries,
+        &collect_globals(decls, state.globals_size),
+        target,
+    );
     std::fs::write(&header_path, header)
         .map_err(|e| format!("write header {}: {}", header_path.display(), e))?;
 
@@ -567,12 +624,18 @@ fn set_internal_linkage(state: &mut LLVMJITState<'_>, public_names: &HashSet<Str
 
 // ─── Header generation ────────────────────────────────────────────────────────
 
-fn build_header(prefix: &str, entries: &[AotEntry], globals: &AotGlobalsLayout) -> String {
+fn build_header(
+    prefix: &str,
+    entries: &[AotEntry],
+    globals: &AotGlobalsLayout,
+    target: AotTarget,
+) -> String {
     let upper = prefix.to_uppercase();
     let mut s = String::new();
     use std::fmt::Write;
 
     let _ = writeln!(s, "// Generated by the lyte AOT backend. Do not edit.");
+    let _ = writeln!(s, "// Target: {} ({})", target.triple(), target.cpu());
     let _ = writeln!(s, "//");
     let _ = writeln!(
         s,

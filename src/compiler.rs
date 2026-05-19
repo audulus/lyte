@@ -768,17 +768,20 @@ impl Compiler {
         }
     }
 
-    /// Ahead-of-time compile to an `arm64-apple-ios` Mach-O object file and
-    /// write a companion C header. Output paths are derived from
-    /// `output_path` (e.g. `path/biquad.o` → `path/biquad.h`).
+    /// Ahead-of-time compile to a Mach-O object file for `target` and write
+    /// a companion C header. Output paths are derived from `output_path`
+    /// (e.g. `path/biquad.o` → `path/biquad.h`).
     ///
     /// `prefix` is applied to every externally-visible symbol so multiple
     /// AOT objects can be linked into the same binary without collisions.
+    /// For a fat universal object, run once per target and combine the
+    /// resulting thin objects with `lipo -create`.
     #[cfg(feature = "llvm")]
     pub fn compile_aot(
         &self,
         output_path: &std::path::Path,
         prefix: &str,
+        target: crate::llvm_aot::AotTarget,
     ) -> Result<(), String> {
         if self.decls.decls.is_empty() {
             return Err("No declarations to compile".into());
@@ -795,6 +798,7 @@ impl Compiler {
             &entry_points,
             output_path,
             prefix,
+            target,
             self.print_ir,
         )
     }

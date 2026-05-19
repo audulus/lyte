@@ -171,3 +171,35 @@ fn contains_substr(haystack: &[u8], needle: &[u8]) -> bool {
         .windows(needle.len())
         .any(|w| w == needle)
 }
+
+#[test]
+#[cfg(feature = "llvm")]
+fn aot_target_macos_x86_64_emits_x86_object() {
+    use std::io::Write;
+    let tmp = std::env::temp_dir().join("lyte_aot_x86");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("sx.lyte");
+    let mut f = std::fs::File::create(&src).unwrap();
+    writeln!(f, "go(x: f32) -> f32 {{ return x * x }}").unwrap();
+    drop(f);
+    let out_o = tmp.join("sx.o");
+    let status = std::process::Command::new(LYTE_BIN)
+        .arg(&src)
+        .arg("--no-recursion")
+        .arg("--entry")
+        .arg("go")
+        .arg("--target")
+        .arg("macos-x86_64")
+        .arg("--aot")
+        .arg(&out_o)
+        .status()
+        .expect("failed to invoke lyte");
+    assert!(status.success(), "--aot exited with {}", status);
+    // Mach-O 64-bit x86_64: same magic 0xfeedfacf, cputype 0x01000007.
+    let bytes = std::fs::read(&out_o).expect("read .o");
+    let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let cputype = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    assert_eq!(magic, 0xfeed_facf);
+    assert_eq!(cputype, 0x0100_0007, "expected x86_64 cputype (got {:#x})", cputype);
+}
