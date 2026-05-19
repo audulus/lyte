@@ -55,6 +55,16 @@ struct Args {
     /// Entry point function name(s), comma-separated. Defaults to "main".
     #[clap(long)]
     entry: Option<String>,
+
+    /// Ahead-of-time compile to an arm64-apple-ios Mach-O object file at the
+    /// given path. A companion `.h` is written next to it. Requires the
+    /// `llvm` feature and implies `--no-recursion`.
+    #[clap(long)]
+    aot: Option<String>,
+
+    /// Symbol prefix for AOT outputs. Defaults to the stem of the --aot path.
+    #[clap(long)]
+    aot_prefix: Option<String>,
 }
 
 fn run(args: Args) -> i32 {
@@ -167,6 +177,21 @@ fn run(args: Args) -> i32 {
     }
 
     compiler.print_ir = args.ir;
+
+    // Handle AOT compile (writes a .o + .h and exits).
+    #[cfg(feature = "llvm")]
+    {
+        if let Some(out) = args.aot.as_deref() {
+            return run_aot(&mut compiler, out, args.aot_prefix.as_deref());
+        }
+    }
+    #[cfg(not(feature = "llvm"))]
+    {
+        if args.aot.is_some() {
+            eprintln!("--aot requires the `llvm` cargo feature");
+            return 1;
+        }
+    }
 
     // Select backend via --backend flag, falling back to LYTE_BACKEND env var.
     let backend = if args.backend.is_empty() {
@@ -390,6 +415,67 @@ fn run(args: Args) -> i32 {
     }
 
     0
+}
+
+#[cfg(feature = "llvm")]
+fn run_aot(
+    compiler: &mut lyte::Compiler,
+    output: &str,
+    prefix_override: Option<&str>,
+) -> i32 {
+    if !compiler.no_recursion {
+        eprintln!("--aot requires --no-recursion");
+        return 1;
+    }
+    if !compiler.has_decls() {
+        eprintln!("--aot: no declarations to compile");
+        return 1;
+    }
+    if let Err(e) = compiler.specialize() {
+        eprintln!("{}", e);
+        return 1;
+    }
+    let path = std::path::PathBuf::from(output);
+    let prefix = match prefix_override {
+        Some(p) => p.to_string(),
+        None => path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(sanitize_aot_prefix)
+            .unwrap_or_else(|| "lyte".to_string()),
+    };
+    if prefix.is_empty() {
+        eprintln!("--aot: prefix is empty (use --aot-prefix to override)");
+        return 1;
+    }
+    match compiler.compile_aot(&path, &prefix) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{}", e);
+            1
+        }
+    }
+}
+
+#[cfg(feature = "llvm")]
+fn sanitize_aot_prefix(stem: &str) -> String {
+    let mut out: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // C identifiers can't start with a digit.
+    if let Some(first) = out.chars().next() {
+        if first.is_ascii_digit() {
+            out.insert(0, '_');
+        }
+    }
+    out
 }
 
 fn main() {

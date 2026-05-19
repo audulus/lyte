@@ -443,6 +443,28 @@ fn compile_with_context<'ctx>(
     print_ir: bool,
     no_recursion: bool,
 ) -> Result<(LLVMJITState<'ctx>, Duration), String> {
+    let (state, build_elapsed) =
+        build_module(context, decls, entry_points, print_ir, no_recursion, None)?;
+    let opt_start = Instant::now();
+    let machine = make_host_target_machine(CodeModel::JITDefault)?;
+    run_default_passes(&state.module, &machine)?;
+    if print_ir {
+        print_module_ir(&state.module, "Optimized LLVM IR:");
+    }
+    Ok((state, build_elapsed + opt_start.elapsed()))
+}
+
+/// Build (and verify) the LLVM module without running any optimization passes.
+/// Used by both the JIT path (which then runs passes for the host) and the
+/// AOT path (which post-processes the module before optimizing for iOS).
+pub(crate) fn build_module<'ctx>(
+    context: &'ctx Context,
+    decls: &DeclTable,
+    entry_points: &[Name],
+    print_ir: bool,
+    no_recursion: bool,
+    aot: Option<AotConfig>,
+) -> Result<(LLVMJITState<'ctx>, Duration), String> {
     let mut state = LLVMJITState {
         context,
         module: context.create_module("lyte"),
@@ -454,6 +476,7 @@ fn compile_with_context<'ctx>(
         print_ir,
         no_recursion,
         extern_fns: Vec::new(),
+        aot,
     };
 
     let compile_start = Instant::now();
@@ -474,13 +497,7 @@ fn compile_with_context<'ctx>(
     }
 
     if print_ir {
-        let ir = state.module.print_to_string().to_string();
-        println!("LLVM IR:");
-        for line in ir.lines() {
-            if !line.is_empty() {
-                println!("{}", line);
-            }
-        }
+        print_module_ir(&state.module, "LLVM IR:");
     }
 
     state
@@ -488,40 +505,45 @@ fn compile_with_context<'ctx>(
         .verify()
         .map_err(|e| format!("LLVM module verification failed: {}", e))?;
 
-    // Run LLVM optimization passes (mem2reg, GVN, LICM, vectorization, etc.).
+    Ok((state, compile_start.elapsed()))
+}
+
+fn print_module_ir(module: &Module<'_>, header: &str) {
+    let ir = module.print_to_string().to_string();
+    println!("{}", header);
+    for line in ir.lines() {
+        if !line.is_empty() {
+            println!("{}", line);
+        }
+    }
+}
+
+fn make_host_target_machine(code_model: CodeModel) -> Result<TargetMachine, String> {
     let triple = TargetMachine::get_default_triple();
     let cpu = TargetMachine::get_host_cpu_name();
     let features = TargetMachine::get_host_cpu_features();
     let target =
         Target::from_triple(&triple).map_err(|e| format!("LLVM target from triple: {}", e))?;
-    let machine = target
+    target
         .create_target_machine(
             &triple,
             cpu.to_str().unwrap_or("generic"),
             features.to_str().unwrap_or(""),
             OptimizationLevel::Aggressive,
             RelocMode::Default,
-            CodeModel::JITDefault,
+            code_model,
         )
-        .ok_or("failed to create target machine")?;
+        .ok_or_else(|| "failed to create target machine".to_string())
+}
+
+pub(crate) fn run_default_passes(
+    module: &Module<'_>,
+    machine: &TargetMachine,
+) -> Result<(), String> {
     let pass_options = PassBuilderOptions::create();
-    state
-        .module
-        .run_passes("default<O3>", &machine, pass_options)
-        .map_err(|e| format!("LLVM pass pipeline failed: {}", e))?;
-
-    if print_ir {
-        let ir = state.module.print_to_string().to_string();
-        println!("Optimized LLVM IR:");
-        for line in ir.lines() {
-            if !line.is_empty() {
-                println!("{}", line);
-            }
-        }
-    }
-
-    let compile_elapsed = compile_start.elapsed();
-    Ok((state, compile_elapsed))
+    module
+        .run_passes("default<O3>", machine, pass_options)
+        .map_err(|e| format!("LLVM pass pipeline failed: {}", e))
 }
 
 /// Compile and run result: Ok(trap_reason, ...) or Err(msg).
@@ -702,21 +724,32 @@ impl LLVMJIT {
 
 // ─── Internal compilation state ────────────────────────────────────────────────
 
-struct LLVMJITState<'ctx> {
-    context: &'ctx Context,
-    module: Module<'ctx>,
-    builder: Builder<'ctx>,
-    globals: HashMap<Name, i32>,
-    globals_size: usize,
-    defined_functions: HashSet<Name>,
-    lambda_counter: usize,
-    print_ir: bool,
+/// AOT codegen configuration. When set on LLVMJITState, the compiler emits
+/// libm-friendly symbol names and prefixed weak hooks for IO builtins instead
+/// of the Rust-side `__llvm_lyte_*` shims used by the JIT.
+pub(crate) struct AotConfig {
+    /// Prefix applied to public exports (entry-point wrappers and weak hooks).
+    pub prefix: String,
+}
+
+pub(crate) struct LLVMJITState<'ctx> {
+    pub(crate) context: &'ctx Context,
+    pub(crate) module: Module<'ctx>,
+    pub(crate) builder: Builder<'ctx>,
+    pub(crate) globals: HashMap<Name, i32>,
+    pub(crate) globals_size: usize,
+    pub(crate) defined_functions: HashSet<Name>,
+    pub(crate) lambda_counter: usize,
+    pub(crate) print_ir: bool,
     /// When true, skip emission of call-depth prologue/epilogue.
-    no_recursion: bool,
+    pub(crate) no_recursion: bool,
     /// External function names and addresses, to be mapped after EE creation.
     /// We store names (not FunctionValues) because LLVM optimization passes may
     /// delete unused declarations, invalidating FunctionValue pointers.
-    extern_fns: Vec<(String, usize)>,
+    pub(crate) extern_fns: Vec<(String, usize)>,
+    /// When `Some`, compile in AOT mode: emit libm-friendly externs and prefixed
+    /// weak IO hooks instead of Rust-side shims; skip cancel-check.
+    pub(crate) aot: Option<AotConfig>,
 }
 
 impl<'ctx> LLVMJITState<'ctx> {
@@ -757,6 +790,143 @@ impl<'ctx> LLVMJITState<'ctx> {
             }
         }
         self.globals_size = offset as usize;
+    }
+
+    /// Returns the AOT prefix if this state is compiling in AOT mode.
+    pub(crate) fn aot_prefix(&self) -> Option<&str> {
+        self.aot.as_ref().map(|c| c.prefix.as_str())
+    }
+
+    /// Emit (lazily) an internal-linkage slice-equality helper for AOT mode.
+    /// Signature matches the Rust shim used by JIT:
+    ///   i64 slice_eq(ptr a, ptr b, i64 elem_size)
+    /// Returns 1 if the slices are equal, 0 otherwise.
+    fn get_or_emit_aot_slice_eq(
+        &mut self,
+        fn_ty: FunctionType<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        const SYM: &str = "__lyte_aot_slice_eq";
+        if let Some(f) = self.module.get_function(SYM) {
+            return f;
+        }
+        let function = self
+            .module
+            .add_function(SYM, fn_ty, Some(Linkage::Internal));
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context.append_basic_block(function, "entry");
+        let len_mismatch = self.context.append_basic_block(function, "len_mismatch");
+        let cmp_block = self.context.append_basic_block(function, "do_cmp");
+
+        self.builder.position_at_end(entry);
+        let a_ptr = function.get_nth_param(0).unwrap().into_pointer_value();
+        let b_ptr = function.get_nth_param(1).unwrap().into_pointer_value();
+        let elem_size = function.get_nth_param(2).unwrap().into_int_value();
+
+        // Slice fat pointer layout: data_ptr (8 bytes) + len (4 bytes).
+        let a_data = self
+            .builder
+            .build_load(self.ptr_ty(), a_ptr, "a_data")
+            .unwrap()
+            .into_pointer_value();
+        let b_data = self
+            .builder
+            .build_load(self.ptr_ty(), b_ptr, "b_data")
+            .unwrap()
+            .into_pointer_value();
+        let a_len_ptr = unsafe {
+            self.builder
+                .build_in_bounds_gep(
+                    self.i8_ty(),
+                    a_ptr,
+                    &[self.i64_ty().const_int(8, false).into()],
+                    "a_len_ptr",
+                )
+                .unwrap()
+        };
+        let b_len_ptr = unsafe {
+            self.builder
+                .build_in_bounds_gep(
+                    self.i8_ty(),
+                    b_ptr,
+                    &[self.i64_ty().const_int(8, false).into()],
+                    "b_len_ptr",
+                )
+                .unwrap()
+        };
+        let a_len = self
+            .builder
+            .build_load(self.i32_ty(), a_len_ptr, "a_len")
+            .unwrap()
+            .into_int_value();
+        let b_len = self
+            .builder
+            .build_load(self.i32_ty(), b_len_ptr, "b_len")
+            .unwrap()
+            .into_int_value();
+        let len_eq = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, a_len, b_len, "len_eq")
+            .unwrap();
+        self.builder
+            .build_conditional_branch(len_eq, cmp_block, len_mismatch)
+            .unwrap();
+
+        self.builder.position_at_end(len_mismatch);
+        self.builder
+            .build_return(Some(&self.i64_ty().const_int(0, false)))
+            .unwrap();
+
+        self.builder.position_at_end(cmp_block);
+        // total = (i64)a_len * elem_size
+        let a_len64 = self
+            .builder
+            .build_int_z_extend(a_len, self.i64_ty(), "a_len64")
+            .unwrap();
+        let total = self
+            .builder
+            .build_int_mul(a_len64, elem_size, "total_bytes")
+            .unwrap();
+        // Declare memcmp: i32 memcmp(ptr, ptr, i64).
+        let memcmp_ty = self.i32_ty().fn_type(
+            &[
+                self.ptr_ty().into(),
+                self.ptr_ty().into(),
+                self.i64_ty().into(),
+            ],
+            false,
+        );
+        let memcmp_fn = if let Some(f) = self.module.get_function("memcmp") {
+            f
+        } else {
+            self.module
+                .add_function("memcmp", memcmp_ty, Some(Linkage::External))
+        };
+        let cmp = self
+            .builder
+            .build_call(
+                memcmp_fn,
+                &[a_data.into(), b_data.into(), total.into()],
+                "memcmp_result",
+            )
+            .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
+            .into_int_value();
+        let zero32 = self.i32_ty().const_int(0, false);
+        let is_eq = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, cmp, zero32, "is_eq")
+            .unwrap();
+        let result = self
+            .builder
+            .build_int_z_extend(is_eq, self.i64_ty(), "result")
+            .unwrap();
+        self.builder.build_return(Some(&result)).unwrap();
+
+        if let Some(b) = saved_block {
+            self.builder.position_at_end(b);
+        }
+        function
     }
 
     fn get_or_declare_extern(
@@ -1190,6 +1360,13 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     fn emit_cancel_check(&mut self) {
+        // AOT mode omits cancel-check entirely: cancellation is a JIT-only
+        // feature that depends on a Rust-side callback registered into the
+        // globals buffer. AOT consumers can long-jump out of a trap hook
+        // if they need similar behavior.
+        if self.state.aot.is_some() {
+            return;
+        }
         let check_bb = self.append_bb("cancel_check");
         let cont_bb = self.append_bb("cont");
 
@@ -1454,11 +1631,17 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             ],
             false,
         );
-        let slice_eq_fn = self.state.get_or_declare_extern(
-            "__llvm_lyte_slice_eq",
-            fn_ty,
-            lyte_slice_eq as *const () as usize,
-        );
+        let slice_eq_fn = if self.state.aot.is_some() {
+            // AOT: emit a private helper that calls memcmp. The Rust shim
+            // isn't available at link time.
+            self.state.get_or_emit_aot_slice_eq(fn_ty)
+        } else {
+            self.state.get_or_declare_extern(
+                "__llvm_lyte_slice_eq",
+                fn_ty,
+                lyte_slice_eq as *const () as usize,
+            )
+        };
         let elem_size_val = self.i64_ty().const_int(elem_size, false);
         let result = self
             .builder()
@@ -3232,7 +3415,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         from: crate::TypeID,
     ) -> Option<(String, FunctionType<'ctx>, usize)> {
         let addr = math_builtin_ptr(name)?;
-        let sym = format!("__llvm_lyte_{}", self.math_sym_suffix(name));
+        let sym = self.math_extern_sym(name);
         // Build the LLVM fn type for this math builtin.
         let fn_ty = self.build_raw_fn_type(from, /* to: same param type */ {
             // Determine return type from the function name.
@@ -3312,6 +3495,100 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         panic!("unknown math builtin: {}", name)
     }
 
+    /// Map a Lyte math builtin to the libm symbol name used by the AOT object.
+    /// Returns None for the few names whose AOT lowering is generated inline
+    /// (isnan/isinf — we don't reach the math_extern_sym path for those when
+    /// emit_llvm_intrinsic_lowering handles them, but they're rare and libm on
+    /// Darwin/iOS exports `__isnanf`, `__isnand`, `__isinff`, `__isinfd`).
+    fn libm_sym(&self, name: &Name) -> &'static str {
+        let pairs: &[(&str, &str)] = &[
+            ("sin$f32", "sinf"),
+            ("cos$f32", "cosf"),
+            ("tan$f32", "tanf"),
+            ("asin$f32", "asinf"),
+            ("acos$f32", "acosf"),
+            ("atan$f32", "atanf"),
+            ("sinh$f32", "sinhf"),
+            ("cosh$f32", "coshf"),
+            ("tanh$f32", "tanhf"),
+            ("asinh$f32", "asinhf"),
+            ("acosh$f32", "acoshf"),
+            ("atanh$f32", "atanhf"),
+            ("ln$f32", "logf"),
+            ("exp$f32", "expf"),
+            ("exp2$f32", "exp2f"),
+            ("log10$f32", "log10f"),
+            ("log2$f32", "log2f"),
+            ("sqrt$f32", "sqrtf"),
+            ("abs$f32", "fabsf"),
+            ("floor$f32", "floorf"),
+            ("ceil$f32", "ceilf"),
+            ("sin$f64", "sin"),
+            ("cos$f64", "cos"),
+            ("tan$f64", "tan"),
+            ("asin$f64", "asin"),
+            ("acos$f64", "acos"),
+            ("atan$f64", "atan"),
+            ("sinh$f64", "sinh"),
+            ("cosh$f64", "cosh"),
+            ("tanh$f64", "tanh"),
+            ("asinh$f64", "asinh"),
+            ("acosh$f64", "acosh"),
+            ("atanh$f64", "atanh"),
+            ("ln$f64", "log"),
+            ("exp$f64", "exp"),
+            ("exp2$f64", "exp2"),
+            ("log10$f64", "log10"),
+            ("log2$f64", "log2"),
+            ("sqrt$f64", "sqrt"),
+            ("abs$f64", "fabs"),
+            ("floor$f64", "floor"),
+            ("ceil$f64", "ceil"),
+            // Darwin/iOS libm exports these underscore-prefixed names as the
+            // implementations behind the <math.h> isnan/isinf macros.
+            ("isinf$f32", "__isinff"),
+            ("isinf$f64", "__isinfd"),
+            ("isnan$f32", "__isnanf"),
+            ("isnan$f64", "__isnand"),
+            ("pow$f32$f32", "powf"),
+            ("atan2$f32$f32", "atan2f"),
+            ("min$f32$f32", "fminf"),
+            ("max$f32$f32", "fmaxf"),
+            ("pow$f64$f64", "pow"),
+            ("atan2$f64$f64", "atan2"),
+            ("min$f64$f64", "fmin"),
+            ("max$f64$f64", "fmax"),
+        ];
+        for &(n, s) in pairs {
+            if **name == *n {
+                return s;
+            }
+        }
+        panic!("unknown math builtin: {}", name)
+    }
+
+    /// Symbol name to use when declaring an extern for a math builtin.
+    /// JIT mode uses `__llvm_lyte_*` Rust shims; AOT mode uses libm symbols
+    /// resolved by the host linker.
+    fn math_extern_sym(&self, name: &Name) -> String {
+        if self.state.aot.is_some() {
+            self.libm_sym(name).to_string()
+        } else {
+            format!("__llvm_lyte_{}", self.math_sym_suffix(name))
+        }
+    }
+
+    /// Symbol name + JIT address for a print/putc/assert IO builtin.
+    /// JIT mode returns `("__llvm_lyte_X", addr)`; AOT mode returns
+    /// `("<prefix>_X", 0)` — the address is unused because AOT doesn't run
+    /// an execution engine.
+    fn io_builtin_sym(&self, suffix: &str, jit_addr: usize) -> (String, usize) {
+        match self.state.aot_prefix() {
+            Some(prefix) => (format!("{}_{}", prefix, suffix), 0),
+            None => (format!("__llvm_lyte_{}", suffix), jit_addr),
+        }
+    }
+
     /// Build a raw fn type (no globals/closure prefix).
     fn build_raw_fn_type(&self, from: crate::TypeID, to: crate::TypeID) -> FunctionType<'ctx> {
         let mut params: Vec<BasicMetadataTypeEnum<'ctx>> = vec![];
@@ -3340,11 +3617,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 .ctx()
                 .void_type()
                 .fn_type(&[self.ptr_ty().into(), self.i8_ty().into()], false);
-            let f = self.state.get_or_declare_extern(
-                "__llvm_lyte_assert",
-                fn_ty,
-                llvm_lyte_assert as *const () as usize,
-            );
+            let (sym, addr) = self.io_builtin_sym("assert", llvm_lyte_assert as *const () as usize);
+            let f = self.state.get_or_declare_extern(&sym, fn_ty, addr);
             let ptr = f.as_global_value().as_pointer_value();
             return self.make_fat_ptr(ptr, None);
         }
@@ -3353,11 +3627,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 .ctx()
                 .void_type()
                 .fn_type(&[self.i32_ty().into()], false);
-            let f = self.state.get_or_declare_extern(
-                "__llvm_lyte_print",
-                fn_ty,
-                llvm_lyte_print_i32 as *const () as usize,
-            );
+            let (sym, addr) =
+                self.io_builtin_sym("print_i32", llvm_lyte_print_i32 as *const () as usize);
+            let f = self.state.get_or_declare_extern(&sym, fn_ty, addr);
             let ptr = f.as_global_value().as_pointer_value();
             return self.make_fat_ptr(ptr, None);
         }
@@ -3366,16 +3638,13 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 .ctx()
                 .void_type()
                 .fn_type(&[self.i32_ty().into()], false);
-            let f = self.state.get_or_declare_extern(
-                "__llvm_lyte_putc",
-                fn_ty,
-                llvm_lyte_putc as *const () as usize,
-            );
+            let (sym, addr) = self.io_builtin_sym("putc", llvm_lyte_putc as *const () as usize);
+            let f = self.state.get_or_declare_extern(&sym, fn_ty, addr);
             let ptr = f.as_global_value().as_pointer_value();
             return self.make_fat_ptr(ptr, None);
         }
         if let Some(addr) = math_builtin_ptr(name) {
-            let sym = format!("__llvm_lyte_{}", self.math_sym_suffix(name));
+            let sym = self.math_extern_sym(name);
             let fn_ty = self.ctx().void_type().fn_type(&[], false);
             let f = self.state.get_or_declare_extern(&sym, fn_ty, addr);
             let ptr = f.as_global_value().as_pointer_value();

@@ -49,6 +49,9 @@ mod llvm_jit;
 #[cfg(feature = "llvm")]
 pub use llvm_jit::*;
 
+#[cfg(feature = "llvm")]
+pub mod llvm_aot;
+
 pub mod mangle;
 
 mod hoist;

@@ -768,6 +768,37 @@ impl Compiler {
         }
     }
 
+    /// Ahead-of-time compile to an `arm64-apple-ios` Mach-O object file and
+    /// write a companion C header. Output paths are derived from
+    /// `output_path` (e.g. `path/biquad.o` → `path/biquad.h`).
+    ///
+    /// `prefix` is applied to every externally-visible symbol so multiple
+    /// AOT objects can be linked into the same binary without collisions.
+    #[cfg(feature = "llvm")]
+    pub fn compile_aot(
+        &self,
+        output_path: &std::path::Path,
+        prefix: &str,
+    ) -> Result<(), String> {
+        if self.decls.decls.is_empty() {
+            return Err("No declarations to compile".into());
+        }
+        if !self.no_recursion {
+            return Err(
+                "--aot requires --no-recursion (call-depth machinery is unavailable at link time)"
+                    .into(),
+            );
+        }
+        let entry_points = self.effective_entry_points();
+        crate::llvm_aot::compile_aot(
+            &self.decls,
+            &entry_points,
+            output_path,
+            prefix,
+            self.print_ir,
+        )
+    }
+
     /// Compile with LLVM and print IR, but do not execute.
     #[cfg(feature = "llvm")]
     pub fn print_llvm_ir(&mut self) {
