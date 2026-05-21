@@ -635,6 +635,34 @@ One of Lyte's safety features is that it checks array access *before* your code 
 
 For example, accessing `array[1]` on a `[i32; 1]` array (which only has index `0`) is caught before your program ever runs. No mysterious crashes at runtime.
 
+### Function preconditions with `require`
+
+When a helper function indexes into a slice, Lyte may need an explicit promise about the index. Audulus beta 983 and newer Lyte builds support `require` clauses for this.
+
+Write `require` after the parameter list and before the body, matching the Audulus release-note form:
+
+```lyte
+set(arr: [i32], idx: i32, value: i32) require idx >= 0 require idx < arr.len {
+    arr[idx] = value
+}
+```
+
+This means "`set` may only be called when `idx` is inside `arr`." The safety checker uses those clauses inside the function, so `arr[idx]` is accepted. It also checks every call to `set`; if the caller cannot prove the clauses, Lyte reports an error such as:
+
+```
+❌ couldn't prove require clause `idx < arr.len` for call to `set`
+```
+
+You can write multiple `require` clauses, or combine them with `&&`:
+
+```lyte
+set(arr: [i32], idx: i32, value: i32) require idx >= 0 && idx < arr.len {
+    arr[idx] = value
+}
+```
+
+For Audulus DSP code, this is useful for small setter-style buffer helpers. If the checker complains at the call site, put the call inside a guard like `if idx >= 0 && idx < buffer.len { ... }`, or use a loop range that proves the index is in bounds. Do not document a return-valued helper form until that exact syntax is confirmed in the target Audulus build.
+
 ### Arrays are copied by value
 
 When you assign an array to a new variable, you get an independent copy. Changing one doesn't affect the other:
@@ -763,6 +791,14 @@ main {
 The key difference:
 - `[i32; 5]` — a fixed array of exactly 5 integers. The size is known at *compile time* — meaning Lyte knows it before your program ever runs.
 - `[i32]` — a slice, a view into any array of integers. The size is only known at *runtime* — meaning when your program is actually running and the data exists.
+
+When a function takes a slice and writes through an index, add `require` clauses if the helper expects the caller to provide a valid index:
+
+```lyte
+write_sample(buffer: [f32], idx: i32, value: f32) require idx >= 0 require idx < buffer.len {
+    buffer[idx] = value
+}
+```
 
 ### Default slices have length zero
 
