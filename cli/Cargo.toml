@@ -19,7 +19,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 lyte = { path = "../" }
 
 [build-dependencies]
-cc = "1"
+cc = "1.2.62"
 
 [dev-dependencies]
 goldentests = "1.4.1"

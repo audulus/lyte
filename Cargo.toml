@@ -34,4 +34,4 @@ libffi = "4"
 inkwell = { version = "0.8", features = ["llvm18-1"], optional = true }
 
 [build-dependencies]
-cc = "1"
+cc = "1.2.62"
