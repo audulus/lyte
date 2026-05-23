@@ -574,10 +574,10 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::CallExtern {
             globals_offset,
             args,
-            returns_value,
+            ret,
         } => [
             *globals_offset as i64 as u64,
-            (*args as u64) | ((*returns_value as u64) << 8),
+            (*args as u64) | ((ret.encode() as u64) << 8),
             0,
         ],
         StackOp::CallIndirect { args } => [*args as u64, func_idx as u64, 0],

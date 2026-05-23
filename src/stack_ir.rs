@@ -14,6 +14,30 @@ use std::fmt;
 
 use crate::defs::Name;
 
+/// C ABI return type for a stack extern call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackExternRet {
+    Void,
+    Bool,
+    I32,
+    F32,
+    F64,
+    Ptr,
+}
+
+impl StackExternRet {
+    pub fn encode(self) -> u8 {
+        match self {
+            StackExternRet::Void => 0,
+            StackExternRet::Bool => 1,
+            StackExternRet::I32 => 2,
+            StackExternRet::F32 => 3,
+            StackExternRet::F64 => 4,
+            StackExternRet::Ptr => 5,
+        }
+    }
+}
+
 /// Stack IR instruction.
 ///
 /// All values on the operand stack are 64-bit (i64/f64/pointer).
@@ -157,7 +181,7 @@ pub enum StackOp {
     CallExtern {
         globals_offset: i32,
         args: u8,
-        returns_value: bool,
+        ret: StackExternRet,
     },
     /// Pop func_idx, pop N args, call, push result.
     CallIndirect {
@@ -622,11 +646,11 @@ impl fmt::Display for StackOp {
             StackOp::CallExtern {
                 globals_offset,
                 args,
-                returns_value,
+                ret,
             } => write!(
                 f,
-                "call_extern globals_offset={} args={} returns_value={}",
-                globals_offset, args, returns_value
+                "call_extern globals_offset={} args={} ret={:?}",
+                globals_offset, args, ret
             ),
             StackOp::CallIndirect { args } => write!(f, "call_indirect args={}", args),
             StackOp::CallClosure { args } => write!(f, "call_closure args={}", args),

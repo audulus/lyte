@@ -434,7 +434,8 @@ struct FunctionTranslator<'a> {
 fn type_to_extern_types(ty: TypeID) -> Vec<crate::vm::ExternType> {
     match &*ty {
         Type::Void => vec![crate::vm::ExternType::Void],
-        Type::Int32 | Type::Bool => vec![crate::vm::ExternType::I32],
+        Type::Bool => vec![crate::vm::ExternType::Bool],
+        Type::Int32 => vec![crate::vm::ExternType::I32],
         Type::Float32 => vec![crate::vm::ExternType::F32],
         Type::Float64 => vec![crate::vm::ExternType::F64],
         Type::Slice(_) => vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32],

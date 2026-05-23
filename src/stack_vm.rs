@@ -1,6 +1,6 @@
 //! Stack-based virtual machine interpreter for StackProgram bytecode.
 
-use crate::stack_ir::{StackOp, StackProgram};
+use crate::stack_ir::{StackExternRet, StackOp, StackProgram};
 use crate::vm::{print_output, println_output};
 
 struct CallFrame {
@@ -622,7 +622,7 @@ impl StackVM {
                 StackOp::CallExtern {
                     globals_offset,
                     args,
-                    returns_value,
+                    ret,
                 } => {
                     let n = args as usize;
                     let stack_len = self.operand_stack.len();
@@ -645,26 +645,26 @@ impl StackVM {
                         );
                     }
 
-                    let result = if returns_value {
-                        unsafe {
+                    macro_rules! call_ret {
+                        ($ret:ty) => {
                             match n {
                                 0 => {
-                                    let f: unsafe extern "C" fn(*mut u8) -> u64 =
+                                    let f: unsafe extern "C" fn(*mut u8) -> $ret =
                                         std::mem::transmute(fn_ptr);
                                     f(context)
                                 }
                                 1 => {
-                                    let f: unsafe extern "C" fn(*mut u8, u64) -> u64 =
+                                    let f: unsafe extern "C" fn(*mut u8, u64) -> $ret =
                                         std::mem::transmute(fn_ptr);
                                     f(context, arg_values[0])
                                 }
                                 2 => {
-                                    let f: unsafe extern "C" fn(*mut u8, u64, u64) -> u64 =
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64) -> $ret =
                                         std::mem::transmute(fn_ptr);
                                     f(context, arg_values[0], arg_values[1])
                                 }
                                 3 => {
-                                    let f: unsafe extern "C" fn(*mut u8, u64, u64, u64) -> u64 =
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64, u64) -> $ret =
                                         std::mem::transmute(fn_ptr);
                                     f(context, arg_values[0], arg_values[1], arg_values[2])
                                 }
@@ -675,7 +675,7 @@ impl StackVM {
                                         u64,
                                         u64,
                                         u64,
-                                    ) -> u64 = std::mem::transmute(fn_ptr);
+                                    ) -> $ret = std::mem::transmute(fn_ptr);
                                     f(
                                         context,
                                         arg_values[0],
@@ -686,9 +686,11 @@ impl StackVM {
                                 }
                                 _ => panic!("extern function has too many parameters"),
                             }
-                        }
-                    } else {
-                        unsafe {
+                        };
+                    }
+
+                    macro_rules! call_void {
+                        () => {
                             match n {
                                 0 => {
                                     let f: unsafe extern "C" fn(*mut u8) =
@@ -723,8 +725,21 @@ impl StackVM {
                                 }
                                 _ => panic!("extern function has too many parameters"),
                             }
+                        };
+                    }
+
+                    let result = unsafe {
+                        match ret {
+                            StackExternRet::Void => {
+                                call_void!();
+                                0
+                            }
+                            StackExternRet::Bool => call_ret!(bool) as u64,
+                            StackExternRet::I32 => call_ret!(i32) as i64 as u64,
+                            StackExternRet::F32 => call_ret!(f32).to_bits() as u64,
+                            StackExternRet::F64 => call_ret!(f64).to_bits(),
+                            StackExternRet::Ptr => call_ret!(*mut u8) as u64,
                         }
-                        0
                     };
                     self.push(result);
                 }

@@ -278,6 +278,21 @@ fn returns_via_pointer(ty: TypeID) -> bool {
     )
 }
 
+fn stack_extern_ret_type(ty: TypeID) -> StackExternRet {
+    match &*ty {
+        Type::Void => StackExternRet::Void,
+        Type::Bool => StackExternRet::Bool,
+        Type::Int32 => StackExternRet::I32,
+        Type::Float32 => StackExternRet::F32,
+        Type::Float64 => StackExternRet::F64,
+        Type::Reference(_) => StackExternRet::Ptr,
+        _ => panic!(
+            "unsupported stack extern return type: {}",
+            ty.pretty_print()
+        ),
+    }
+}
+
 /// Translator for a single function body.
 struct FunctionTranslator<'a> {
     /// The function declaration being translated.
@@ -1972,7 +1987,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::CallExtern {
                             globals_offset,
                             args: c_arg_count,
-                            returns_value: !matches!(&*ret_ty, Type::Void),
+                            ret: stack_extern_ret_type(ret_ty),
                         });
                         // Bridge the return value back to the window the
                         // surrounding codegen expects. The extern handler

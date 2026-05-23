@@ -54,6 +54,13 @@ static inline uint64_t from_f32(float f)  { uint32_t b; memcpy(&b, &f, 4); retur
 static inline double   as_f64(uint64_t v) { double d; memcpy(&d, &v, 8); return d; }
 static inline uint64_t from_f64(double d) { uint64_t v; memcpy(&v, &d, 8); return v; }
 
+#define STACK_EXTERN_RET_VOID 0u
+#define STACK_EXTERN_RET_BOOL 1u
+#define STACK_EXTERN_RET_I32  2u
+#define STACK_EXTERN_RET_F32  3u
+#define STACK_EXTERN_RET_F64  4u
+#define STACK_EXTERN_RET_PTR  5u
+
 static inline int32_t load_i32_unaligned(const void* p) {
     int32_t v;
     memcpy(&v, p, sizeof(v));
@@ -759,10 +766,121 @@ HANDLER(op_call) {
     DISPATCH();
 }
 
+#define CALL_EXTERN_RET_TYPED(RET_T, CONVERT) \
+    do { \
+        switch (nargs) { \
+            case 0: { \
+                typedef RET_T (*ExternFn)(void*); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 1: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 2: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 3: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 4: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 5: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 6: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 7: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6]); \
+                result = (CONVERT); \
+                break; \
+            } \
+            case 8: { \
+                typedef RET_T (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                RET_T ret = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]); \
+                result = (CONVERT); \
+                break; \
+            } \
+        } \
+    } while (0)
+
+#define CALL_EXTERN_VOID_TYPED() \
+    do { \
+        switch (nargs) { \
+            case 0: { \
+                typedef void (*ExternFn)(void*); \
+                ((ExternFn)fn_ptr)(extern_ctx); \
+                break; \
+            } \
+            case 1: { \
+                typedef void (*ExternFn)(void*, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0]); \
+                break; \
+            } \
+            case 2: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1]); \
+                break; \
+            } \
+            case 3: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2]); \
+                break; \
+            } \
+            case 4: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3]); \
+                break; \
+            } \
+            case 5: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4]); \
+                break; \
+            } \
+            case 6: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5]); \
+                break; \
+            } \
+            case 7: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6]); \
+                break; \
+            } \
+            case 8: { \
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t); \
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]); \
+                break; \
+            } \
+        } \
+    } while (0)
+
 HANDLER(op_call_extern) {
     uint32_t globals_offset = (uint32_t)pc->imm[0];
     uint32_t nargs = (uint32_t)(pc->imm[1] & 0xFF);
-    bool returns_value = ((pc->imm[1] >> 8) & 0x1) != 0;
+    uint32_t ret_kind = (uint32_t)((pc->imm[1] >> 8) & 0xFF);
 
     if (nargs > 8) {
         ctx->error = "extern function has too many parameters";
@@ -789,107 +907,37 @@ HANDLER(op_call_extern) {
     }
 
     uint64_t result = 0;
-    if (returns_value) {
-        switch (nargs) {
-            case 0: {
-                typedef uint64_t (*ExternFn)(void*);
-                result = ((ExternFn)fn_ptr)(extern_ctx);
-                break;
-            }
-            case 1: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0]);
-                break;
-            }
-            case 2: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1]);
-                break;
-            }
-            case 3: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2]);
-                break;
-            }
-            case 4: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3]);
-                break;
-            }
-            case 5: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4]);
-                break;
-            }
-            case 6: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5]);
-                break;
-            }
-            case 7: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
-                break;
-            }
-            case 8: {
-                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
-                break;
-            }
-        }
-    } else {
-        switch (nargs) {
-            case 0: {
-                typedef void (*ExternFn)(void*);
-                ((ExternFn)fn_ptr)(extern_ctx);
-                break;
-            }
-            case 1: {
-                typedef void (*ExternFn)(void*, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0]);
-                break;
-            }
-            case 2: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1]);
-                break;
-            }
-            case 3: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2]);
-                break;
-            }
-            case 4: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3]);
-                break;
-            }
-            case 5: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4]);
-                break;
-            }
-            case 6: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5]);
-                break;
-            }
-            case 7: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
-                break;
-            }
-            case 8: {
-                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
-                break;
-            }
-        }
+    switch (ret_kind) {
+        case STACK_EXTERN_RET_VOID:
+            CALL_EXTERN_VOID_TYPED();
+            break;
+        case STACK_EXTERN_RET_BOOL:
+            CALL_EXTERN_RET_TYPED(bool, ret ? 1u : 0u);
+            break;
+        case STACK_EXTERN_RET_I32:
+            CALL_EXTERN_RET_TYPED(int32_t, (uint64_t)(int64_t)ret);
+            break;
+        case STACK_EXTERN_RET_F32:
+            CALL_EXTERN_RET_TYPED(float, from_f32(ret));
+            break;
+        case STACK_EXTERN_RET_F64:
+            CALL_EXTERN_RET_TYPED(double, from_f64(ret));
+            break;
+        case STACK_EXTERN_RET_PTR:
+            CALL_EXTERN_RET_TYPED(void*, (uint64_t)(uintptr_t)ret);
+            break;
+        default:
+            ctx->error = "unsupported extern return type";
+            ctx->done = 1;
+            return;
     }
 
     PUSH(result);
     NEXT();
 }
+
+#undef CALL_EXTERN_RET_TYPED
+#undef CALL_EXTERN_VOID_TYPED
 
 // Shared body for op_call_closure and op_call_indirect: consume t0 (the
 // fat_ptr or func_idx), then consume nargs args. The call site differs

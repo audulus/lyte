@@ -2390,6 +2390,7 @@ mod tests {
             vm_program.extern_funcs[0].param_types,
             vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32,]
         );
+        assert_eq!(vm_program.extern_funcs[0].ret_type, crate::vm::ExternType::Bool);
 
         let linked = crate::vm::LinkedProgram::from_program(&vm_program);
         let mut vm = crate::vm::VM::new();
