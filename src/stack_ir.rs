@@ -153,6 +153,12 @@ pub enum StackOp {
         args: u8,
         preserve: u8,
     },
+    /// Pop N C-level args (first arg deepest), call extern function from globals, push result.
+    CallExtern {
+        globals_offset: i32,
+        args: u8,
+        returns_value: bool,
+    },
     /// Pop func_idx, pop N args, call, push result.
     CallIndirect {
         args: u8,
@@ -613,6 +619,15 @@ impl fmt::Display for StackOp {
             } => {
                 write!(f, "call func={} args={} preserve={}", func, args, preserve)
             }
+            StackOp::CallExtern {
+                globals_offset,
+                args,
+                returns_value,
+            } => write!(
+                f,
+                "call_extern globals_offset={} args={} returns_value={}",
+                globals_offset, args, returns_value
+            ),
             StackOp::CallIndirect { args } => write!(f, "call_indirect args={}", args),
             StackOp::CallClosure { args } => write!(f, "call_closure args={}", args),
             StackOp::Return => write!(f, "return"),

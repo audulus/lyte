@@ -759,6 +759,138 @@ HANDLER(op_call) {
     DISPATCH();
 }
 
+HANDLER(op_call_extern) {
+    uint32_t globals_offset = (uint32_t)pc->imm[0];
+    uint32_t nargs = (uint32_t)(pc->imm[1] & 0xFF);
+    bool returns_value = ((pc->imm[1] >> 8) & 0x1) != 0;
+
+    if (nargs > 8) {
+        ctx->error = "extern function has too many parameters";
+        ctx->done = 1;
+        return;
+    }
+    if (!ctx->globals) {
+        ctx->error = "extern call without globals";
+        ctx->done = 1;
+        return;
+    }
+
+    uintptr_t fn_ptr = (uintptr_t)load_u64_unaligned(ctx->globals + globals_offset);
+    void* extern_ctx = (void*)(uintptr_t)load_u64_unaligned(ctx->globals + globals_offset + 8);
+    if (!fn_ptr) {
+        ctx->error = "called unbound extern function";
+        ctx->done = 1;
+        return;
+    }
+
+    uint64_t args[8] = {0};
+    for (int32_t i = (int32_t)nargs - 1; i >= 0; i--) {
+        POP(args[i]);
+    }
+
+    uint64_t result = 0;
+    if (returns_value) {
+        switch (nargs) {
+            case 0: {
+                typedef uint64_t (*ExternFn)(void*);
+                result = ((ExternFn)fn_ptr)(extern_ctx);
+                break;
+            }
+            case 1: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0]);
+                break;
+            }
+            case 2: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1]);
+                break;
+            }
+            case 3: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2]);
+                break;
+            }
+            case 4: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3]);
+                break;
+            }
+            case 5: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4]);
+                break;
+            }
+            case 6: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5]);
+                break;
+            }
+            case 7: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+                break;
+            }
+            case 8: {
+                typedef uint64_t (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                result = ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+                break;
+            }
+        }
+    } else {
+        switch (nargs) {
+            case 0: {
+                typedef void (*ExternFn)(void*);
+                ((ExternFn)fn_ptr)(extern_ctx);
+                break;
+            }
+            case 1: {
+                typedef void (*ExternFn)(void*, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0]);
+                break;
+            }
+            case 2: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1]);
+                break;
+            }
+            case 3: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2]);
+                break;
+            }
+            case 4: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3]);
+                break;
+            }
+            case 5: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4]);
+                break;
+            }
+            case 6: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5]);
+                break;
+            }
+            case 7: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+                break;
+            }
+            case 8: {
+                typedef void (*ExternFn)(void*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+                ((ExternFn)fn_ptr)(extern_ctx, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+                break;
+            }
+        }
+    }
+
+    PUSH(result);
+    NEXT();
+}
+
 // Shared body for op_call_closure and op_call_indirect: consume t0 (the
 // fat_ptr or func_idx), then consume nargs args. The call site differs
 // only in how `target` is computed before this runs.

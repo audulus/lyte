@@ -2365,14 +2365,14 @@ mod tests {
 
     #[test]
     fn test_extern_fn_string_param_vm() {
-        // Test that extern functions can receive string ([u8]) parameters.
+        // Test that extern functions can receive string ([i8]) parameters.
         // Slices expand to (ptr, i32 len) at the C boundary.
         let prelude = r#"
-            extern fn send(msg: [i8])
+            extern fn send(msg: [i8]) -> bool
         "#;
         let code = r#"
-            fn main() {
-                send("hello")
+            fn main() -> bool {
+                return send("hello")
             }
         "#;
         let mut compiler = Compiler::new();
@@ -2399,14 +2399,15 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         static SEND_CALLED: AtomicBool = AtomicBool::new(false);
 
-        // The C signature is: void send(void* ctx, const char* data, int32_t len)
+        // The C signature is: bool send(void* ctx, const char* data, int32_t len)
         // String literals in Lyte are null-terminated [i8; N+1].
-        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) {
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) -> bool {
             let slice = std::slice::from_raw_parts(data, len as usize);
             // "hello" becomes [104, 101, 108, 108, 111, 0] (null-terminated)
             assert_eq!(&slice[..5], b"hello");
             assert_eq!(len, 6); // includes null terminator
             SEND_CALLED.store(true, Ordering::SeqCst);
+            true
         }
 
         unsafe {
@@ -2418,16 +2419,85 @@ mod tests {
 
         SEND_CALLED.store(false, Ordering::SeqCst);
         let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
-        unsafe {
+        let result = unsafe {
             vm.call_with_external_globals(
                 &linked,
                 &vm_program,
                 func_idx,
                 globals.as_mut_ptr(),
                 globals_size,
+            )
+        };
+        assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+        assert_eq!(result, 1, "send(\"hello\") should return true");
+    }
+
+    #[cfg(has_stack_interp)]
+    #[test]
+    fn test_extern_fn_string_param_stack() {
+        // Test that stack VM extern functions can receive string ([i8]) parameters.
+        // Slices expand to (ptr, i32 len) at the C boundary.
+        let prelude = r#"
+            extern fn send(msg: [i8]) -> bool
+        "#;
+        let code = r#"
+            fn main() -> bool {
+                return send("hello")
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let stack_program = compiler
+            .compile_stack()
+            .expect("stack VM compile failed");
+        let globals_size = stack_program.globals_size;
+
+        let globals_info =
+            compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+        let extern_info = globals_info
+            .iter()
+            .find(|g| g.4)
+            .expect("no extern global found");
+        let extern_offset = extern_info.1;
+
+        let mut backend = crate::stack_interp_bridge::StackBackend::new(&stack_program);
+        let mut globals = vec![0u8; globals_size];
+
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STACK_SEND_CALLED: AtomicBool = AtomicBool::new(false);
+
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) -> bool {
+            let slice = std::slice::from_raw_parts(data, len as usize);
+            assert_eq!(&slice[..5], b"hello");
+            assert_eq!(len, 6); // includes null terminator
+            STACK_SEND_CALLED.store(true, Ordering::SeqCst);
+            true
+        }
+
+        unsafe {
+            crate::ffi::lyte_globals_bind_extern(
+                globals.as_mut_ptr(),
+                extern_offset,
+                host_send as *const u8,
+                std::ptr::null_mut(),
             );
         }
-        assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+
+        STACK_SEND_CALLED.store(false, Ordering::SeqCst);
+        let func_idx = *stack_program
+            .entry_points
+            .get(&Name::str("main"))
+            .unwrap();
+        let result = backend.call_entry(func_idx, globals.as_mut_ptr());
+        assert!(
+            STACK_SEND_CALLED.load(Ordering::SeqCst),
+            "send() was not called"
+        );
+        assert_eq!(result, 1, "send(\"hello\") should return true");
     }
 
     #[cfg(feature = "llvm")]
@@ -2436,11 +2506,11 @@ mod tests {
         // Test that LLVM extern functions correctly receive string ([i8]) parameters.
         // Slices expand to (ptr, i32 len) at the C boundary.
         let prelude = r#"
-            extern fn send(msg: [i8])
+            extern fn send(msg: [i8]) -> bool
         "#;
         let code = r#"
-            fn main() {
-                send("hello")
+            fn main() -> bool {
+                return send("hello")
             }
         "#;
         let mut compiler = Compiler::new();
@@ -2471,11 +2541,12 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         static LLVM_SEND_CALLED: AtomicBool = AtomicBool::new(false);
 
-        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) {
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) -> bool {
             let slice = std::slice::from_raw_parts(data, len as usize);
             assert_eq!(&slice[..5], b"hello");
             assert_eq!(len, 6); // includes null terminator
             LLVM_SEND_CALLED.store(true, Ordering::SeqCst);
+            true
         }
 
         unsafe {
@@ -2492,9 +2563,10 @@ mod tests {
             let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
             LLVM_SEND_CALLED.store(false, Ordering::SeqCst);
             if setjmp(jmp_buf_ptr) == 0 {
-                type Entry = fn(*mut u8, *mut u8) -> i32;
+                type Entry = fn(*mut u8, *mut u8) -> i8;
                 let code_fn = mem::transmute::<_, Entry>(main_ptr);
-                code_fn(globals.as_mut_ptr(), std::ptr::null_mut());
+                let result = code_fn(globals.as_mut_ptr(), std::ptr::null_mut());
+                assert_eq!(result, 1, "send(\"hello\") should return true");
             } else {
                 panic!("execution was cancelled unexpectedly");
             }

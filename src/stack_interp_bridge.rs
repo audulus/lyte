@@ -130,6 +130,7 @@ extern "C" {
     fn op_jump_if_zero();
     fn op_jump_if_not_zero();
     fn op_call();
+    fn op_call_extern();
     fn op_call_closure();
     fn op_call_indirect();
     fn op_return();
@@ -361,6 +362,7 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::JumpIfZero(_) => op_jump_if_zero as *const (),
         StackOp::JumpIfNotZero(_) => op_jump_if_not_zero as *const (),
         StackOp::Call { .. } => op_call as *const (),
+        StackOp::CallExtern { .. } => op_call_extern as *const (),
         StackOp::CallIndirect { .. } => op_call_indirect as *const (),
         StackOp::CallClosure { .. } => op_call_closure as *const (),
         StackOp::Return => op_return as *const (),
@@ -569,6 +571,15 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
             let packed = (*args as u64) | ((*preserve as u64) << 8);
             [*func as u64, packed, func_idx as u64]
         }
+        StackOp::CallExtern {
+            globals_offset,
+            args,
+            returns_value,
+        } => [
+            *globals_offset as i64 as u64,
+            (*args as u64) | ((*returns_value as u64) << 8),
+            0,
+        ],
         StackOp::CallIndirect { args } => [*args as u64, func_idx as u64, 0],
         StackOp::CallClosure { args } => [*args as u64, func_idx as u64, 0],
         // Fused instructions

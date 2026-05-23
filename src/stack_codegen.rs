@@ -1920,46 +1920,65 @@ impl<'a> FunctionTranslator<'a> {
                 let callee_decls = self.decls.find(callee_name);
                 if let Some(Decl::Func(f)) = callee_decls.first() {
                     if f.is_extern {
-                        // For extern calls, push all args then emit a regular Call
-                        // that goes through the globals-based dispatch. op_call
-                        // copies args from the int TOS window into the callee's
-                        // locals, so f32 args that rode through the float window
-                        // have to be bridged to their bit pattern first — mirror
-                        // the regular-call path below.
+                        let globals_offset = *self
+                            .globals
+                            .get(&callee_name)
+                            .expect("extern function not in globals");
+
+                        // For extern calls, push C-level args. Slices expand
+                        // to (data_ptr, i32 len) at the host boundary.
+                        let mut c_arg_count: u8 = 0;
                         for (i, arg_id) in arg_ids.iter().enumerate() {
                             let arg = *arg_id;
                             let param_ty = f.params[i].ty.unwrap();
-                            if matches!(&*param_ty, Type::Reference(_)) {
-                                self.translate_lvalue(arg, func);
-                            } else {
+                            if matches!(&*param_ty, Type::Slice(_)) {
                                 self.translate_expr(arg, func);
+                                match &*self.representation_type(arg) {
+                                    Type::Slice(_) => {
+                                        let slice_local = self.alloc_scalar();
+                                        func.emit(StackOp::LocalSet(slice_local));
+                                        func.emit(StackOp::LocalGet(slice_local));
+                                        func.emit(StackOp::Load64);
+                                        func.emit(StackOp::LocalGet(slice_local));
+                                        func.emit(StackOp::Load32Off(8));
+                                    }
+                                    Type::Array(_, sz) => {
+                                        func.emit(StackOp::I64Const(sz.known() as i64));
+                                    }
+                                    actual_ty => panic!(
+                                        "stack extern call: expected slice or array, got {:?}",
+                                        actual_ty
+                                    ),
+                                }
+                                c_arg_count += 2;
+                            } else {
+                                if matches!(&*param_ty, Type::Reference(_)) {
+                                    self.translate_lvalue(arg, func);
+                                } else {
+                                    self.translate_expr(arg, func);
+                                }
                                 let arg_ty = self.expr_type(arg);
                                 if matches!(&*arg_ty, Type::Float32) {
                                     func.emit(StackOp::FToBitsF);
                                 }
-                            }
-                            if matches!(&*param_ty, Type::Slice(_)) {
-                                self.emit_wrap_as_slice(self.representation_type(arg), func);
+                                c_arg_count += 1;
                             }
                         }
-                        let instr_idx = func.pos();
-                        func.emit(StackOp::Call {
-                            func: 0,
-                            args: arg_ids.len() as u8,
-                            preserve: 0, // patched post-codegen from static depth
-                        });
-                        self.calls_to_patch.push(CallToPatch {
-                            instr_idx,
-                            callee: callee_name,
+                        assert!(
+                            c_arg_count <= 8,
+                            "stack extern call has too many C-level arguments"
+                        );
+                        let ret_ty = self.expr_type(call_expr);
+                        func.emit(StackOp::CallExtern {
+                            globals_offset,
+                            args: c_arg_count,
+                            returns_value: !matches!(&*ret_ty, Type::Void),
                         });
                         // Bridge the return value back to the window the
-                        // surrounding codegen expects. Void calls leave
-                        // nothing, so push a placeholder so translate_call's
-                        // +1 invariant holds.
-                        let ret_ty = self.expr_type(call_expr);
-                        if matches!(&*ret_ty, Type::Void) {
-                            func.emit(StackOp::I64Const(0));
-                        } else if matches!(&*ret_ty, Type::Float32) {
+                        // surrounding codegen expects. The extern handler
+                        // pushes a zero placeholder for void returns so
+                        // translate_call's +1 invariant still holds.
+                        if matches!(&*ret_ty, Type::Float32) {
                             func.emit(StackOp::BitsToFF);
                         }
                         return;

@@ -178,6 +178,7 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         StackOp::FusedTeeSliceStore32(_, _, _) => -1,  // pop value from TOS
         StackOp::FusedLocalArrayLoad32(_, _) => 1,     // push loaded value
         StackOp::FusedLocalArrayStore32(_, _) => -1,   // pop value to store
+        StackOp::CallExtern { args, .. } => 1 - *args as i32,
 
         // No stack change
         StackOp::FusedGetSet(_, _)
