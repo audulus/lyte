@@ -14,9 +14,9 @@ cargo-fuzz = true
 llvm = ["lyte/llvm"]
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "0.4.12"
 lyte = { path = "../" }
-libc = "0.2"
+libc = "0.2.186"
 
 [[bin]]
 name = "lexer"
