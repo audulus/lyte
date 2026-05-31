@@ -103,8 +103,16 @@ run_benchmark() {
     local C_O2_TIME C_O3_TIME LYTE_JIT LYTE_VM LYTE_ASM LYTE_STACK LYTE_LLVM LUA LUAJIT_JIT LUAJIT_INT
 
     echo "Running benchmarks..."
-    C_O2_TIME=$(avg "C -O2 ($NAME)" "$C_O2")
-    C_O3_TIME=$(avg "C -O3 ($NAME)" "$C_O3")
+    if [ -n "$C_O2" ]; then
+        C_O2_TIME=$(avg "C -O2 ($NAME)" "$C_O2")
+    else
+        C_O2_TIME=""
+    fi
+    if [ -n "$C_O3" ]; then
+        C_O3_TIME=$(avg "C -O3 ($NAME)" "$C_O3")
+    else
+        C_O3_TIME=""
+    fi
     LYTE_JIT=$(avg "Lyte Cranelift ($NAME)" "$LYTE --backend jit $LYTE_FILE --timing 2>&1 | grep 'jit exec:'")
     LYTE_VM=$(avg "Lyte VM ($NAME)" "$LYTE --backend vm $LYTE_FILE --timing 2>&1 | grep 'vm exec:'")
     if [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ]; then
@@ -147,6 +155,13 @@ run_benchmark "Biquad" \
     "benchmark/biquad_c_o3" \
     "benchmark/biquad.lua" \
     "10M samples through a 1kHz lowpass"
+
+run_benchmark "Biquad f64" \
+    "benchmark/biquad_f64.lyte" \
+    "" \
+    "" \
+    "benchmark/biquad.lua" \
+    "10M samples through a 1kHz lowpass, double precision"
 
 run_benchmark "Sort" \
     "benchmark/sort.lyte" \
