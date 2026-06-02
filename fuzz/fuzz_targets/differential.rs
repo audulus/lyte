@@ -60,6 +60,21 @@ impl<'a> Gen<'a> {
             ));
         }
 
+        // Optionally emit an `a * b + c` helper for each float type. The call
+        // exercises float argument/return-value bridging — i.e. saving and
+        // restoring the relevant float window (f0..f3 / d0..d3) around a call.
+        let mut has_fma = [false; FLOAT_KINDS.len()];
+        for (k, kind) in FLOAT_KINDS.iter().enumerate() {
+            if self.next() % 3 == 0 {
+                has_fma[k] = true;
+                decls.push(format!(
+                    "{}(a: {t}, b: {t}, c: {t}) -> {t} {{\n    return a * b + c\n}}",
+                    kind.fma,
+                    t = kind.ty
+                ));
+            }
+        }
+
         // 1-4 initial integer variables
         let n_vars = (self.next() % 4 + 1) as usize;
         for i in 0..n_vars {
@@ -106,6 +121,24 @@ impl<'a> Gen<'a> {
             vars.push((name, VarType::Enum(n_variants)));
         }
 
+        // Optionally declare 1-2 variables of each float type. f32 drives the
+        // stack VM's single float window (f0..f3, spilling through fsp); f64
+        // drives the double window (d0..d3, spilling through dfsp). Values are
+        // kept small so downstream `as i32` casts stay well inside i32 range.
+        let mut has_floats = [false; FLOAT_KINDS.len()];
+        for (k, kind) in FLOAT_KINDS.iter().enumerate() {
+            if self.next() % 2 == 0 {
+                has_floats[k] = true;
+                let n_fvars = (self.next() % 2 + 1) as usize; // 1-2
+                for i in 0..n_fvars {
+                    let name = format!("{}{}", kind.var_prefix, i);
+                    main_lines
+                        .push(format!("    var {} = {}", name, self.gen_float_literal(kind.ty)));
+                    vars.push((name, VarType::Float(kind.ty)));
+                }
+            }
+        }
+
         // 1-5 computed values, each printed
         let n_stmts = (self.next() % 5 + 1) as usize;
         for i in 0..n_stmts {
@@ -114,6 +147,25 @@ impl<'a> Gen<'a> {
             main_lines.push(format!("    let {} = {}", name, expr));
             main_lines.push(format!("    print({})", name));
             vars.push((name, VarType::Int));
+        }
+
+        // Float computations, each printed as i32. Printing the truncated
+        // integer (rather than the raw float) keeps output comparable across
+        // backends — Rust's float Display ("3") and the C interpreter's printf
+        // ("3.0") format integral floats differently, so raw float prints
+        // would diverge on formatting alone. The float arithmetic itself is
+        // still fully exercised before the cast.
+        for (k, kind) in FLOAT_KINDS.iter().enumerate() {
+            if !has_floats[k] {
+                continue;
+            }
+            let n_fstmts = (self.next() % 3 + 1) as usize; // 1-3
+            for i in 0..n_fstmts {
+                let name = format!("{}r{}", kind.var_prefix, i);
+                let expr = self.gen_float_expr(&vars, kind, has_fma[k], 2);
+                main_lines.push(format!("    let {} = {}", name, expr));
+                main_lines.push(format!("    print({} as i32)", name));
+            }
         }
 
         main_lines.push("}".to_string());
@@ -289,11 +341,101 @@ impl<'a> Gen<'a> {
         let val = (self.next() % 200) as i32 - 100;
         self.format_int(val)
     }
+
+    /// A small float literal in [0.0, 9.9], typed as `ty` ("f32"/"f64").
+    /// Bare float literals are already f32, so an `as f32` cast would be an
+    /// unsupported identity conversion — emit the bare literal for f32 and an
+    /// explicit `as f64` conversion for f64. Values are bounded so that
+    /// products of a few of these stay far inside i32 range after the final
+    /// `as i32` cast.
+    fn gen_float_literal(&mut self, ty: &str) -> String {
+        let whole = self.next() % 10;
+        let frac = self.next() % 10;
+        if ty == "f32" {
+            format!("{}.{}", whole, frac)
+        } else {
+            format!("({}.{} as {})", whole, frac, ty)
+        }
+    }
+
+    fn gen_float_expr(
+        &mut self,
+        vars: &[(String, VarType)],
+        kind: &FloatKind,
+        has_fma: bool,
+        depth: u8,
+    ) -> String {
+        if depth == 0 {
+            return self.gen_float_leaf(vars, kind);
+        }
+        let max_choice = if has_fma { 8 } else { 6 };
+        match self.next() % max_choice {
+            // Float literal
+            0..=1 => self.gen_float_literal(kind.ty),
+            // Float variable reference (of this type)
+            2..=3 => self.gen_float_var(vars, kind.ty),
+            // Binary arithmetic (no division — avoids safety errors)
+            4..=5 => {
+                let ops = ["+", "-", "*"];
+                let op = ops[self.next() as usize % ops.len()];
+                let l = self.gen_float_expr(vars, kind, has_fma, depth - 1);
+                let r = self.gen_float_expr(vars, kind, has_fma, depth - 1);
+                format!("({} {} {})", l, op, r)
+            }
+            // Helper call (only if its `a * b + c` helper was emitted) —
+            // exercises float argument/return-value bridging across a call.
+            6..=7 => {
+                let a = self.gen_float_expr(vars, kind, has_fma, depth - 1);
+                let b = self.gen_float_expr(vars, kind, has_fma, depth - 1);
+                let c = self.gen_float_expr(vars, kind, has_fma, depth - 1);
+                format!("{}({}, {}, {})", kind.fma, a, b, c)
+            }
+            _ => self.gen_float_literal(kind.ty),
+        }
+    }
+
+    fn gen_float_leaf(&mut self, vars: &[(String, VarType)], kind: &FloatKind) -> String {
+        if self.next() % 2 == 0 {
+            self.gen_float_var(vars, kind.ty)
+        } else {
+            self.gen_float_literal(kind.ty)
+        }
+    }
+
+    fn gen_float_var(&mut self, vars: &[(String, VarType)], ty: &str) -> String {
+        let fvars: Vec<&str> = vars
+            .iter()
+            .filter_map(|(name, t)| match t {
+                VarType::Float(vt) if *vt == ty => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        if fvars.is_empty() {
+            self.gen_float_literal(ty)
+        } else {
+            let idx = self.next() as usize % fvars.len();
+            fvars[idx].to_string()
+        }
+    }
 }
+
+/// A float type the generator can emit, paired with the names it uses for
+/// that type's variables and `a * b + c` helper.
+struct FloatKind {
+    ty: &'static str,
+    var_prefix: &'static str,
+    fma: &'static str,
+}
+
+const FLOAT_KINDS: [FloatKind; 2] = [
+    FloatKind { ty: "f32", var_prefix: "sv", fma: "sfma" },
+    FloatKind { ty: "f64", var_prefix: "fv", fma: "ffma" },
+];
 
 #[derive(Clone)]
 enum VarType {
     Int,
+    Float(&'static str),
     Struct,
     Array(usize),
     Enum(usize),
@@ -321,6 +463,11 @@ fn capture_stdout<F: FnOnce()>(f: F) -> String {
     f();
 
     std::io::stdout().flush().ok();
+    // The stack backend's C interpreter prints via C stdio (printf), which
+    // buffers independently of Rust's stdout. Flush all C streams before
+    // restoring fd 1, or the buffered output is lost and the capture comes
+    // back empty.
+    unsafe { libc::fflush(std::ptr::null_mut()) };
 
     unsafe { libc::dup2(saved_fd, 1) };
     unsafe { libc::close(saved_fd) };
@@ -353,6 +500,17 @@ fn run_backend(program: &str, backend: &str) -> Option<String> {
         "vm" => {
             let output = capture_stdout(|| {
                 let _ = compiler.run_vm();
+            });
+            Some(output)
+        }
+        #[cfg(has_stack_interp)]
+        "stack" => {
+            // Compile to the stack VM and run it through the C interpreter
+            // (the same path cli/src/main.rs uses for `--backend stack`).
+            let output = capture_stdout(|| {
+                if let Ok(program) = compiler.compile_stack() {
+                    let _ = lyte::stack_interp_bridge::run(&program);
+                }
             });
             Some(output)
         }
@@ -459,5 +617,11 @@ fuzz_target!(|data: &[u8]| {
     {
         let llvm_output = run_backend(&program, "llvm");
         assert_same("VM", &vm_output, "LLVM", &llvm_output, &program);
+    }
+
+    #[cfg(has_stack_interp)]
+    {
+        let stack_output = run_backend(&program, "stack");
+        assert_same("VM", &vm_output, "STACK", &stack_output, &program);
     }
 });

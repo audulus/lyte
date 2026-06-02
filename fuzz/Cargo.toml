@@ -18,6 +18,9 @@ libfuzzer-sys = "0.4.12"
 lyte = { path = "../" }
 libc = "0.2.186"
 
+[build-dependencies]
+cc = "1.2.62"
+
 [[bin]]
 name = "lexer"
 path = "fuzz_targets/lexer.rs"
