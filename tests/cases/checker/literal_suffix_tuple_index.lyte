@@ -1,0 +1,8 @@
+// args: --check
+// expected stdout:
+// ../tests/cases/checker/literal_suffix_tuple_index.lyte:7: tuple field index cannot have a suffix
+
+main {
+    var t = (1, 2)
+    t.0u32
+}

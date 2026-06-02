@@ -1,0 +1,10 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/literal_suffix_i32_range.lyte:9:9: integer literal 2147483648 is out of range for i32
+//         a = 2147483648i32
+//             ^
+
+main {
+    var a: i32
+    a = 2147483648i32
+}

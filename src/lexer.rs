@@ -3,9 +3,9 @@ use crate::defs::*;
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Token {
     Id(Name),
-    Integer(i64),
-    UInteger(u64),
-    Real(Name),
+    Integer(i64, Option<IntLiteralSuffix>),
+    Real(Name, Option<FloatLiteralSuffix>),
+    InvalidNumberSuffix(Name),
     Lparen,
     Rparen,
     Lbrace,
@@ -235,22 +235,47 @@ impl Lexer {
                 self.i += 1;
             }
 
-            if self.i < n && bytes[self.i] == b'u' {
-                self.i += 1;
+            let number_end = self.i;
 
-                if fraction {
-                    return Token::Error;
-                } else if let Ok(uint_value) = self.code[start..self.i - 1].parse() {
-                    return Token::UInteger(uint_value);
-                } else {
-                    return Token::Error;
+            if self.i < n && bytes[self.i].is_ascii_alphabetic() {
+                let suffix_start = self.i;
+                while self.i < n && id_byte(bytes[self.i]) {
+                    self.i += 1;
                 }
+
+                let suffix = &self.code[suffix_start..self.i];
+                return if fraction {
+                    match suffix {
+                        "f32" => Token::Real(
+                            Name::new(self.code[start..number_end].into()),
+                            Some(FloatLiteralSuffix::F32),
+                        ),
+                        "f64" => Token::Real(
+                            Name::new(self.code[start..number_end].into()),
+                            Some(FloatLiteralSuffix::F64),
+                        ),
+                        _ => Token::InvalidNumberSuffix(Name::str(suffix)),
+                    }
+                } else {
+                    match suffix {
+                        "i32" => match self.code[start..number_end].parse() {
+                            Ok(value) => Token::Integer(value, Some(IntLiteralSuffix::I32)),
+                            Err(_) => Token::Error,
+                        },
+                        // `u` is accepted as a normalized alias for `u32`.
+                        "u" | "u32" => match self.code[start..number_end].parse() {
+                            Ok(value) => Token::Integer(value, Some(IntLiteralSuffix::U32)),
+                            Err(_) => Token::Error,
+                        },
+                        _ => Token::InvalidNumberSuffix(Name::str(suffix)),
+                    }
+                };
             }
 
             return if fraction {
-                Token::Real(Name::new(self.code[start..self.i].into()))
+                Token::Real(Name::new(self.code[start..self.i].into()), None)
             } else if let Ok(int_value) = self.code[start..self.i].parse() {
-                Token::Integer(int_value)
+                Token::Integer(int_value, None)
             } else {
                 Token::Error
             };
@@ -481,12 +506,41 @@ mod tests {
         assert_eq!(tokens("x"), vec![id("x")]);
         assert_eq!(tokens(" x "), vec![id("x")]);
         assert_eq!(tokens("_x"), vec![id("_x")]);
-        assert_eq!(tokens("42"), vec![Integer(42)]);
-        assert_eq!(tokens("42.0"), vec![Real(Name::str("42.0"))]);
-        assert_eq!(tokens(".5"), vec![Dot, Integer(5)]);
-        assert_eq!(tokens("42u"), vec![UInteger(42)]);
-        assert_eq!(tokens("2 + 2"), vec![Integer(2), Plus, Integer(2)]);
-        assert_eq!(tokens("2u + 2u"), vec![UInteger(2), Plus, UInteger(2)]);
+        assert_eq!(tokens("42"), vec![Integer(42, None)]);
+        assert_eq!(tokens("42.0"), vec![Real(Name::str("42.0"), None)]);
+        assert_eq!(tokens(".5"), vec![Dot, Integer(5, None)]);
+        assert_eq!(
+            tokens("42u"),
+            vec![Integer(42, Some(IntLiteralSuffix::U32))]
+        );
+        assert_eq!(
+            tokens("42u32"),
+            vec![Integer(42, Some(IntLiteralSuffix::U32))]
+        );
+        assert_eq!(
+            tokens("42i32"),
+            vec![Integer(42, Some(IntLiteralSuffix::I32))]
+        );
+        assert_eq!(
+            tokens("42.0f32"),
+            vec![Real(Name::str("42.0"), Some(FloatLiteralSuffix::F32))]
+        );
+        assert_eq!(
+            tokens("42.0f64"),
+            vec![Real(Name::str("42.0"), Some(FloatLiteralSuffix::F64))]
+        );
+        assert_eq!(
+            tokens("2 + 2"),
+            vec![Integer(2, None), Plus, Integer(2, None)]
+        );
+        assert_eq!(
+            tokens("2u + 2u"),
+            vec![
+                Integer(2, Some(IntLiteralSuffix::U32)),
+                Plus,
+                Integer(2, Some(IntLiteralSuffix::U32))
+            ]
+        );
         assert_eq!(tokens("foo()"), vec![id("foo"), Lparen, Rparen]);
         assert_eq!(tokens("x <= y"), vec![id("x"), Leq, id("y")]);
         assert_eq!(tokens("x >= y"), vec![id("x"), Geq, id("y")]);
@@ -496,7 +550,12 @@ mod tests {
             tokens("((x))"),
             vec![Lparen, Lparen, id("x"), Rparen, Rparen]
         );
-        assert_eq!(tokens("1x"), vec![Integer(1), id("x")]);
+        assert_eq!(tokens("1x"), vec![InvalidNumberSuffix(Name::str("x"))]);
+        assert_eq!(tokens("1i8"), vec![InvalidNumberSuffix(Name::str("i8"))]);
+        assert_eq!(tokens("1u8"), vec![InvalidNumberSuffix(Name::str("u8"))]);
+        assert_eq!(tokens("1i64"), vec![InvalidNumberSuffix(Name::str("i64"))]);
+        assert_eq!(tokens("1f64"), vec![InvalidNumberSuffix(Name::str("f64"))]);
+        assert_eq!(tokens("1.0u"), vec![InvalidNumberSuffix(Name::str("u"))]);
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
         assert_eq!(tokens("i32"), vec![Int32]);

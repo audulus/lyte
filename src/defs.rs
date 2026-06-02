@@ -5,6 +5,36 @@ use std::fmt;
 use std::hash::Hash;
 use std::ops::Deref;
 
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
+pub enum IntLiteralSuffix {
+    I32,
+    U32,
+}
+
+impl fmt::Display for IntLiteralSuffix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IntLiteralSuffix::I32 => write!(f, "i32"),
+            IntLiteralSuffix::U32 => write!(f, "u32"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
+pub enum FloatLiteralSuffix {
+    F32,
+    F64,
+}
+
+impl fmt::Display for FloatLiteralSuffix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FloatLiteralSuffix::F32 => write!(f, "f32"),
+            FloatLiteralSuffix::F64 => write!(f, "f64"),
+        }
+    }
+}
+
 /// An interned string.
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Name(Intern<String>);

@@ -430,9 +430,8 @@ impl MonomorphPass {
                 self.process_expr(sz, fdecl, decls)?;
             }
             // True leaves
-            Expr::Int(_)
-            | Expr::UInt(_)
-            | Expr::Real(_)
+            Expr::Int(_, _)
+            | Expr::Real(_, _)
             | Expr::String(_)
             | Expr::Char(_)
             | Expr::True
@@ -594,7 +593,7 @@ impl MonomorphPass {
             }
         }
 
-        // Substitute size vars in the body expressions (e.g. Expr::Id("N") → Expr::Int(3))
+        // Substitute size vars in the body expressions (e.g. Expr::Id("N") → Expr::Int(3, None))
         if !size_bindings.is_empty() {
             substitute_size_var_exprs(&mut specialized.arena, &size_bindings);
         }
@@ -664,12 +663,12 @@ fn subst_size_vars(ty: TypeID, bindings: &HashMap<Name, i32>) -> TypeID {
     }
 }
 
-/// Replace `Expr::Id(N)` with `Expr::Int(n)` for each size var binding, across all arena slots.
+/// Replace `Expr::Id(N)` with `Expr::Int(n, None)` for each size var binding, across all arena slots.
 fn substitute_size_var_exprs(arena: &mut ExprArena, bindings: &HashMap<Name, i32>) {
     for slot in arena.exprs.iter_mut() {
         if let Expr::Id(name) = slot {
             if let Some(&val) = bindings.get(name) {
-                *slot = Expr::Int(val as i64);
+                *slot = Expr::Int(val as i64, None);
             }
         }
     }
@@ -720,7 +719,7 @@ mod tests {
 
     fn mk_simple_func(name: &str, typevars: Vec<&str>) -> FuncDecl {
         let mut arena = ExprArena::new();
-        let body_expr = arena.add(Expr::Int(0), test_loc());
+        let body_expr = arena.add(Expr::Int(0, None), test_loc());
 
         FuncDecl {
             name: Name::str(name),
@@ -832,8 +831,8 @@ mod tests {
         let decls = DeclTable::new(vec![]);
 
         let mut arena = ExprArena::new();
-        let expr1 = arena.add(Expr::Int(1), test_loc());
-        let expr2 = arena.add(Expr::Int(2), test_loc());
+        let expr1 = arena.add(Expr::Int(1, None), test_loc());
+        let expr2 = arena.add(Expr::Int(2, None), test_loc());
         let block = arena.add(Expr::Block(vec![expr1, expr2]), test_loc());
 
         let mut fdecl = FuncDecl {
@@ -862,8 +861,8 @@ mod tests {
         let decls = DeclTable::new(vec![]);
 
         let mut arena = ExprArena::new();
-        let lhs = arena.add(Expr::Int(1), test_loc());
-        let rhs = arena.add(Expr::Int(2), test_loc());
+        let lhs = arena.add(Expr::Int(1, None), test_loc());
+        let rhs = arena.add(Expr::Int(2, None), test_loc());
         let binop = arena.add(Expr::Binop(Binop::Plus, lhs, rhs), test_loc());
 
         let mut fdecl = FuncDecl {
@@ -892,8 +891,8 @@ mod tests {
         let decls = DeclTable::new(vec![]);
 
         let mut arena = ExprArena::new();
-        let elem1 = arena.add(Expr::Int(1), test_loc());
-        let elem2 = arena.add(Expr::Int(2), test_loc());
+        let elem1 = arena.add(Expr::Int(1, None), test_loc());
+        let elem2 = arena.add(Expr::Int(2, None), test_loc());
         let array = arena.add(Expr::ArrayLiteral(vec![elem1, elem2]), test_loc());
 
         let mut fdecl = FuncDecl {
@@ -1128,8 +1127,8 @@ mod tests {
         // Test If expression
         let mut arena = ExprArena::new();
         let cond = arena.add(Expr::True, test_loc());
-        let then_expr = arena.add(Expr::Int(1), test_loc());
-        let else_expr = arena.add(Expr::Int(2), test_loc());
+        let then_expr = arena.add(Expr::Int(1, None), test_loc());
+        let else_expr = arena.add(Expr::Int(2, None), test_loc());
         let if_expr = arena.add(Expr::If(cond, then_expr, Some(else_expr)), test_loc());
 
         let mut fdecl = FuncDecl {
@@ -1164,7 +1163,7 @@ mod tests {
         // Create a simple non-generic entry point function
         // main() { 42 }
         let mut arena = ExprArena::new();
-        let body_expr = arena.add(Expr::Int(42), test_loc());
+        let body_expr = arena.add(Expr::Int(42, None), test_loc());
 
         let entry_func = FuncDecl {
             name: Name::str("main"),
@@ -1225,7 +1224,7 @@ mod tests {
         // Create entry point function that calls id(42)
         // main() { id(42) }
         let mut main_arena = ExprArena::new();
-        let arg_expr = main_arena.add(Expr::Int(42), test_loc());
+        let arg_expr = main_arena.add(Expr::Int(42, None), test_loc());
         let fn_expr = main_arena.add(Expr::Id(Name::str("id")), test_loc());
         let call_expr = main_arena.add(Expr::Call(fn_expr, vec![arg_expr]), test_loc());
 

@@ -797,8 +797,11 @@ impl<'a> FunctionTranslator<'a> {
         match &decl.arena[expr] {
             Expr::False => self.builder.ins().iconst(I8, 0),
             Expr::True => self.builder.ins().iconst(I8, 1),
-            Expr::Int(imm) => self.builder.ins().iconst(I32, *imm),
-            Expr::Real(s) => {
+            Expr::Int(imm, _) => self
+                .builder
+                .ins()
+                .iconst(decl.types[expr].cranelift_type(), *imm),
+            Expr::Real(s, _) => {
                 let val: f64 = s.parse().expect("invalid float literal");
                 match &*decl.types[expr] {
                     crate::Type::Float32 => self.builder.ins().f32const(val as f32),
@@ -1303,7 +1306,7 @@ impl<'a> FunctionTranslator<'a> {
                 if matches!(*lhs_ty, crate::types::Type::Float32x4) {
                     let vec = self.translate_expr(*lhs, decl, decls);
                     // Try constant lane index
-                    if let Expr::Int(n) = &decl.arena.exprs[*rhs] {
+                    if let Expr::Int(n, _) = &decl.arena.exprs[*rhs] {
                         return self.builder.ins().extractlane(vec, *n as u8);
                     }
                     // Dynamic index: spill to stack and load
@@ -1843,7 +1846,6 @@ impl<'a> FunctionTranslator<'a> {
                     panic!("JIT lambda: expected function type, got {:?}", lambda_ty);
                 }
             }
-            Expr::UInt(n) => self.builder.ins().iconst(I32, *n as i64),
             Expr::AsTy(expr_id, target_ty) => {
                 let val = self.translate_expr(*expr_id, decl, decls);
                 let src_ty = decl.types[*expr_id];
@@ -2697,9 +2699,8 @@ fn collect_free_vars_rec(
             }
         }
         // Terminal expressions — no sub-expressions.
-        Expr::Int(_)
-        | Expr::UInt(_)
-        | Expr::Real(_)
+        Expr::Int(_, _)
+        | Expr::Real(_, _)
         | Expr::String(_)
         | Expr::Char(_)
         | Expr::True

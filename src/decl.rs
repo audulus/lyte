@@ -336,7 +336,12 @@ fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
     let requires = func
         .requires
         .iter()
-        .map(|&r| format!(" require {}", func.arena.exprs[r].pretty_print(&func.arena, 0)))
+        .map(|&r| {
+            format!(
+                " require {}",
+                func.arena.exprs[r].pretty_print(&func.arena, 0)
+            )
+        })
         .collect::<Vec<_>>()
         .join("");
 
@@ -564,7 +569,7 @@ mod tests {
         let mut arena = ExprArena::new();
         // Create body: { x + 1 }
         let x_id = arena.add(Expr::Id(Name::str("x")), test_loc());
-        let one_id = arena.add(Expr::Int(1), test_loc());
+        let one_id = arena.add(Expr::Int(1, None), test_loc());
         let add_id = arena.add(Expr::Binop(Binop::Plus, x_id, one_id), test_loc());
         let body_id = arena.add(Expr::Block(vec![add_id]), test_loc());
 

@@ -312,9 +312,7 @@ impl VMCodegen {
 /// identifiers, type casts, and field access are allowed.
 fn is_inline_expr(id: ExprID, arena: &ExprArena) -> bool {
     match &arena[id] {
-        Expr::Int(_) | Expr::UInt(_) | Expr::Real(_) | Expr::Id(_) | Expr::True | Expr::False => {
-            true
-        }
+        Expr::Int(_, _) | Expr::Real(_, _) | Expr::Id(_) | Expr::True | Expr::False => true,
         Expr::Binop(op, lhs, rhs) => {
             !matches!(op, Binop::Assign)
                 && is_inline_expr(*lhs, arena)
@@ -809,22 +807,13 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an expression and return the register containing the result.
     fn translate_expr(&mut self, expr: ExprID, func: &mut VMFunction) -> Reg {
         match &self.decl.arena.exprs[expr] {
-            Expr::Int(n) => {
+            Expr::Int(n, _) => {
                 let dst = self.alloc_reg();
                 func.emit(Opcode::LoadImm { dst, value: *n });
                 dst
             }
 
-            Expr::UInt(n) => {
-                let dst = self.alloc_reg();
-                func.emit(Opcode::LoadImm {
-                    dst,
-                    value: *n as i64,
-                });
-                dst
-            }
-
-            Expr::Real(s) => {
+            Expr::Real(s, _) => {
                 let dst = self.alloc_reg();
                 let ty = self.expr_type(expr);
                 match &*ty {
@@ -837,7 +826,6 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(Opcode::LoadF64 { dst, value });
                     }
                     _ => {
-                        // Default to f32.
                         let value: f32 = s.parse().unwrap_or(0.0);
                         func.emit(Opcode::LoadF32 { dst, value });
                     }
@@ -2075,7 +2063,11 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Id(name) => {
                 if let Some(&reg) = self.variables.get(name) {
                     if self.reg_promoted.contains(name) {
-                        let ty = self.variable_types.get(name).copied().unwrap_or(self.expr_type(expr));
+                        let ty = self
+                            .variable_types
+                            .get(name)
+                            .copied()
+                            .unwrap_or(self.expr_type(expr));
                         let slot = self.alloc_local(ty.size(self.decls) as u32);
                         let addr = self.alloc_reg();
                         func.emit(Opcode::LocalAddr { dst: addr, slot });
@@ -3674,9 +3666,8 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Int(_)
-        | Expr::UInt(_)
-        | Expr::Real(_)
+        Expr::Int(_, _)
+        | Expr::Real(_, _)
         | Expr::String(_)
         | Expr::Char(_)
         | Expr::True
@@ -3720,7 +3711,7 @@ mod tests {
     #[test]
     fn test_compile_simple_int() {
         let mut arena = ExprArena::new();
-        let expr = arena.add(Expr::Int(42), crate::test_loc());
+        let expr = arena.add(Expr::Int(42, None), crate::test_loc());
 
         let func = FuncDecl {
             name: Name::str("main"),
@@ -3751,8 +3742,8 @@ mod tests {
     #[test]
     fn test_compile_addition() {
         let mut arena = ExprArena::new();
-        let lhs = arena.add(Expr::Int(10), crate::test_loc());
-        let rhs = arena.add(Expr::Int(32), crate::test_loc());
+        let lhs = arena.add(Expr::Int(10, None), crate::test_loc());
+        let rhs = arena.add(Expr::Int(32, None), crate::test_loc());
         let add = arena.add(Expr::Binop(Binop::Plus, lhs, rhs), crate::test_loc());
 
         let int32 = mk_type(Type::Int32);
@@ -3785,8 +3776,8 @@ mod tests {
     #[test]
     fn test_compile_float_arithmetic() {
         let mut arena = ExprArena::new();
-        let lhs = arena.add(Expr::Real("1.5".to_string()), crate::test_loc());
-        let rhs = arena.add(Expr::Real("2.5".to_string()), crate::test_loc());
+        let lhs = arena.add(Expr::Real("1.5".to_string(), None), crate::test_loc());
+        let rhs = arena.add(Expr::Real("2.5".to_string(), None), crate::test_loc());
         let mul = arena.add(Expr::Binop(Binop::Mult, lhs, rhs), crate::test_loc());
 
         let f32_ty = mk_type(Type::Float32);
@@ -3820,8 +3811,8 @@ mod tests {
     fn test_compile_if_else() {
         let mut arena = ExprArena::new();
         let cond = arena.add(Expr::True, crate::test_loc());
-        let then_val = arena.add(Expr::Int(100), crate::test_loc());
-        let else_val = arena.add(Expr::Int(200), crate::test_loc());
+        let then_val = arena.add(Expr::Int(100, None), crate::test_loc());
+        let else_val = arena.add(Expr::Int(200, None), crate::test_loc());
         let if_expr = arena.add(Expr::If(cond, then_val, Some(else_val)), crate::test_loc());
 
         let int32 = mk_type(Type::Int32);
@@ -3857,9 +3848,9 @@ mod tests {
         // while (false) { 1 }
         let mut arena = ExprArena::new();
         let cond = arena.add(Expr::False, crate::test_loc());
-        let body = arena.add(Expr::Int(1), crate::test_loc());
+        let body = arena.add(Expr::Int(1, None), crate::test_loc());
         let while_expr = arena.add(Expr::While(cond, body), crate::test_loc());
-        let result = arena.add(Expr::Int(42), crate::test_loc());
+        let result = arena.add(Expr::Int(42, None), crate::test_loc());
         let block = arena.add(Expr::Block(vec![while_expr, result]), crate::test_loc());
 
         let int32 = mk_type(Type::Int32);
