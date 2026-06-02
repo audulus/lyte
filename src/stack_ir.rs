@@ -483,6 +483,121 @@ pub enum StackOp {
     /// if !(locals[n] > const) jump. Pop 0, conditionally jump.
     FusedGetF32ConstFGtJumpIfZeroF(u16, f32, i32),
 
+    // === Double-window (D) ops — the f64 analogue of the float window ===
+    // f64 values live in a parallel 4-slot FP register window (d0..d3),
+    // spilling through `dfsp`. These mirror the F-window ops one-for-one
+    // so f64 arithmetic stays in FP registers and never pays the GPR↔FP
+    // crossing the old int-window f64 path forced on every op.
+    /// Push an f64 constant onto the double window.
+    F64ConstD(f64),
+    /// Push scalar local N (interpreted as f64) onto the double window.
+    LocalGetD(u16),
+    /// Pop top of double window into scalar local N (stored as f64 bits).
+    LocalSetD(u16),
+    /// Copy top of double window into scalar local N (don't pop).
+    LocalTeeD(u16),
+    /// Pop and discard top of double window.
+    DropD,
+
+    // Double arithmetic (binary pop 2 push 1, all in d-window).
+    DAddD,
+    DSubD,
+    DMulD,
+    DDivD,
+    DPowD,
+    /// Pop 1 push 1 (negate) on d-window.
+    DNegD,
+
+    // Double comparisons: pop 2 from d-window, push 0/1 to the int window.
+    DEqD,
+    DNeD,
+    DLtD,
+    DLeD,
+    DGtD,
+    DGeD,
+
+    // Crossings between the double window and the int / float windows.
+    /// Pop d0 (f64), push i32 (truncated) to int window.
+    F64ToI32D,
+    /// Pop i32 from int window, push f64 to d-window.
+    I32ToF64D,
+    /// Pop d0, push its raw u64 bit pattern to the int window (call/return
+    /// bridge — mirrors FToBitsF).
+    DToBitsD,
+    /// Pop u64 bits from int window, push as f64 to d-window (mirrors BitsToFF).
+    BitsToDD,
+    /// Pop f0 (f32) from the float window, push widened f64 to d-window.
+    F32ToF64D,
+    /// Pop d0 (f64) from the double window, push narrowed f32 to f-window.
+    F64ToF32D,
+
+    // Double memory loads/stores: address comes from the int window, the
+    // value lives in the d-window.
+    LoadF64D,
+    LoadF64OffD(i32),
+    StoreF64D,
+    StoreF64OffD(i32),
+
+    // Double math intrinsics (pop 1 push 1 in d-window unless noted).
+    SinF64D,
+    CosF64D,
+    TanF64D,
+    AsinF64D,
+    AcosF64D,
+    AtanF64D,
+    SinhF64D,
+    CoshF64D,
+    TanhF64D,
+    AsinhF64D,
+    AcoshF64D,
+    AtanhF64D,
+    LnF64D,
+    ExpF64D,
+    Exp2F64D,
+    Log10F64D,
+    Log2F64D,
+    SqrtF64D,
+    AbsF64D,
+    FloorF64D,
+    CeilF64D,
+    /// Pop d0, push i32 0/1 to int window.
+    IsnanF64D,
+    IsinfF64D,
+    /// Pop 2 from d-window, push 1 (atan2).
+    Atan2F64D,
+    /// Pop d0 and print it.
+    PrintF64D,
+
+    // === Double-window fused superinstructions (mirror the F-window set) ===
+    /// Push locals[a] * locals[b] onto the d-window.
+    FusedGetGetDMulD(u16, u16),
+    /// d0 += locals[a] * locals[b] (accumulate; net 0 on the d-window).
+    FusedGetGetDMulDAddD(u16, u16),
+    /// d0 -= locals[a] * locals[b].
+    FusedGetGetDMulDSubD(u16, u16),
+    /// Fused multiply-accumulate sum: read N (local,local) pairs, multiply
+    /// each, sum with per-term add/sub from the mask, push one result.
+    FusedGetGetDMulSum2D([u8; 4], u8),
+    FusedGetGetDMulSum3D([u8; 6], u8),
+    FusedGetGetDMulSum4D([u8; 8], u8),
+    FusedGetGetDMulSum5D([u8; 10], u8),
+    FusedGetGetDMulSum6D([u8; 12], u8),
+    FusedGetGetDMulSum7D([u8; 14], u8),
+    FusedGetGetDMulSum8D([u8; 16], u8),
+    /// d-window variable-move chains: locals[dst] = locals[src] (×N).
+    FusedGetSetD(u8, u8),
+    FusedGetSet2D([u8; 4]),
+    FusedGetSet3D([u8; 6]),
+    FusedGetSet4D([u8; 8]),
+    FusedGetSet5D([u8; 10]),
+    FusedGetSet6D([u8; 12]),
+    FusedGetSet7D([u8; 14]),
+    FusedGetSet8D([u8; 16]),
+    /// if !(d0 > const) jump; pops d0.
+    FusedF64ConstDGtJumpIfZeroD(f64, i32),
+    /// if !(locals[n] > const) jump. Pop 0, conditionally jump.
+    FusedGetF64ConstDGtJumpIfZeroD(u16, f64, i32),
+
     Halt,
     Nop,
 }
@@ -1033,6 +1148,146 @@ impl fmt::Display for StackOp {
             }
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(n, v, o) => {
                 write!(f, "fw.fused.get_f32const_fgt_jiz {} {} {}", n, v, o)
+            }
+            // === Double-window (D) ops ===
+            StackOp::F64ConstD(v) => write!(f, "dw.f64.const {}", v),
+            StackOp::LocalGetD(n) => write!(f, "dw.local.get {}", n),
+            StackOp::LocalSetD(n) => write!(f, "dw.local.set {}", n),
+            StackOp::LocalTeeD(n) => write!(f, "dw.local.tee {}", n),
+            StackOp::DropD => write!(f, "dw.drop"),
+            StackOp::DAddD => write!(f, "dw.f64.add"),
+            StackOp::DSubD => write!(f, "dw.f64.sub"),
+            StackOp::DMulD => write!(f, "dw.f64.mul"),
+            StackOp::DDivD => write!(f, "dw.f64.div"),
+            StackOp::DPowD => write!(f, "dw.f64.pow"),
+            StackOp::DNegD => write!(f, "dw.f64.neg"),
+            StackOp::DEqD => write!(f, "dw.f64.eq"),
+            StackOp::DNeD => write!(f, "dw.f64.ne"),
+            StackOp::DLtD => write!(f, "dw.f64.lt"),
+            StackOp::DLeD => write!(f, "dw.f64.le"),
+            StackOp::DGtD => write!(f, "dw.f64.gt"),
+            StackOp::DGeD => write!(f, "dw.f64.ge"),
+            StackOp::F64ToI32D => write!(f, "dw.convert.f64_to_i32"),
+            StackOp::I32ToF64D => write!(f, "dw.convert.i32_to_f64"),
+            StackOp::DToBitsD => write!(f, "dw.to_bits"),
+            StackOp::BitsToDD => write!(f, "dw.from_bits"),
+            StackOp::F32ToF64D => write!(f, "dw.convert.f32_to_f64"),
+            StackOp::F64ToF32D => write!(f, "dw.convert.f64_to_f32"),
+            StackOp::LoadF64D => write!(f, "dw.f64.load"),
+            StackOp::LoadF64OffD(o) => write!(f, "dw.f64.load offset={}", o),
+            StackOp::StoreF64D => write!(f, "dw.f64.store"),
+            StackOp::StoreF64OffD(o) => write!(f, "dw.f64.store offset={}", o),
+            StackOp::SinF64D => write!(f, "dw.f64.sin"),
+            StackOp::CosF64D => write!(f, "dw.f64.cos"),
+            StackOp::TanF64D => write!(f, "dw.f64.tan"),
+            StackOp::AsinF64D => write!(f, "dw.f64.asin"),
+            StackOp::AcosF64D => write!(f, "dw.f64.acos"),
+            StackOp::AtanF64D => write!(f, "dw.f64.atan"),
+            StackOp::SinhF64D => write!(f, "dw.f64.sinh"),
+            StackOp::CoshF64D => write!(f, "dw.f64.cosh"),
+            StackOp::TanhF64D => write!(f, "dw.f64.tanh"),
+            StackOp::AsinhF64D => write!(f, "dw.f64.asinh"),
+            StackOp::AcoshF64D => write!(f, "dw.f64.acosh"),
+            StackOp::AtanhF64D => write!(f, "dw.f64.atanh"),
+            StackOp::LnF64D => write!(f, "dw.f64.ln"),
+            StackOp::ExpF64D => write!(f, "dw.f64.exp"),
+            StackOp::Exp2F64D => write!(f, "dw.f64.exp2"),
+            StackOp::Log10F64D => write!(f, "dw.f64.log10"),
+            StackOp::Log2F64D => write!(f, "dw.f64.log2"),
+            StackOp::SqrtF64D => write!(f, "dw.f64.sqrt"),
+            StackOp::AbsF64D => write!(f, "dw.f64.abs"),
+            StackOp::FloorF64D => write!(f, "dw.f64.floor"),
+            StackOp::CeilF64D => write!(f, "dw.f64.ceil"),
+            StackOp::IsnanF64D => write!(f, "dw.f64.isnan"),
+            StackOp::IsinfF64D => write!(f, "dw.f64.isinf"),
+            StackOp::Atan2F64D => write!(f, "dw.f64.atan2"),
+            StackOp::PrintF64D => write!(f, "dw.debug.print_f64"),
+            // === Double-window fused superinstructions ===
+            StackOp::FusedGetGetDMulD(a, b) => write!(f, "dw.fused.get_get_dmul {} {}", a, b),
+            StackOp::FusedGetGetDMulDAddD(a, b) => {
+                write!(f, "dw.fused.get_get_dmul_dadd {} {}", a, b)
+            }
+            StackOp::FusedGetGetDMulDSubD(a, b) => {
+                write!(f, "dw.fused.get_get_dmul_dsub {} {}", a, b)
+            }
+            StackOp::FusedGetGetDMulSum2D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum2 {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], mask
+            ),
+            StackOp::FusedGetGetDMulSum3D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum3 {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], mask
+            ),
+            StackOp::FusedGetGetDMulSum4D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum4 {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], mask
+            ),
+            StackOp::FusedGetGetDMulSum5D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum5 {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], mask
+            ),
+            StackOp::FusedGetGetDMulSum6D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum6 {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], mask
+            ),
+            StackOp::FusedGetGetDMulSum7D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum7 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12],
+                p[13], mask
+            ),
+            StackOp::FusedGetGetDMulSum8D(p, mask) => write!(
+                f,
+                "dw.fused.get_get_dmul_sum8 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12],
+                p[13], p[14], p[15], mask
+            ),
+            StackOp::FusedGetSetD(src, dst) => write!(f, "dw.fused.get_set {} {}", src, dst),
+            StackOp::FusedGetSet2D(p) => {
+                write!(f, "dw.fused.get_set2 {} {} {} {}", p[0], p[1], p[2], p[3])
+            }
+            StackOp::FusedGetSet3D(p) => write!(
+                f,
+                "dw.fused.get_set3 {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5]
+            ),
+            StackOp::FusedGetSet4D(p) => write!(
+                f,
+                "dw.fused.get_set4 {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]
+            ),
+            StackOp::FusedGetSet5D(p) => write!(
+                f,
+                "dw.fused.get_set5 {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9]
+            ),
+            StackOp::FusedGetSet6D(p) => write!(
+                f,
+                "dw.fused.get_set6 {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11]
+            ),
+            StackOp::FusedGetSet7D(p) => write!(
+                f,
+                "dw.fused.get_set7 {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12],
+                p[13]
+            ),
+            StackOp::FusedGetSet8D(p) => write!(
+                f,
+                "dw.fused.get_set8 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12],
+                p[13], p[14], p[15]
+            ),
+            StackOp::FusedF64ConstDGtJumpIfZeroD(v, o) => {
+                write!(f, "dw.fused.f64const_dgt_jiz {} {}", v, o)
+            }
+            StackOp::FusedGetF64ConstDGtJumpIfZeroD(n, v, o) => {
+                write!(f, "dw.fused.get_f64const_dgt_jiz {} {} {}", n, v, o)
             }
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),

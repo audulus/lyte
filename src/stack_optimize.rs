@@ -39,6 +39,8 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
             | StackOp::FusedBoundsCheck8JumpIfZero(_, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
+            StackOp::FusedF64ConstDGtJumpIfZeroD(_, off) => Some(*off),
+            StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => Some(*off),
             _ => None,
         };
         if let Some(off) = off {
@@ -137,6 +139,130 @@ fn make_fused_get_get_fmul_sum_f(bytes: &[u8], sub_mask: u8) -> StackOp {
         ),
         _ => unreachable!("unsupported float mul-sum chain length"),
     }
+}
+
+// === Double-window (D) chain builders — mirror the F-window helpers ===
+
+fn make_fused_get_set_d(bytes: &[u8]) -> StackOp {
+    match bytes.len() {
+        2 => StackOp::FusedGetSetD(bytes[0], bytes[1]),
+        4 => StackOp::FusedGetSet2D([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        6 => StackOp::FusedGetSet3D([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]]),
+        8 => StackOp::FusedGetSet4D([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]),
+        10 => StackOp::FusedGetSet5D([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9],
+        ]),
+        12 => StackOp::FusedGetSet6D([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+        ]),
+        14 => StackOp::FusedGetSet7D([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
+        ]),
+        16 => StackOp::FusedGetSet8D([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+        ]),
+        _ => unreachable!("unsupported double get/set chain length"),
+    }
+}
+
+fn packed_get_set_d_chain(ops: &[StackOp], start: usize, pairs: usize) -> Option<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(pairs * 2);
+    for j in 0..pairs {
+        match (&ops[start + j * 2], &ops[start + j * 2 + 1]) {
+            (StackOp::LocalGetD(src), StackOp::LocalSetD(dst)) if *src < 256 && *dst < 256 => {
+                bytes.push(*src as u8);
+                bytes.push(*dst as u8);
+            }
+            _ => return None,
+        }
+    }
+    Some(bytes)
+}
+
+fn make_fused_get_get_dmul_sum_d(bytes: &[u8], sub_mask: u8) -> StackOp {
+    match bytes.len() {
+        4 => StackOp::FusedGetGetDMulSum2D([bytes[0], bytes[1], bytes[2], bytes[3]], sub_mask),
+        6 => StackOp::FusedGetGetDMulSum3D(
+            [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]],
+            sub_mask,
+        ),
+        8 => StackOp::FusedGetGetDMulSum4D(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ],
+            sub_mask,
+        ),
+        10 => StackOp::FusedGetGetDMulSum5D(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9],
+            ],
+            sub_mask,
+        ),
+        12 => StackOp::FusedGetGetDMulSum6D(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11],
+            ],
+            sub_mask,
+        ),
+        14 => StackOp::FusedGetGetDMulSum7D(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13],
+            ],
+            sub_mask,
+        ),
+        16 => StackOp::FusedGetGetDMulSum8D(
+            [
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                bytes[15],
+            ],
+            sub_mask,
+        ),
+        _ => unreachable!("unsupported double mul-sum chain length"),
+    }
+}
+
+fn packed_dmul_sum_fused_chain(
+    ops: &[StackOp],
+    start: usize,
+    terms: usize,
+) -> Option<(Vec<u8>, u8)> {
+    let mut bytes = Vec::with_capacity(terms * 2);
+    let mut sub_mask = 0u8;
+
+    match &ops[start] {
+        StackOp::FusedGetGetDMulD(a, b) if *a < 256 && *b < 256 => {
+            bytes.push(*a as u8);
+            bytes.push(*b as u8);
+        }
+        _ => return None,
+    }
+
+    for term in 1..terms {
+        match &ops[start + term] {
+            StackOp::FusedGetGetDMulDAddD(a, b) if *a < 256 && *b < 256 => {
+                bytes.push(*a as u8);
+                bytes.push(*b as u8);
+            }
+            StackOp::FusedGetGetDMulDSubD(a, b) if *a < 256 && *b < 256 => {
+                bytes.push(*a as u8);
+                bytes.push(*b as u8);
+                sub_mask |= 1 << term;
+            }
+            _ => return None,
+        }
+    }
+
+    Some((bytes, sub_mask))
 }
 
 fn make_fused_bounds_check_jiz(bytes: &[u8], off: i32) -> StackOp {
@@ -592,6 +718,186 @@ fn fuse(func: &mut StackFunction) {
         }
         if fused_bounds_check {
             continue;
+        }
+
+        // ================= Double-window (D) fusions =================
+        // Mirror the F-window rules above. Ordered so the multi-term
+        // mul-sum chain (built from already-fused ops on a prior pass) is
+        // tried before the 4-op and 3-op builders, and the 4-op builders
+        // before the 3-op one so the longest match wins at each position.
+
+        // Constant-fold fw.f32.const v + dw.convert.f32_to_f64 → dw.f64.const.
+        // Widening f32→f64 is exact, so this is always valid; it both folds
+        // the many `<lit> as f64` conversions and exposes the constant to
+        // the d-window compare-jump fusion below.
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::F32ConstF(v), StackOp::F32ToF64D) = (&ops[i], &ops[i + 1]) {
+                let v = *v as f64;
+                ops[i] = StackOp::F64ConstD(v);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
+        // dw.fused.get_get_dmul[_dadd|_dsub]* chain → get_get_dmul_sumN.
+        let mut fused_dmul_sum = false;
+        for terms in (2..=8).rev() {
+            let span = terms;
+            if i + span <= len && !spans_target(i, span) {
+                if let Some((pairs, sub_mask)) = packed_dmul_sum_fused_chain(ops, i, terms) {
+                    ops[i] = make_fused_get_get_dmul_sum_d(&pairs, sub_mask);
+                    for slot in ops.iter_mut().take(i + span).skip(i + 1) {
+                        *slot = StackOp::Nop;
+                    }
+                    i += span;
+                    fused_dmul_sum = true;
+                    break;
+                }
+            }
+        }
+        if fused_dmul_sum {
+            continue;
+        }
+
+        // dw.local.get a + dw.local.get b + dw.f64.mul + dw.f64.add
+        //              → dw.fused.get_get_dmul_dadd.
+        if i + 3 < len && !spans_target(i, 4) {
+            if let (
+                StackOp::LocalGetD(a),
+                StackOp::LocalGetD(b),
+                StackOp::DMulD,
+                StackOp::DAddD,
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
+            {
+                ops[i] = StackOp::FusedGetGetDMulDAddD(*a, *b);
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
+                i += 4;
+                continue;
+            }
+        }
+
+        // dw.local.get a + dw.local.get b + dw.f64.mul + dw.f64.sub
+        //              → dw.fused.get_get_dmul_dsub.
+        if i + 3 < len && !spans_target(i, 4) {
+            if let (
+                StackOp::LocalGetD(a),
+                StackOp::LocalGetD(b),
+                StackOp::DMulD,
+                StackOp::DSubD,
+            ) = (&ops[i], &ops[i + 1], &ops[i + 2], &ops[i + 3])
+            {
+                ops[i] = StackOp::FusedGetGetDMulDSubD(*a, *b);
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                ops[i + 3] = StackOp::Nop;
+                i += 4;
+                continue;
+            }
+        }
+
+        // dw.local.get a + dw.local.get b + dw.f64.mul → dw.fused.get_get_dmul.
+        if i + 2 < len && !spans_target(i, 3) {
+            if let (StackOp::LocalGetD(a), StackOp::LocalGetD(b), StackOp::DMulD) =
+                (&ops[i], &ops[i + 1], &ops[i + 2])
+            {
+                let a = *a;
+                let b = *b;
+                ops[i] = StackOp::FusedGetGetDMulD(a, b);
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                i += 3;
+                continue;
+            }
+        }
+
+        // dw.f64.const v + dw.f64.gt + jump_if_zero off
+        //              → FusedF64ConstDGtJumpIfZeroD.
+        if i + 2 < len && !spans_target(i, 3) {
+            if let (StackOp::F64ConstD(v), StackOp::DGtD, StackOp::JumpIfZero(off)) =
+                (&ops[i], &ops[i + 1], &ops[i + 2])
+            {
+                let v = *v;
+                let new_off = *off + 2;
+                ops[i] = StackOp::FusedF64ConstDGtJumpIfZeroD(v, new_off);
+                ops[i + 1] = StackOp::Nop;
+                ops[i + 2] = StackOp::Nop;
+                i += 3;
+                continue;
+            }
+        }
+
+        // dw.local.get n + FusedF64ConstDGtJumpIfZeroD v off
+        //              → FusedGetF64ConstDGtJumpIfZeroD.
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalGetD(n), StackOp::FusedF64ConstDGtJumpIfZeroD(v, off)) =
+                (&ops[i], &ops[i + 1])
+            {
+                let n = *n;
+                let v = *v;
+                let new_off = *off + 1;
+                ops[i] = StackOp::FusedGetF64ConstDGtJumpIfZeroD(n, v, new_off);
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
+        // dw.local.tee N + dw.drop → dw.local.set N.
+        if i + 1 < len && !spans_target(i, 2) {
+            if let StackOp::LocalTeeD(n) = ops[i] {
+                if matches!(ops[i + 1], StackOp::DropD) {
+                    ops[i] = StackOp::LocalSetD(n);
+                    ops[i + 1] = StackOp::Nop;
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
+        // dw.local.get + dw.drop → nop (dead read).
+        if i + 1 < len && !spans_target(i, 2) {
+            if matches!(ops[i], StackOp::LocalGetD(_)) && matches!(ops[i + 1], StackOp::DropD) {
+                ops[i] = StackOp::Nop;
+                ops[i + 1] = StackOp::Nop;
+                i += 2;
+                continue;
+            }
+        }
+
+        // dw.local.get src + dw.local.set dst (×N) → FusedGetSetND (moves).
+        let mut fused_get_set_d_chain = false;
+        for pairs in (2..=8).rev() {
+            let span = pairs * 2;
+            if i + span <= len && !spans_target(i, span) {
+                if let Some(bytes) = packed_get_set_d_chain(ops, i, pairs) {
+                    ops[i] = make_fused_get_set_d(&bytes);
+                    for slot in ops.iter_mut().take(i + span).skip(i + 1) {
+                        *slot = StackOp::Nop;
+                    }
+                    i += span;
+                    fused_get_set_d_chain = true;
+                    break;
+                }
+            }
+        }
+        if fused_get_set_d_chain {
+            continue;
+        }
+        // Single dw.local.get + dw.local.set → FusedGetSetD.
+        if i + 1 < len && !spans_target(i, 2) {
+            if let (StackOp::LocalGetD(src), StackOp::LocalSetD(dst)) = (&ops[i], &ops[i + 1]) {
+                if *src < 256 && *dst < 256 {
+                    let src = *src as u8;
+                    let dst = *dst as u8;
+                    ops[i] = StackOp::FusedGetSetD(src, dst);
+                    ops[i + 1] = StackOp::Nop;
+                    i += 2;
+                    continue;
+                }
+            }
         }
 
         // Float-window: fw.local.get a + fw.local.get b + fw.f32.mul + fw.f32.add
@@ -1110,6 +1416,18 @@ fn strip_nops(func: &mut StackFunction) {
                 let target_new = new_idx[target_old];
                 let new_off = target_new as i32 - new_idx[old] as i32 - 1;
                 StackOp::FusedGetF32ConstFGtJumpIfZeroF(*n, *v, new_off)
+            }
+            StackOp::FusedF64ConstDGtJumpIfZeroD(v, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedF64ConstDGtJumpIfZeroD(*v, new_off)
+            }
+            StackOp::FusedGetF64ConstDGtJumpIfZeroD(n, v, off) => {
+                let target_old = (old as i64 + 1 + *off as i64) as usize;
+                let target_new = new_idx[target_old];
+                let new_off = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::FusedGetF64ConstDGtJumpIfZeroD(*n, *v, new_off)
             }
             other => other.clone(),
         };

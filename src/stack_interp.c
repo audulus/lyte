@@ -103,6 +103,16 @@ static inline void store_f32_unaligned(void* p, float v) {
     memcpy(p, &v, sizeof(v));
 }
 
+static inline double load_f64_unaligned(const void* p) {
+    double v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline void store_f64_unaligned(void* p, double v) {
+    memcpy(p, &v, sizeof(v));
+}
+
 // ============================================================================
 // Integer power
 // ============================================================================
@@ -147,7 +157,7 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // cross between GPR and FP register files, dodging the ~3-cycle
 // fmov/movq penalty that the old "f32 bit-pattern in u64" design
 // paid on every float arithmetic op.
-#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, uint64_t* locals, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, void* _nh_raw
+#define HANDLER_ARGS Ctx* ctx, Instruction* pc, uint64_t* sp, float* fsp, double* dfsp, uint64_t* locals, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t t3, float f0, float f1, float f2, float f3, double d0, double d1, double d2, double d3, void* _nh_raw
 
 #define HANDLER(name) PRESERVE_NONE void name(HANDLER_ARGS)
 // Cast nh from void* for use in NEXT macro.
@@ -163,14 +173,14 @@ static int64_t ipow(int64_t base, uint32_t exp) {
     do { \
         Instruction* _next = pc + 1; \
         void* _new_nh = (_next + 1)->handler; \
-        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return ((Handler)_nh_raw)(ctx, _next, sp, fsp, dfsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, d0, d1, d2, d3, _new_nh); \
     } while(0)
 
 #define DISPATCH() \
     do { \
         Handler _target_h = (Handler)pc->handler; \
         void* _new_nh = (pc + 1)->handler; \
-        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, _new_nh); \
+        __attribute__((musttail)) return _target_h(ctx, pc, sp, fsp, dfsp, locals, t0, t1, t2, t3, f0, f1, f2, f3, d0, d1, d2, d3, _new_nh); \
     } while(0)
 
 // How many backward jumps between cancel-callback invocations. Must match
@@ -210,6 +220,22 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 
 #define FDROP1() do { f0 = f1; f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
 #define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
+
+// f64 TOS window push/pop — exact mirror of the f32 window above, but
+// typed `double` and spilling through `dfsp`. Keeps f64 values in FP
+// registers across arithmetic, dodging the GPR↔FP crossings the old
+// integer-window f64 path paid on every op.
+#define DPUSH(val) do { \
+    *dfsp++ = d3; \
+    d3 = d2; d2 = d1; d1 = d0; d0 = (val); \
+} while(0)
+
+#define DPOP(dst) do { \
+    (dst) = d0; d0 = d1; d1 = d2; d2 = d3; d3 = *--dfsp; \
+} while(0)
+
+#define DDROP1() do { d0 = d1; d1 = d2; d2 = d3; d3 = *--dfsp; } while(0)
+#define DBINOP_SHIFT() do { d1 = d2; d2 = d3; d3 = *--dfsp; } while(0)
 
 // ============================================================================
 // Handlers
@@ -1766,6 +1792,226 @@ HANDLER(op_print_f32_f) {
     NEXT();
 }
 
+// ============================================================================
+// Double-window (D) handlers — the f64 analogue of the float window.
+// f64 values live in d0..d3 (FP regs), spilling through dfsp. Each handler
+// mirrors its f32 counterpart above with float→double / f→d / fsp→dfsp.
+// ============================================================================
+
+// --- Constants and locals (double window) ---
+
+HANDLER(op_f64_const_d) {
+    // imm[0] is the f64 bit pattern. Reinterpret as double and push.
+    DPUSH(as_f64(pc->imm[0]));
+    NEXT();
+}
+
+// imm[0] is a pre-shifted byte offset into locals[] (see encode_imm),
+// so the handler emits a single `ldr d, [locals, imm0]` with no shift.
+HANDLER(op_local_get_d) {
+    DPUSH(*(double*)((uint8_t*)locals + pc->imm[0]));
+    NEXT();
+}
+HANDLER(op_local_set_d) {
+    *(double*)((uint8_t*)locals + pc->imm[0]) = d0;
+    DDROP1();
+    NEXT();
+}
+HANDLER(op_local_tee_d) {
+    *(double*)((uint8_t*)locals + pc->imm[0]) = d0;
+    NEXT();
+}
+HANDLER(op_drop_d) {
+    DDROP1();
+    NEXT();
+}
+
+// --- Double arithmetic (binary): pop b=d0, a=d1, push a OP b ---
+
+HANDLER(op_dadd_d) {
+    d0 = d1 + d0;
+    DBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_dsub_d) {
+    d0 = d1 - d0;
+    DBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_dmul_d) {
+    d0 = d1 * d0;
+    DBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_ddiv_d) {
+    d0 = d1 / d0;
+    DBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_dpow_d) {
+    d0 = pow(d1, d0);
+    DBINOP_SHIFT();
+    NEXT();
+}
+HANDLER(op_dneg_d) {
+    d0 = -d0;
+    NEXT();
+}
+
+// --- Comparisons: pop 2 from d-window, push 0/1 to int window ---
+
+#define DW_CMP(name, op) \
+HANDLER(name) { \
+    PUSH((d1 op d0) ? 1ULL : 0ULL); \
+    /* drop both doubles */ \
+    d0 = d2; d1 = d3; d2 = *--dfsp; d3 = *--dfsp; \
+    NEXT(); \
+}
+DW_CMP(op_deq_d, ==)
+DW_CMP(op_dne_d, !=)
+DW_CMP(op_dlt_d, <)
+DW_CMP(op_dle_d, <=)
+DW_CMP(op_dgt_d, >)
+DW_CMP(op_dge_d, >=)
+
+// --- Conversions / window crossings ---
+
+HANDLER(op_f64_to_i32_d) {
+    // Pop d0, push int t0 = (int32)d0
+    int64_t v = (int64_t)(int32_t)d0;
+    PUSH((uint64_t)v);
+    DDROP1();
+    NEXT();
+}
+HANDLER(op_i32_to_f64_d) {
+    // Pop t0 (int32), push d0 = (double)i
+    double v = (double)(int32_t)t0;
+    DROP1();
+    DPUSH(v);
+    NEXT();
+}
+HANDLER(op_to_bits_d) {
+    // Pop d0, push int t0 = bit pattern of d0
+    PUSH(from_f64(d0));
+    DDROP1();
+    NEXT();
+}
+HANDLER(op_from_bits_d) {
+    // Pop t0 (bit pattern), push d0 = double
+    double v = as_f64(t0);
+    DROP1();
+    DPUSH(v);
+    NEXT();
+}
+HANDLER(op_f32_to_f64_d) {
+    // Pop f0 (f32) from float window, push widened d0 (f64).
+    double v = (double)f0;
+    FDROP1();
+    DPUSH(v);
+    NEXT();
+}
+HANDLER(op_f64_to_f32_d) {
+    // Pop d0 (f64) from double window, push narrowed f0 (f32).
+    float v = (float)d0;
+    DDROP1();
+    FPUSH(v);
+    NEXT();
+}
+
+// --- Double memory loads: pop addr from int window, push to d-window ---
+
+HANDLER(op_load_f64_d) {
+    double v = load_f64_unaligned((const void*)t0);
+    DROP1();
+    DPUSH(v);
+    NEXT();
+}
+HANDLER(op_load_f64_off_d) {
+    int32_t off = (int32_t)pc->imm[0];
+    double v = load_f64_unaligned((uint8_t*)t0 + off);
+    DROP1();
+    DPUSH(v);
+    NEXT();
+}
+
+// --- Double memory stores: pop d0 (value), pop t0 (addr) ---
+
+HANDLER(op_store_f64_d) {
+    store_f64_unaligned((void*)t0, d0);
+    DROP1();
+    DDROP1();
+    NEXT();
+}
+HANDLER(op_store_f64_off_d) {
+    int32_t off = (int32_t)pc->imm[0];
+    store_f64_unaligned((uint8_t*)t0 + off, d0);
+    DROP1();
+    DDROP1();
+    NEXT();
+}
+
+// --- Math intrinsics (double window) ---
+
+#define DW_F64_UNARY(name, func) \
+HANDLER(name) { \
+    d0 = func(d0); \
+    NEXT(); \
+}
+DW_F64_UNARY(op_sin_f64_d,   sin)
+DW_F64_UNARY(op_cos_f64_d,   cos)
+DW_F64_UNARY(op_tan_f64_d,   tan)
+DW_F64_UNARY(op_asin_f64_d,  asin)
+DW_F64_UNARY(op_acos_f64_d,  acos)
+DW_F64_UNARY(op_atan_f64_d,  atan)
+DW_F64_UNARY(op_sinh_f64_d,  sinh)
+DW_F64_UNARY(op_cosh_f64_d,  cosh)
+DW_F64_UNARY(op_tanh_f64_d,  tanh)
+DW_F64_UNARY(op_asinh_f64_d, asinh)
+DW_F64_UNARY(op_acosh_f64_d, acosh)
+DW_F64_UNARY(op_atanh_f64_d, atanh)
+DW_F64_UNARY(op_ln_f64_d,    log)
+DW_F64_UNARY(op_exp_f64_d,   exp)
+DW_F64_UNARY(op_exp2_f64_d,  exp2)
+DW_F64_UNARY(op_log10_f64_d, log10)
+DW_F64_UNARY(op_log2_f64_d,  log2)
+DW_F64_UNARY(op_sqrt_f64_d,  sqrt)
+DW_F64_UNARY(op_abs_f64_d,   fabs)
+DW_F64_UNARY(op_floor_f64_d, floor)
+DW_F64_UNARY(op_ceil_f64_d,  ceil)
+
+HANDLER(op_atan2_f64_d) {
+    // Binary in d-window: pop b=d0, a=d1, push atan2(a, b).
+    d0 = atan2(d1, d0);
+    DBINOP_SHIFT();
+    NEXT();
+}
+
+HANDLER(op_isnan_f64_d) {
+    int v = isnan(d0) ? 1 : 0;
+    PUSH((uint64_t)v);
+    DDROP1();
+    NEXT();
+}
+HANDLER(op_isinf_f64_d) {
+    int v = isinf(d0) ? 1 : 0;
+    PUSH((uint64_t)v);
+    DDROP1();
+    NEXT();
+}
+
+// --- Debug ---
+
+HANDLER(op_print_f64_d) {
+    double val = d0;
+    DDROP1();
+    if (val == floor(val) && fabs(val) < 1e15) {
+        printf("%.1f\n", val);
+    } else {
+        printf("%g\n", val);
+    }
+    NEXT();
+}
+
 // --- Float-window fused superinstructions (Phase 5) ---
 
 // NOTE: imm[0] and imm[1] on these handlers are pre-shifted byte offsets
@@ -1960,6 +2206,119 @@ HANDLER(op_fused_get_f32const_fgt_jiz_f) {
 }
 
 // ============================================================================
+// Double-window (D) fused superinstructions — mirror the F-window set.
+// Operands are read directly from locals[] by pre-shifted byte offset.
+// ============================================================================
+
+HANDLER(op_fused_get_get_dmul_d) {
+    double a = *(double*)((uint8_t*)locals + pc->imm[0]);
+    double b = *(double*)((uint8_t*)locals + pc->imm[1]);
+    DPUSH(a * b);
+    NEXT();
+}
+HANDLER(op_fused_get_get_dmul_dadd_d) {
+    double a = *(double*)((uint8_t*)locals + pc->imm[0]);
+    double b = *(double*)((uint8_t*)locals + pc->imm[1]);
+    d0 = d0 + a * b;
+    NEXT();
+}
+HANDLER(op_fused_get_get_dmul_dsub_d) {
+    double a = *(double*)((uint8_t*)locals + pc->imm[0]);
+    double b = *(double*)((uint8_t*)locals + pc->imm[1]);
+    d0 = d0 - a * b;
+    NEXT();
+}
+
+#define DMUL_SUM_HANDLER(name, TERMS) \
+HANDLER(name) { \
+    uint8_t sub_mask = (uint8_t)pc->imm[2]; \
+    double acc = 0.0; \
+    for (int i = 0; i < (TERMS); i++) { \
+        uint8_t a_idx = imm_u8(pc, i * 2); \
+        uint8_t b_idx = imm_u8(pc, i * 2 + 1); \
+        double a = *(double*)((uint8_t*)locals + (size_t)a_idx * 8); \
+        double b = *(double*)((uint8_t*)locals + (size_t)b_idx * 8); \
+        double prod = a * b; \
+        acc = (sub_mask & (1u << i)) ? (acc - prod) : (acc + prod); \
+    } \
+    DPUSH(acc); \
+    NEXT(); \
+}
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum2_d, 2)
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum3_d, 3)
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum4_d, 4)
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum5_d, 5)
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum6_d, 6)
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum7_d, 7)
+DMUL_SUM_HANDLER(op_fused_get_get_dmul_sum8_d, 8)
+
+#define COPY_D_PAIR(N) do { \
+    uint8_t src = imm_u8(pc, (N) * 2); \
+    uint8_t dst = imm_u8(pc, (N) * 2 + 1); \
+    *(double*)((uint8_t*)locals + (size_t)dst * 8) = *(double*)((uint8_t*)locals + (size_t)src * 8); \
+} while (0)
+
+HANDLER(op_fused_get_set_d) {
+    COPY_D_PAIR(0);
+    NEXT();
+}
+HANDLER(op_fused_get_set2_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1);
+    NEXT();
+}
+HANDLER(op_fused_get_set3_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1); COPY_D_PAIR(2);
+    NEXT();
+}
+HANDLER(op_fused_get_set4_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1); COPY_D_PAIR(2); COPY_D_PAIR(3);
+    NEXT();
+}
+HANDLER(op_fused_get_set5_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1); COPY_D_PAIR(2); COPY_D_PAIR(3); COPY_D_PAIR(4);
+    NEXT();
+}
+HANDLER(op_fused_get_set6_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1); COPY_D_PAIR(2); COPY_D_PAIR(3); COPY_D_PAIR(4);
+    COPY_D_PAIR(5);
+    NEXT();
+}
+HANDLER(op_fused_get_set7_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1); COPY_D_PAIR(2); COPY_D_PAIR(3); COPY_D_PAIR(4);
+    COPY_D_PAIR(5); COPY_D_PAIR(6);
+    NEXT();
+}
+HANDLER(op_fused_get_set8_d) {
+    COPY_D_PAIR(0); COPY_D_PAIR(1); COPY_D_PAIR(2); COPY_D_PAIR(3); COPY_D_PAIR(4);
+    COPY_D_PAIR(5); COPY_D_PAIR(6); COPY_D_PAIR(7);
+    NEXT();
+}
+
+HANDLER(op_fused_f64const_dgt_jiz_d) {
+    double val = d0;
+    double limit = as_f64(pc->imm[0]);
+    DDROP1();
+    if (!(val > limit)) {
+        int64_t off = (int64_t)pc->imm[1];
+        pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
+        DISPATCH();
+    }
+    NEXT();
+}
+HANDLER(op_fused_get_f64const_dgt_jiz_d) {
+    double val = *(double*)((uint8_t*)locals + pc->imm[0]);
+    double limit = as_f64(pc->imm[1]);
+    if (!(val > limit)) {
+        int64_t off = (int64_t)pc->imm[2];
+        pc = pc + 1 + off;
+        if (off < 0) POLL_CANCEL();
+        DISPATCH();
+    }
+    NEXT();
+}
+
+// ============================================================================
 // Entry point
 // ============================================================================
 
@@ -1992,7 +2351,7 @@ int64_t stack_interp_run(Ctx* ctx, uint32_t entry_func) {
     // and x86-64.
     Instruction* pc = ctx->functions[entry_func].code;
     Handler initial_nh = (Handler)(pc + 1)->handler;
-    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, entry_locals, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, initial_nh);
+    ((Handler)pc->handler)(ctx, pc, ctx->stack_base, ctx->float_stack, ctx->double_stack, entry_locals, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0, 0.0, 0.0, 0.0, initial_nh);
 
     return ctx->result;
 }

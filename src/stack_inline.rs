@@ -154,6 +154,12 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => {
                 Some((i as i64 + 1 + *off as i64) as usize)
             }
+            StackOp::FusedF64ConstDGtJumpIfZeroD(_, off) => {
+                Some((i as i64 + 1 + *off as i64) as usize)
+            }
+            StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => {
+                Some((i as i64 + 1 + *off as i64) as usize)
+            }
             _ => None,
         };
 
@@ -183,6 +189,8 @@ fn inline_calls_in(func: &mut StackFunction, bodies: &[Option<Vec<StackOp>>]) {
                 | StackOp::FusedBoundsCheck8JumpIfZero(_, o) => *o = new_off as i32,
                 StackOp::FusedF32ConstFGtJumpIfZeroF(_, o) => *o = new_off as i32,
                 StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, o) => *o = new_off as i32,
+                StackOp::FusedF64ConstDGtJumpIfZeroD(_, o) => *o = new_off as i32,
+                StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, o) => *o = new_off as i32,
                 _ => unreachable!(),
             }
         }

@@ -42,6 +42,8 @@ struct Ctx {
     stack_base: *mut u64,
     float_stack: *mut f32,
     float_stack_cap: usize,
+    double_stack: *mut f64,
+    double_stack_cap: usize,
     closure_ptr: u64,
     result: i64,
     done: i32,
@@ -286,6 +288,82 @@ extern "C" {
     fn op_fused_get_set8_f();
     fn op_fused_f32const_fgt_jiz_f();
     fn op_fused_get_f32const_fgt_jiz_f();
+
+    // === Double-window (D) handlers ===
+    fn op_f64_const_d();
+    fn op_local_get_d();
+    fn op_local_set_d();
+    fn op_local_tee_d();
+    fn op_drop_d();
+    fn op_dadd_d();
+    fn op_dsub_d();
+    fn op_dmul_d();
+    fn op_ddiv_d();
+    fn op_dpow_d();
+    fn op_dneg_d();
+    fn op_deq_d();
+    fn op_dne_d();
+    fn op_dlt_d();
+    fn op_dle_d();
+    fn op_dgt_d();
+    fn op_dge_d();
+    fn op_f64_to_i32_d();
+    fn op_i32_to_f64_d();
+    fn op_to_bits_d();
+    fn op_from_bits_d();
+    fn op_f32_to_f64_d();
+    fn op_f64_to_f32_d();
+    fn op_load_f64_d();
+    fn op_load_f64_off_d();
+    fn op_store_f64_d();
+    fn op_store_f64_off_d();
+    fn op_sin_f64_d();
+    fn op_cos_f64_d();
+    fn op_tan_f64_d();
+    fn op_asin_f64_d();
+    fn op_acos_f64_d();
+    fn op_atan_f64_d();
+    fn op_sinh_f64_d();
+    fn op_cosh_f64_d();
+    fn op_tanh_f64_d();
+    fn op_asinh_f64_d();
+    fn op_acosh_f64_d();
+    fn op_atanh_f64_d();
+    fn op_ln_f64_d();
+    fn op_exp_f64_d();
+    fn op_exp2_f64_d();
+    fn op_log10_f64_d();
+    fn op_log2_f64_d();
+    fn op_sqrt_f64_d();
+    fn op_abs_f64_d();
+    fn op_floor_f64_d();
+    fn op_ceil_f64_d();
+    fn op_atan2_f64_d();
+    fn op_isnan_f64_d();
+    fn op_isinf_f64_d();
+    fn op_print_f64_d();
+
+    // === Double-window fused handlers ===
+    fn op_fused_get_get_dmul_d();
+    fn op_fused_get_get_dmul_dadd_d();
+    fn op_fused_get_get_dmul_dsub_d();
+    fn op_fused_get_get_dmul_sum2_d();
+    fn op_fused_get_get_dmul_sum3_d();
+    fn op_fused_get_get_dmul_sum4_d();
+    fn op_fused_get_get_dmul_sum5_d();
+    fn op_fused_get_get_dmul_sum6_d();
+    fn op_fused_get_get_dmul_sum7_d();
+    fn op_fused_get_get_dmul_sum8_d();
+    fn op_fused_get_set_d();
+    fn op_fused_get_set2_d();
+    fn op_fused_get_set3_d();
+    fn op_fused_get_set4_d();
+    fn op_fused_get_set5_d();
+    fn op_fused_get_set6_d();
+    fn op_fused_get_set7_d();
+    fn op_fused_get_set8_d();
+    fn op_fused_f64const_dgt_jiz_d();
+    fn op_fused_get_f64const_dgt_jiz_d();
 }
 
 /// Get the C handler function pointer for a StackOp.
@@ -522,6 +600,84 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, _) => {
             op_fused_get_f32const_fgt_jiz_f as *const ()
         }
+
+        // === Double-window (D) ops ===
+        StackOp::F64ConstD(_) => op_f64_const_d as *const (),
+        StackOp::LocalGetD(_) => op_local_get_d as *const (),
+        StackOp::LocalSetD(_) => op_local_set_d as *const (),
+        StackOp::LocalTeeD(_) => op_local_tee_d as *const (),
+        StackOp::DropD => op_drop_d as *const (),
+        StackOp::DAddD => op_dadd_d as *const (),
+        StackOp::DSubD => op_dsub_d as *const (),
+        StackOp::DMulD => op_dmul_d as *const (),
+        StackOp::DDivD => op_ddiv_d as *const (),
+        StackOp::DPowD => op_dpow_d as *const (),
+        StackOp::DNegD => op_dneg_d as *const (),
+        StackOp::DEqD => op_deq_d as *const (),
+        StackOp::DNeD => op_dne_d as *const (),
+        StackOp::DLtD => op_dlt_d as *const (),
+        StackOp::DLeD => op_dle_d as *const (),
+        StackOp::DGtD => op_dgt_d as *const (),
+        StackOp::DGeD => op_dge_d as *const (),
+        StackOp::F64ToI32D => op_f64_to_i32_d as *const (),
+        StackOp::I32ToF64D => op_i32_to_f64_d as *const (),
+        StackOp::DToBitsD => op_to_bits_d as *const (),
+        StackOp::BitsToDD => op_from_bits_d as *const (),
+        StackOp::F32ToF64D => op_f32_to_f64_d as *const (),
+        StackOp::F64ToF32D => op_f64_to_f32_d as *const (),
+        StackOp::LoadF64D => op_load_f64_d as *const (),
+        StackOp::LoadF64OffD(_) => op_load_f64_off_d as *const (),
+        StackOp::StoreF64D => op_store_f64_d as *const (),
+        StackOp::StoreF64OffD(_) => op_store_f64_off_d as *const (),
+        StackOp::SinF64D => op_sin_f64_d as *const (),
+        StackOp::CosF64D => op_cos_f64_d as *const (),
+        StackOp::TanF64D => op_tan_f64_d as *const (),
+        StackOp::AsinF64D => op_asin_f64_d as *const (),
+        StackOp::AcosF64D => op_acos_f64_d as *const (),
+        StackOp::AtanF64D => op_atan_f64_d as *const (),
+        StackOp::SinhF64D => op_sinh_f64_d as *const (),
+        StackOp::CoshF64D => op_cosh_f64_d as *const (),
+        StackOp::TanhF64D => op_tanh_f64_d as *const (),
+        StackOp::AsinhF64D => op_asinh_f64_d as *const (),
+        StackOp::AcoshF64D => op_acosh_f64_d as *const (),
+        StackOp::AtanhF64D => op_atanh_f64_d as *const (),
+        StackOp::LnF64D => op_ln_f64_d as *const (),
+        StackOp::ExpF64D => op_exp_f64_d as *const (),
+        StackOp::Exp2F64D => op_exp2_f64_d as *const (),
+        StackOp::Log10F64D => op_log10_f64_d as *const (),
+        StackOp::Log2F64D => op_log2_f64_d as *const (),
+        StackOp::SqrtF64D => op_sqrt_f64_d as *const (),
+        StackOp::AbsF64D => op_abs_f64_d as *const (),
+        StackOp::FloorF64D => op_floor_f64_d as *const (),
+        StackOp::CeilF64D => op_ceil_f64_d as *const (),
+        StackOp::Atan2F64D => op_atan2_f64_d as *const (),
+        StackOp::IsnanF64D => op_isnan_f64_d as *const (),
+        StackOp::IsinfF64D => op_isinf_f64_d as *const (),
+        StackOp::PrintF64D => op_print_f64_d as *const (),
+
+        // === Double-window fused ops ===
+        StackOp::FusedGetGetDMulD(_, _) => op_fused_get_get_dmul_d as *const (),
+        StackOp::FusedGetGetDMulDAddD(_, _) => op_fused_get_get_dmul_dadd_d as *const (),
+        StackOp::FusedGetGetDMulDSubD(_, _) => op_fused_get_get_dmul_dsub_d as *const (),
+        StackOp::FusedGetGetDMulSum2D(_, _) => op_fused_get_get_dmul_sum2_d as *const (),
+        StackOp::FusedGetGetDMulSum3D(_, _) => op_fused_get_get_dmul_sum3_d as *const (),
+        StackOp::FusedGetGetDMulSum4D(_, _) => op_fused_get_get_dmul_sum4_d as *const (),
+        StackOp::FusedGetGetDMulSum5D(_, _) => op_fused_get_get_dmul_sum5_d as *const (),
+        StackOp::FusedGetGetDMulSum6D(_, _) => op_fused_get_get_dmul_sum6_d as *const (),
+        StackOp::FusedGetGetDMulSum7D(_, _) => op_fused_get_get_dmul_sum7_d as *const (),
+        StackOp::FusedGetGetDMulSum8D(_, _) => op_fused_get_get_dmul_sum8_d as *const (),
+        StackOp::FusedGetSetD(_, _) => op_fused_get_set_d as *const (),
+        StackOp::FusedGetSet2D(_) => op_fused_get_set2_d as *const (),
+        StackOp::FusedGetSet3D(_) => op_fused_get_set3_d as *const (),
+        StackOp::FusedGetSet4D(_) => op_fused_get_set4_d as *const (),
+        StackOp::FusedGetSet5D(_) => op_fused_get_set5_d as *const (),
+        StackOp::FusedGetSet6D(_) => op_fused_get_set6_d as *const (),
+        StackOp::FusedGetSet7D(_) => op_fused_get_set7_d as *const (),
+        StackOp::FusedGetSet8D(_) => op_fused_get_set8_d as *const (),
+        StackOp::FusedF64ConstDGtJumpIfZeroD(_, _) => op_fused_f64const_dgt_jiz_d as *const (),
+        StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, _) => {
+            op_fused_get_f64const_dgt_jiz_d as *const ()
+        }
     }
 }
 
@@ -719,6 +875,42 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetF32ConstFGtJumpIfZeroF(n, v, off) => {
             [(*n as u64) * 8, f32::to_bits(*v) as u64, *off as i64 as u64]
         }
+        // === Double-window (D) ops ===
+        // f64 const: imm[0] is the f64 bit pattern. Local indices are
+        // pre-shifted to byte offsets so the handler emits `ldr d` with
+        // no scale (locals[] has 8-byte stride, same as the f32 path).
+        StackOp::F64ConstD(v) => [f64::to_bits(*v), 0, 0],
+        StackOp::LocalGetD(n) | StackOp::LocalSetD(n) | StackOp::LocalTeeD(n) => {
+            [(*n as u64) * 8, 0, 0]
+        }
+        StackOp::LoadF64OffD(o) | StackOp::StoreF64OffD(o) => [*o as i64 as u64, 0, 0],
+        // Double-window fused ops. get_get_dmul* carry two pre-shifted byte
+        // offsets; the sum/get-set chains carry raw u8 local indices (the
+        // handler shifts them); the compare-jumps carry an f64 const + off.
+        StackOp::FusedGetGetDMulD(a, b)
+        | StackOp::FusedGetGetDMulDAddD(a, b)
+        | StackOp::FusedGetGetDMulDSubD(a, b) => [(*a as u64) * 8, (*b as u64) * 8, 0],
+        StackOp::FusedGetGetDMulSum2D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetDMulSum3D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetDMulSum4D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetDMulSum5D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetDMulSum6D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetDMulSum7D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetGetDMulSum8D(p, mask) => pack_u8_imms_with_tail(p, *mask),
+        StackOp::FusedGetSetD(src, dst) => pack_u8_imms(&[*src, *dst]),
+        StackOp::FusedGetSet2D(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet3D(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet4D(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet5D(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet6D(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet7D(p) => pack_u8_imms(p),
+        StackOp::FusedGetSet8D(p) => pack_u8_imms(p),
+        StackOp::FusedF64ConstDGtJumpIfZeroD(v, off) => {
+            [f64::to_bits(*v), *off as i64 as u64, 0]
+        }
+        StackOp::FusedGetF64ConstDGtJumpIfZeroD(n, v, off) => {
+            [(*n as u64) * 8, f64::to_bits(*v), *off as i64 as u64]
+        }
         _ => [0, 0, 0],
     }
 }
@@ -749,6 +941,7 @@ pub struct StackBackend {
     operand_stack: Vec<u64>,
     frame_stack: Vec<u64>,
     float_stack: Vec<f32>,
+    double_stack: Vec<f64>,
     ctx: Ctx,
 }
 
@@ -793,6 +986,8 @@ impl StackBackend {
         let mut frame_stack: Vec<u64> = vec![0u64; frame_stack_cap];
         let float_stack_cap: usize = 64 * 1024;
         let mut float_stack: Vec<f32> = vec![0.0f32; float_stack_cap];
+        let double_stack_cap: usize = 64 * 1024;
+        let mut double_stack: Vec<f64> = vec![0.0f64; double_stack_cap];
 
         let ctx = Ctx {
             call_stack: call_stack.as_mut_ptr(),
@@ -807,6 +1002,8 @@ impl StackBackend {
             stack_base: operand_stack.as_mut_ptr(),
             float_stack: float_stack.as_mut_ptr(),
             float_stack_cap,
+            double_stack: double_stack.as_mut_ptr(),
+            double_stack_cap,
             closure_ptr: 0,
             result: 0,
             done: 0,
@@ -825,6 +1022,7 @@ impl StackBackend {
             operand_stack,
             frame_stack,
             float_stack,
+            double_stack,
             ctx,
         }
     }
@@ -869,6 +1067,7 @@ impl StackBackend {
             &self.operand_stack,
             &self.frame_stack,
             &self.float_stack,
+            &self.double_stack,
         );
         result
     }
