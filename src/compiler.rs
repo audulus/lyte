@@ -1980,7 +1980,31 @@ mod tests {
     // At Return/ReturnVoid the entry depth must be 0 (plus the op's
     // own delta, which is 0 for both return ops).
     fn assert_f_window_balanced(program: &crate::stack_ir::StackProgram, label: &str) {
-        use crate::stack_depth::float_stack_delta;
+        assert_window_balanced(
+            program,
+            label,
+            crate::stack_depth::float_stack_delta,
+            "f-window",
+        );
+        assert_window_balanced(
+            program,
+            label,
+            crate::stack_depth::double_stack_delta,
+            "d-window",
+        );
+    }
+
+    /// Verify a register-window (float or double) stays balanced across the
+    /// CFG: every merge agrees on depth, every Return leaves depth 0, and no
+    /// op underflows. `delta` selects which window to check.
+    #[cfg(test)]
+    fn assert_window_balanced(
+        program: &crate::stack_ir::StackProgram,
+        label: &str,
+        delta: fn(&crate::stack_ir::StackOp) -> i32,
+        window: &str,
+    ) {
+        let float_stack_delta = delta;
         use crate::stack_ir::StackOp;
 
         for func in &program.functions {
@@ -2044,7 +2068,9 @@ mod tests {
                         }
                     }
                     StackOp::FusedF32ConstFGtJumpIfZeroF(_, off)
-                    | StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => {
+                    | StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off)
+                    | StackOp::FusedF64ConstDGtJumpIfZeroD(_, off)
+                    | StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => {
                         let t = (i as i64 + 1 + *off as i64) as usize;
                         if t < n {
                             succs.push(t);
@@ -2066,9 +2092,9 @@ mod tests {
                         worklist.push(s);
                     } else if in_depth[s] != d_out {
                         panic!(
-                            "[{}] {}: f-window depth mismatch at op {} \
+                            "[{}] {}: {} depth mismatch at op {} \
                              (from op {}): {} vs {}",
-                            label, func.name, s, i, in_depth[s], d_out,
+                            label, func.name, window, s, i, in_depth[s], d_out,
                         );
                     }
                 }
@@ -2081,9 +2107,10 @@ mod tests {
                 if matches!(op, StackOp::Return | StackOp::ReturnVoid) {
                     assert!(
                         in_depth[i] == 0,
-                        "[{}] {}: f-window leaks {} slot(s) at return op {}",
+                        "[{}] {}: {} leaks {} slot(s) at return op {}",
                         label,
                         func.name,
+                        window,
                         in_depth[i],
                         i,
                     );
@@ -2091,9 +2118,10 @@ mod tests {
                 let d_out = in_depth[i] + float_stack_delta(op);
                 assert!(
                     d_out >= 0,
-                    "[{}] {}: f-window underflow at op {} ({:?}): in={} delta={}",
+                    "[{}] {}: {} underflow at op {} ({:?}): in={} delta={}",
                     label,
                     func.name,
+                    window,
                     i,
                     op,
                     in_depth[i],

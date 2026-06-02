@@ -563,9 +563,11 @@ impl<'a> FunctionTranslator<'a> {
                     // path. Just emit the return.
                     func.emit(StackOp::ReturnVoid);
                 } else {
-                    // Fall-through return: bridge f32 results back to t0.
+                    // Fall-through return: bridge f32/f64 results back to t0.
                     if matches!(&*self.decl.ret, Type::Float32) {
                         func.emit(StackOp::FToBitsF);
+                    } else if matches!(&*self.decl.ret, Type::Float64) {
+                        func.emit(StackOp::DToBitsD);
                     }
                     func.emit(StackOp::Return);
                 }
@@ -600,6 +602,8 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = self.expr_type(expr);
                 if matches!(&*ty, Type::Float32) {
                     func.emit(StackOp::DropF);
+                } else if matches!(&*ty, Type::Float64) {
+                    func.emit(StackOp::DropD);
                 } else {
                     func.emit(StackOp::Drop);
                 }
@@ -663,6 +667,8 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = self.expr_type(expr);
                 if matches!(&*ty, Type::Float32) {
                     func.emit(StackOp::DropF);
+                } else if matches!(&*ty, Type::Float64) {
+                    func.emit(StackOp::DropD);
                 } else {
                     func.emit(StackOp::Drop);
                 }
@@ -709,7 +715,7 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     Type::Float64 => {
                         let value: f64 = s.parse().unwrap_or(0.0);
-                        func.emit(StackOp::F64Const(value));
+                        func.emit(StackOp::F64ConstD(value));
                     }
                     _ => {
                         let value: f32 = s.parse().unwrap_or(0.0);
@@ -796,17 +802,10 @@ impl<'a> FunctionTranslator<'a> {
                     // Scalar: translate init, store in local.
                     self.translate_expr(init, func);
                     let local = self.alloc_scalar();
-                    let is_f32 = matches!(&*ty, Type::Float32);
                     if self.void_ctx {
-                        if is_f32 {
-                            func.emit(StackOp::LocalSetF(local));
-                        } else {
-                            func.emit(StackOp::LocalSet(local));
-                        }
-                    } else if is_f32 {
-                        func.emit(StackOp::LocalTeeF(local));
+                        self.emit_local_set(&ty, local, func);
                     } else {
-                        func.emit(StackOp::LocalTee(local));
+                        self.emit_local_tee(&ty, local, func);
                     }
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
@@ -832,15 +831,10 @@ impl<'a> FunctionTranslator<'a> {
 
                 if !self.is_ptr_type(&ty) {
                     let local = self.alloc_scalar();
-                    let is_f32 = matches!(&*ty, Type::Float32);
                     if let Some(init_id) = init {
                         if !self.try_emit_binop_set(local, init_id, func) {
                             self.translate_expr(init_id, func);
-                            if is_f32 {
-                                func.emit(StackOp::LocalSetF(local));
-                            } else {
-                                func.emit(StackOp::LocalSet(local));
-                            }
+                            self.emit_local_set(&ty, local, func);
                         }
                     } else {
                         // Uninitialized local — zero the slot via the int window.
@@ -940,11 +934,13 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::MemCopy(size));
                     func.emit(StackOp::ReturnVoid);
                 } else {
-                    // f32 return values travel through t0 (int window). If
-                    // the preceding expression left the value in the float
+                    // f32/f64 return values travel through t0 (int window).
+                    // If the preceding expression left the value in a FP
                     // window, bridge it back to the int window first.
                     if matches!(&*ret_ty, Type::Float32) {
                         func.emit(StackOp::FToBitsF);
+                    } else if matches!(&*ret_ty, Type::Float64) {
+                        func.emit(StackOp::DToBitsD);
                     }
                     func.emit(StackOp::Return);
                 }
@@ -1073,11 +1069,7 @@ impl<'a> FunctionTranslator<'a> {
         if let Some(&kind) = self.variables.get(&name) {
             match kind {
                 LocalKind::Scalar(slot) => {
-                    if matches!(&*ty, Type::Float32) {
-                        func.emit(StackOp::LocalGetF(slot));
-                    } else {
-                        func.emit(StackOp::LocalGet(slot));
-                    }
+                    self.emit_local_get(&ty, slot, func);
                 }
                 LocalKind::Reference(slot) => {
                     func.emit(StackOp::LocalGet(slot));
@@ -1198,34 +1190,34 @@ impl<'a> FunctionTranslator<'a> {
         match op {
             Binop::Plus => match &*ty {
                 Type::Float32 => func.emit(StackOp::FAddF),
-                Type::Float64 => func.emit(StackOp::DAdd),
+                Type::Float64 => func.emit(StackOp::DAddD),
                 _ => func.emit(StackOp::IAdd),
             },
             Binop::Minus => match &*ty {
                 Type::Float32 => func.emit(StackOp::FSubF),
-                Type::Float64 => func.emit(StackOp::DSub),
+                Type::Float64 => func.emit(StackOp::DSubD),
                 _ => func.emit(StackOp::ISub),
             },
             Binop::Mult => match &*ty {
                 Type::Float32 => func.emit(StackOp::FMulF),
-                Type::Float64 => func.emit(StackOp::DMul),
+                Type::Float64 => func.emit(StackOp::DMulD),
                 _ => func.emit(StackOp::IMul),
             },
             Binop::Div => match &*ty {
                 Type::Float32 => func.emit(StackOp::FDivF),
-                Type::Float64 => func.emit(StackOp::DDiv),
+                Type::Float64 => func.emit(StackOp::DDivD),
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::UDiv),
                 _ => func.emit(StackOp::IDiv),
             },
             Binop::Mod => func.emit(StackOp::IRem),
             Binop::Pow => match &*ty {
                 Type::Float32 => func.emit(StackOp::FPowF),
-                Type::Float64 => func.emit(StackOp::DPow),
+                Type::Float64 => func.emit(StackOp::DPowD),
                 _ => func.emit(StackOp::IPow),
             },
             Binop::Equal => match &*ty {
                 Type::Float32 => func.emit(StackOp::FEqF),
-                Type::Float64 => func.emit(StackOp::DEq),
+                Type::Float64 => func.emit(StackOp::DEqD),
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
                     func.emit(StackOp::MemEq(size));
@@ -1238,6 +1230,7 @@ impl<'a> FunctionTranslator<'a> {
             },
             Binop::NotEqual => match &*ty {
                 Type::Float32 => func.emit(StackOp::FNeF),
+                Type::Float64 => func.emit(StackOp::DNeD),
                 Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) => {
                     let size = ty.size(self.decls) as u32;
                     func.emit(StackOp::MemNe(size));
@@ -1250,27 +1243,27 @@ impl<'a> FunctionTranslator<'a> {
             },
             Binop::Less => match &*ty {
                 Type::Float32 => func.emit(StackOp::FLtF),
-                Type::Float64 => func.emit(StackOp::DLt),
+                Type::Float64 => func.emit(StackOp::DLtD),
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::ULt),
                 _ => func.emit(StackOp::ILt),
             },
             Binop::Greater => {
                 match &*ty {
                     Type::Float32 => func.emit(StackOp::FGtF),
-                    Type::Float64 => func.emit(StackOp::IGt), // TODO: DGt
+                    Type::Float64 => func.emit(StackOp::DGtD),
                     Type::UInt32 | Type::UInt8 => func.emit(StackOp::UGt),
                     _ => func.emit(StackOp::IGt),
                 }
             }
             Binop::Leq => match &*ty {
                 Type::Float32 => func.emit(StackOp::FLeF),
-                Type::Float64 => func.emit(StackOp::DLe),
+                Type::Float64 => func.emit(StackOp::DLeD),
                 _ => func.emit(StackOp::ILe),
             },
             Binop::Geq => {
                 match &*ty {
                     Type::Float32 => func.emit(StackOp::FGeF),
-                    Type::Float64 => func.emit(StackOp::IGe), // TODO: DGe
+                    Type::Float64 => func.emit(StackOp::DGeD),
                     Type::UInt32 | Type::UInt8 => func.emit(StackOp::IGe), // unsigned uses signed
                     _ => func.emit(StackOp::IGe),
                 }
@@ -1284,7 +1277,6 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an assignment expression.
     fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut StackFunction) {
         let lhs_ty = self.representation_type(lhs_id);
-        let lhs_is_f32 = matches!(&*lhs_ty, Type::Float32);
 
         // Check for captured variable assignment (double indirection).
         if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
@@ -1294,31 +1286,17 @@ impl<'a> FunctionTranslator<'a> {
                 let val_local = self.alloc_scalar();
                 let addr_local = *self.captured_slots.get(&name).unwrap();
                 if self.void_ctx {
-                    if lhs_is_f32 {
-                        func.emit(StackOp::LocalSetF(val_local));
-                    } else {
-                        func.emit(StackOp::LocalSet(val_local));
-                    }
-                } else if lhs_is_f32 {
-                    func.emit(StackOp::LocalTeeF(val_local));
+                    self.emit_local_set(&lhs_ty, val_local, func);
                 } else {
-                    func.emit(StackOp::LocalTee(val_local));
+                    self.emit_local_tee(&lhs_ty, val_local, func);
                 }
                 // Stack: [value]. Need to store through captured pointer.
                 // Push addr, then value, then store.
                 func.emit(StackOp::LocalGet(addr_local)); // push captured addr
-                if lhs_is_f32 {
-                    func.emit(StackOp::LocalGetF(val_local));
-                } else {
-                    func.emit(StackOp::LocalGet(val_local)); // push value
-                }
+                self.emit_local_get(&lhs_ty, val_local, func); // push value
                 self.emit_store_op(&lhs_ty, func);
                 if !self.void_ctx {
-                    if lhs_is_f32 {
-                        func.emit(StackOp::LocalGetF(val_local));
-                    } else {
-                        func.emit(StackOp::LocalGet(val_local)); // result value
-                    }
+                    self.emit_local_get(&lhs_ty, val_local, func); // result value
                 }
                 return;
             }
@@ -1336,15 +1314,9 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 self.translate_expr(rhs_id, func);
                 if self.void_ctx {
-                    if lhs_is_f32 {
-                        func.emit(StackOp::LocalSetF(slot));
-                    } else {
-                        func.emit(StackOp::LocalSet(slot));
-                    }
-                } else if lhs_is_f32 {
-                    func.emit(StackOp::LocalTeeF(slot));
+                    self.emit_local_set(&lhs_ty, slot, func);
                 } else {
-                    func.emit(StackOp::LocalTee(slot));
+                    self.emit_local_tee(&lhs_ty, slot, func);
                 }
                 return;
             }
@@ -1440,31 +1412,19 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_expr(rhs_id, func);
                 self.emit_wrap_for_expected_slice(lhs_ty, rhs_id, func);
                 let tmp = self.alloc_scalar();
-                if lhs_is_f32 {
-                    func.emit(StackOp::LocalSetF(tmp));
-                } else {
-                    func.emit(StackOp::LocalSet(tmp));
-                }
+                self.emit_local_set(&lhs_ty, tmp, func);
                 tmp
             }
         } else {
             self.translate_expr(rhs_id, func);
             self.emit_wrap_for_expected_slice(lhs_ty, rhs_id, func);
             let tmp = self.alloc_scalar();
-            if lhs_is_f32 {
-                func.emit(StackOp::LocalSetF(tmp));
-            } else {
-                func.emit(StackOp::LocalSet(tmp));
-            }
+            self.emit_local_set(&lhs_ty, tmp, func);
             tmp
         };
 
         self.translate_lvalue(lhs_id, func); // pushes address
-        if lhs_is_f32 {
-            func.emit(StackOp::LocalGetF(val_local));
-        } else {
-            func.emit(StackOp::LocalGet(val_local));
-        }
+        self.emit_local_get(&lhs_ty, val_local, func);
 
         // For Func type field assignment, only copy func_idx (8 bytes).
         if matches!(&*lhs_ty, Type::Func(_, _)) {
@@ -1481,11 +1441,7 @@ impl<'a> FunctionTranslator<'a> {
 
         self.emit_store_op(&lhs_ty, func);
         if !self.void_ctx {
-            if lhs_is_f32 {
-                func.emit(StackOp::LocalGetF(val_local));
-            } else {
-                func.emit(StackOp::LocalGet(val_local));
-            }
+            self.emit_local_get(&lhs_ty, val_local, func);
         }
     }
 
@@ -1673,7 +1629,7 @@ impl<'a> FunctionTranslator<'a> {
         match op {
             Unop::Neg => match &*ty {
                 Type::Float32 => func.emit(StackOp::FNegF),
-                Type::Float64 => func.emit(StackOp::DNeg),
+                Type::Float64 => func.emit(StackOp::DNegD),
                 _ => func.emit(StackOp::INeg),
             },
             Unop::Not => {
@@ -1728,6 +1684,7 @@ impl<'a> FunctionTranslator<'a> {
                     let ty = self.expr_type(arg_id);
                     match &*ty {
                         Type::Float32 => func.emit(StackOp::PrintF32F),
+                        Type::Float64 => func.emit(StackOp::PrintF64D),
                         _ => func.emit(StackOp::PrintI32),
                     }
                 }
@@ -1807,29 +1764,29 @@ impl<'a> FunctionTranslator<'a> {
                 ("isinf$f32", StackOp::IsinfF32F),
             ];
             let unary_math_f64: &[(&str, StackOp)] = &[
-                ("sin$f64", StackOp::SinF64),
-                ("cos$f64", StackOp::CosF64),
-                ("tan$f64", StackOp::TanF64),
-                ("asin$f64", StackOp::AsinF64),
-                ("acos$f64", StackOp::AcosF64),
-                ("atan$f64", StackOp::AtanF64),
-                ("sinh$f64", StackOp::SinhF64),
-                ("cosh$f64", StackOp::CoshF64),
-                ("tanh$f64", StackOp::TanhF64),
-                ("asinh$f64", StackOp::AsinhF64),
-                ("acosh$f64", StackOp::AcoshF64),
-                ("atanh$f64", StackOp::AtanhF64),
-                ("ln$f64", StackOp::LnF64),
-                ("exp$f64", StackOp::ExpF64),
-                ("exp2$f64", StackOp::Exp2F64),
-                ("log10$f64", StackOp::Log10F64),
-                ("log2$f64", StackOp::Log2F64),
-                ("sqrt$f64", StackOp::SqrtF64),
-                ("abs$f64", StackOp::AbsF64),
-                ("floor$f64", StackOp::FloorF64),
-                ("ceil$f64", StackOp::CeilF64),
-                ("isnan$f64", StackOp::IsnanF64),
-                ("isinf$f64", StackOp::IsinfF64),
+                ("sin$f64", StackOp::SinF64D),
+                ("cos$f64", StackOp::CosF64D),
+                ("tan$f64", StackOp::TanF64D),
+                ("asin$f64", StackOp::AsinF64D),
+                ("acos$f64", StackOp::AcosF64D),
+                ("atan$f64", StackOp::AtanF64D),
+                ("sinh$f64", StackOp::SinhF64D),
+                ("cosh$f64", StackOp::CoshF64D),
+                ("tanh$f64", StackOp::TanhF64D),
+                ("asinh$f64", StackOp::AsinhF64D),
+                ("acosh$f64", StackOp::AcoshF64D),
+                ("atanh$f64", StackOp::AtanhF64D),
+                ("ln$f64", StackOp::LnF64D),
+                ("exp$f64", StackOp::ExpF64D),
+                ("exp2$f64", StackOp::Exp2F64D),
+                ("log10$f64", StackOp::Log10F64D),
+                ("log2$f64", StackOp::Log2F64D),
+                ("sqrt$f64", StackOp::SqrtF64D),
+                ("abs$f64", StackOp::AbsF64D),
+                ("floor$f64", StackOp::FloorF64D),
+                ("ceil$f64", StackOp::CeilF64D),
+                ("isnan$f64", StackOp::IsnanF64D),
+                ("isinf$f64", StackOp::IsinfF64D),
             ];
             for (n, op) in unary_math_f32.iter() {
                 if *name == *n {
@@ -1856,7 +1813,7 @@ impl<'a> FunctionTranslator<'a> {
             if *name == "atan2$f64$f64" {
                 self.translate_expr(arg_ids[0], func);
                 self.translate_expr(arg_ids[1], func);
-                func.emit(StackOp::Atan2F64);
+                func.emit(StackOp::Atan2F64D);
                 return;
             }
 
@@ -1870,7 +1827,7 @@ impl<'a> FunctionTranslator<'a> {
             if *name == "pow$f64$f64" {
                 self.translate_expr(arg_ids[0], func);
                 self.translate_expr(arg_ids[1], func);
-                func.emit(StackOp::DPow);
+                func.emit(StackOp::DPowD);
                 return;
             }
 
@@ -1883,24 +1840,23 @@ impl<'a> FunctionTranslator<'a> {
                 let is_f64 = name.contains("f64");
                 let is_min = name.contains("min");
                 // Local set/get for the a/b temps: f32 goes through the
-                // float window (LocalSetF/LocalGetF); f64 through the
-                // int window (LocalSet/LocalGet — f64 values ride as
-                // u64 bit patterns).
+                // f32 lives in the float window (LocalSetF/LocalGetF),
+                // f64 in the double window (LocalSetD/LocalGetD).
                 let local_set = |slot: u16| {
                     if is_f64 {
-                        StackOp::LocalSet(slot)
+                        StackOp::LocalSetD(slot)
                     } else {
                         StackOp::LocalSetF(slot)
                     }
                 };
                 let local_get = |slot: u16| {
                     if is_f64 {
-                        StackOp::LocalGet(slot)
+                        StackOp::LocalGetD(slot)
                     } else {
                         StackOp::LocalGetF(slot)
                     }
                 };
-                let cmp_lt = if is_f64 { StackOp::DLt } else { StackOp::FLtF };
+                let cmp_lt = if is_f64 { StackOp::DLtD } else { StackOp::FLtF };
                 self.translate_expr(arg_ids[0], func);
                 let a_local = self.alloc_scalar();
                 func.emit(local_set(a_local));
@@ -1975,6 +1931,8 @@ impl<'a> FunctionTranslator<'a> {
                                 let arg_ty = self.expr_type(arg);
                                 if matches!(&*arg_ty, Type::Float32) {
                                     func.emit(StackOp::FToBitsF);
+                                } else if matches!(&*arg_ty, Type::Float64) {
+                                    func.emit(StackOp::DToBitsD);
                                 }
                                 c_arg_count += 1;
                             }
@@ -1995,6 +1953,8 @@ impl<'a> FunctionTranslator<'a> {
                         // translate_call's +1 invariant still holds.
                         if matches!(&*ret_ty, Type::Float32) {
                             func.emit(StackOp::BitsToFF);
+                        } else if matches!(&*ret_ty, Type::Float64) {
+                            func.emit(StackOp::BitsToDD);
                         }
                         return;
                     }
@@ -2041,6 +2001,8 @@ impl<'a> FunctionTranslator<'a> {
                     let arg_ty = self.expr_type(*arg_id);
                     if matches!(&*arg_ty, Type::Float32) {
                         func.emit(StackOp::FToBitsF);
+                    } else if matches!(&*arg_ty, Type::Float64) {
+                        func.emit(StackOp::DToBitsD);
                     }
                 }
                 if param_ty.is_some_and(|t| matches!(&*t, Type::Slice(_))) {
@@ -2082,6 +2044,9 @@ impl<'a> FunctionTranslator<'a> {
                 // Bridge into the float window so the surrounding codegen
                 // can consume them as f32 directly.
                 func.emit(StackOp::BitsToFF);
+            } else if matches!(&*ret_ty, Type::Float64) {
+                // Same for f64: bridge t0 bits into the double window.
+                func.emit(StackOp::BitsToDD);
             }
             // Otherwise the call already pushed its return value.
 
@@ -2553,10 +2518,10 @@ impl<'a> FunctionTranslator<'a> {
         match (&*src_ty, &*target_ty) {
             (Type::Int32, Type::Float32) => func.emit(StackOp::I32ToF32F),
             (Type::Float32, Type::Int32) => func.emit(StackOp::F32ToI32F),
-            (Type::Int32, Type::Float64) => func.emit(StackOp::I32ToF64),
-            (Type::Float64, Type::Int32) => func.emit(StackOp::F64ToI32),
-            (Type::Float32, Type::Float64) => func.emit(StackOp::F32ToF64),
-            (Type::Float64, Type::Float32) => func.emit(StackOp::F64ToF32),
+            (Type::Int32, Type::Float64) => func.emit(StackOp::I32ToF64D),
+            (Type::Float64, Type::Int32) => func.emit(StackOp::F64ToI32D),
+            (Type::Float32, Type::Float64) => func.emit(StackOp::F32ToF64D),
+            (Type::Float64, Type::Float32) => func.emit(StackOp::F64ToF32D),
             (Type::Int32, Type::Int8) | (Type::UInt32, Type::Int8) => func.emit(StackOp::I32ToI8),
             (Type::Int8, Type::Int32) => func.emit(StackOp::I8ToI32),
             (Type::Int32, Type::UInt32) | (Type::UInt32, Type::Int32) => {
@@ -2707,13 +2672,41 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Emit the window-appropriate `local.get` for a scalar of `ty`:
+    /// f32 → float window, f64 → double window, everything else → int.
+    fn emit_local_get(&self, ty: &TypeID, slot: u16, func: &mut StackFunction) {
+        match &**ty {
+            Type::Float32 => func.emit(StackOp::LocalGetF(slot)),
+            Type::Float64 => func.emit(StackOp::LocalGetD(slot)),
+            _ => func.emit(StackOp::LocalGet(slot)),
+        }
+    }
+
+    /// Window-appropriate `local.set` (see `emit_local_get`).
+    fn emit_local_set(&self, ty: &TypeID, slot: u16, func: &mut StackFunction) {
+        match &**ty {
+            Type::Float32 => func.emit(StackOp::LocalSetF(slot)),
+            Type::Float64 => func.emit(StackOp::LocalSetD(slot)),
+            _ => func.emit(StackOp::LocalSet(slot)),
+        }
+    }
+
+    /// Window-appropriate `local.tee` (see `emit_local_get`).
+    fn emit_local_tee(&self, ty: &TypeID, slot: u16, func: &mut StackFunction) {
+        match &**ty {
+            Type::Float32 => func.emit(StackOp::LocalTeeF(slot)),
+            Type::Float64 => func.emit(StackOp::LocalTeeD(slot)),
+            _ => func.emit(StackOp::LocalTee(slot)),
+        }
+    }
+
     /// Emit a load instruction based on type. Pops address, pushes value.
     fn emit_load(&self, ty: &TypeID, func: &mut StackFunction) {
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Load8),
             Type::Float32 => func.emit(StackOp::LoadF32F),
             Type::Int32 | Type::UInt32 => func.emit(StackOp::Load32),
-            Type::Float64 => func.emit(StackOp::Load64),
+            Type::Float64 => func.emit(StackOp::LoadF64D),
             _ => func.emit(StackOp::Load64),
         }
     }
@@ -2732,7 +2725,7 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::Load32Off(offset));
             }
             Type::Float64 => {
-                func.emit(StackOp::Load64Off(offset));
+                func.emit(StackOp::LoadF64OffD(offset));
             }
             _ => {
                 func.emit(StackOp::Load64Off(offset));
@@ -2750,7 +2743,7 @@ impl<'a> FunctionTranslator<'a> {
                 Type::Bool | Type::Int8 | Type::UInt8 => func.emit(StackOp::Store8),
                 Type::Float32 => func.emit(StackOp::StoreF32F),
                 Type::Int32 | Type::UInt32 => func.emit(StackOp::Store32),
-                Type::Float64 => func.emit(StackOp::Store64),
+                Type::Float64 => func.emit(StackOp::StoreF64D),
                 _ => func.emit(StackOp::Store64),
             }
         }
@@ -2844,7 +2837,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Store32Off(offset));
                 }
                 Type::Float64 => {
-                    func.emit(StackOp::Store64Off(offset));
+                    func.emit(StackOp::StoreF64OffD(offset));
                 }
                 _ => {
                     func.emit(StackOp::Store32Off(offset));

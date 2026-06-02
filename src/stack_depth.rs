@@ -28,6 +28,8 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
             | StackOp::FusedBoundsCheck8JumpIfZero(_, off) => Some(*off),
             StackOp::FusedF32ConstFGtJumpIfZeroF(_, off) => Some(*off),
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
+            StackOp::FusedF64ConstDGtJumpIfZeroD(_, off) => Some(*off),
+            StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => Some(*off),
             _ => None,
         };
         if let Some(off) = off {
@@ -315,6 +317,190 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedGetGetFMulSum7F(_, _)
         | StackOp::FusedGetGetFMulSum8F(_, _) => 0,
         StackOp::FusedTeeSliceStore32F(_, _, _) => 0,
+
+        // === Double-window (D) ops: integer-window deltas ===
+        // Pure d-window ops don't touch the int window.
+        StackOp::F64ConstD(_)
+        | StackOp::LocalGetD(_)
+        | StackOp::LocalSetD(_)
+        | StackOp::LocalTeeD(_)
+        | StackOp::DropD
+        | StackOp::DAddD
+        | StackOp::DSubD
+        | StackOp::DMulD
+        | StackOp::DDivD
+        | StackOp::DPowD
+        | StackOp::DNegD
+        | StackOp::F32ToF64D
+        | StackOp::F64ToF32D
+        | StackOp::SinF64D
+        | StackOp::CosF64D
+        | StackOp::TanF64D
+        | StackOp::AsinF64D
+        | StackOp::AcosF64D
+        | StackOp::AtanF64D
+        | StackOp::SinhF64D
+        | StackOp::CoshF64D
+        | StackOp::TanhF64D
+        | StackOp::AsinhF64D
+        | StackOp::AcoshF64D
+        | StackOp::AtanhF64D
+        | StackOp::LnF64D
+        | StackOp::ExpF64D
+        | StackOp::Exp2F64D
+        | StackOp::Log10F64D
+        | StackOp::Log2F64D
+        | StackOp::SqrtF64D
+        | StackOp::AbsF64D
+        | StackOp::FloorF64D
+        | StackOp::CeilF64D
+        | StackOp::Atan2F64D
+        | StackOp::PrintF64D => 0,
+
+        // d-window → int window: push 1 to the int window.
+        StackOp::DEqD
+        | StackOp::DNeD
+        | StackOp::DLtD
+        | StackOp::DLeD
+        | StackOp::DGtD
+        | StackOp::DGeD
+        | StackOp::F64ToI32D
+        | StackOp::DToBitsD
+        | StackOp::IsnanF64D
+        | StackOp::IsinfF64D => 1,
+
+        // int window → d-window: pop 1 from the int window. Loads/stores
+        // take the address from the int window (value lives in d-window).
+        StackOp::I32ToF64D
+        | StackOp::BitsToDD
+        | StackOp::LoadF64D
+        | StackOp::LoadF64OffD(_)
+        | StackOp::StoreF64D
+        | StackOp::StoreF64OffD(_) => -1,
+
+        // Fused d-window superinstructions read operands from locals[] and
+        // operate only on the d-window, so the int window is untouched.
+        StackOp::FusedGetGetDMulD(_, _)
+        | StackOp::FusedGetGetDMulDAddD(_, _)
+        | StackOp::FusedGetGetDMulDSubD(_, _)
+        | StackOp::FusedGetGetDMulSum2D(_, _)
+        | StackOp::FusedGetGetDMulSum3D(_, _)
+        | StackOp::FusedGetGetDMulSum4D(_, _)
+        | StackOp::FusedGetGetDMulSum5D(_, _)
+        | StackOp::FusedGetGetDMulSum6D(_, _)
+        | StackOp::FusedGetGetDMulSum7D(_, _)
+        | StackOp::FusedGetGetDMulSum8D(_, _)
+        | StackOp::FusedGetSetD(_, _)
+        | StackOp::FusedGetSet2D(_)
+        | StackOp::FusedGetSet3D(_)
+        | StackOp::FusedGetSet4D(_)
+        | StackOp::FusedGetSet5D(_)
+        | StackOp::FusedGetSet6D(_)
+        | StackOp::FusedGetSet7D(_)
+        | StackOp::FusedGetSet8D(_)
+        | StackOp::FusedF64ConstDGtJumpIfZeroD(_, _)
+        | StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, _) => 0,
+    }
+}
+
+/// Stack depth change for an instruction (double window only).
+///
+/// The f64 analogue of `float_stack_delta`. Tracks d0..d3 occupancy
+/// independently from the integer and float windows. Ops that don't
+/// touch the double window contribute 0 via the catch-all.
+pub fn double_stack_delta(op: &StackOp) -> i32 {
+    match op {
+        // Pushes onto the d-window.
+        StackOp::F64ConstD(_)
+        | StackOp::LocalGetD(_)
+        | StackOp::I32ToF64D
+        | StackOp::BitsToDD
+        | StackOp::F32ToF64D
+        | StackOp::LoadF64D
+        | StackOp::LoadF64OffD(_) => 1,
+
+        // Pops from the d-window (single value).
+        StackOp::LocalSetD(_)
+        | StackOp::DropD
+        | StackOp::F64ToI32D
+        | StackOp::DToBitsD
+        | StackOp::F64ToF32D
+        | StackOp::IsnanF64D
+        | StackOp::IsinfF64D
+        | StackOp::StoreF64D
+        | StackOp::StoreF64OffD(_)
+        | StackOp::PrintF64D => -1,
+
+        // Peek (LocalTeeD) and unary in-window ops: net 0.
+        StackOp::LocalTeeD(_)
+        | StackOp::DNegD
+        | StackOp::SinF64D
+        | StackOp::CosF64D
+        | StackOp::TanF64D
+        | StackOp::AsinF64D
+        | StackOp::AcosF64D
+        | StackOp::AtanF64D
+        | StackOp::SinhF64D
+        | StackOp::CoshF64D
+        | StackOp::TanhF64D
+        | StackOp::AsinhF64D
+        | StackOp::AcoshF64D
+        | StackOp::AtanhF64D
+        | StackOp::LnF64D
+        | StackOp::ExpF64D
+        | StackOp::Exp2F64D
+        | StackOp::Log10F64D
+        | StackOp::Log2F64D
+        | StackOp::SqrtF64D
+        | StackOp::AbsF64D
+        | StackOp::FloorF64D
+        | StackOp::CeilF64D => 0,
+
+        // Binary d-window arith: pop 2, push 1 = -1.
+        StackOp::DAddD
+        | StackOp::DSubD
+        | StackOp::DMulD
+        | StackOp::DDivD
+        | StackOp::DPowD
+        | StackOp::Atan2F64D => -1,
+
+        // Double comparisons: pop 2 from d-window (result goes to int).
+        StackOp::DEqD
+        | StackOp::DNeD
+        | StackOp::DLtD
+        | StackOp::DLeD
+        | StackOp::DGtD
+        | StackOp::DGeD => -2,
+
+        // Fused d-window superinstructions.
+        // Push one result: bare mul and the mul-accumulate sums.
+        StackOp::FusedGetGetDMulD(_, _)
+        | StackOp::FusedGetGetDMulSum2D(_, _)
+        | StackOp::FusedGetGetDMulSum3D(_, _)
+        | StackOp::FusedGetGetDMulSum4D(_, _)
+        | StackOp::FusedGetGetDMulSum5D(_, _)
+        | StackOp::FusedGetGetDMulSum6D(_, _)
+        | StackOp::FusedGetGetDMulSum7D(_, _)
+        | StackOp::FusedGetGetDMulSum8D(_, _) => 1,
+
+        // Accumulate onto d0 in place (net 0). Get/set move chains and the
+        // direct-from-local compare/jump don't touch the d-window.
+        StackOp::FusedGetGetDMulDAddD(_, _)
+        | StackOp::FusedGetGetDMulDSubD(_, _)
+        | StackOp::FusedGetSetD(_, _)
+        | StackOp::FusedGetSet2D(_)
+        | StackOp::FusedGetSet3D(_)
+        | StackOp::FusedGetSet4D(_)
+        | StackOp::FusedGetSet5D(_)
+        | StackOp::FusedGetSet6D(_)
+        | StackOp::FusedGetSet7D(_)
+        | StackOp::FusedGetSet8D(_)
+        | StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, _) => 0,
+
+        // Pops d0 for the comparison before branching.
+        StackOp::FusedF64ConstDGtJumpIfZeroD(_, _) => -1,
+
+        _ => 0,
     }
 }
 
@@ -419,14 +605,17 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         // f0 ± coeff*state from frame slot — net 0 in f-window.
         StackOp::FusedGetAddrFMulFAddF(_, _, _) | StackOp::FusedGetAddrFMulFSubF(_, _, _) => 0,
 
-        // Crossings: F→int pops f-window
+        // Crossings: F→int pops f-window. F32ToF64D pops the f-window
+        // (f32) and pushes the d-window (handled in double_stack_delta).
         StackOp::F32ToI32F
         | StackOp::FToBitsF
         | StackOp::IsnanF32F
         | StackOp::IsinfF32F
-        | StackOp::F32ToF64 => -1,
-        // int→F pushes f-window
-        StackOp::I32ToF32F | StackOp::BitsToFF | StackOp::F64ToF32 => 1,
+        | StackOp::F32ToF64
+        | StackOp::F32ToF64D => -1,
+        // int→F pushes f-window. F64ToF32D pops the d-window and pushes
+        // the f-window (f32).
+        StackOp::I32ToF32F | StackOp::BitsToFF | StackOp::F64ToF32 | StackOp::F64ToF32D => 1,
 
         // f-window stores pop f0
         StackOp::StoreF32F | StackOp::StoreF32OffF(_) => -1,
