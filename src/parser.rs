@@ -119,7 +119,10 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             let r = parse_type(typevars, cx);
             if cx.lex.tok == Token::Semi {
                 cx.next();
-                if let Token::Integer(n) = cx.lex.tok {
+                if let Token::Integer(n, suffix) = cx.lex.tok {
+                    if suffix.is_some() {
+                        cx.err(String::from("array size integer cannot have a suffix"));
+                    }
                     if n == 0 {
                         cx.err(String::from("array size must be greater than 0"));
                     }
@@ -523,7 +526,10 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                 let dot_loc = cx.lex.loc;
                 cx.next();
                 // Support both named fields (x.foo) and tuple indices (x.0, x.1)
-                let field = if let Token::Integer(n) = cx.lex.tok {
+                let field = if let Token::Integer(n, suffix) = cx.lex.tok {
+                    if suffix.is_some() {
+                        cx.err(String::from("tuple field index cannot have a suffix"));
+                    }
                     cx.next();
                     Name::new(n.to_string())
                 } else {
@@ -559,7 +565,7 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
                 expect(Token::Rmath, cx);
                 arena.add(Expr::TypeApp(id, type_args), loc)
             } else if let Some(&value) = cx.consts.get(&id) {
-                arena.add(Expr::Int(value), loc)
+                arena.add(Expr::Int(value, None), loc)
             } else {
                 arena.add(Expr::Id(id), loc)
             }
@@ -585,23 +591,23 @@ fn parse_atom(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             let name = expect_id(cx);
             arena.add(Expr::Enum(name), cx.lex.loc)
         }
-        Token::Integer(x) => {
-            let e = Expr::Int(x);
+        Token::Integer(x, suffix) => {
+            let e = Expr::Int(x, suffix);
             let loc = cx.lex.loc;
             cx.next();
             arena.add(e, loc)
         }
-        Token::UInteger(x) => {
-            let e = Expr::UInt(x);
+        Token::Real(x, suffix) => {
+            let e = Expr::Real(x.to_string(), suffix);
             let loc = cx.lex.loc;
             cx.next();
             arena.add(e, loc)
         }
-        Token::Real(x) => {
-            let e = Expr::Real(x.to_string());
+        Token::InvalidNumberSuffix(suffix) => {
             let loc = cx.lex.loc;
+            cx.err(format!("invalid numeric literal suffix '{}'", suffix));
             cx.next();
-            arena.add(e, loc)
+            arena.add(Expr::Error, loc)
         }
         Token::String(s) => {
             let e = Expr::String(s.to_string());
@@ -1178,15 +1184,24 @@ fn parse_decl(cx: &mut ParseContext) -> Option<Decl> {
             let name = expect_id(cx);
             expect(Token::Assign, cx);
             let value = match cx.lex.tok {
-                Token::Integer(n) => {
+                Token::Integer(n, None) => {
                     cx.next();
                     n
                 }
+                Token::Integer(_, Some(_)) => {
+                    cx.err(String::from("integer const cannot have a suffix"));
+                    cx.next();
+                    0
+                }
                 Token::Minus => {
                     cx.next();
-                    if let Token::Integer(n) = cx.lex.tok {
+                    if let Token::Integer(n, None) = cx.lex.tok {
                         cx.next();
                         -n
+                    } else if let Token::Integer(_, Some(_)) = cx.lex.tok {
+                        cx.err(String::from("integer const cannot have a suffix"));
+                        cx.next();
+                        0
                     } else {
                         cx.err(String::from("Expected integer value for const"));
                         0

@@ -698,15 +698,11 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_expr_inner_body(&mut self, expr: ExprID, func: &mut StackFunction) {
         match &self.decl.arena.exprs[expr].clone() {
-            Expr::Int(n) => {
+            Expr::Int(n, _) => {
                 func.emit(StackOp::I64Const(*n));
             }
 
-            Expr::UInt(n) => {
-                func.emit(StackOp::I64Const(*n as i64));
-            }
-
-            Expr::Real(s) => {
+            Expr::Real(s, _) => {
                 let ty = self.expr_type(expr);
                 match &*ty {
                     Type::Float32 => {
@@ -3023,9 +3019,8 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Int(_)
-        | Expr::UInt(_)
-        | Expr::Real(_)
+        Expr::Int(_, _)
+        | Expr::Real(_, _)
         | Expr::String(_)
         | Expr::Char(_)
         | Expr::True

@@ -658,8 +658,13 @@ impl LLVMJIT {
         // the Context in the same struct and guarantee drop order (EE before Context).
         let context_ref: &'static Context = unsafe { &*(context.as_ref() as *const Context) };
 
-        let (state, _compile_elapsed) =
-            compile_with_context(context_ref, decls, entry_points, self.print_ir, self.no_recursion)?;
+        let (state, _compile_elapsed) = compile_with_context(
+            context_ref,
+            decls,
+            entry_points,
+            self.print_ir,
+            self.no_recursion,
+        )?;
 
         let ee = state
             .module
@@ -801,10 +806,7 @@ impl<'ctx> LLVMJITState<'ctx> {
     /// Signature matches the Rust shim used by JIT:
     ///   i64 slice_eq(ptr a, ptr b, i64 elem_size)
     /// Returns 1 if the slices are equal, 0 otherwise.
-    fn get_or_emit_aot_slice_eq(
-        &mut self,
-        fn_ty: FunctionType<'ctx>,
-    ) -> FunctionValue<'ctx> {
+    fn get_or_emit_aot_slice_eq(&mut self, fn_ty: FunctionType<'ctx>) -> FunctionValue<'ctx> {
         const SYM: &str = "__lyte_aot_slice_eq";
         if let Some(f) = self.module.get_function(SYM) {
             return f;
@@ -1521,7 +1523,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 })
                 .unwrap_or(decl.types[expr]),
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl) {
-                crate::Type::Array(elem, _) | crate::Type::Slice(elem) | crate::Type::Reference(elem) => *elem,
+                crate::Type::Array(elem, _)
+                | crate::Type::Slice(elem)
+                | crate::Type::Reference(elem) => *elem,
                 _ => decl.types[expr],
             },
             _ => decl.types[expr],
@@ -1811,9 +1815,12 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         match &decl.arena[expr] {
             Expr::True => self.i8_ty().const_int(1, false).into(),
             Expr::False => self.i8_ty().const_int(0, false).into(),
-            Expr::Int(n) => self.i32_ty().const_int(*n as u64, true).into(),
-            Expr::UInt(n) => self.i32_ty().const_int(*n, false).into(),
-            Expr::Real(s) => {
+            Expr::Int(n, _) => match &*decl.types[expr] {
+                crate::Type::Int8 => self.i8_ty().const_int(*n as u64, true).into(),
+                crate::Type::UInt32 => self.i32_ty().const_int(*n as u64, false).into(),
+                _ => self.i32_ty().const_int(*n as u64, true).into(),
+            },
+            Expr::Real(s, _) => {
                 let val: f64 = s.parse().expect("invalid float literal");
                 match &*decl.types[expr] {
                     crate::Type::Float32 => self.state.f32_ty().const_float(val).into(),
@@ -1831,18 +1838,29 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
                             .unwrap()
                     } else {
-                        let stored = self.builder().build_load(self.ptr_ty(), alloca, "var_ptr").unwrap();
+                        let stored = self
+                            .builder()
+                            .build_load(self.ptr_ty(), alloca, "var_ptr")
+                            .unwrap();
                         if let Some(var_ty) = self.variable_types.get(name.as_str()).copied() {
                             if var_ty.is_ptr() {
                                 stored
                             } else {
                                 self.builder()
-                                    .build_load(ty.llvm_basic_type(self.ctx()), stored.into_pointer_value(), &**name)
+                                    .build_load(
+                                        ty.llvm_basic_type(self.ctx()),
+                                        stored.into_pointer_value(),
+                                        &**name,
+                                    )
                                     .unwrap()
                             }
                         } else {
                             self.builder()
-                                .build_load(ty.llvm_basic_type(self.ctx()), stored.into_pointer_value(), &**name)
+                                .build_load(
+                                    ty.llvm_basic_type(self.ctx()),
+                                    stored.into_pointer_value(),
+                                    &**name,
+                                )
                                 .unwrap()
                         }
                     }

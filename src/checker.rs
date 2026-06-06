@@ -210,6 +210,47 @@ impl Checker {
         self.constraints.push(c);
     }
 
+    fn check_int_literal_suffix(
+        &mut self,
+        id: ExprID,
+        value: i64,
+        suffix: IntLiteralSuffix,
+        arena: &ExprArena,
+        negative: bool,
+    ) -> TypeID {
+        let shown_value = if negative {
+            format!("-{value}")
+        } else {
+            value.to_string()
+        };
+
+        match suffix {
+            IntLiteralSuffix::I32 => {
+                let max = if negative {
+                    -(i32::MIN as i64)
+                } else {
+                    i32::MAX as i64
+                };
+                if value > max {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: format!("integer literal {shown_value} is out of range for i32"),
+                    });
+                }
+                mk_type(Type::Int32)
+            }
+            IntLiteralSuffix::U32 => {
+                if value > u32::MAX as i64 {
+                    self.errors.push(TypeError {
+                        location: arena.locs[id],
+                        message: format!("integer literal {value} is out of range for u32"),
+                    });
+                }
+                mk_type(Type::UInt32)
+            }
+        }
+    }
+
     fn check_unop(
         &mut self,
         id: ExprID,
@@ -218,10 +259,18 @@ impl Checker {
         arena: &ExprArena,
         decls: &DeclTable,
     ) -> TypeID {
-        let argt = self.check_expr(arg, arena, decls);
-
         match op {
             Unop::Neg => {
+                // A leading `-` in literal position is considered by signed
+                // suffix range checks, so `-2147483648i32` is valid even
+                // though `2147483648i32` is not.
+                if let Expr::Int(n, Some(suffix @ IntLiteralSuffix::I32)) = &arena[arg] {
+                    let ty = self.check_int_literal_suffix(arg, *n, *suffix, arena, true);
+                    self.types[arg] = ty;
+                    return ty;
+                }
+
+                let argt = self.check_expr(arg, arena, decls);
                 let ft = self.fresh();
                 let alts: Vec<_> = self
                     .neg_overloads
@@ -246,6 +295,7 @@ impl Checker {
                 r
             }
             Unop::Not => {
+                let argt = self.check_expr(arg, arena, decls);
                 self.eq(
                     argt,
                     mk_type(Type::Bool),
@@ -372,7 +422,7 @@ impl Checker {
     fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &DeclTable) -> TypeID {
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
-            Expr::Int(_) => {
+            Expr::Int(_, None) => {
                 let ty = self.fresh();
                 let alts = vec![
                     Alt {
@@ -384,8 +434,12 @@ impl Checker {
                 self.add_constraint(Constraint::Or(ty, alts, arena.locs[id], None));
                 ty
             }
-            Expr::UInt(_) => mk_type(Type::UInt32),
-            Expr::Real(_) => mk_type(Type::Float32),
+            Expr::Int(n, Some(suffix)) => {
+                self.check_int_literal_suffix(id, *n, *suffix, arena, false)
+            }
+            Expr::Real(_, None) => mk_type(Type::Float32),
+            Expr::Real(_, Some(FloatLiteralSuffix::F32)) => mk_type(Type::Float32),
+            Expr::Real(_, Some(FloatLiteralSuffix::F64)) => mk_type(Type::Float64),
             Expr::Char(_) => mk_type(Type::Int8),
             Expr::String(s) => {
                 let int8 = mk_type(Type::Int8);
@@ -801,8 +855,7 @@ impl Checker {
 
                 // Extract constant size when available (e.g. [0; 5]).
                 let array_size = match &arena[*size] {
-                    Expr::Int(n) => ArraySize::Known(*n as i32),
-                    Expr::UInt(n) => ArraySize::Known(*n as i32),
+                    Expr::Int(n, _) => ArraySize::Known(*n as i32),
                     _ => ArraySize::Known(0),
                 };
 

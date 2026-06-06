@@ -1,0 +1,7 @@
+// args: --check
+// expected stdout:
+// ../tests/cases/checker/literal_suffix_array_type_size.lyte:6: array size integer cannot have a suffix
+
+main {
+    var a: [i32; 3u32]
+}
