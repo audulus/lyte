@@ -2159,15 +2159,15 @@ mod tests {
             // f32 if-expression in void context.
             ("f32 if in void ctx", r#"
                 main {
-                    var x = 0.0 as f32
+                    var x = 0.0f32
                     if true { x = 1.0 } else { x = 2.0 }
                 }
             "#),
             // f32 assignment RHS.
             ("f32 assign chain", r#"
                 main {
-                    var x = 0.0 as f32
-                    var y = 0.0 as f32
+                    var x = 0.0f32
+                    var y = 0.0f32
                     x = 1.5
                     y = x + x
                 }

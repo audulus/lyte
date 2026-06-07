@@ -17,8 +17,8 @@ step(edge: f32, x: f32) -> f32 {
 }
 
 step(edge: f64, x: f64) -> f64 {
-    if x < edge { return 0.0 as f64 }
-    return 1.0 as f64
+    if x < edge { return 0.0f64 }
+    return 1.0f64
 }
 
 smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -27,8 +27,8 @@ smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 }
 
 smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
-    var t = clamp((x - edge0) / (edge1 - edge0), 0.0 as f64, 1.0 as f64)
-    t * t * ((3.0 as f64) - (2.0 as f64) * t)
+    var t = clamp((x - edge0) / (edge1 - edge0), 0.0f64, 1.0f64)
+    t * t * (3.0f64 - 2.0f64 * t)
 }
 
 mix(a: f32, b: f32, t: f32) -> f32 { a + t * (b - a) }

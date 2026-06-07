@@ -1,6 +1,6 @@
 // Biquad filter DSP benchmark
 // Process 10 million samples through a lowpass filter
-// Double-precision version using f32 literals cast to f64.
+// Double-precision version
 
 struct Biquad {
     b0: f64, b1: f64, b2: f64,
@@ -11,28 +11,28 @@ struct Biquad {
 
 // Design a 2nd-order lowpass (RBJ cookbook)
 lpf(fc: f64, fs: f64, q: f64) -> Biquad {
-    var w0 = (2.0 as f64) * (3.14159265 as f64) * fc / fs
-    var alpha = sin(w0) / ((2.0 as f64) * q)
+    var w0 = 2.0f64 * 3.141592653589793f64 * fc / fs
+    var alpha = sin(w0) / (2.0f64 * q)
     var cs = cos(w0)
 
-    var a0 = (1.0 as f64) + alpha
-    var inv = (1.0 as f64) / a0
+    var a0 = 1.0f64 + alpha
+    var inv = 1.0f64 / a0
 
     var bq: Biquad
-    bq.b1 = ((1.0 as f64) - cs) * inv
-    bq.b0 = bq.b1 / (2.0 as f64)
+    bq.b1 = (1.0f64 - cs) * inv
+    bq.b0 = bq.b1 / 2.0f64
     bq.b2 = bq.b0
-    bq.a1 = ((0.0 as f64) - (2.0 as f64) * cs) * inv
-    bq.a2 = ((1.0 as f64) - alpha) * inv
-    bq.x1 = 0.0 as f64
-    bq.x2 = 0.0 as f64
-    bq.y1 = 0.0 as f64
-    bq.y2 = 0.0 as f64
+    bq.a1 = (0.0f64 - 2.0f64 * cs) * inv
+    bq.a2 = (1.0f64 - alpha) * inv
+    bq.x1 = 0.0f64
+    bq.x2 = 0.0f64
+    bq.y1 = 0.0f64
+    bq.y2 = 0.0f64
     return bq
 }
 
 main {
-    var bq = lpf(1000.0 as f64, 44100.0 as f64, 0.707 as f64)
+    var bq = lpf(1000.0f64, 44100.0f64, 0.707f64)
     var b0 = bq.b0
     var b1 = bq.b1
     var b2 = bq.b2
@@ -44,16 +44,16 @@ main {
     var y2 = bq.y2
 
     var n = 10000000
-    var phase = 0.0 as f64
-    var freq = (440.0 as f64) / (44100.0 as f64)
-    var last_y = 0.0 as f64
-    var two_pi = (2.0 as f64) * (3.14159265 as f64)
+    var phase = 0.0f64
+    var freq = 440.0f64 / 44100.0f64
+    var last_y = 0.0f64
+    var two_pi = 2.0f64 * 3.141592653589793f64
 
     // Process a 440 Hz sine wave through the filter
     for i in 0 .. n {
         var x = sin(phase * two_pi)
         phase = phase + freq
-        if phase > (1.0 as f64) { phase = phase - (1.0 as f64) }
+        if phase > 1.0f64 { phase = phase - 1.0f64 }
 
         var y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
         x2 = x1
