@@ -727,9 +727,9 @@ fn fuse(func: &mut StackFunction) {
         // before the 3-op one so the longest match wins at each position.
 
         // Constant-fold fw.f32.const v + dw.convert.f32_to_f64 → dw.f64.const.
-        // Widening f32→f64 is exact, so this is always valid; it both folds
-        // the many `<lit> as f64` conversions and exposes the constant to
-        // the d-window compare-jump fusion below.
+        // Widening f32→f64 is exact, so this is always valid; it folds explicit
+        // f32-to-f64 conversions and exposes the constant to the d-window
+        // compare-jump fusion below.
         if i + 1 < len && !spans_target(i, 2) {
             if let (StackOp::F32ConstF(v), StackOp::F32ToF64D) = (&ops[i], &ops[i + 1]) {
                 let v = *v as f64;
