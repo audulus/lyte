@@ -1,0 +1,10 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/literal_suffix_f32_from_f64.lyte:9:7: assignment requires matching types: f32 vs f64
+//         b = 1.0f64
+//           ^
+
+main {
+    var b: f32
+    b = 1.0f64
+}

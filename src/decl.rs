@@ -97,12 +97,25 @@ impl FuncDecl {
     }
 
     /// Expand all macro invocations in this function's arena.
-    pub fn expand_macros(&mut self, macros: &std::collections::HashMap<Name, FuncDecl>) {
-        let n = self.arena.exprs.len();
-        for i in 0..n {
+    pub fn expand_macros(
+        &mut self,
+        macros: &std::collections::HashMap<Name, FuncDecl>,
+    ) -> Result<(), (Loc, String)> {
+        let mut i = 0;
+        let mut expansion_count = 0;
+        while i < self.arena.exprs.len() {
             if let Expr::Macro(name, ref args) = self.arena.exprs[i] {
+                let loc = self.arena.locs[i];
                 let args = args.clone();
                 if let Some(mac) = macros.get(&name) {
+                    expansion_count += 1;
+                    if expansion_count > 100_000 {
+                        return Err((
+                            loc,
+                            format!("macro expansion limit exceeded while expanding {}", name),
+                        ));
+                    }
+
                     let subst: Vec<(Name, ExprID)> = mac
                         .params
                         .iter()
@@ -115,9 +128,12 @@ impl FuncDecl {
 
                     self.arena.exprs[i] = self.arena.exprs[new_body].clone();
                     self.arena.locs[i] = self.arena.locs[new_body];
+                    continue;
                 }
             }
+            i += 1;
         }
+        Ok(())
     }
 }
 
@@ -320,7 +336,12 @@ fn format_func_decl(func: &FuncDecl, is_macro: bool) -> String {
     let requires = func
         .requires
         .iter()
-        .map(|&r| format!(" require {}", func.arena.exprs[r].pretty_print(&func.arena, 0)))
+        .map(|&r| {
+            format!(
+                " require {}",
+                func.arena.exprs[r].pretty_print(&func.arena, 0)
+            )
+        })
         .collect::<Vec<_>>()
         .join("");
 
@@ -548,7 +569,7 @@ mod tests {
         let mut arena = ExprArena::new();
         // Create body: { x + 1 }
         let x_id = arena.add(Expr::Id(Name::str("x")), test_loc());
-        let one_id = arena.add(Expr::Int(1), test_loc());
+        let one_id = arena.add(Expr::Int(1, None), test_loc());
         let add_id = arena.add(Expr::Binop(Binop::Plus, x_id, one_id), test_loc());
         let body_id = arena.add(Expr::Block(vec![add_id]), test_loc());
 

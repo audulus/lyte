@@ -72,12 +72,12 @@ Note for Lua users: Lua lets one variable hold different kinds of values over ti
 
 | Type | What it is | Example values |
 |------|------------|----------------|
-| `i32` | A whole number (integer) | `42`, `-7`, `0` |
-| `f32` | A decimal number (float) | `3.14`, `-0.5`, `1.0` |
+| `i32` | A whole number (integer) | `42`, `-7`, `0`, `42i32` |
+| `f32` | A decimal number (float) | `3.14`, `-0.5`, `1.0`, `1.0f32` |
 | `bool` | True or false | `true`, `false` |
 | `str` | Text (a string in quotes) | `"hello"` |
 | `i8` | A very small whole number, used for individual characters | `65` (the letter `A`) |
-| `u32` | A whole number that cannot be negative (unsigned) | `42`, `0` |
+| `u32` | A whole number that cannot be negative (unsigned) | `42u32`, `42u`, `0u32` |
 
 Single characters can also be written with single quotes: `'a'`, `'Z'`, `'\n'` (newline). This is called a character literal.
 
@@ -102,6 +102,24 @@ main {
 In audio and DSP work, you will use `f32` constantly. Audio signals, frequencies, and most DSP math are floating-point values. This is especially true in Audulus, where normal input and output ports are `f32`.
 
 **A note on `f64`:** The language grammar also defines an `f64` type, which is a higher-precision decimal number. In Audulus DSP work, `f32` is the type you'll usually use.
+
+By default, whole-number literals are `i32`, and decimal literals are `f32`.
+
+### Numeric literal suffixes
+
+Numeric literals can include a type suffix when you need the literal itself to have a specific type:
+
+```lyte
+main {
+    var count = 1i32
+    var mask = 1u32
+    var also_unsigned = 1u
+    var gain = 1.0f32
+    var precise = 1.0f64
+}
+```
+
+Use `as` when converting an existing value or expression from one type to another, such as `x as i32` or `(len - 2) as f32`.
 
 ### Why does static typing matter?
 

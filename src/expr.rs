@@ -12,14 +12,11 @@ pub enum Expr {
     /// Identifier expression.
     Id(Name),
 
-    /// Signed integer literal.
-    Int(i64),
+    /// Integer literal, with optional explicit suffix.
+    Int(i64, Option<IntLiteralSuffix>),
 
-    /// Unsigned integer literal.
-    UInt(u64),
-
-    /// Floating-point literal as string.
-    Real(String), // f64 is not hashable so we just use the string representation
+    /// Floating-point literal as string, with optional explicit suffix.
+    Real(String, Option<FloatLiteralSuffix>), // f64 is not hashable so we just use the string representation
 
     /// Function call expression with function and arguments.
     Call(ExprID, Vec<ExprID>),
@@ -129,7 +126,7 @@ impl Expr {
     ///
     /// ```ignore
     /// let mut arena = ExprArena::new();
-    /// let expr_id = arena.add(Expr::Int(42), test_loc());
+    /// let expr_id = arena.add(Expr::Int(42, None), test_loc());
     /// let output = arena.exprs[expr_id].pretty_print(&arena, 0);
     /// // Output: "42"
     /// ```
@@ -140,9 +137,14 @@ impl Expr {
                 let args_str: Vec<_> = args.iter().map(|t| t.pretty_print()).collect();
                 format!("{}⟨{}⟩", name, args_str.join(", "))
             }
-            Expr::Int(n) => n.to_string(),
-            Expr::UInt(n) => n.to_string(),
-            Expr::Real(s) => s.clone(),
+            Expr::Int(n, suffix) => match suffix {
+                Some(suffix) => format!("{n}{suffix}"),
+                None => n.to_string(),
+            },
+            Expr::Real(s, suffix) => match suffix {
+                Some(suffix) => format!("{s}{suffix}"),
+                None => s.clone(),
+            },
             Expr::String(s) => format!("\"{}\"", s),
             Expr::Char(c) => format!("'{}'", c),
             Expr::True => "true".to_string(),
@@ -358,9 +360,8 @@ pub fn copy_expr(
             dst_arena.add(Expr::Id(*name), loc)
         }
         Expr::TypeApp(name, args) => dst_arena.add(Expr::TypeApp(*name, args.clone()), loc),
-        Expr::Int(n) => dst_arena.add(Expr::Int(*n), loc),
-        Expr::UInt(n) => dst_arena.add(Expr::UInt(*n), loc),
-        Expr::Real(s) => dst_arena.add(Expr::Real(s.clone()), loc),
+        Expr::Int(n, suffix) => dst_arena.add(Expr::Int(*n, *suffix), loc),
+        Expr::Real(s, suffix) => dst_arena.add(Expr::Real(s.clone(), *suffix), loc),
         Expr::String(s) => dst_arena.add(Expr::String(s.clone()), loc),
         Expr::Char(c) => dst_arena.add(Expr::Char(*c), loc),
         Expr::True => dst_arena.add(Expr::True, loc),
@@ -551,10 +552,13 @@ mod tests {
     fn test_pretty_print_literals() {
         let arena = ExprArena::new();
 
-        assert_eq!(Expr::Int(42).pretty_print(&arena, 0), "42");
-        assert_eq!(Expr::UInt(100).pretty_print(&arena, 0), "100");
+        assert_eq!(Expr::Int(42, None).pretty_print(&arena, 0), "42");
         assert_eq!(
-            Expr::Real("3.14".to_string()).pretty_print(&arena, 0),
+            Expr::Int(100, Some(IntLiteralSuffix::U32)).pretty_print(&arena, 0),
+            "100u32"
+        );
+        assert_eq!(
+            Expr::Real("3.14".to_string(), None).pretty_print(&arena, 0),
             "3.14"
         );
         assert_eq!(
@@ -581,8 +585,8 @@ mod tests {
     fn test_pretty_print_binop() {
         let mut arena = ExprArena::new();
 
-        let lhs_id = arena.add(Expr::Int(1), test_loc());
-        let rhs_id = arena.add(Expr::Int(2), test_loc());
+        let lhs_id = arena.add(Expr::Int(1, None), test_loc());
+        let rhs_id = arena.add(Expr::Int(2, None), test_loc());
 
         let add_expr = Expr::Binop(Binop::Plus, lhs_id, rhs_id);
         assert_eq!(add_expr.pretty_print(&arena, 0), "1 + 2");
@@ -598,7 +602,7 @@ mod tests {
     fn test_pretty_print_unop() {
         let mut arena = ExprArena::new();
 
-        let expr_id = arena.add(Expr::Int(42), test_loc());
+        let expr_id = arena.add(Expr::Int(42, None), test_loc());
 
         let neg_expr = Expr::Unop(Unop::Neg, expr_id);
         assert_eq!(neg_expr.pretty_print(&arena, 0), "-42");
@@ -613,8 +617,8 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let func_id = arena.add(Expr::Id(Name::str("foo")), test_loc());
-        let arg1_id = arena.add(Expr::Int(1), test_loc());
-        let arg2_id = arena.add(Expr::Int(2), test_loc());
+        let arg1_id = arena.add(Expr::Int(1, None), test_loc());
+        let arg2_id = arena.add(Expr::Int(2, None), test_loc());
 
         let call_expr = Expr::Call(func_id, vec![arg1_id, arg2_id]);
         assert_eq!(call_expr.pretty_print(&arena, 0), "foo(1, 2)");
@@ -627,9 +631,9 @@ mod tests {
     fn test_pretty_print_array_literal() {
         let mut arena = ExprArena::new();
 
-        let elem1 = arena.add(Expr::Int(1), test_loc());
-        let elem2 = arena.add(Expr::Int(2), test_loc());
-        let elem3 = arena.add(Expr::Int(3), test_loc());
+        let elem1 = arena.add(Expr::Int(1, None), test_loc());
+        let elem2 = arena.add(Expr::Int(2, None), test_loc());
+        let elem3 = arena.add(Expr::Int(3, None), test_loc());
 
         let arr_expr = Expr::ArrayLiteral(vec![elem1, elem2, elem3]);
         assert_eq!(arr_expr.pretty_print(&arena, 0), "[1, 2, 3]");
@@ -640,7 +644,7 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let arr_id = arena.add(Expr::Id(Name::str("arr")), test_loc());
-        let idx_id = arena.add(Expr::Int(0), test_loc());
+        let idx_id = arena.add(Expr::Int(0, None), test_loc());
 
         let index_expr = Expr::ArrayIndex(arr_id, idx_id);
         assert_eq!(index_expr.pretty_print(&arena, 0), "arr[0]");
@@ -669,7 +673,7 @@ mod tests {
         assert_eq!(var2.pretty_print(&arena, 0), "var x: i32");
 
         // var x = 42
-        let init_id = arena.add(Expr::Int(42), test_loc());
+        let init_id = arena.add(Expr::Int(42, None), test_loc());
         let var3 = Expr::Var(Name::str("x"), Some(init_id), None);
         assert_eq!(var3.pretty_print(&arena, 0), "var x = 42");
 
@@ -682,7 +686,7 @@ mod tests {
     fn test_pretty_print_let() {
         let mut arena = ExprArena::new();
 
-        let value_id = arena.add(Expr::Int(42), test_loc());
+        let value_id = arena.add(Expr::Int(42, None), test_loc());
 
         // let x = 42
         let let1 = Expr::Let(Name::str("x"), value_id, None);
@@ -699,7 +703,7 @@ mod tests {
 
         // |x| x + 1
         let x_id = arena.add(Expr::Id(Name::str("x")), test_loc());
-        let one_id = arena.add(Expr::Int(1), test_loc());
+        let one_id = arena.add(Expr::Int(1, None), test_loc());
         let body_id = arena.add(Expr::Binop(Binop::Plus, x_id, one_id), test_loc());
 
         let lambda = Expr::Lambda {
@@ -718,8 +722,8 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let cond_id = arena.add(Expr::True, test_loc());
-        let then_id = arena.add(Expr::Int(1), test_loc());
-        let else_id = arena.add(Expr::Int(2), test_loc());
+        let then_id = arena.add(Expr::Int(1, None), test_loc());
+        let else_id = arena.add(Expr::Int(2, None), test_loc());
 
         // if true 1 else 2 (simplified without blocks)
         let if_expr = Expr::If(cond_id, then_id, Some(else_id));
@@ -745,8 +749,8 @@ mod tests {
     fn test_pretty_print_for() {
         let mut arena = ExprArena::new();
 
-        let start_id = arena.add(Expr::Int(0), test_loc());
-        let end_id = arena.add(Expr::Int(10), test_loc());
+        let start_id = arena.add(Expr::Int(0, None), test_loc());
+        let end_id = arena.add(Expr::Int(10, None), test_loc());
         let body_id = arena.add(Expr::Block(vec![]), test_loc());
 
         let for_expr = Expr::For {
@@ -768,8 +772,8 @@ mod tests {
         assert_eq!(empty_block.pretty_print(&arena, 0), "{}");
 
         // Block with expressions
-        let expr1_id = arena.add(Expr::Int(1), test_loc());
-        let expr2_id = arena.add(Expr::Int(2), test_loc());
+        let expr1_id = arena.add(Expr::Int(1, None), test_loc());
+        let expr2_id = arena.add(Expr::Int(2, None), test_loc());
         let block = Expr::Block(vec![expr1_id, expr2_id]);
 
         assert_eq!(block.pretty_print(&arena, 0), "{\n    1\n    2\n}");
@@ -779,7 +783,7 @@ mod tests {
     fn test_pretty_print_return() {
         let mut arena = ExprArena::new();
 
-        let value_id = arena.add(Expr::Int(42), test_loc());
+        let value_id = arena.add(Expr::Int(42, None), test_loc());
         let return_expr = Expr::Return(value_id);
 
         assert_eq!(return_expr.pretty_print(&arena, 0), "return 42");
@@ -789,7 +793,7 @@ mod tests {
     fn test_pretty_print_tuple() {
         let mut arena = ExprArena::new();
 
-        let elem1 = arena.add(Expr::Int(1), test_loc());
+        let elem1 = arena.add(Expr::Int(1, None), test_loc());
         let elem2 = arena.add(Expr::String("hello".to_string()), test_loc());
 
         let tuple_expr = Expr::Tuple(vec![elem1, elem2]);

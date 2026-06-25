@@ -1,0 +1,18 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+
+macro inc(x) {
+    x = x + 1
+}
+
+macro inc_twice(x) {
+    @inc(x)
+    @inc(x)
+}
+
+main {
+    var x = 0
+    @inc_twice(x)
+    assert(x == 2)
+}

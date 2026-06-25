@@ -16,8 +16,9 @@ digit        = "0".."9" ;
 id           = ( alpha ) { alpha | digit } ;
 
 integer      = digit { digit } ;
-uinteger     = integer "u" ;
+int_lit      = integer [ "i32" | "u32" | "u" ] ;
 real         = digit { digit } "." digit { digit } ;
+real_lit     = real [ "f32" | "f64" ] ;
 char_lit     = "'" ( char | "\\" ( "\\" | "n" ) ) "'" ;
 string_lit   = '"' { any - '"' } '"' ;
 
@@ -90,7 +91,7 @@ postfix      = atom { "(" [ exprlist ] ")"         (* function call *)
                      } ;
 
 atom         = id
-             | integer | uinteger | real
+             | int_lit | real_lit
              | char_lit | string_lit
              | "true" | "false"
              | "." id                               (* enum variant *)

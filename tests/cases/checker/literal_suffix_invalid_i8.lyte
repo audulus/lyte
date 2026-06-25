@@ -1,0 +1,7 @@
+// args: --check
+// expected stdout:
+// ../tests/cases/checker/literal_suffix_invalid_i8.lyte:6: invalid numeric literal suffix 'i8'
+
+main {
+    1i8
+}

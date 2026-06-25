@@ -15,9 +15,9 @@ main {
 
     // u32 arithmetic
     var x: u32
-    x = 100 as u32
+    x = 100u32
     var y: u32
-    y = 50 as u32
+    y = 50u32
     assert(x as i32 - y as i32 == 50)
 
     // u32 comparison

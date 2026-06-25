@@ -33,11 +33,13 @@ On bare-metal Apple M4, the Stack VM runs biquad at 0.104s, sort at
   It was deleted — see `docs/HOT_LOCALS.md` for the design exploration
   and why the cache never paid off on this VM.
 - **No per-op runtime type check.** The codegen tracks each stack slot's
-  type statically, and int vs f32 ops pick the right window at emit
-  time — `IAdd` reads `t0/t1`, `FAddF` reads `f0/f1`, and so on. f64
-  values ride the int window as bit patterns (rare in hot code).
+  type statically, and int / f32 / f64 ops pick the right window at emit
+  time — `IAdd` reads `t0/t1`, `FAddF` reads `f0/f1`, `DAddD` reads
+  `d0/d1`, and so on. f64 now has its own dedicated `double` window
+  (`d0..d3`, spilling to `*dfsp`), the exact analogue of the f32 float
+  window, so f64 arithmetic also stays in FP registers.
 - **Per-window stack-depth validation.** `src/stack_depth.rs` runs
-  forward over each function tracking int and float stack depth
+  forward over each function tracking int, float, and double stack depth
   independently; any jump target or call site that doesn't match
   between incoming edges is a codegen bug.
 
@@ -247,8 +249,14 @@ Two non-obvious choices here, both load-bearing:
    register-indirect store. Commit `21f2949`.
 
 f32 and f64 coexist on the logical operand stack. The codegen tracks
-each slot's type statically; f32 slots live in the float window, f64
-slots (rare) ride the int window as bit patterns.
+each slot's type statically; f32 slots live in the float window (`f0..f3`)
+and f64 slots live in a parallel double window (`d0..d3`). The two FP
+windows together use the full 8 FP argument registers (`v0..v7` on
+aarch64, `xmm0..xmm7` on x86-64). f64 gets the same fused superinstructions
+as f32 — the multiply-accumulate sum chain, variable-move chains, and the
+const-compare-branch — so f64 DSP loops reach near-parity with f32 (the
+biquad f64 benchmark runs ~1.2× the f32 time, the gap being f64's 2× state
+bandwidth, versus ~2.9× before the double window existed).
 
 ## Hot local cache (removed)
 
@@ -477,8 +485,6 @@ VM is safe to call from a real-time audio thread.
 
 ### Limitations
 
-- **f64 is second-class.** f64 values ride the int window, pay GPR↔FP
-  crossings on every op. Fine for correctness tests, not hot-pathed.
 - **No SIMD vector types in the VM.** `f32x4` lowers to per-lane
   scalar f32 ops via fused loads/stores. A proper SIMD window would
   need another register tier.

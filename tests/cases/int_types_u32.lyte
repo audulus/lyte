@@ -9,9 +9,9 @@
 main {
     // u32 arithmetic
     var a: u32
-    a = 100 as u32
+    a = 100u32
     var b: u32
-    b = 40 as u32
+    b = 40u32
     assert((a + b) as i32 == 140)
     assert((a - b) as i32 == 60)
     assert((a * b) as i32 == 4000)

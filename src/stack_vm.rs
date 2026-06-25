@@ -1,6 +1,6 @@
 //! Stack-based virtual machine interpreter for StackProgram bytecode.
 
-use crate::stack_ir::{StackOp, StackProgram};
+use crate::stack_ir::{StackExternRet, StackOp, StackProgram};
 use crate::vm::{print_output, println_output};
 
 struct CallFrame {
@@ -618,6 +618,130 @@ impl StackVM {
                         self.enter_function(program, func_idx, &arg_values);
                     locals = new_locals;
                     lm_base = new_lm_base;
+                }
+                StackOp::CallExtern {
+                    globals_offset,
+                    args,
+                    ret,
+                } => {
+                    let n = args as usize;
+                    let stack_len = self.operand_stack.len();
+                    let arg_values: Vec<u64> = self.operand_stack[stack_len - n..].to_vec();
+                    self.operand_stack.truncate(stack_len - n);
+
+                    let offset = globals_offset as usize;
+                    let fn_ptr = unsafe {
+                        std::ptr::read_unaligned(self.globals.as_ptr().add(offset) as *const usize)
+                    };
+                    let context = unsafe {
+                        std::ptr::read_unaligned(
+                            self.globals.as_ptr().add(offset + 8) as *const usize,
+                        ) as *mut u8
+                    };
+                    if fn_ptr == 0 {
+                        panic!(
+                            "called unbound extern function (globals offset {})",
+                            globals_offset
+                        );
+                    }
+
+                    macro_rules! call_ret {
+                        ($ret:ty) => {
+                            match n {
+                                0 => {
+                                    let f: unsafe extern "C" fn(*mut u8) -> $ret =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context)
+                                }
+                                1 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64) -> $ret =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context, arg_values[0])
+                                }
+                                2 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64) -> $ret =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context, arg_values[0], arg_values[1])
+                                }
+                                3 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64, u64) -> $ret =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context, arg_values[0], arg_values[1], arg_values[2])
+                                }
+                                4 => {
+                                    let f: unsafe extern "C" fn(
+                                        *mut u8,
+                                        u64,
+                                        u64,
+                                        u64,
+                                        u64,
+                                    ) -> $ret = std::mem::transmute(fn_ptr);
+                                    f(
+                                        context,
+                                        arg_values[0],
+                                        arg_values[1],
+                                        arg_values[2],
+                                        arg_values[3],
+                                    )
+                                }
+                                _ => panic!("extern function has too many parameters"),
+                            }
+                        };
+                    }
+
+                    macro_rules! call_void {
+                        () => {
+                            match n {
+                                0 => {
+                                    let f: unsafe extern "C" fn(*mut u8) =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context);
+                                }
+                                1 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64) =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context, arg_values[0]);
+                                }
+                                2 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64) =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context, arg_values[0], arg_values[1]);
+                                }
+                                3 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64, u64) =
+                                        std::mem::transmute(fn_ptr);
+                                    f(context, arg_values[0], arg_values[1], arg_values[2]);
+                                }
+                                4 => {
+                                    let f: unsafe extern "C" fn(*mut u8, u64, u64, u64, u64) =
+                                        std::mem::transmute(fn_ptr);
+                                    f(
+                                        context,
+                                        arg_values[0],
+                                        arg_values[1],
+                                        arg_values[2],
+                                        arg_values[3],
+                                    );
+                                }
+                                _ => panic!("extern function has too many parameters"),
+                            }
+                        };
+                    }
+
+                    let result = unsafe {
+                        match ret {
+                            StackExternRet::Void => {
+                                call_void!();
+                                0
+                            }
+                            StackExternRet::Bool => call_ret!(bool) as u64,
+                            StackExternRet::I32 => call_ret!(i32) as i64 as u64,
+                            StackExternRet::F32 => call_ret!(f32).to_bits() as u64,
+                            StackExternRet::F64 => call_ret!(f64).to_bits(),
+                            StackExternRet::Ptr => call_ret!(*mut u8) as u64,
+                        }
+                    };
+                    self.push(result);
                 }
                 StackOp::CallIndirect { args } => {
                     let target = self.pop() as u32;

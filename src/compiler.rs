@@ -554,7 +554,13 @@ impl Compiler {
         // Expand macros in all function bodies.
         for decl in &mut decls {
             if let Decl::Func(ref mut fdecl) = decl {
-                fdecl.expand_macros(&macros);
+                if let Err((loc, msg)) = fdecl.expand_macros(&macros) {
+                    if !self.quiet {
+                        print_error_with_context(loc, &msg);
+                    }
+                    self.last_errors.push(format_error(loc, &msg));
+                    return false;
+                }
             }
         }
 
@@ -760,6 +766,41 @@ impl Compiler {
                 panic!();
             }
         }
+    }
+
+    /// Ahead-of-time compile to a Mach-O object file for `target` and write
+    /// a companion C header. Output paths are derived from `output_path`
+    /// (e.g. `path/biquad.o` → `path/biquad.h`).
+    ///
+    /// `prefix` is applied to every externally-visible symbol so multiple
+    /// AOT objects can be linked into the same binary without collisions.
+    /// For a fat universal object, run once per target and combine the
+    /// resulting thin objects with `lipo -create`.
+    #[cfg(feature = "llvm")]
+    pub fn compile_aot(
+        &self,
+        output_path: &std::path::Path,
+        prefix: &str,
+        target: crate::llvm_aot::AotTarget,
+    ) -> Result<(), String> {
+        if self.decls.decls.is_empty() {
+            return Err("No declarations to compile".into());
+        }
+        if !self.no_recursion {
+            return Err(
+                "--aot requires --no-recursion (call-depth machinery is unavailable at link time)"
+                    .into(),
+            );
+        }
+        let entry_points = self.effective_entry_points();
+        crate::llvm_aot::compile_aot(
+            &self.decls,
+            &entry_points,
+            output_path,
+            prefix,
+            target,
+            self.print_ir,
+        )
     }
 
     /// Compile with LLVM and print IR, but do not execute.
@@ -1939,7 +1980,31 @@ mod tests {
     // At Return/ReturnVoid the entry depth must be 0 (plus the op's
     // own delta, which is 0 for both return ops).
     fn assert_f_window_balanced(program: &crate::stack_ir::StackProgram, label: &str) {
-        use crate::stack_depth::float_stack_delta;
+        assert_window_balanced(
+            program,
+            label,
+            crate::stack_depth::float_stack_delta,
+            "f-window",
+        );
+        assert_window_balanced(
+            program,
+            label,
+            crate::stack_depth::double_stack_delta,
+            "d-window",
+        );
+    }
+
+    /// Verify a register-window (float or double) stays balanced across the
+    /// CFG: every merge agrees on depth, every Return leaves depth 0, and no
+    /// op underflows. `delta` selects which window to check.
+    #[cfg(test)]
+    fn assert_window_balanced(
+        program: &crate::stack_ir::StackProgram,
+        label: &str,
+        delta: fn(&crate::stack_ir::StackOp) -> i32,
+        window: &str,
+    ) {
+        let float_stack_delta = delta;
         use crate::stack_ir::StackOp;
 
         for func in &program.functions {
@@ -2003,7 +2068,9 @@ mod tests {
                         }
                     }
                     StackOp::FusedF32ConstFGtJumpIfZeroF(_, off)
-                    | StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => {
+                    | StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off)
+                    | StackOp::FusedF64ConstDGtJumpIfZeroD(_, off)
+                    | StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => {
                         let t = (i as i64 + 1 + *off as i64) as usize;
                         if t < n {
                             succs.push(t);
@@ -2025,9 +2092,9 @@ mod tests {
                         worklist.push(s);
                     } else if in_depth[s] != d_out {
                         panic!(
-                            "[{}] {}: f-window depth mismatch at op {} \
+                            "[{}] {}: {} depth mismatch at op {} \
                              (from op {}): {} vs {}",
-                            label, func.name, s, i, in_depth[s], d_out,
+                            label, func.name, window, s, i, in_depth[s], d_out,
                         );
                     }
                 }
@@ -2040,9 +2107,10 @@ mod tests {
                 if matches!(op, StackOp::Return | StackOp::ReturnVoid) {
                     assert!(
                         in_depth[i] == 0,
-                        "[{}] {}: f-window leaks {} slot(s) at return op {}",
+                        "[{}] {}: {} leaks {} slot(s) at return op {}",
                         label,
                         func.name,
+                        window,
                         in_depth[i],
                         i,
                     );
@@ -2050,9 +2118,10 @@ mod tests {
                 let d_out = in_depth[i] + float_stack_delta(op);
                 assert!(
                     d_out >= 0,
-                    "[{}] {}: f-window underflow at op {} ({:?}): in={} delta={}",
+                    "[{}] {}: {} underflow at op {} ({:?}): in={} delta={}",
                     label,
                     func.name,
+                    window,
                     i,
                     op,
                     in_depth[i],
@@ -2090,15 +2159,15 @@ mod tests {
             // f32 if-expression in void context.
             ("f32 if in void ctx", r#"
                 main {
-                    var x = 0.0 as f32
+                    var x = 0.0f32
                     if true { x = 1.0 } else { x = 2.0 }
                 }
             "#),
             // f32 assignment RHS.
             ("f32 assign chain", r#"
                 main {
-                    var x = 0.0 as f32
-                    var y = 0.0 as f32
+                    var x = 0.0f32
+                    var y = 0.0f32
                     x = 1.5
                     y = x + x
                 }
@@ -2324,14 +2393,14 @@ mod tests {
 
     #[test]
     fn test_extern_fn_string_param_vm() {
-        // Test that extern functions can receive string ([u8]) parameters.
+        // Test that extern functions can receive string ([i8]) parameters.
         // Slices expand to (ptr, i32 len) at the C boundary.
         let prelude = r#"
-            extern fn send(msg: [i8])
+            extern fn send(msg: [i8]) -> bool
         "#;
         let code = r#"
-            fn main() {
-                send("hello")
+            fn main() -> bool {
+                return send("hello")
             }
         "#;
         let mut compiler = Compiler::new();
@@ -2349,6 +2418,7 @@ mod tests {
             vm_program.extern_funcs[0].param_types,
             vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32,]
         );
+        assert_eq!(vm_program.extern_funcs[0].ret_type, crate::vm::ExternType::Bool);
 
         let linked = crate::vm::LinkedProgram::from_program(&vm_program);
         let mut vm = crate::vm::VM::new();
@@ -2358,14 +2428,15 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         static SEND_CALLED: AtomicBool = AtomicBool::new(false);
 
-        // The C signature is: void send(void* ctx, const char* data, int32_t len)
+        // The C signature is: bool send(void* ctx, const char* data, int32_t len)
         // String literals in Lyte are null-terminated [i8; N+1].
-        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) {
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) -> bool {
             let slice = std::slice::from_raw_parts(data, len as usize);
             // "hello" becomes [104, 101, 108, 108, 111, 0] (null-terminated)
             assert_eq!(&slice[..5], b"hello");
             assert_eq!(len, 6); // includes null terminator
             SEND_CALLED.store(true, Ordering::SeqCst);
+            true
         }
 
         unsafe {
@@ -2377,16 +2448,85 @@ mod tests {
 
         SEND_CALLED.store(false, Ordering::SeqCst);
         let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
-        unsafe {
+        let result = unsafe {
             vm.call_with_external_globals(
                 &linked,
                 &vm_program,
                 func_idx,
                 globals.as_mut_ptr(),
                 globals_size,
+            )
+        };
+        assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+        assert_eq!(result, 1, "send(\"hello\") should return true");
+    }
+
+    #[cfg(has_stack_interp)]
+    #[test]
+    fn test_extern_fn_string_param_stack() {
+        // Test that stack VM extern functions can receive string ([i8]) parameters.
+        // Slices expand to (ptr, i32 len) at the C boundary.
+        let prelude = r#"
+            extern fn send(msg: [i8]) -> bool
+        "#;
+        let code = r#"
+            fn main() -> bool {
+                return send("hello")
+            }
+        "#;
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+
+        let stack_program = compiler
+            .compile_stack()
+            .expect("stack VM compile failed");
+        let globals_size = stack_program.globals_size;
+
+        let globals_info =
+            compiler.globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize);
+        let extern_info = globals_info
+            .iter()
+            .find(|g| g.4)
+            .expect("no extern global found");
+        let extern_offset = extern_info.1;
+
+        let mut backend = crate::stack_interp_bridge::StackBackend::new(&stack_program);
+        let mut globals = vec![0u8; globals_size];
+
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STACK_SEND_CALLED: AtomicBool = AtomicBool::new(false);
+
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) -> bool {
+            let slice = std::slice::from_raw_parts(data, len as usize);
+            assert_eq!(&slice[..5], b"hello");
+            assert_eq!(len, 6); // includes null terminator
+            STACK_SEND_CALLED.store(true, Ordering::SeqCst);
+            true
+        }
+
+        unsafe {
+            crate::ffi::lyte_globals_bind_extern(
+                globals.as_mut_ptr(),
+                extern_offset,
+                host_send as *const u8,
+                std::ptr::null_mut(),
             );
         }
-        assert!(SEND_CALLED.load(Ordering::SeqCst), "send() was not called");
+
+        STACK_SEND_CALLED.store(false, Ordering::SeqCst);
+        let func_idx = *stack_program
+            .entry_points
+            .get(&Name::str("main"))
+            .unwrap();
+        let result = backend.call_entry(func_idx, globals.as_mut_ptr());
+        assert!(
+            STACK_SEND_CALLED.load(Ordering::SeqCst),
+            "send() was not called"
+        );
+        assert_eq!(result, 1, "send(\"hello\") should return true");
     }
 
     #[cfg(feature = "llvm")]
@@ -2395,11 +2535,11 @@ mod tests {
         // Test that LLVM extern functions correctly receive string ([i8]) parameters.
         // Slices expand to (ptr, i32 len) at the C boundary.
         let prelude = r#"
-            extern fn send(msg: [i8])
+            extern fn send(msg: [i8]) -> bool
         "#;
         let code = r#"
-            fn main() {
-                send("hello")
+            fn main() -> bool {
+                return send("hello")
             }
         "#;
         let mut compiler = Compiler::new();
@@ -2430,11 +2570,12 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         static LLVM_SEND_CALLED: AtomicBool = AtomicBool::new(false);
 
-        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) {
+        unsafe extern "C" fn host_send(_ctx: *mut u8, data: *const u8, len: i32) -> bool {
             let slice = std::slice::from_raw_parts(data, len as usize);
             assert_eq!(&slice[..5], b"hello");
             assert_eq!(len, 6); // includes null terminator
             LLVM_SEND_CALLED.store(true, Ordering::SeqCst);
+            true
         }
 
         unsafe {
@@ -2451,9 +2592,10 @@ mod tests {
             let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
             LLVM_SEND_CALLED.store(false, Ordering::SeqCst);
             if setjmp(jmp_buf_ptr) == 0 {
-                type Entry = fn(*mut u8, *mut u8) -> i32;
+                type Entry = fn(*mut u8, *mut u8) -> i8;
                 let code_fn = mem::transmute::<_, Entry>(main_ptr);
-                code_fn(globals.as_mut_ptr(), std::ptr::null_mut());
+                let result = code_fn(globals.as_mut_ptr(), std::ptr::null_mut());
+                assert_eq!(result, 1, "send(\"hello\") should return true");
             } else {
                 panic!("execution was cancelled unexpectedly");
             }

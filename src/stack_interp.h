@@ -87,6 +87,15 @@ typedef struct Ctx {
     float*       float_stack;
     size_t       float_stack_cap;
 
+    // Double spill stack: backing store for the f64 TOS window (d0..d3)
+    // when its depth exceeds 4. Mirrors float_stack but typed `double`,
+    // so f64 arithmetic stays in FP registers and never pays the GPR↔FP
+    // crossing the old "f64 bit-pattern in u64" design forced. The live
+    // top pointer lives in the `dfsp` handler argument; this is the base
+    // for bounds checks and the initial value passed to the entry handler.
+    double*      double_stack;
+    size_t       double_stack_cap;
+
     // Closure pointer (set by call_closure, read by handlers)
     uint64_t     closure_ptr;
 
@@ -148,25 +157,34 @@ typedef struct Ctx {
 // float values coexist on the logical stack; static types at each
 // position tell the codegen which window to use.
 //
-// The window is typed as `float` (not `double`) so f32 arithmetic
-// compiles to direct single-precision FMA/fadd/... instructions
-// without the fcvt round-trips that a double-typed window forces on
-// every op. f64 values — rare in our hot workloads — still travel
-// through the integer window paying GPR↔FP crossings.
+// The f32 window is typed as `float` (not `double`) so f32 arithmetic
+// compiles to direct single-precision FMA/fadd/... instructions without
+// the fcvt round-trips that a double-typed window forces on every op.
+//
+// f64 gets its own parallel 4-slot window (d0..d3) typed `double`, living
+// in a separate set of FP/SIMD registers, with its own spill pointer
+// `dfsp`. f64 arithmetic stays in FP registers throughout, the same way
+// f32 does. The two windows together use 8 FP argument registers
+// (v0..v7 on aarch64, xmm0..xmm7 on x86-64) — the full FP arg budget.
 typedef PRESERVE_NONE void (*Handler)(
     Ctx*          ctx,
     Instruction*  pc,
     uint64_t*     sp,
-    float*        fsp,    // float spill pointer (lives in a GPR via preserve_none)
+    float*        fsp,    // float (f32) spill pointer (lives in a GPR via preserve_none)
+    double*       dfsp,   // double (f64) spill pointer (lives in a GPR via preserve_none)
     uint64_t*     locals, // frame pointer: scalars, then local memory contiguously
     uint64_t      t0,     // int TOS window (GPRs)
     uint64_t      t1,
     uint64_t      t2,
     uint64_t      t3,
-    float         f0,     // float TOS window (FP regs)
+    float         f0,     // f32 TOS window (FP regs)
     float         f1,
     float         f2,
     float         f3,
+    double        d0,     // f64 TOS window (FP regs)
+    double        d1,
+    double        d2,
+    double        d3,
     void*         nh      // preloaded handler for the NEXT instruction (cast to Handler)
 );
 

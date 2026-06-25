@@ -384,6 +384,7 @@ pub(crate) unsafe fn call_extern_fn(
     vals[0] = context as u64;
     for (i, pt) in param_types.iter().enumerate() {
         vals[i + 1] = match pt {
+            ExternType::Bool => (registers[args_start + i] != 0) as u64,
             ExternType::I32 => registers[args_start + i] as i32 as u32 as u64,
             ExternType::F32 => (registers[args_start + i] as u32) as u64,
             ExternType::F64 | ExternType::Ptr => registers[args_start + i],
@@ -405,6 +406,7 @@ pub(crate) unsafe fn call_extern_fn(
             low::call::<()>(&mut cif, code, arg_ptrs.as_mut_ptr());
             0
         }
+        ExternType::Bool => low::call::<u8>(&mut cif, code, arg_ptrs.as_mut_ptr()) as u64,
         ExternType::I32 => low::call::<i32>(&mut cif, code, arg_ptrs.as_mut_ptr()) as u64,
         ExternType::F32 => low::call::<f32>(&mut cif, code, arg_ptrs.as_mut_ptr()).to_bits() as u64,
         ExternType::F64 => low::call::<f64>(&mut cif, code, arg_ptrs.as_mut_ptr()).to_bits(),
@@ -417,6 +419,7 @@ unsafe fn extern_type_to_ffi_ptr(t: ExternType) -> *mut libffi::low::ffi_type {
     use libffi::low::types;
     match t {
         ExternType::Void => &raw mut types::void,
+        ExternType::Bool => &raw mut types::uint8,
         ExternType::I32 => &raw mut types::sint32,
         ExternType::F32 => &raw mut types::float,
         ExternType::F64 => &raw mut types::double,
@@ -1007,6 +1010,7 @@ impl VMFunction {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExternType {
     Void,
+    Bool,
     I32,
     F32,
     F64,

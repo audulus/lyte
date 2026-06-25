@@ -1,0 +1,7 @@
+// args: --check
+// expected stdout:
+// ../tests/cases/checker/literal_suffix_const.lyte:5: integer const cannot have a suffix
+
+const N = 3u32
+main {
+}

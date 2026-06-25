@@ -300,12 +300,12 @@ impl SafetyChecker {
         // match `x != 0` — mark x as non-zero
         if let Expr::Binop(Binop::NotEqual, lhs, rhs) = &decl.arena[expr] {
             if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*rhs] {
+                if let Expr::Int(0, _) = &decl.arena[*rhs] {
                     self.add_non_zero(name);
                 }
             }
             if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                if let Expr::Int(0) | Expr::UInt(0) = &decl.arena[*lhs] {
+                if let Expr::Int(0, _) = &decl.arena[*lhs] {
                     self.add_non_zero(name);
                 }
             }
@@ -504,14 +504,9 @@ impl SafetyChecker {
 
     fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
         match &decl.arena[expr] {
-            Expr::Int(x) => IndexInterval {
+            Expr::Int(x, _) => IndexInterval {
                 min: *x,
                 max: *x,
-                non_zero: *x != 0,
-            },
-            Expr::UInt(x) => IndexInterval {
-                min: *x as i64,
-                max: *x as i64,
                 non_zero: *x != 0,
             },
             Expr::Block(exprs) => {
@@ -741,9 +736,7 @@ impl SafetyChecker {
                         if !has_len_bound && !has_var_bound {
                             self.errors.push(SafetyError {
                                 location: decl.arena.locs[expr],
-                                message: format!(
-                                    "couldn't prove index is less than array length"
-                                ),
+                                message: format!("couldn't prove index is less than array length"),
                             });
                         }
                     }
@@ -1081,8 +1074,7 @@ impl SafetyChecker {
                         if let Expr::Binop(Binop::Plus, plus_lhs, plus_rhs) = &arena[*rhs] {
                             let lhs_is_var =
                                 matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
-                            let rhs_is_one =
-                                matches!(&arena[*plus_rhs], Expr::Int(1) | Expr::UInt(1));
+                            let rhs_is_one = matches!(&arena[*plus_rhs], Expr::Int(1, _));
                             return lhs_is_var && rhs_is_one;
                         }
                         return false; // Some other assignment to var_name
@@ -1291,12 +1283,10 @@ impl SafetyChecker {
         size_subst: &[(Name, i64)],
         decls: &DeclTable,
     ) -> bool {
-        let lookup = |n: &Name| -> Option<ExprID> {
-            subst.iter().find(|(p, _)| p == n).map(|(_, a)| *a)
-        };
-        let size_lookup = |n: &Name| -> Option<i64> {
-            size_subst.iter().find(|(s, _)| s == n).map(|(_, v)| *v)
-        };
+        let lookup =
+            |n: &Name| -> Option<ExprID> { subst.iter().find(|(p, _)| p == n).map(|(_, a)| *a) };
+        let size_lookup =
+            |n: &Name| -> Option<i64> { size_subst.iter().find(|(s, _)| s == n).map(|(_, v)| *v) };
 
         match &callee.arena[req] {
             Expr::True => true,
@@ -1548,9 +1538,8 @@ impl SafetyChecker {
         fn subexprs(e: &Expr) -> Vec<ExprID> {
             match e {
                 Expr::Id(_)
-                | Expr::Int(_)
-                | Expr::UInt(_)
-                | Expr::Real(_)
+                | Expr::Int(_, _)
+                | Expr::Real(_, _)
                 | Expr::String(_)
                 | Expr::Char(_)
                 | Expr::True
@@ -1584,7 +1573,9 @@ impl SafetyChecker {
                     v
                 }
                 Expr::While(c, b) => vec![*c, *b],
-                Expr::For { start, end, body, .. } => vec![*start, *end, *body],
+                Expr::For {
+                    start, end, body, ..
+                } => vec![*start, *end, *body],
                 Expr::Block(es) | Expr::Tuple(es) => es.clone(),
                 Expr::Return(e) | Expr::Arena(e) | Expr::Assume(e) => vec![*e],
                 Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| *e).collect(),
@@ -1825,10 +1816,9 @@ impl SafetyChecker {
             };
             match info.kind {
                 NodeKind::TopLevel => (f.loc, format!("function `{}`", f.name)),
-                NodeKind::Lambda { arena_idx } => (
-                    f.arena.locs[arena_idx],
-                    format!("lambda in `{}`", f.name),
-                ),
+                NodeKind::Lambda { arena_idx } => {
+                    (f.arena.locs[arena_idx], format!("lambda in `{}`", f.name))
+                }
             }
         };
 

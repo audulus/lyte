@@ -1,0 +1,44 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+approx64(a: f64, b: f64) -> bool {
+    var d = a - b
+    if d < 0.0f64 { d = 0.0f64 - d }
+    return d < 0.0001f64
+}
+
+main {
+    var a: f64
+    a = 1.0f64
+    var b: f64
+    b = 1.0f64
+    var c: f32
+    c = 1.0f32
+    var d: i32
+    d = 1i32
+    var e: u32
+    e = 1u32
+    var f: u32
+    f = 1u
+    var g: i32
+    g = -2147483648i32
+    var h: u32
+    h = 4294967295u32
+
+    assert(approx64(a + b, 2.0f64))
+    assert(c == 1.0f32)
+    assert(d == 1)
+    assert(e as i32 == 1)
+    assert(f as i32 == 1)
+    assert(g == -2147483648i32)
+    assert(h == 4294967295u32)
+    assert(42 == 42)
+}

@@ -487,6 +487,19 @@ supports `f64` but the hot-path benchmarks don't exercise it). Option:
 Recommendation: **Option B** for now. Add f64 F variants later if real
 f64 workloads emerge.
 
+> **Resolved: Option A was implemented.** A real f64 DSP workload emerged
+> (`benchmark/biquad_f64.lyte`), and on the int path it ran ~2.9× slower
+> than the f32 biquad — every op paid a GPR↔FP crossing and nothing fused.
+> f64 now gets a full parallel `double` window (`d0..d3` + `dfsp`), the
+> exact analogue of the float window, with `D`-suffix StackOps for
+> arithmetic, comparisons, conversions, memory, and math, plus the mirrored
+> fused superinstructions (`get_get_dmul_sum*`, `get_set*D`,
+> `get_f64const_dgt_jiz`). The two FP windows use all 8 FP arg registers
+> (`v0..v7` / `xmm0..xmm7`). Result: f64 biquad dropped from ~0.36s to
+> ~0.16s on the VM-host reference (`benchmark/run.sh`), ~1.2× the f32
+> biquad — the residual gap is f64's 2× state bandwidth, not dispatch or
+> crossing overhead.
+
 ### 6.3 Function call arg passing
 
 When calling a function with mixed int and float args, how are they
