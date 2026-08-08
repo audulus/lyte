@@ -785,9 +785,10 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             arena.add(Expr::While(cond, body), cx.lex.loc)
         }
         Token::Return => {
+            let loc = cx.lex.loc;
             cx.next();
             let e = parse_expr(arena, typevars, cx);
-            arena.add(Expr::Return(e), cx.lex.loc)
+            arena.add(Expr::Return(e), loc)
         }
         Token::Break => {
             let loc = cx.lex.loc;

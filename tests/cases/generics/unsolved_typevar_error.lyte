@@ -1,19 +1,20 @@
 // Using a generic global without ⟨T⟩ inside a generic function where
-// the return type alone can't determine T should be an error, not a hang.
+// nothing constrains T should be an error, not a hang.
 
 // args: --check
 // expected stdout:
-// ❌ ../tests/cases/generics/unsolved_typevar_error.lyte:14:16: ambiguous constraint: ?4 == ?4
-//             return pool[idx]
-//                    ^
+// ❌ ../tests/cases/generics/unsolved_typevar_error.lyte:16:13: ambiguous constraint: ?1 == ?1
+//         let x = pool[0]
+//                 ^
+// ❌ ../tests/cases/generics/unsolved_typevar_error.lyte:16:5: ambiguous constraint: ?1 == ?1
+//         let x = pool[0]
+//         ^
 
 var pool<T>: [T; 4]
 
-get<T>(idx: i32) -> T {
-    if idx >= 0 && idx < 4 {
-        return pool[idx]
-    }
-    return pool[0]
+count<T>() -> i32 {
+    let x = pool[0]
+    0
 }
 
 main {}

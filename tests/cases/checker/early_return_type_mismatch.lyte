@@ -1,0 +1,16 @@
+// An early return nested in a branch must match the function's return type.
+// Only tail-position returns used to be checked, so this reached codegen and
+// tripped the Cranelift verifier.
+
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/early_return_type_mismatch.lyte:12:12: return type must match function return type: f32 vs i32
+//         if b { return 1.5 }
+//                ^
+
+f(b: bool) -> i32 {
+    if b { return 1.5 }
+    0
+}
+
+main() { print(f(true)) }
