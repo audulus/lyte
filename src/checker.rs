@@ -685,7 +685,15 @@ impl Checker {
                     mutable: true,
                 });
 
-                ty
+                // A var declaration is a statement, not an expression: it does
+                // not produce a value. Record the variable's type for the
+                // backends (they read types[id] to size the slot), but report
+                // the declaration itself as Void so an enclosing block or
+                // if-else doesn't treat the declaration as its result. See
+                // issue #22: codegen emits a placeholder i32 0 here, which used
+                // to flow into a merge block typed from the declared type.
+                self.types[id] = ty;
+                return mk_type(Type::Void);
             }
             Expr::Let(name, init, ty) => {
                 let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
