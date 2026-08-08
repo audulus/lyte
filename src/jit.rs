@@ -727,10 +727,16 @@ impl<'a> FunctionTranslator<'a> {
     /// value from codegen. They disagree when an expression kind is typed
     /// non-void by the checker but returns a placeholder here (see issue #22,
     /// where a `var` declaration was typed f32 but yielded `iconst(I32, 0)`).
-    /// Failing at the mismatch names the branch and both types; letting it
-    /// through yields an opaque Cranelift verifier failure, or — when the
-    /// placeholder happens to be the right Cranelift type — well-formed IR
-    /// that computes the wrong answer.
+    /// Failing at the mismatch names the branch and both types instead of
+    /// leaving an opaque Cranelift verifier failure.
+    ///
+    /// This only catches disagreements that differ in Cranelift type. When the
+    /// placeholder happens to have the right type — the i32 half of issue #22,
+    /// where `var count = 0` silently yielded 0 — well-formed IR computing the
+    /// wrong answer sails right through. What rules that class out is the
+    /// checker unifying the two branch types, so a branch that evaluates to
+    /// something other than the if-else's type is a type error and never
+    /// reaches codegen.
     fn check_merge_arg(&self, val: Value, expected: Type, branch: &str) {
         let actual = self.builder.func.dfg.value_type(val);
         assert_eq!(
@@ -1478,18 +1484,21 @@ impl<'a> FunctionTranslator<'a> {
 
                 // Determine if this if-else produces a value. Both branches must
                 // have the same concrete (non-void) type for the result to be usable.
+                // `merge_ty` is Some exactly when it does, so it doubles as the
+                // "produces a value" flag — keeping a separate boolean around
+                // risks the two drifting apart.
                 let result_ty = decl.types[expr];
-                let is_value = if let Some(else_expr_id) = else_id {
-                    let else_ty = decl.types[*else_expr_id];
-                    !matches!(
-                        &*result_ty,
-                        crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
-                    ) && result_ty == else_ty
-                } else {
-                    false
+                let produces_value = match else_id {
+                    Some(else_expr_id) => {
+                        !matches!(
+                            &*result_ty,
+                            crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
+                        ) && result_ty == decl.types[*else_expr_id]
+                    }
+                    None => false,
                 };
 
-                let merge_ty = if is_value {
+                let merge_ty = if produces_value {
                     let cl_ty = result_ty.cranelift_type();
                     self.builder.append_block_param(merge_block, cl_ty);
                     Some(cl_ty)
@@ -1540,7 +1549,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.switch_to_block(merge_block);
                 self.builder.seal_block(merge_block);
 
-                if is_value {
+                if merge_ty.is_some() {
                     self.builder.block_params(merge_block)[0]
                 } else {
                     self.builder.ins().iconst(I32, 0)

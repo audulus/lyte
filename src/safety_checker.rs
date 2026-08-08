@@ -1531,57 +1531,6 @@ impl SafetyChecker {
         let mut lambda_node_of: HashMap<(usize, ExprID), usize> = HashMap::new();
         let mut address_taken_names: HashSet<Name> = HashSet::new();
 
-        // Return the list of immediate subexpression IDs for a given expr.
-        // Lambda returns its body here because the walk needs to *start*
-        // at the body; the walk itself creates the lambda node and passes
-        // the new node as the current context before recursing.
-        fn subexprs(e: &Expr) -> Vec<ExprID> {
-            match e {
-                Expr::Id(_)
-                | Expr::Int(_, _)
-                | Expr::Real(_, _)
-                | Expr::String(_)
-                | Expr::Char(_)
-                | Expr::True
-                | Expr::False
-                | Expr::Enum(_)
-                | Expr::Break
-                | Expr::Continue
-                | Expr::TypeApp(_, _)
-                | Expr::Error => vec![],
-                Expr::Call(f, args) => {
-                    let mut v = vec![*f];
-                    v.extend(args.iter().copied());
-                    v
-                }
-                Expr::Macro(_, args) => args.clone(),
-                Expr::Binop(_, l, r) => vec![*l, *r],
-                Expr::Unop(_, e) => vec![*e],
-                Expr::Lambda { body, .. } => vec![*body],
-                Expr::Field(base, _) => vec![*base],
-                Expr::Array(t, s) => vec![*t, *s],
-                Expr::ArrayLiteral(es) => es.clone(),
-                Expr::ArrayIndex(a, i) => vec![*a, *i],
-                Expr::AsTy(e, _) => vec![*e],
-                Expr::Let(_, init, _) => vec![*init],
-                Expr::Var(_, init, _) => init.iter().copied().collect(),
-                Expr::If(c, t, el) => {
-                    let mut v = vec![*c, *t];
-                    if let Some(e) = el {
-                        v.push(*e);
-                    }
-                    v
-                }
-                Expr::While(c, b) => vec![*c, *b],
-                Expr::For {
-                    start, end, body, ..
-                } => vec![*start, *end, *body],
-                Expr::Block(es) | Expr::Tuple(es) => es.clone(),
-                Expr::Return(e) | Expr::Arena(e) | Expr::Assume(e) => vec![*e],
-                Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| *e).collect(),
-            }
-        }
-
         #[allow(clippy::too_many_arguments)]
         fn walk(
             expr: ExprID,
@@ -1651,7 +1600,7 @@ impl SafetyChecker {
                     }
                 }
                 _ => {
-                    for child in subexprs(e) {
+                    for child in e.subexprs() {
                         walk(
                             child,
                             arena,

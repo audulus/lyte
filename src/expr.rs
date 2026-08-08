@@ -116,6 +116,58 @@ pub enum Expr {
 }
 
 impl Expr {
+    /// The immediate subexpression IDs of this expression.
+    ///
+    /// Lambda yields its body: walks that treat a lambda specially still need
+    /// to reach the body, and they match on `Expr::Lambda` before falling back
+    /// to this.
+    pub fn subexprs(&self) -> Vec<ExprID> {
+        match self {
+            Expr::Id(_)
+            | Expr::Int(_, _)
+            | Expr::Real(_, _)
+            | Expr::String(_)
+            | Expr::Char(_)
+            | Expr::True
+            | Expr::False
+            | Expr::Break
+            | Expr::Continue
+            | Expr::Enum(_)
+            | Expr::TypeApp(_, _)
+            | Expr::Error => vec![],
+            Expr::Call(f, args) => {
+                let mut v = vec![*f];
+                v.extend(args.iter().copied());
+                v
+            }
+            Expr::Macro(_, args) => args.clone(),
+            Expr::Binop(_, l, r) => vec![*l, *r],
+            Expr::Unop(_, e) => vec![*e],
+            Expr::Lambda { body, .. } => vec![*body],
+            Expr::Field(base, _) => vec![*base],
+            Expr::Array(t, s) => vec![*t, *s],
+            Expr::ArrayLiteral(es) => es.clone(),
+            Expr::ArrayIndex(a, i) => vec![*a, *i],
+            Expr::AsTy(e, _) => vec![*e],
+            Expr::Let(_, init, _) => vec![*init],
+            Expr::Var(_, init, _) => init.iter().copied().collect(),
+            Expr::If(c, t, el) => {
+                let mut v = vec![*c, *t];
+                if let Some(e) = el {
+                    v.push(*e);
+                }
+                v
+            }
+            Expr::While(c, b) => vec![*c, *b],
+            Expr::For {
+                start, end, body, ..
+            } => vec![*start, *end, *body],
+            Expr::Block(es) | Expr::Tuple(es) => es.clone(),
+            Expr::Return(e) | Expr::Arena(e) | Expr::Assume(e) => vec![*e],
+            Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| *e).collect(),
+        }
+    }
+
     /// Pretty-print an expression in lyte syntax.
     ///
     /// This method formats an expression as it would appear in lyte source code.
