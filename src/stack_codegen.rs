@@ -661,6 +661,11 @@ impl<'a> FunctionTranslator<'a> {
             Expr::While(..) | Expr::For { .. } => {
                 self.translate_expr_inner(expr, func, true);
             }
+            // Return never falls through, so there is no value to drop —
+            // a drop here would be unreachable code after the terminator.
+            Expr::Return(..) => {
+                self.translate_expr(expr, func);
+            }
             // Everything else: translate normally then drop.
             _ => {
                 self.translate_expr(expr, func);
@@ -915,7 +920,12 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
-            Expr::Return(expr_id) => {
+            Expr::Return(None) => {
+                func.emit(StackOp::ReturnVoid);
+                self.has_returned = true;
+            }
+
+            Expr::Return(Some(expr_id)) => {
                 let expr_id = *expr_id;
                 let ret_ty = self.expr_type(expr_id);
                 self.translate_expr(expr_id, func);
@@ -2972,7 +2982,12 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Return(e) | Expr::Assume(e) => {
+        Expr::Return(e) => {
+            if let Some(e) = e {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Assume(e) => {
             collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
         }
         Expr::Field(e, _) => {

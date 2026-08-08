@@ -86,8 +86,9 @@ pub enum Expr {
     /// Block expression containing a list of expressions.
     Block(Vec<ExprID>),
 
-    /// Return expression.
-    Return(ExprID),
+    /// Return expression. `None` is a bare `return`, which is only valid in a
+    /// function with no declared return type.
+    Return(Option<ExprID>),
 
     /// Break out of the innermost loop.
     Break,
@@ -299,10 +300,12 @@ impl Expr {
                 format!("{{\n{}\n{}}}", exprs_str, indent_str)
             }
 
-            Expr::Return(expr) => {
+            Expr::Return(Some(expr)) => {
                 let expr_str = arena.exprs[*expr].pretty_print(arena, indent);
                 format!("return {}", expr_str)
             }
+
+            Expr::Return(None) => "return".to_string(),
 
             Expr::Assume(expr) => {
                 let expr_str = arena.exprs[*expr].pretty_print(arena, indent);
@@ -473,7 +476,7 @@ pub fn copy_expr(
             dst_arena.add(Expr::Block(new_exprs), loc)
         }
         Expr::Return(expr) => {
-            let new_expr = copy_expr(*expr, src_arena, dst_arena, subst);
+            let new_expr = expr.map(|e| copy_expr(e, src_arena, dst_arena, subst));
             dst_arena.add(Expr::Return(new_expr), loc)
         }
         Expr::Assume(expr) => {
@@ -784,9 +787,16 @@ mod tests {
         let mut arena = ExprArena::new();
 
         let value_id = arena.add(Expr::Int(42, None), test_loc());
-        let return_expr = Expr::Return(value_id);
+        let return_expr = Expr::Return(Some(value_id));
 
         assert_eq!(return_expr.pretty_print(&arena, 0), "return 42");
+    }
+
+    #[test]
+    fn test_pretty_print_bare_return() {
+        let arena = ExprArena::new();
+
+        assert_eq!(Expr::Return(None).pretty_print(&arena, 0), "return");
     }
 
     #[test]

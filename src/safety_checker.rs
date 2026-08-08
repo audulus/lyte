@@ -913,7 +913,9 @@ impl SafetyChecker {
                 }
             }
             Expr::Return(expr) => {
-                self.check_expr(*expr, decl, decls);
+                if let Some(e) = expr {
+                    self.check_expr(*e, decl, decls);
+                }
                 IndexInterval::default()
             }
             Expr::Assume(cond) => {
@@ -1577,7 +1579,8 @@ impl SafetyChecker {
                     start, end, body, ..
                 } => vec![*start, *end, *body],
                 Expr::Block(es) | Expr::Tuple(es) => es.clone(),
-                Expr::Return(e) | Expr::Arena(e) | Expr::Assume(e) => vec![*e],
+                Expr::Return(e) => e.iter().copied().collect(),
+                Expr::Arena(e) | Expr::Assume(e) => vec![*e],
                 Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| *e).collect(),
             }
         }

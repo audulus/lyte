@@ -1138,8 +1138,23 @@ impl<'a> FunctionTranslator<'a> {
                 result
             }
             Expr::Return(expr_id) => {
-                let result = self.translate_expr(*expr_id, func);
-                let ret_ty = self.expr_type(*expr_id);
+                // A bare return has no value to hand back, so use the same
+                // zero placeholder void-like expressions produce. The void
+                // epilogue below ignores r0 anyway.
+                let (result, ret_ty) = match expr_id {
+                    Some(expr_id) => (
+                        self.translate_expr(*expr_id, func),
+                        self.expr_type(*expr_id),
+                    ),
+                    None => {
+                        let result = self.alloc_reg();
+                        func.emit(Opcode::LoadImm {
+                            dst: result,
+                            value: 0,
+                        });
+                        (result, mk_type(Type::Void))
+                    }
+                };
 
                 if returns_via_pointer(ret_ty) {
                     // Reload output pointer from local slot (r0 may have been
@@ -3611,7 +3626,12 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Return(e) | Expr::Assume(e) => {
+        Expr::Return(e) => {
+            if let Some(e) = e {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Assume(e) => {
             collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
         }
         Expr::Field(e, _) => {

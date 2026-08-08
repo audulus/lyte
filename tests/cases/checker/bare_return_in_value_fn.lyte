@@ -1,0 +1,14 @@
+// A bare `return` in a function that declares a return type is an error,
+// since it hands back no value.
+
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/bare_return_in_value_fn.lyte:11:5: return type must match function return type: void vs i32
+//         return
+//         ^
+
+f() -> i32 {
+    return
+}
+
+main() { print(f()) }

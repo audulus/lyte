@@ -787,7 +787,15 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
         Token::Return => {
             let loc = cx.lex.loc;
             cx.next();
-            let e = parse_expr(arena, typevars, cx);
+
+            // A bare `return` is one with nothing left in the statement:
+            // end of line, end of block, or end of input.
+            let e = if matches!(cx.lex.tok, Token::Endl | Token::Rbrace | Token::End) {
+                None
+            } else {
+                Some(parse_expr(arena, typevars, cx))
+            };
+
             arena.add(Expr::Return(e), loc)
         }
         Token::Break => {
