@@ -2275,22 +2275,33 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::Return(ret_id) => {
                 let ret_id = *ret_id;
-                let result = self.translate_expr(ret_id, decl);
-                let ret_ty = decl.types[ret_id];
+                // Evaluate the operand before releasing the call depth: it
+                // may itself contain calls.
+                let operand =
+                    ret_id.map(|ret_id| (self.translate_expr(ret_id, decl), decl.types[ret_id]));
 
                 if !self.state.no_recursion {
                     self.emit_call_depth_release();
                 }
-                if returns_via_pointer(ret_ty) {
-                    let out = self.output_ptr.unwrap();
-                    let size = ret_ty.size(self.decls) as u64;
-                    self.emit_memcpy(out, result.into_pointer_value(), size);
-                    self.builder().build_return(None).unwrap();
-                } else if *ret_ty == crate::Type::Void {
-                    self.builder().build_return(None).unwrap();
-                } else {
-                    let coerced = self.coerce_return(result, decl.ret);
-                    self.builder().build_return(Some(&coerced)).unwrap();
+                match operand {
+                    Some((result, ret_ty)) if returns_via_pointer(ret_ty) => {
+                        let out = self.output_ptr.unwrap();
+                        let size = ret_ty.size(self.decls) as u64;
+                        self.emit_memcpy(out, result.into_pointer_value(), size);
+                        self.builder().build_return(None).unwrap();
+                    }
+                    // A bare return, or one whose operand is itself void,
+                    // hands back no value.
+                    None => {
+                        self.builder().build_return(None).unwrap();
+                    }
+                    Some((_, ret_ty)) if *ret_ty == crate::Type::Void => {
+                        self.builder().build_return(None).unwrap();
+                    }
+                    Some((result, _)) => {
+                        let coerced = self.coerce_return(result, decl.ret);
+                        self.builder().build_return(Some(&coerced)).unwrap();
+                    }
                 }
 
                 // Unreachable block after return — add terminator so epilogue is skipped.
@@ -3899,7 +3910,12 @@ fn collect_free_vars_rec_llvm(
                 collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Return(e) | Expr::Assume(e) => {
+        Expr::Return(e) => {
+            if let Some(e) = e {
+                collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
+            }
+        }
+        Expr::Assume(e) => {
             collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
         }
         Expr::Field(e, _) => {

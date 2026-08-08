@@ -722,7 +722,12 @@ impl Checker {
             }
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
             Expr::Return(expr) => {
-                let ty = self.check_expr(*expr, arena, decls);
+                // A bare `return` returns nothing, so it has to line up with
+                // a function that declares no return type.
+                let ty = match expr {
+                    Some(e) => self.check_expr(*e, arena, decls),
+                    None => mk_type(Type::Void),
+                };
 
                 // Constrain against the enclosing function's return type.
                 // Without this, only a return in tail position is checked
@@ -1526,7 +1531,8 @@ fn escape_walk(
     errors: &mut Vec<TypeError>,
 ) {
     match &arena[expr] {
-        Expr::Return(e) => {
+        Expr::Return(None) => {}
+        Expr::Return(Some(e)) => {
             // Walk first so any declarations inside `e` update `tainted`.
             escape_walk(*e, arena, scope, tainted, errors);
             if expr_is_tainted(*e, arena, scope, tainted) {
@@ -1695,11 +1701,12 @@ fn lambda_has_captures(
                     .map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
                     .unwrap_or(false)
         }
-        Expr::Return(e)
-        | Expr::Assume(e)
-        | Expr::Field(e, _)
-        | Expr::AsTy(e, _)
-        | Expr::Arena(e) => lambda_has_captures(*e, arena, lambda_params, outer_scope),
+        Expr::Return(e) => e
+            .map(|e| lambda_has_captures(e, arena, lambda_params, outer_scope))
+            .unwrap_or(false),
+        Expr::Assume(e) | Expr::Field(e, _) | Expr::AsTy(e, _) | Expr::Arena(e) => {
+            lambda_has_captures(*e, arena, lambda_params, outer_scope)
+        }
         Expr::While(cond, body) | Expr::ArrayIndex(cond, body) | Expr::Array(cond, body) => {
             lambda_has_captures(*cond, arena, lambda_params, outer_scope)
                 || lambda_has_captures(*body, arena, lambda_params, outer_scope)

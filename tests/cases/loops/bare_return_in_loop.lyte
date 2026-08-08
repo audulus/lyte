@@ -1,0 +1,26 @@
+// A bare `return` exits the function from inside a loop, not just the loop.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+// 0
+// 1
+// 99
+
+count_to(n: i32) {
+    var i = 0
+    while i < n {
+        if i == 3 {
+            return
+        }
+        print(i)
+        i = i + 1
+    }
+    print(99)
+}
+
+main() {
+    count_to(10)
+    count_to(2)
+}

@@ -1,0 +1,32 @@
+// A bare `return` is an early exit from a function with no declared return
+// type. This is the example from issue #23.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 11
+
+var value: i32
+
+do_work(done: bool) {
+    if done {
+        return
+    }
+    value = value + 1
+}
+
+// Unreachable code after a bare return is skipped.
+bump() {
+    value = value + 10
+    return
+    value = value + 100
+}
+
+main() {
+    do_work(true)
+    print(value)
+    do_work(false)
+    print(value)
+    bump()
+    print(value)
+}

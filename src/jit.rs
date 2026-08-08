@@ -1625,24 +1625,45 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().iconst(I32, 0)
             }
             Expr::Return(expr_id) => {
-                let result = self.translate_expr(*expr_id, decl, decls);
-                let ret_ty = decl.types[*expr_id];
+                // Evaluate the operand before releasing the call depth: it
+                // may itself contain calls.
+                let operand = expr_id.map(|expr_id| {
+                    (
+                        self.translate_expr(expr_id, decl, decls),
+                        decl.types[expr_id],
+                    )
+                });
 
                 if !self.no_recursion {
                     self.emit_call_depth_release();
                 }
-                if returns_via_pointer(ret_ty) {
-                    // Copy result to output pointer and return void.
-                    let output = self
-                        .output_ptr
-                        .expect("output_ptr not set for pointer return");
-                    let size = ret_ty.size(decls) as i64;
-                    let size_val = self.builder.ins().iconst(I64, size);
-                    self.builder
-                        .call_memcpy(self.module.target_config(), output, result, size_val);
-                    self.builder.ins().return_(&[]);
-                } else {
-                    self.builder.ins().return_(&[result]);
+                match operand {
+                    Some((result, ret_ty)) if returns_via_pointer(ret_ty) => {
+                        // Copy result to output pointer and return void.
+                        let output = self
+                            .output_ptr
+                            .expect("output_ptr not set for pointer return");
+                        let size = ret_ty.size(decls) as i64;
+                        let size_val = self.builder.ins().iconst(I64, size);
+                        self.builder.call_memcpy(
+                            self.module.target_config(),
+                            output,
+                            result,
+                            size_val,
+                        );
+                        self.builder.ins().return_(&[]);
+                    }
+                    // A bare return, or one whose operand is itself void, has
+                    // no value to hand back — matching the void epilogue above.
+                    None => {
+                        self.builder.ins().return_(&[]);
+                    }
+                    Some((_, ret_ty)) if *ret_ty == crate::Type::Void => {
+                        self.builder.ins().return_(&[]);
+                    }
+                    Some((result, _)) => {
+                        self.builder.ins().return_(&[result]);
+                    }
                 }
 
                 // Create an unreachable block for any code after return.
@@ -2669,7 +2690,12 @@ fn collect_free_vars_rec(
                 collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
             }
         }
-        Expr::Return(e) | Expr::Assume(e) => {
+        Expr::Return(e) => {
+            if let Some(e) = e {
+                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
+            }
+        }
+        Expr::Assume(e) => {
             collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
         }
         Expr::Field(e, _) => {
