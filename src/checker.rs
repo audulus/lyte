@@ -55,6 +55,10 @@ pub struct Checker {
 
     /// Nesting depth of loops (>0 means we're inside a loop).
     loop_depth: usize,
+
+    /// Return types of the enclosing functions and lambdas, innermost last.
+    /// A `return` expression is constrained against the last entry.
+    ret_types: Vec<TypeID>,
 }
 
 /// Returns true if the type is or contains a borrowed type (`[T]` or `&T`).
@@ -187,6 +191,7 @@ impl Checker {
             constraints: vec![],
             errors: vec![],
             loop_depth: 0,
+            ret_types: vec![],
         }
     }
 
@@ -716,7 +721,31 @@ impl Checker {
                 ty
             }
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
-            Expr::Return(expr) => self.check_expr(*expr, arena, decls),
+            Expr::Return(expr) => {
+                let ty = self.check_expr(*expr, arena, decls);
+
+                // Constrain against the enclosing function's return type.
+                // Without this, only a return in tail position is checked
+                // (via the body's type), so an early return with the wrong
+                // type reaches codegen and trips the backend's verifier.
+                match self.ret_types.last() {
+                    Some(&ret) => {
+                        self.eq(
+                            ty,
+                            ret,
+                            arena.locs[id],
+                            "return type must match function return type",
+                        );
+
+                        // Take on the enclosing return type rather than the
+                        // operand's, so a return in tail position doesn't
+                        // report the same mismatch twice (once here, once
+                        // from the body-level check below).
+                        ret
+                    }
+                    None => ty,
+                }
+            }
             Expr::Assume(cond) => {
                 self.check_expr(*cond, arena, decls);
                 mk_type(Type::Void)
@@ -955,13 +984,25 @@ impl Checker {
                     param_types.push(ty);
                 }
 
+                // The lambda's return type isn't known up front, so bind a
+                // fresh variable that both the body and any `return` inside
+                // it unify with.
+                let lambda_ret = self.fresh();
+                self.ret_types.push(lambda_ret);
                 let rt = self.check_expr(*body, arena, decls);
+                self.ret_types.pop();
+                self.eq(
+                    rt,
+                    lambda_ret,
+                    arena.locs[*body],
+                    "return type must match function return type",
+                );
 
                 while self.vars.len() > n {
                     self.vars.pop();
                 }
 
-                func(tuple(param_types), rt)
+                func(tuple(param_types), lambda_ret)
             }
             Expr::Error => self.fresh(),
         };
@@ -1081,7 +1122,9 @@ impl Checker {
             }
 
             // Check the body of the function.
+            self.ret_types.push(func_decl.ret);
             let ty = self.check_expr(body, &func_decl.arena, decls);
+            self.ret_types.pop();
 
             if func_decl.ret != mk_type(Type::Void) {
                 self.eq(
