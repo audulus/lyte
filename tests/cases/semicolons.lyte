@@ -1,0 +1,25 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+sum_three(a: i32, b: i32, c: i32) -> i32 {
+    var t = 0; t = t + a; t = t + b
+    t = t + c
+    return t
+}
+
+main {
+    var x = 1; var y = 2; var z = x + y
+    assert(z == 3)
+
+    // Trailing semicolon before the closing brace.
+    assert(sum_three(1, 2, 3) == 6);
+
+    var i = 0
+    while i < 3 { i = i + 1; x = x + i }
+    assert(i == 3)
+    assert(x == 7)
+}

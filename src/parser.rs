@@ -853,7 +853,9 @@ fn parse_block(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) 
 
         r.push(parse_stmt(arena, typevars, cx));
 
-        if cx.lex.tok != Token::Endl {
+        // Statements are separated by newlines or semicolons. Semicolons let
+        // multiple statements share a line.
+        if cx.lex.tok != Token::Endl && cx.lex.tok != Token::Semi {
             break;
         }
 
@@ -1461,6 +1463,12 @@ mod tests {
                 "{ x = y\n z = w }",
                 "{ f(x)\n g(y) }",
                 "{ var x = y\n var z = w }",
+                "{ x; y }",
+                "{ x; }",
+                "{ x;\n y }",
+                "{ x = y; z = w }",
+                "{ var x = y; var z = w; f(x) }",
+                "{ while x { y; z }; w }",
             ],
         );
     }
