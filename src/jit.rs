@@ -720,6 +720,28 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.seal_block(continue_block);
     }
 
+    /// Check that a value about to be passed to an if-else merge block matches
+    /// the type the merge block param was declared with.
+    ///
+    /// The two are derived independently: the param from `decl.types`, the
+    /// value from codegen. They disagree when an expression kind is typed
+    /// non-void by the checker but returns a placeholder here (see issue #22,
+    /// where a `var` declaration was typed f32 but yielded `iconst(I32, 0)`).
+    /// Failing at the mismatch names the branch and both types; letting it
+    /// through yields an opaque Cranelift verifier failure, or — when the
+    /// placeholder happens to be the right Cranelift type — well-formed IR
+    /// that computes the wrong answer.
+    fn check_merge_arg(&self, val: Value, expected: Type, branch: &str) {
+        let actual = self.builder.func.dfg.value_type(val);
+        assert_eq!(
+            actual, expected,
+            "JIT internal error: {} branch of if-else produced a {} value, \
+             but the merge block expects {}. The checker and codegen disagree \
+             about what this branch evaluates to.",
+            branch, actual, expected
+        );
+    }
+
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
             Expr::Id(name) => {
@@ -1467,10 +1489,13 @@ impl<'a> FunctionTranslator<'a> {
                     false
                 };
 
-                if is_value {
+                let merge_ty = if is_value {
                     let cl_ty = result_ty.cranelift_type();
                     self.builder.append_block_param(merge_block, cl_ty);
-                }
+                    Some(cl_ty)
+                } else {
+                    None
+                };
 
                 // Branch based on condition.
                 self.builder
@@ -1482,7 +1507,8 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.seal_block(then_block);
                 let then_val = self.translate_expr(*then_id, decl, decls);
                 if !self.builder.is_unreachable() {
-                    if is_value {
+                    if let Some(merge_ty) = merge_ty {
+                        self.check_merge_arg(then_val, merge_ty, "then");
                         self.builder
                             .ins()
                             .jump(merge_block, &[codegen::ir::BlockArg::Value(then_val)]);
@@ -1500,7 +1526,8 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.ins().iconst(I32, 0)
                 };
                 if !self.builder.is_unreachable() {
-                    if is_value {
+                    if let Some(merge_ty) = merge_ty {
+                        self.check_merge_arg(else_val, merge_ty, "else");
                         self.builder
                             .ins()
                             .jump(merge_block, &[codegen::ir::BlockArg::Value(else_val)]);
