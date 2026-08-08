@@ -1345,6 +1345,7 @@ impl Checker {
             self._check_decl(decl, decls);
             if let Decl::Func(fd) | Decl::Macro(fd) = decl {
                 check_escape_in_func(fd, &mut self.errors);
+                self.check_void_declarations(fd);
                 self.check_unsolved_types(fd);
             }
         }
@@ -1354,7 +1355,37 @@ impl Checker {
         self._check_decl(decl, decls);
         if let Decl::Func(fd) | Decl::Macro(fd) = decl {
             check_escape_in_func(fd, &mut self.errors);
+            self.check_void_declarations(fd);
             self.check_unsolved_types(fd);
+        }
+    }
+
+    /// Reject variables declared with type void.
+    ///
+    /// Void isn't a value type in lyte — there's nothing to store and nothing
+    /// you can later do with the binding — so a void-typed declaration is
+    /// always a mistake. Reporting it here points at the declaration rather
+    /// than at whatever first tried to use the variable.
+    ///
+    /// Only runs if no other errors have been reported: unvisited expressions
+    /// keep the Void fill value from `check_fn_decl`, so a function that bailed
+    /// out early would otherwise produce false positives.
+    fn check_void_declarations(&mut self, func_decl: &FuncDecl) {
+        if !self.errors.is_empty() {
+            return;
+        }
+        let solved_types = self.solved_types();
+        for (i, expr) in func_decl.arena.exprs.iter().enumerate() {
+            let name = match expr {
+                Expr::Let(name, _, _) | Expr::Var(name, _, _) => name,
+                _ => continue,
+            };
+            if i < solved_types.len() && matches!(&*solved_types[i], Type::Void) {
+                self.errors.push(TypeError {
+                    location: func_decl.arena.locs[i],
+                    message: format!("variable '{}' cannot have type void", name),
+                });
+            }
         }
     }
 
