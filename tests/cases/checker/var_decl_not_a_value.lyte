@@ -1,0 +1,14 @@
+// A `var` declaration is a statement, not an expression, so an if-else whose
+// branches end in one produces void rather than the variable's type. This used
+// to type-check and silently evaluate to 0 (issue #22).
+//
+// Void is not a value type, so binding it is rejected at the declaration.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/var_decl_not_a_value.lyte:13:5: variable 'y' cannot have type void
+//         let y = if true { var x = 7 } else { var z = 9 }
+//         ^
+main {
+    let y = if true { var x = 7 } else { var z = 9 }
+}
