@@ -1,0 +1,39 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+near(a: f32, b: f32) -> bool { abs(a - b) < 0.0001 }
+near64(a: f64, b: f64) -> bool { abs(a - b) < 0.0001f64 }
+
+// Wrap a value into [0, 1), the DSP idiom from issue #31.
+wrap01(x_in: f32) -> f32 {
+    var x = x_in % 1.0
+    if x < 0.0 { x = x + 1.0 }
+    x
+}
+
+main {
+    // `%` on floats is a truncated remainder (C fmod / Rust `%`):
+    // the result takes the sign of the left operand.
+    assert(near(5.5 % 2.0, 1.5))
+    assert(near(-5.5 % 2.0, -1.5))
+    assert(near(5.5 % -2.0, 1.5))
+    assert(near(4.0 % 2.0, 0.0))
+
+    assert(near64(5.5f64 % 2.0f64, 1.5f64))
+    assert(near64(-5.5f64 % 2.0f64, -1.5f64))
+
+    assert(near(wrap01(2.25), 0.25))
+    assert(near(wrap01(-0.25), 0.75))
+
+    // Integer `%` is unchanged.
+    assert(10 % 3 == 1)
+}

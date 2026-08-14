@@ -1728,13 +1728,20 @@ impl<'a> FunctionTranslator<'a> {
                 }
             },
 
-            Binop::Mod => {
-                func.emit(Opcode::IRem {
-                    dst,
-                    a: lhs,
-                    b: rhs,
-                });
-            }
+            // Float `%` is lowered to a call to the stdlib's `__mod` before
+            // codegen, so only integer operands reach here.
+            Binop::Mod => match &*ty {
+                Type::Float32 | Type::Float64 | Type::Float32x4 => {
+                    unreachable!("type {:?} not supported for modulo", ty)
+                }
+                _ => {
+                    func.emit(Opcode::IRem {
+                        dst,
+                        a: lhs,
+                        b: rhs,
+                    });
+                }
+            },
 
             Binop::Equal => match &*ty {
                 Type::Float32 => {

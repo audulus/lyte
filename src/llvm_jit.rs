@@ -2642,6 +2642,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
+                    // Float `%` is lowered to a call to the stdlib's `__mod`
+                    // before codegen, so only integer operands reach here.
+                    crate::Type::Float32 | crate::Type::Float64 | crate::Type::Float32x4 => {
+                        unreachable!("type {:?} not supported for modulo", t)
+                    }
                     crate::Type::Int32 | crate::Type::Int8 => self
                         .builder()
                         .build_int_signed_rem(lhs.into_int_value(), rhs.into_int_value(), "srem")
