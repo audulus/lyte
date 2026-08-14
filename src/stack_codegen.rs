@@ -1205,7 +1205,14 @@ impl<'a> FunctionTranslator<'a> {
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::UDiv),
                 _ => func.emit(StackOp::IDiv),
             },
-            Binop::Mod => func.emit(StackOp::IRem),
+            // Float `%` is lowered to a call to the stdlib's `__mod` before
+            // codegen, so only integer operands reach here.
+            Binop::Mod => match &*ty {
+                Type::Float32 | Type::Float64 | Type::Float32x4 => {
+                    unreachable!("type {:?} not supported for modulo", ty)
+                }
+                _ => func.emit(StackOp::IRem),
+            },
             Binop::Pow => match &*ty {
                 Type::Float32 => func.emit(StackOp::FPowF),
                 Type::Float64 => func.emit(StackOp::DPowD),

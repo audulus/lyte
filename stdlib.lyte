@@ -8,6 +8,25 @@ fract(x: f64) -> f64 { x - floor(x) }
 mod(x: f32, y: f32) -> f32 { x - y * floor(x / y) }
 mod(x: f64, y: f64) -> f64 { x - y * floor(x / y) }
 
+// Float `%`. No backend has a primitive float remainder instruction, so the
+// checker resolves `x % y` on floats to these overloads. Semantics match C's
+// fmod and Rust's `%`: the result takes the sign of x. Use mod() above for
+// floored modulo, whose result takes the sign of y. Unlike a true fmod, this
+// loses precision when x / y is large enough to round.
+__mod(x: f32, y: f32) -> f32 {
+    let q = x / y
+    var t = floor(q)
+    if q < 0.0 { t = ceil(q) }
+    x - y * t
+}
+
+__mod(x: f64, y: f64) -> f64 {
+    let q = x / y
+    var t = floor(q)
+    if q < 0.0f64 { t = ceil(q) }
+    x - y * t
+}
+
 clamp(x: f32, lo: f32, hi: f32) -> f32 { min(max(x, lo), hi) }
 clamp(x: f64, lo: f64, hi: f64) -> f64 { min(max(x, lo), hi) }
 

@@ -302,6 +302,9 @@ fn rewrite_qualified_enums(arena: &mut ExprArena, decls: &DeclTable) {
 /// `Call(__add/__sub/__mul/__div, [lhs, rhs])` when the operand type is a
 /// named (struct) type. The checker resolves the overload through its Or
 /// constraint, but the JIT/VM only handle primitive types in binop codegen.
+///
+/// Float `%` is rewritten the same way: no backend has a primitive float
+/// remainder instruction, so it lowers to the stdlib's `__mod` overloads.
 fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
     let n = fdecl.arena.exprs.len();
     for i in 0..n {
@@ -310,7 +313,8 @@ fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
                 continue;
             }
             let lhs_ty = fdecl.types[lhs];
-            if matches!(*lhs_ty, Type::Name(_, _)) {
+            let is_float_mod = op == Binop::Mod && matches!(*lhs_ty, Type::Float32 | Type::Float64);
+            if matches!(*lhs_ty, Type::Name(_, _)) || is_float_mod {
                 let result_ty = fdecl.types[i];
                 let rhs_ty = fdecl.types[rhs];
                 // Build the function type: (lhs_ty, rhs_ty) -> result_ty

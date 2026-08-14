@@ -23,6 +23,11 @@ pub struct Checker {
     /// Overloads for arithmetic with built-in types.
     arith_overloads: Vec<TypeID>,
 
+    /// Overloads for `%` with built-in types. Integers only: float modulo is
+    /// provided by the `__mod` overloads in the stdlib, since no backend has a
+    /// primitive float remainder instruction.
+    mod_overloads: Vec<TypeID>,
+
     /// Overloads for casting.
     cast_overloads: Vec<TypeID>,
 
@@ -154,14 +159,19 @@ impl Checker {
         let uint32: TypeID = mk_type(Type::UInt32);
         let types = [Type::Int32, Type::UInt32, Type::Float32, Type::Float64];
         let mut arith_overloads = vec![];
+        let mut mod_overloads = vec![];
         let mut rel_overloads = vec![];
         let mut neg_overloads = vec![];
         let b = mk_type(Type::Bool);
 
         for ty in types {
+            let is_int = matches!(ty, Type::Int32 | Type::UInt32);
             let t = mk_type(ty);
             let tt = tuple(vec![t, t]);
             arith_overloads.push(func(tt, t));
+            if is_int {
+                mod_overloads.push(func(tt, t));
+            }
             rel_overloads.push(func(tt, b));
             neg_overloads.push(func(t, t));
         }
@@ -196,6 +206,7 @@ impl Checker {
             next_anon: 0,
             vars: vec![],
             arith_overloads,
+            mod_overloads,
             rel_overloads,
             neg_overloads,
             cast_overloads,
@@ -352,7 +363,13 @@ impl Checker {
 
             let mut alts = vec![];
 
-            for ty in &self.arith_overloads {
+            let builtins = if op == Binop::Mod {
+                &self.mod_overloads
+            } else {
+                &self.arith_overloads
+            };
+
+            for ty in builtins {
                 alts.push(Alt {
                     ty: *ty,
                     interfaces: vec![],
