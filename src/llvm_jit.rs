@@ -483,15 +483,11 @@ pub(crate) fn build_module<'ctx>(
 
     state.declare_globals(decls);
 
+    // Entry points that aren't defined are skipped — the client decides
+    // whether a missing entry point is an error.
     for &ep_name in entry_points {
-        let ep_decls = decls.find(ep_name);
-        if ep_decls.is_empty() {
-            return Err(format!("entry point function '{}' not found", ep_name));
-        }
-        let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
-            d
-        } else {
-            return Err(format!("'{}' is not a function", ep_name));
+        let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+            continue;
         };
         state.compile_function(decls, ep_decl)?;
     }
@@ -579,8 +575,17 @@ fn compile_and_run_with_context(
         }
     }
 
-    // Look up the first entry point for execution.
-    let run_name = &*entry_points[0];
+    // Look up the first entry point that exists for execution. Running does
+    // require one, so this is where a missing entry point becomes an error.
+    let run_ep = entry_points
+        .iter()
+        .copied()
+        .find(|n| decls.find_entry_point(*n).is_some())
+        .ok_or_else(|| match entry_points.first() {
+            Some(n) => format!("entry point function '{}' not found", n),
+            None => "no entry point to run".to_string(),
+        })?;
+    let run_name = &*run_ep;
     let fn_addr = ee
         .get_function_address(run_name)
         .map_err(|e| format!("function '{}' not found in JIT: {:?}", run_name, e))?;
@@ -678,9 +683,12 @@ impl LLVMJIT {
             }
         }
 
-        // Look up all entry point addresses.
+        // Look up the addresses of the entry points that were found.
         let mut ep_map = HashMap::new();
         for &ep_name in entry_points {
+            if decls.find_entry_point(ep_name).is_none() {
+                continue;
+            }
             let fn_addr = ee
                 .get_function_address(&*ep_name)
                 .map_err(|e| format!("function '{}' not found in JIT: {:?}", ep_name, e))?;

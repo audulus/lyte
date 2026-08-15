@@ -221,6 +221,10 @@ impl VM {
     /// This provides the same semantics as `run()` but with a hand-written
     /// dispatch loop that pins VM state in callee-saved registers.
     pub fn run_asm(&mut self, program: &VMProgram) -> i64 {
+        // Nothing to run: no entry point was found at compile time.
+        if program.functions.is_empty() {
+            return 0;
+        }
         let linked = LinkedProgram::from_program(program);
 
         // Initialize VM state

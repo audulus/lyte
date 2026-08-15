@@ -46,6 +46,18 @@ impl DeclTable {
         &self.decls[range]
     }
 
+    /// Looks up an entry point function by name.
+    ///
+    /// Entry points are optional: a name that doesn't resolve to a function
+    /// yields None so backends can skip it. Deciding whether a missing entry
+    /// point is an error is up to the client.
+    pub fn find_entry_point(&self, name: Name) -> Option<&FuncDecl> {
+        match self.find(name).first() {
+            Some(Decl::Func(d)) => Some(d),
+            _ => None,
+        }
+    }
+
     /// Calls f for every enum containing a case named name.
     /// This is for resolving .enum_case expressions.
     pub fn find_enum(&self, name: Name, f: &mut impl FnMut(Name)) {

@@ -114,6 +114,9 @@ impl VMCodegen {
     }
 
     /// Compile multiple entry points into a VMProgram.
+    ///
+    /// Entry points that aren't defined are skipped: only the ones that were
+    /// found show up in `program.entry_points`.
     pub fn compile_multi(
         &mut self,
         decls: &DeclTable,
@@ -127,13 +130,8 @@ impl VMCodegen {
             if self.compiled_functions.contains(&ep_name) {
                 continue;
             }
-            let ep_decls = decls.find(ep_name);
-            if ep_decls.is_empty() {
-                return Err(format!("entry point function '{}' not found", ep_name));
-            }
-            let ep_decl = match &ep_decls[0] {
-                Decl::Func(d) => d,
-                _ => return Err(format!("'{}' is not a function", ep_name)),
+            let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+                continue;
             };
             self.compile_function(ep_decl, decls)?;
 
@@ -152,16 +150,17 @@ impl VMCodegen {
             }
         }
 
-        // Set entry point to first entry point for backward compat.
-        self.program.entry = *self
-            .func_indices
-            .get(&entry_points[0])
-            .ok_or_else(|| format!("entry point '{}' not found", entry_points[0]))?;
-
-        // Populate entry_points map.
+        // Populate entry_points map, and set program.entry to the first entry
+        // point that was actually found (for backward compat). If none were
+        // found, program.entry stays at its default and the map is empty.
+        let mut entry_set = false;
         for &ep_name in entry_points {
             if let Some(&idx) = self.func_indices.get(&ep_name) {
                 self.program.entry_points.insert(ep_name, idx);
+                if !entry_set {
+                    self.program.entry = idx;
+                    entry_set = true;
+                }
             }
         }
 

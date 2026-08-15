@@ -471,12 +471,36 @@ impl Compiler {
     }
 
     /// Returns the effective entry points (defaults to ["main"] if none set).
+    ///
+    /// These are the *requested* entry points. Entry points are optional: the
+    /// backends skip any that aren't defined, so it's up to the client to
+    /// decide whether a missing one is an error (see `missing_entry_points`).
     pub fn effective_entry_points(&self) -> Vec<Name> {
         if self.entry_points.is_empty() {
             vec![Name::new("main".into())]
         } else {
             self.entry_points.clone()
         }
+    }
+
+    /// The effective entry points that are defined as functions.
+    /// Only meaningful after `check()`.
+    pub fn found_entry_points(&self) -> Vec<Name> {
+        self.effective_entry_points()
+            .into_iter()
+            .filter(|name| self.decls.find_entry_point(*name).is_some())
+            .collect()
+    }
+
+    /// The effective entry points that are *not* defined as functions.
+    /// Clients that require an entry point should check this and report an
+    /// error; compilation itself just skips them.
+    /// Only meaningful after `check()`.
+    pub fn missing_entry_points(&self) -> Vec<Name> {
+        self.effective_entry_points()
+            .into_iter()
+            .filter(|name| self.decls.find_entry_point(*name).is_none())
+            .collect()
     }
 
     pub fn parse_file(&mut self, path: &str) {
@@ -824,7 +848,8 @@ impl Compiler {
         }
     }
 
-    /// Compile to native code via Cranelift JIT.
+    /// Compile to native code via Cranelift JIT. Returns the code pointer of
+    /// the first entry point that's defined.
     #[cfg(feature = "cranelift")]
     pub fn jit(&self) -> Result<(*const u8, usize, JIT), String> {
         let mut jit = JIT::default();
@@ -833,7 +858,15 @@ impl Compiler {
         if self.decls.decls.is_empty() {
             return Err(String::from("No declarations to compile"));
         }
-        let (code_ptr, globals_size) = jit.compile(&self.decls)?;
+        let entry_points = self.effective_entry_points();
+        let (map, globals_size) = jit.compile_multi(&self.decls, &entry_points)?;
+        let code_ptr = entry_points
+            .iter()
+            .find_map(|name| map.get(name).copied())
+            .ok_or_else(|| match entry_points.first() {
+                Some(name) => format!("entry point function '{}' not found", name),
+                None => "no entry point to run".to_string(),
+            })?;
         Ok((code_ptr, globals_size, jit))
     }
 
@@ -938,6 +971,9 @@ impl Compiler {
     /// Run the code using the stack VM interpreter.
     pub fn run_stack(&mut self) -> Result<i64, String> {
         let program = self.compile_stack()?;
+        if program.entry_points.is_empty() {
+            return Err(self.no_entry_point_error());
+        }
         let mut vm = crate::stack_vm::StackVM::new();
         Ok(vm.run(&program))
     }
@@ -945,8 +981,19 @@ impl Compiler {
     /// Run the code using the VM interpreter.
     pub fn run_vm(&mut self) -> Result<i64, String> {
         let program = self.compile_vm()?;
+        if program.entry_points.is_empty() {
+            return Err(self.no_entry_point_error());
+        }
         let mut vm = VM::new();
         Ok(vm.run(&program))
+    }
+
+    /// Running requires an entry point, even though compiling doesn't.
+    fn no_entry_point_error(&self) -> String {
+        match self.effective_entry_points().first() {
+            Some(name) => format!("entry point function '{}' not found", name),
+            None => "no entry point to run".to_string(),
+        }
     }
 
     /// Compile to a backend-agnostic CompiledProgram.
@@ -1504,6 +1551,84 @@ mod tests {
         assert!(globals_size > 0);
 
         jit.free_memory();
+    }
+
+    #[test]
+    fn test_missing_entry_point_is_skipped_vm() {
+        // Only "init" is defined. The missing "process" entry point is not an
+        // error — it's just absent from the compiled program.
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+
+        assert_eq!(compiler.found_entry_points(), vec![Name::str("init")]);
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("process")]);
+
+        compiler.specialize().unwrap();
+        let program = compiler.compile_vm().unwrap();
+
+        assert!(program.entry_points.contains_key(&Name::str("init")));
+        assert!(!program.entry_points.contains_key(&Name::str("process")));
+
+        let mut vm = crate::vm::VM::new();
+        vm.call(&program, Name::str("init"), &[]).unwrap();
+        assert!(vm.call(&program, Name::str("process"), &[]).is_err());
+    }
+
+    #[cfg(feature = "cranelift")]
+    #[test]
+    fn test_missing_entry_point_is_skipped_jit() {
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        let (map, _globals_size, jit) = compiler.jit_multi().unwrap();
+        assert!(map.contains_key(&Name::str("init")));
+        assert!(!map.contains_key(&Name::str("process")));
+        jit.free_memory();
+    }
+
+    #[test]
+    fn test_no_entry_points_found_compiles_but_does_not_run() {
+        // A library with no entry point at all still compiles cleanly; only
+        // running requires one.
+        let code = r#"
+            helper(x: i32) -> i32 {
+                x * 2
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        assert!(compiler.check());
+        assert!(compiler.found_entry_points().is_empty());
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("main")]);
+
+        compiler.specialize().unwrap();
+        let program = compiler.compile_vm().unwrap();
+        assert!(program.entry_points.is_empty());
+
+        let err = compiler.run_vm().unwrap_err();
+        assert!(err.contains("not found"), "{}", err);
     }
 
     #[test]

@@ -1282,6 +1282,10 @@ impl VM {
     /// Run the program and return the result.
     /// Globals are always re-zeroed.
     pub fn run(&mut self, program: &VMProgram) -> i64 {
+        // Nothing to run: no entry point was found at compile time.
+        if program.functions.is_empty() {
+            return 0;
+        }
         // Always reinitialize globals for run().
         self.globals = vec![0u8; program.globals_size];
         self.run_inner(program, program.entry, &[])

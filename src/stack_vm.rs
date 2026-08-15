@@ -123,6 +123,10 @@ impl StackVM {
     }
 
     pub fn run(&mut self, program: &StackProgram) -> i64 {
+        // Nothing to run: no entry point was found at compile time.
+        if program.functions.is_empty() {
+            return 0;
+        }
         self.globals.resize(program.globals_size, 0);
         self.cancelled = false;
 

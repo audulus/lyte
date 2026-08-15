@@ -235,16 +235,13 @@ pub fn compile_aot(
     Ok(())
 }
 
+/// Collect signature info for the entry points that are defined. Undefined
+/// entry points are skipped — they simply get no wrapper or header entry.
 fn collect_entries(decls: &DeclTable, entry_points: &[Name]) -> Result<Vec<AotEntry>, String> {
     let mut out = Vec::with_capacity(entry_points.len());
     for &ep_name in entry_points {
-        let found = decls.find(ep_name);
-        if found.is_empty() {
-            return Err(format!("entry point '{}' not found", ep_name));
-        }
-        let f = match &found[0] {
-            Decl::Func(d) => d,
-            _ => return Err(format!("'{}' is not a function", ep_name)),
+        let Some(f) = decls.find_entry_point(ep_name) else {
+            continue;
         };
         let mut params = Vec::new();
         for p in &f.params {
