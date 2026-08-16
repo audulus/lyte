@@ -51,11 +51,21 @@ impl DeclTable {
     /// Entry points are optional: a name that doesn't resolve to a function
     /// yields None so backends can skip it. Deciding whether a missing entry
     /// point is an error is up to the client.
+    ///
+    /// Non-function decls sharing the name (a global, struct, etc.) are skipped
+    /// rather than shadowing the function, since decls with equal names are
+    /// ordered by source position.
     pub fn find_entry_point(&self, name: Name) -> Option<&FuncDecl> {
-        match self.find(name).first() {
-            Some(Decl::Func(d)) => Some(d),
+        self.entry_point_overloads(name).next()
+    }
+
+    /// Returns every function declared with the given name, ignoring non-function
+    /// decls that happen to share it.
+    pub fn entry_point_overloads(&self, name: Name) -> impl Iterator<Item = &FuncDecl> {
+        self.find(name).iter().filter_map(|d| match d {
+            Decl::Func(d) => Some(d),
             _ => None,
-        }
+        })
     }
 
     /// Calls f for every enum containing a case named name.

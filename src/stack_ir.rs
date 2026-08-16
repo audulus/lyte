@@ -675,6 +675,13 @@ impl StackProgram {
         self.functions.push(func);
         idx
     }
+
+    /// True if `entry` names a real function. Entry points are optional, and
+    /// `entry` defaults to 0, so a program compiled with none resolved would
+    /// otherwise run function 0 (or index out of bounds).
+    pub fn has_entry(&self) -> bool {
+        (self.entry as usize) < self.functions.len()
+    }
 }
 
 /// Display support for stack IR disassembly.

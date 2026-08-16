@@ -54,8 +54,7 @@ impl MonomorphPass {
         entry_points: &[Name],
     ) -> Result<Vec<Decl>, String> {
         for &entry_point in entry_points {
-            let func_decls = decls.find(entry_point);
-            if func_decls.len() > 1 {
+            if decls.entry_point_overloads(entry_point).count() > 1 {
                 return Err(format!(
                     "Multiple overloads found for entry point function '{}'",
                     entry_point

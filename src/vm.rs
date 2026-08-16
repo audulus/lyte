@@ -1062,6 +1062,13 @@ impl VMProgram {
         self.functions.push(func);
         idx
     }
+
+    /// True if `entry` names a real function. Entry points are optional, and
+    /// `entry` defaults to 0, so a program compiled with none resolved would
+    /// otherwise run function 0 (or index out of bounds).
+    pub fn has_entry(&self) -> bool {
+        (self.entry as usize) < self.functions.len()
+    }
 }
 
 /// Call frame for function execution
@@ -1282,12 +1289,16 @@ impl VM {
     /// Run the program and return the result.
     /// Globals are always re-zeroed.
     pub fn run(&mut self, program: &VMProgram) -> i64 {
-        // Nothing to run: no entry point was found at compile time.
-        if program.functions.is_empty() {
-            return 0;
-        }
         // Always reinitialize globals for run().
         self.globals = vec![0u8; program.globals_size];
+        self.cancelled = false;
+        self.trap = None;
+
+        // Nothing to run: no entry point was resolved at compile time, so
+        // program.entry is a meaningless default.
+        if !program.has_entry() {
+            return 0;
+        }
         self.run_inner(program, program.entry, &[])
     }
 
@@ -3338,5 +3349,40 @@ mod tests {
 
         vm.run(&program);
         assert!(vm.cancelled, "expected the infinite loop to be cancelled");
+    }
+
+    #[test]
+    fn test_no_entry_point_does_not_run() {
+        // Entry points are optional, so `entry` can be left at its 0 default
+        // with nothing to run. Neither shape may execute a function.
+        let empty = VMProgram::new();
+        assert!(!empty.has_entry());
+        assert_eq!(VM::new().run(&empty), 0);
+
+        // A stale entry index pointing past the function table (e.g. a program
+        // rebuilt from a codegen that kept indices from a previous compile).
+        let mut func = VMFunction::new("test");
+        func.emit(Opcode::LoadImm { dst: 0, value: 42 });
+        func.emit(Opcode::Return);
+
+        let mut program = VMProgram::new();
+        program.add_function(func);
+        program.entry = 7;
+        assert!(!program.has_entry());
+        assert_eq!(VM::new().run(&program), 0);
+    }
+
+    #[test]
+    fn test_run_rezeroes_globals_without_entry_point() {
+        // run() documents that globals are always re-zeroed; the early return
+        // for a missing entry point must not skip that.
+        let mut vm = VM::new();
+        vm.globals = vec![0xffu8; 8];
+
+        let mut program = VMProgram::new();
+        program.globals_size = 4;
+
+        assert_eq!(vm.run(&program), 0);
+        assert_eq!(vm.globals, vec![0u8; 4]);
     }
 }
