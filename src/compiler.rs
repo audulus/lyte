@@ -483,23 +483,35 @@ impl Compiler {
         }
     }
 
+    /// True if `name` is declared as a top level function in the parsed source.
+    ///
+    /// Answered from the AST rather than the decl table so it is valid as soon
+    /// as the source is parsed. `check()` copies every tree decl into
+    /// `self.decls`, so the two agree once it has run; before that `self.decls`
+    /// is empty and every entry point would look missing.
+    fn entry_point_is_defined(&self, name: Name) -> bool {
+        self.ast.iter().any(|tree| {
+            tree.decls
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.name == name))
+        })
+    }
+
     /// The effective entry points that are defined as functions.
-    /// Only meaningful after `check()`.
     pub fn found_entry_points(&self) -> Vec<Name> {
         self.effective_entry_points()
             .into_iter()
-            .filter(|name| self.decls.find_entry_point(*name).is_some())
+            .filter(|name| self.entry_point_is_defined(*name))
             .collect()
     }
 
     /// The effective entry points that are *not* defined as functions.
     /// Clients that require an entry point should check this and report an
     /// error; compilation itself just skips them.
-    /// Only meaningful after `check()`.
     pub fn missing_entry_points(&self) -> Vec<Name> {
         self.effective_entry_points()
             .into_iter()
-            .filter(|name| self.decls.find_entry_point(*name).is_none())
+            .filter(|name| !self.entry_point_is_defined(*name))
             .collect()
     }
 
@@ -1605,6 +1617,28 @@ mod tests {
         assert!(map.contains_key(&Name::str("init")));
         assert!(!map.contains_key(&Name::str("process")));
         jit.free_memory();
+    }
+
+    #[test]
+    fn test_entry_points_reported_before_check() {
+        // found/missing_entry_points read the AST, so an embedder that asks
+        // before check() gets the real answer rather than "everything missing".
+        let code = r#"
+            init {
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+
+        assert_eq!(compiler.found_entry_points(), vec![Name::str("init")]);
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("process")]);
+
+        // And the answer doesn't change once check() has populated decls.
+        assert!(compiler.check());
+        assert_eq!(compiler.found_entry_points(), vec![Name::str("init")]);
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("process")]);
     }
 
     #[test]

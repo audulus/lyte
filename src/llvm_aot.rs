@@ -235,13 +235,29 @@ pub fn compile_aot(
     Ok(())
 }
 
-/// Collect signature info for the entry points that are defined. Undefined
-/// entry points are skipped — they simply get no wrapper or header entry.
+/// Collect signature info for the requested entry points.
+///
+/// Unlike the JIT and VM backends, AOT treats an undefined entry point as an
+/// error rather than skipping it: the entry point list is the object's export
+/// list, so skipping one produces an .o + .h silently missing that symbol, and
+/// the mistake only surfaces as an undefined-symbol error in the host's link.
 fn collect_entries(decls: &DeclTable, entry_points: &[Name]) -> Result<Vec<AotEntry>, String> {
+    let missing: Vec<String> = entry_points
+        .iter()
+        .filter(|n| decls.find_entry_point(**n).is_none())
+        .map(|n| format!("'{}'", n))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "AOT entry point function(s) not found: {}",
+            missing.join(", ")
+        ));
+    }
+
     let mut out = Vec::with_capacity(entry_points.len());
     for &ep_name in entry_points {
         let Some(f) = decls.find_entry_point(ep_name) else {
-            continue;
+            unreachable!("checked above");
         };
         let mut params = Vec::new();
         for p in &f.params {
@@ -829,4 +845,26 @@ fn c_string_escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Compiler;
+
+    #[test]
+    fn undefined_entry_point_is_an_error() {
+        // AOT exports exactly the requested entry points, so an undefined one
+        // must fail here rather than yield an .o + .h missing that symbol.
+        let mut compiler = Compiler::new();
+        compiler.parse("var counter: i32\ninit { counter = 10 }\n", ".");
+        assert!(compiler.check());
+        let decls = compiler.decls();
+
+        assert!(collect_entries(decls, &[Name::str("init")]).is_ok());
+
+        let err = collect_entries(decls, &[Name::str("init"), Name::str("process")]).unwrap_err();
+        assert!(err.contains("'process'"), "{}", err);
+        assert!(!err.contains("'init'"), "{}", err);
+    }
 }
