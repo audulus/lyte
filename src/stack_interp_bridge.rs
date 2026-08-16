@@ -917,6 +917,11 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
 
 /// Convert a StackProgram to C instruction format and run it.
 pub fn run(program: &StackProgram) -> i64 {
+    // Nothing to run: no entry point was resolved at compile time, so
+    // program.entry is a meaningless default.
+    if !program.has_entry() {
+        return 0;
+    }
     let mut backend = StackBackend::new(program);
     let mut owned_globals: Vec<u8> = vec![0u8; program.globals_size];
     backend.call_entry(program.entry, owned_globals.as_mut_ptr())

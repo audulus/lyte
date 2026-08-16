@@ -166,12 +166,15 @@ impl JIT {
         let code_ptr = map
             .get(&main_name)
             .copied()
-            .ok_or_else(|| "main function not found".to_string())?;
+            .ok_or_else(|| "entry point function 'main' not found".to_string())?;
         Ok((code_ptr, globals_size))
     }
 
     /// Compile multiple entry points into native code.
     /// Returns (name→code_ptr map, globals_size).
+    ///
+    /// Entry points that aren't defined are skipped, so the returned map only
+    /// contains the ones that were found.
     pub fn compile_multi(
         &mut self,
         decls: &DeclTable,
@@ -181,14 +184,8 @@ impl JIT {
 
         let mut func_ids = Vec::new();
         for &ep_name in entry_points {
-            let ep_decls = decls.find(ep_name);
-            if ep_decls.is_empty() {
-                return Err(format!("entry point function '{}' not found", ep_name));
-            }
-            let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
-                d
-            } else {
-                return Err(format!("'{}' is not a function", ep_name));
+            let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+                continue;
             };
             let id = self.compile_function(decls, ep_decl)?;
             func_ids.push((ep_name, id));

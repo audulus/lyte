@@ -112,15 +112,19 @@ public final class Program {
         globals.first { $0.name == name }
     }
 
-    /// Look up an entry point by name. Returns nil if not found.
+    /// Look up an entry point by name. Returns nil if it wasn't requested, or
+    /// if the source doesn't define it — entry points are optional, so it's up
+    /// to the caller to decide whether a missing one is an error.
     public func entryPoint(named name: String) -> EntryPoint? {
         guard let index = entryPointNames.firstIndex(of: name) else { return nil }
-        return EntryPoint(program: self, index: index)
+        return entryPoint(at: index)
     }
 
     /// Get an entry point by index (matching the order passed to LyteCompiler.init).
+    /// Returns nil if the source doesn't define it.
     public func entryPoint(at index: Int) -> EntryPoint? {
         guard index >= 0 && index < entryPointNames.count else { return nil }
+        guard lyte_program_has_entry_point(handle, index) else { return nil }
         return EntryPoint(program: self, index: index)
     }
 

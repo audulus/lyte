@@ -1,0 +1,14 @@
+// A global sharing the entry point's name must not shadow the entry point
+// function. Decls with equal names are ordered by source position, so looking
+// at only the first one would report 'main' as missing.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+
+var main: i32
+
+main {
+    main = 3
+    assert(main == 3)
+}

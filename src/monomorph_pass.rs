@@ -45,33 +45,31 @@ impl MonomorphPass {
     ///
     /// Each entry point is processed as a root. The `processed_non_generic`
     /// set prevents reprocessing shared functions reached from multiple roots.
+    ///
+    /// Entry points that aren't defined are skipped — whether a missing entry
+    /// point is an error is up to the client.
     pub fn monomorphize_multi(
         &mut self,
         decls: &DeclTable,
         entry_points: &[Name],
     ) -> Result<Vec<Decl>, String> {
         for &entry_point in entry_points {
-            let func_decls = decls.find(entry_point);
-            if func_decls.is_empty() {
-                return Err(format!("entry point function '{}' not found", entry_point));
-            }
-
-            if func_decls.len() > 1 {
+            if decls.entry_point_overloads(entry_point).count() > 1 {
                 return Err(format!(
                     "Multiple overloads found for entry point function '{}'",
                     entry_point
                 ));
             }
 
-            if let Decl::Func(fdecl) = &func_decls[0] {
-                if !self.processed_non_generic.contains(&fdecl.name) {
-                    self.processed_non_generic.insert(fdecl.name);
-                    let mut fdecl = fdecl.clone();
-                    self.process_function(&mut fdecl, decls)?;
-                    self.out_decls.push(Decl::Func(fdecl));
-                }
-            } else {
-                return Err(format!("Entry point '{}' is not a function", entry_point));
+            let Some(fdecl) = decls.find_entry_point(entry_point) else {
+                continue;
+            };
+
+            if !self.processed_non_generic.contains(&fdecl.name) {
+                self.processed_non_generic.insert(fdecl.name);
+                let mut fdecl = fdecl.clone();
+                self.process_function(&mut fdecl, decls)?;
+                self.out_decls.push(Decl::Func(fdecl));
             }
         }
 
@@ -997,10 +995,9 @@ mod tests {
         let mut pass = MonomorphPass::new();
         let decls = DeclTable::new(vec![]);
 
+        // A missing entry point is not an error — it's simply skipped.
         let result = pass.monomorphize(&decls, Name::str("main"));
-        // Should fail because the entry point doesn't exist
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert_eq!(result.unwrap().len(), 0);
     }
 
     #[test]

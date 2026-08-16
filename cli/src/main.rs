@@ -73,6 +73,17 @@ struct Args {
     target: String,
 }
 
+/// The compiler treats entry points as optional (undefined ones are skipped),
+/// so requiring them is the client's job. The CLI needs every requested entry
+/// point to exist before it compiles or runs anything.
+fn require_entry_points(compiler: &lyte::Compiler) -> bool {
+    let missing = compiler.missing_entry_points();
+    for name in &missing {
+        eprintln!("entry point function '{}' not found", name);
+    }
+    missing.is_empty()
+}
+
 fn run(args: Args) -> i32 {
     let mut paths = vec![];
 
@@ -167,18 +178,12 @@ fn run(args: Args) -> i32 {
 
     // For `--check`, also run monomorphization so the post-monomorph safety
     // check (which catches bounds violations in `[T; N]` function bodies)
-    // fires here too. The actual compiled code is discarded. Skip if no
-    // entry point is defined — many test snippets are entry-point-less.
+    // fires here too. The actual compiled code is discarded. Undefined entry
+    // points are simply skipped — many test snippets are entry-point-less.
     if args.check && compiler.has_decls() {
-        let has_entry = compiler
-            .effective_entry_points()
-            .iter()
-            .any(|name| !compiler.decls().find(*name).is_empty());
-        if has_entry {
-            if let Err(e) = compiler.specialize() {
-                eprintln!("{}", e);
-                return 1;
-            }
+        if let Err(e) = compiler.specialize() {
+            eprintln!("{}", e);
+            return 1;
         }
     }
 
@@ -188,6 +193,9 @@ fn run(args: Args) -> i32 {
     #[cfg(feature = "llvm")]
     {
         if let Some(out) = args.aot.as_deref() {
+            if !require_entry_points(&compiler) {
+                return 1;
+            }
             return run_aot(
                 &mut compiler,
                 out,
@@ -247,6 +255,10 @@ fn run(args: Args) -> i32 {
     {
         if !compiler.has_decls() {
             println!("{:?}", Err::<(), _>("No declarations to compile"));
+            return 1;
+        }
+
+        if !require_entry_points(&compiler) {
             return 1;
         }
 
