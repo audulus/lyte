@@ -343,12 +343,16 @@ fn math_builtin_ptr(name: &Name) -> Option<usize> {
     None
 }
 
+/// True when a value of this type is carried around as a pointer to its
+/// storage rather than as a first-class LLVM value. Composite types (structs,
+/// tuples, arrays, slices, closures) are indirect; f32x4 is a vector value.
+fn is_indirect(ty: crate::TypeID) -> bool {
+    ty.is_ptr() && !is_llvm_value_type(ty)
+}
+
 /// Returns true if the type is returned via an output pointer.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
-    if is_llvm_value_type(ty) {
-        return false;
-    }
-    ty.is_ptr()
+    is_indirect(ty)
 }
 
 /// Types that are pointer-represented in the VM but first-class values in LLVM.
@@ -1520,7 +1524,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         val: BasicValueEnum<'ctx>,
     ) {
         let ptr = self.ptr_at_offset(storage, offset);
-        if elem_ty.is_ptr() && !is_llvm_value_type(elem_ty) {
+        if is_indirect(elem_ty) {
             self.gen_copy(elem_ty, ptr, val);
         } else {
             self.builder().build_store(ptr, val).unwrap();
@@ -1898,7 +1902,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let addr = self.ptr_at_offset(self.globals_base, offset as u64);
                     // Composite types (arrays, structs) are pointer-represented:
                     // return the address, don't load.
-                    if ty.is_ptr() && !is_llvm_value_type(ty) {
+                    if is_indirect(ty) {
                         addr.into()
                     } else {
                         self.builder()
@@ -2044,7 +2048,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let lhs_val = self.translate_expr(lhs_id, decl).into_pointer_value();
                 let field_ty = decl.types[expr];
                 let field_ptr = self.compute_field_ptr(lhs_val, lhs_ty, &field_name, decl);
-                if field_ty.is_ptr() {
+                if is_indirect(field_ty) {
                     field_ptr.into()
                 } else {
                     self.builder()
@@ -2072,7 +2076,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let rhs_val = self.translate_expr(rhs_id, decl).into_int_value();
                 let elem_ptr = self.compute_array_elem_ptr(lhs_val, lhs_ty, rhs_val);
                 let result_ty = decl.types[expr];
-                if result_ty.is_ptr() {
+                if is_indirect(result_ty) {
                     elem_ptr.into()
                 } else {
                     self.builder()
