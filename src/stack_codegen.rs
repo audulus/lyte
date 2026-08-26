@@ -1691,9 +1691,7 @@ impl<'a> FunctionTranslator<'a> {
 
         if is_local_var {
             // Push arguments first, then the fat pointer address.
-            for arg_id in arg_ids {
-                self.translate_expr(*arg_id, func);
-            }
+            self.push_closure_args(arg_ids, func);
             self.translate_expr(fn_id, func); // pushes fat_ptr_addr
             func.emit(StackOp::CallClosure {
                 args: arg_ids.len() as u8,
@@ -2082,9 +2080,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Indirect call via expression.
-        for arg_id in arg_ids {
-            self.translate_expr(*arg_id, func);
-        }
+        self.push_closure_args(arg_ids, func);
         self.translate_expr(fn_id, func); // pushes fat_ptr_addr
         func.emit(StackOp::CallClosure {
             args: arg_ids.len() as u8,
@@ -2092,10 +2088,24 @@ impl<'a> FunctionTranslator<'a> {
         self.bridge_call_result(call_expr, func);
     }
 
+    /// Push the arguments for a `CallClosure`. Like `op_call`, `op_call_closure`
+    /// copies args out of the int TOS window, so f32/f64 args that rode through
+    /// the float window have to be bridged back to their bit pattern.
+    fn push_closure_args(&mut self, arg_ids: &[ExprID], func: &mut StackFunction) {
+        for arg_id in arg_ids {
+            self.translate_expr(*arg_id, func);
+            match &*self.expr_type(*arg_id) {
+                Type::Float32 => func.emit(StackOp::FToBitsF),
+                Type::Float64 => func.emit(StackOp::DToBitsD),
+                _ => {}
+            }
+        }
+    }
+
     /// Fix up the result of a `CallClosure`. Void calls leave nothing on the
     /// operand stack, so push a placeholder to keep translate_call's +1
     /// invariant. Float returns come back through t0 (the int window) and must
-    /// be bridged into the float/double window, same as the direct-call path.
+    /// be bridged into the float/double window.
     fn bridge_call_result(&mut self, call_expr: ExprID, func: &mut StackFunction) {
         match &*self.expr_type(call_expr) {
             Type::Void => func.emit(StackOp::I64Const(0)),

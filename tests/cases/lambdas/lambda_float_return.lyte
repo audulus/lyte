@@ -3,9 +3,13 @@
 // assert(true)
 // assert(true)
 // assert(true)
+// assert(true)
+// assert(true)
 
 apply32(f: i32 → f32) → f32 { f(0) }
 apply64(f: i32 → f64) → f64 { f(0) }
+apply_arg32(f: f32 → f32, x: f32) → f32 { f(x) }
+apply_arg64(f: f64 → f64, x: f64) → f64 { f(x) }
 
 main {
     var x = 1.5
@@ -17,4 +21,12 @@ main {
     // Indirect call through a local variable holding a closure.
     var g = (|i: i32| x * 2.0)
     assert(g(0) == 3.0)
+
+    // Float arguments have to be bridged into the int window too. A
+    // non-literal argument is what exercises the bridge.
+    var v = 2.0
+    assert(apply_arg32((|a| a + 1.0), v) == 3.0)
+
+    var w = 2.0f64
+    assert(apply_arg64((|a| a + 1.0f64), w) == 3.0f64)
 }
