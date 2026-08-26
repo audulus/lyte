@@ -114,6 +114,12 @@ struct Var {
 ///   a function body is, unless the lambda is called directly (`(|i| ..)(5)`),
 ///   in which case the argument intervals are used. A lambda stored in a
 ///   variable and called later must therefore guard its own parameters.
+/// - Captured variables keep their definition-site constraints only if the
+///   enclosing function never assigns to them, since the call happens at an
+///   unknown later time. A captured variable that is assigned anywhere in the
+///   function — including inside the lambda itself — is unconstrained in the
+///   body, so the body has to guard it too. A directly-called lambda is
+///   exempt: its definition site is its call site.
 pub struct SafetyChecker {
     /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
@@ -133,6 +139,12 @@ pub struct SafetyChecker {
     /// Variable-to-variable less-than bounds: records that `lo < hi`.
     var_bounds: Vec<VarBound>,
 
+    /// Every variable assigned anywhere in the function currently being
+    /// checked. A lambda body can run at any point after its definition, so
+    /// anything in here is unconstrained inside a lambda that isn't called
+    /// immediately.
+    fn_assigned: Vec<Name>,
+
     pub errors: Vec<SafetyError>,
 }
 
@@ -145,8 +157,25 @@ impl SafetyChecker {
             leq_len_bounds: vec![],
             min_len_bounds: vec![],
             var_bounds: vec![],
+            fn_assigned: vec![],
             errors: vec![],
         }
+    }
+
+    /// Record a safety error, dropping exact duplicates. `match_expr` visits
+    /// some subexpressions more than once (e.g. the `Greater` arm looks at its
+    /// rhs both as a general expression and as an `array.len > N` pattern), and
+    /// since `check_expr` descends into lambda bodies that would otherwise
+    /// surface as the same diagnostic reported twice at one location.
+    fn push_error(&mut self, err: SafetyError) {
+        if self
+            .errors
+            .iter()
+            .any(|e| e.location == err.location && e.message == err.message)
+        {
+            return;
+        }
+        self.errors.push(err);
     }
 
     fn add(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
@@ -684,7 +713,7 @@ impl SafetyChecker {
                 let rhs_r = self.check_expr(*index_expr, decl, decls);
 
                 if rhs_r.min < 0 {
-                    self.errors.push(SafetyError {
+                    self.push_error(SafetyError {
                         location: decl.arena.locs[expr],
                         message: format!("couldn't prove index is >= 0"),
                     });
@@ -714,7 +743,7 @@ impl SafetyChecker {
                             _ => false,
                         };
                         if !interval_ok && !len_bound_ok {
-                            self.errors.push(SafetyError {
+                            self.push_error(SafetyError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove index is less than array length"),
                             });
@@ -750,7 +779,7 @@ impl SafetyChecker {
                             false
                         };
                         if !has_len_bound && !has_var_bound {
-                            self.errors.push(SafetyError {
+                            self.push_error(SafetyError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove index is less than array length"),
                             });
@@ -786,7 +815,7 @@ impl SafetyChecker {
                         false
                     };
                     if !has_len_bound && !has_min_len_bound {
-                        self.errors.push(SafetyError {
+                        self.push_error(SafetyError {
                             location: decl.arena.locs[expr],
                             message: format!("couldn't prove index is less than slice length"),
                         });
@@ -846,7 +875,7 @@ impl SafetyChecker {
                         let is_int =
                             matches!(*ty, Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8);
                         if is_int && !rhs_range.excludes_zero() {
-                            self.errors.push(SafetyError {
+                            self.push_error(SafetyError {
                                 location: decl.arena.locs[expr],
                                 message: format!("couldn't prove divisor is non-zero"),
                             });
@@ -1096,6 +1125,22 @@ impl SafetyChecker {
                 self.check_lambda_body(expr, &params.clone(), *body, None, decl, decls);
                 IndexInterval::default()
             }
+            Expr::Tuple(exprs) => {
+                for e in exprs {
+                    self.check_expr(*e, decl, decls);
+                }
+                IndexInterval::default()
+            }
+            Expr::StructLit(_, fields) => {
+                for (_, e) in fields {
+                    self.check_expr(*e, decl, decls);
+                }
+                IndexInterval::default()
+            }
+            Expr::AsTy(e, _) | Expr::Arena(e) => {
+                self.check_expr(*e, decl, decls);
+                IndexInterval::default()
+            }
             _ => IndexInterval::default(),
         }
     }
@@ -1135,6 +1180,18 @@ impl SafetyChecker {
             vec![]
         };
 
+        // A lambda that isn't invoked right here runs at some unknown later
+        // point, so any capture the enclosing function assigns to — before or
+        // after the definition, including from inside this body — may hold a
+        // different value by then. Drop what we know about those. An
+        // immediately-invoked lambda is exempt: the definition site *is* the
+        // call site, so the current state is exact.
+        if call_args.is_none() {
+            for name in self.fn_assigned.clone() {
+                self.forget(name);
+            }
+        }
+
         for (i, param) in params.iter().enumerate() {
             let ty = param.ty.or_else(|| solved_param_tys.get(i).copied());
             let is_u32 = ty == Some(mk_type(Type::UInt32));
@@ -1159,8 +1216,13 @@ impl SafetyChecker {
                         self.add_non_zero(param.name);
                     }
                     // The param inherits the argument's symbolic length bounds.
+                    // Read these from the live state, not the entry snapshot:
+                    // `forget` above has already stripped bounds naming an
+                    // array that this param shadows, and bounds pushed for an
+                    // earlier param should propagate.
                     if let Expr::Id(arg_name) = &decl.arena[*arg_expr] {
-                        let inherited: Vec<_> = saved_len_bounds
+                        let inherited: Vec<_> = self
+                            .len_bounds
                             .iter()
                             .filter(|b| b.index == *arg_name)
                             .map(|b| b.array)
@@ -1196,74 +1258,45 @@ impl SafetyChecker {
     /// Check if every assignment to `var_name` in the expression tree is of the
     /// form `var_name = var_name + 1` (monotonic increment by 1). Returns false
     /// if the variable is assigned in any other way.
+    ///
+    /// Walks the whole tree, like `collect_assigned_vars`: the two have to
+    /// agree about where an assignment can hide, or the loop-exit min bound
+    /// gets handed back on the strength of an increment that isn't the only
+    /// write.
     fn is_monotonic_increment(var_name: Name, expr: ExprID, arena: &ExprArena) -> bool {
-        match &arena[expr] {
-            Expr::Binop(Binop::Assign, lhs, rhs) => {
-                if let Expr::Id(name) = &arena[*lhs] {
-                    if *name == var_name {
-                        // Check rhs is `var_name + 1`
-                        if let Expr::Binop(Binop::Plus, plus_lhs, plus_rhs) = &arena[*rhs] {
-                            let lhs_is_var =
-                                matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
-                            let rhs_is_one = matches!(&arena[*plus_rhs], Expr::Int(1, _));
-                            return lhs_is_var && rhs_is_one;
-                        }
-                        return false; // Some other assignment to var_name
+        if let Expr::Binop(Binop::Assign, lhs, rhs) = &arena[expr] {
+            if let Expr::Id(name) = &arena[*lhs] {
+                if *name == var_name {
+                    // Check rhs is `var_name + 1`
+                    if let Expr::Binop(Binop::Plus, plus_lhs, plus_rhs) = &arena[*rhs] {
+                        let lhs_is_var = matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
+                        let rhs_is_one = matches!(&arena[*plus_rhs], Expr::Int(1, _));
+                        return lhs_is_var && rhs_is_one;
                     }
+                    return false; // Some other assignment to var_name
                 }
-                // Assignment to a different variable — recurse into RHS
-                Self::is_monotonic_increment(var_name, *rhs, arena)
             }
-            Expr::Block(exprs) => exprs
-                .iter()
-                .all(|e| Self::is_monotonic_increment(var_name, *e, arena)),
-            Expr::If(cond, then_expr, else_expr) => {
-                Self::is_monotonic_increment(var_name, *cond, arena)
-                    && Self::is_monotonic_increment(var_name, *then_expr, arena)
-                    && else_expr.map_or(true, |e| Self::is_monotonic_increment(var_name, e, arena))
-            }
-            Expr::While(cond, body) => {
-                Self::is_monotonic_increment(var_name, *cond, arena)
-                    && Self::is_monotonic_increment(var_name, *body, arena)
-            }
-            Expr::For { body, .. } => Self::is_monotonic_increment(var_name, *body, arena),
-            _ => true, // No assignment here
         }
+        arena[expr]
+            .subexprs()
+            .iter()
+            .all(|child| Self::is_monotonic_increment(var_name, *child, arena))
     }
 
-    /// Collect all variable names that are assigned (via `=`) inside an expression tree.
+    /// Collect all variable names that are assigned (via `=`) inside an
+    /// expression tree.
+    ///
+    /// Walks every subexpression, including lambda bodies, initializers and
+    /// call arguments — an assignment nested in any of those still happens, and
+    /// missing one would leave a stale constraint in place.
     fn collect_assigned_vars(expr: ExprID, arena: &ExprArena, out: &mut Vec<Name>) {
-        match &arena[expr] {
-            Expr::Binop(Binop::Assign, lhs, rhs) => {
-                if let Expr::Id(name) = &arena[*lhs] {
-                    out.push(*name);
-                }
-                Self::collect_assigned_vars(*rhs, arena, out);
+        if let Expr::Binop(Binop::Assign, lhs, _) = &arena[expr] {
+            if let Expr::Id(name) = &arena[*lhs] {
+                out.push(*name);
             }
-            Expr::Binop(_, lhs, rhs) => {
-                Self::collect_assigned_vars(*lhs, arena, out);
-                Self::collect_assigned_vars(*rhs, arena, out);
-            }
-            Expr::Block(exprs) => {
-                for e in exprs {
-                    Self::collect_assigned_vars(*e, arena, out);
-                }
-            }
-            Expr::If(cond, then_expr, else_expr) => {
-                Self::collect_assigned_vars(*cond, arena, out);
-                Self::collect_assigned_vars(*then_expr, arena, out);
-                if let Some(e) = else_expr {
-                    Self::collect_assigned_vars(*e, arena, out);
-                }
-            }
-            Expr::While(cond, body) => {
-                Self::collect_assigned_vars(*cond, arena, out);
-                Self::collect_assigned_vars(*body, arena, out);
-            }
-            Expr::For { body, .. } => {
-                Self::collect_assigned_vars(*body, arena, out);
-            }
-            _ => {}
+        }
+        for child in arena[expr].subexprs() {
+            Self::collect_assigned_vars(child, arena, out);
         }
     }
 
@@ -1384,7 +1417,7 @@ impl SafetyChecker {
                     callee.arena.exprs[req].pretty_print(&callee.arena, 0),
                     *callee.name
                 );
-                self.errors.push(SafetyError {
+                self.push_error(SafetyError {
                     location: caller.arena.locs[call_expr],
                     message: msg,
                 });
@@ -1566,6 +1599,11 @@ impl SafetyChecker {
                 self.propagate_len_bounds();
             }
 
+            // Lambda bodies are checked against this to decide which captures
+            // are still trustworthy, so it has to cover the whole function.
+            self.fn_assigned.clear();
+            Self::collect_assigned_vars(body, &func_decl.arena, &mut self.fn_assigned);
+
             self.check_expr(body, &func_decl, decls);
 
             self.vars.clear();
@@ -1574,6 +1612,7 @@ impl SafetyChecker {
             self.leq_len_bounds.clear();
             self.min_len_bounds.clear();
             self.var_bounds.clear();
+            self.fn_assigned.clear();
         }
     }
 
@@ -1909,7 +1948,7 @@ impl SafetyChecker {
 
             if scc.len() == 1 {
                 let (loc, desc) = describe(scc[0]);
-                self.errors.push(SafetyError {
+                self.push_error(SafetyError {
                     location: loc,
                     message: format!("--no-recursion: {} is recursive", desc),
                 });
@@ -1918,7 +1957,7 @@ impl SafetyChecker {
                 let cycle_desc = descs.join(", ");
                 for &n in scc {
                     let (loc, desc) = describe(n);
-                    self.errors.push(SafetyError {
+                    self.push_error(SafetyError {
                         location: loc,
                         message: format!(
                             "--no-recursion: {} participates in a recursive cycle [{}]",
@@ -3159,6 +3198,162 @@ mod tests {
 
         let errors = check(s);
         // u32 is known to be >= 0, so only the upper bound is unproven.
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_lambda_capture_assigned_after_definition_div() {
+        let s = "
+        f() {
+            var d = 1
+            var g = (| | 100 / d)
+            d = 0
+        }
+        ";
+
+        let errors = check(s);
+        // g runs at an unknown time, and d is 0 by then.
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_lambda_capture_assigned_after_definition_index() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var i = 5
+            var g = (| | a[i])
+            i = 1000
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_capture_unassigned_keeps_constraint() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var i = 5
+            var g = (| | a[i])
+            let j = i
+        }
+        ";
+
+        let errors = check(s);
+        // i is never assigned, so the definition-site interval still holds.
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_assignment_seen_through_enclosing_loop() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var i = 5
+            for k in 0 .. 10 {
+                var g = (| | i = 1000)
+            }
+            let x = a[i]
+        }
+        ";
+
+        let errors = check(s);
+        // The loop's invalidation has to reach the assignment inside the lambda.
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_self_assigned_capture_unconstrained() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var i = 5
+            var g = (| | { let x = a[i]
+                           i = 1000 })
+        }
+        ";
+
+        let errors = check(s);
+        // g can be called more than once, so i is not [5, 5] in the body.
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_len_bound_survives_shadowing_param() {
+        let s = "
+        f() {
+            var small: [i32; 4]
+            var a: [i32; 100]
+            for j in 0 .. a.len {
+                let z = (|a: [i32; 4], i: i32| a[i])(small, j)
+            }
+        }
+        ";
+
+        let errors = check(s);
+        // `j < a.len` is about the 100-element a, not the 4-element param.
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_lambda_len_bound_inherited_by_param() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            for j in 0 .. a.len {
+                let z = (|i| a[i])(j)
+            }
+        }
+        ";
+
+        let errors = check(s);
+        // The param inherits `j < a.len` from the argument.
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_in_tuple_is_checked() {
+        let s = "
+        f() {
+            var a: [i32; 4]
+            let t = (1, (|i: i32| a[i]))
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_index_under_as_ty_is_checked() {
+        let s = "
+        f() {
+            var a: [i32; 4]
+            let x = (a[5] as f32)
+        }
+        ";
+
+        let errors = check(s);
+        // The operand of an `as` cast is still checked.
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_lambda_error_reported_once() {
+        let s = "
+        f() {
+            var a: [i32; 4]
+            var b: [i32; 4]
+            var y = 1
+            if a.len > (|i| b[i])(1000) { let z = y }
+        }
+        ";
+
+        let errors = check(s);
+        // match_expr visits the rhs twice; the diagnostic is still reported once.
         assert_eq!(errors.len(), 1);
     }
 }
