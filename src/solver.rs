@@ -230,17 +230,29 @@ fn format_equality_error(
 /// its true `[T; N]` type but merely rewrites itself lets an intervening
 /// call-argument constraint bind that variable to a slice parameter type
 /// first, silently dropping the declared size — after which the safety
-/// checker can no longer see how long the array is. Errors are still reported
-/// from the rewritten `Equal` on a later iteration, so ignoring the result
-/// here doesn't lose diagnostics.
+/// checker can no longer see how long the array is.
+///
+/// A mismatch is reported here rather than left to the rewritten `Equal`.
+/// Under [`solve_constraints`] the rewritten constraint would fail again on the
+/// closing pass and report it anyway, but `iterate_solver` is public and gets
+/// called on its own; a single pass would otherwise drop the diagnostic while
+/// still committing whatever bindings the failed `unify` left behind. The
+/// rewrite happens either way, and this pass has already moved past the
+/// constraint, so the error is recorded exactly once.
 fn solve_as_equal(
     constraint: &mut Constraint,
     a: TypeID,
     b: TypeID,
     loc: Loc,
     instance: &mut Instance,
+    errors: &mut Vec<TypeError>,
 ) {
-    unify(a, b, instance);
+    if !unify(a, b, instance) {
+        errors.push(TypeError {
+            location: loc,
+            message: format_equality_error(a, b, &None, instance),
+        });
+    }
     *constraint = Constraint::Equal(a, b, loc, None);
 }
 
@@ -354,7 +366,7 @@ pub fn iterate_solver(
                                     field.ty
                                 };
 
-                                solve_as_equal(constraint, field_ty, ft, loc, instance);
+                                solve_as_equal(constraint, field_ty, ft, loc, instance, errors);
                             } else {
                                 errors.push(TypeError {
                                     location: loc,
@@ -373,7 +385,7 @@ pub fn iterate_solver(
                         let valid = matches!(s, "x" | "y" | "z" | "w" | "r" | "g" | "b" | "a");
                         if valid {
                             let f32_ty = mk_type(Type::Float32);
-                            solve_as_equal(constraint, f32_ty, ft, loc, instance);
+                            solve_as_equal(constraint, f32_ty, ft, loc, instance, errors);
                         } else {
                             errors.push(TypeError {
                                 location: loc,
@@ -387,7 +399,7 @@ pub fn iterate_solver(
                     Type::Array(_, _) | Type::Slice(_) => {
                         if field_name == Name::new("len".into()) {
                             let i32_ty = mk_type(Type::Int32);
-                            solve_as_equal(constraint, i32_ty, ft, loc, instance);
+                            solve_as_equal(constraint, i32_ty, ft, loc, instance, errors);
                         } else {
                             errors.push(TypeError {
                                 location: loc,
@@ -406,11 +418,11 @@ pub fn iterate_solver(
                         // Solving now rather than next iteration is what
                         // keeps `arr[i]` typed as its true element type —
                         // `[f32; N]` for `[[f32; N]; M]`, not `[f32]`.
-                        solve_as_equal(constraint, *a, elem_ty, loc, instance);
+                        solve_as_equal(constraint, *a, elem_ty, loc, instance, errors);
                     }
                     Type::Float32x4 => {
                         let f32_ty = mk_type(Type::Float32);
-                        solve_as_equal(constraint, f32_ty, elem_ty, loc, instance);
+                        solve_as_equal(constraint, f32_ty, elem_ty, loc, instance, errors);
                     }
                     Type::Anon(_) => {
                         // Not yet resolved, wait for more info.
@@ -545,6 +557,23 @@ mod tests {
             Constraint::Equal(vd, t, test_loc(), None),
             Constraint::Equal(int8, t, test_loc(), None),
         ];
+        let mut instance = Instance::new();
+
+        let mut errors = vec![];
+        let decls = DeclTable::new(vec![]);
+        iterate_solver(&mut constraints, &mut instance, &decls, &mut errors);
+        assert!(!errors.is_empty());
+    }
+
+    /// A single `iterate_solver` pass must report a mismatch found while
+    /// resolving an `ArrayOf`, not leave it to the `Equal` it rewrites itself
+    /// into — callers outside `solve_constraints` never run that later pass.
+    #[test]
+    pub fn test_array_of_mismatch_reported_in_one_pass() {
+        let i32_ty = mk_type(Type::Int32);
+        let f32_ty = mk_type(Type::Float32);
+        let arr = mk_type(Type::Array(i32_ty, ArraySize::Known(3)));
+        let mut constraints = [Constraint::ArrayOf(arr, f32_ty, test_loc())];
         let mut instance = Instance::new();
 
         let mut errors = vec![];
