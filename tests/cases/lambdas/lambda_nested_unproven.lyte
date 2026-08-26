@@ -1,0 +1,16 @@
+// A lambda nested inside another lambda is checked as well.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_nested_unproven.lyte:14:23: couldn't prove index is >= 0
+//         var g = (|i| (|j| arr[j])(i))
+//                           ^
+// ❌ ../tests/cases/lambdas/lambda_nested_unproven.lyte:14:23: couldn't prove index is less than array length
+//         var g = (|i| (|j| arr[j])(i))
+//                           ^
+
+main {
+    var arr: [i32; 4]
+    var g = (|i| (|j| arr[j])(i))
+    print(g(1000))
+}

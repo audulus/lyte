@@ -1,0 +1,12 @@
+// Division by an unconstrained lambda parameter.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_div_zero.lyte:10:25: couldn't prove divisor is non-zero
+//         var g = (|d| 100 / d)
+//                             ^
+
+main {
+    var g = (|d| 100 / d)
+    print(g(0))
+}

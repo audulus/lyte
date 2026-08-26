@@ -1,0 +1,12 @@
+// An immediately-invoked lambda is checked against its actual arguments, so
+// the divisor here is known to be non-zero.
+//
+// expected stdout:
+// compilation successful
+// 20
+// 42
+
+main {
+    print((|d| 100 / d)(5))
+    print((|x| x * 2)(21))
+}

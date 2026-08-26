@@ -1,0 +1,18 @@
+// A lambda body is checked like a function body: nothing is known about its
+// parameters at the definition site, so an unguarded index is rejected.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_index_unproven.lyte:16:18: couldn't prove index is >= 0
+//         var g = (|i| arr[i])
+//                      ^
+// ❌ ../tests/cases/lambdas/lambda_index_unproven.lyte:16:18: couldn't prove index is less than array length
+//         var g = (|i| arr[i])
+//                      ^
+
+main {
+    var arr: [i32; 4]
+    arr[0] = 11
+    var g = (|i| arr[i])
+    print(g(1000))
+}

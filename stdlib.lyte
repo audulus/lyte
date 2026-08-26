@@ -143,6 +143,8 @@ ftoa(dst: [i8], n: f32) {
             dst[i] = 45 as i8
             phase = 1
         } else if phase == 1 {
+            // phase leaves 1 as soon as div reaches 0, and div starts at 1.
+            assume div != 0
             dst[i] = ((int_part / div) % 10 + 48) as i8
             div = div / 10
             if div == 0 {
@@ -152,6 +154,8 @@ ftoa(dst: [i8], n: f32) {
             dst[i] = 46 as i8
             phase = 3
         } else if phase == 3 {
+            // phase leaves 3 as soon as frac_div reaches 0.
+            assume frac_div != 0
             dst[i] = ((frac_part / frac_div) % 10 + 48) as i8
             frac_div = frac_div / 10
             if frac_div == 0 {
