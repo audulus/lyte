@@ -1698,12 +1698,7 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(StackOp::CallClosure {
                 args: arg_ids.len() as u8,
             });
-            // Closure over a void function leaves no return value on the
-            // stack; push a placeholder so translate_call's +1 invariant
-            // holds.
-            if matches!(&*self.expr_type(call_expr), Type::Void) {
-                func.emit(StackOp::I64Const(0));
-            }
+            self.bridge_call_result(call_expr, func);
             return;
         }
 
@@ -2094,8 +2089,19 @@ impl<'a> FunctionTranslator<'a> {
         func.emit(StackOp::CallClosure {
             args: arg_ids.len() as u8,
         });
-        if matches!(&*self.expr_type(call_expr), Type::Void) {
-            func.emit(StackOp::I64Const(0));
+        self.bridge_call_result(call_expr, func);
+    }
+
+    /// Fix up the result of a `CallClosure`. Void calls leave nothing on the
+    /// operand stack, so push a placeholder to keep translate_call's +1
+    /// invariant. Float returns come back through t0 (the int window) and must
+    /// be bridged into the float/double window, same as the direct-call path.
+    fn bridge_call_result(&mut self, call_expr: ExprID, func: &mut StackFunction) {
+        match &*self.expr_type(call_expr) {
+            Type::Void => func.emit(StackOp::I64Const(0)),
+            Type::Float32 => func.emit(StackOp::BitsToFF),
+            Type::Float64 => func.emit(StackOp::BitsToDD),
+            _ => {}
         }
     }
 

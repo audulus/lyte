@@ -1,0 +1,20 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+apply32(f: i32 → f32) → f32 { f(0) }
+apply64(f: i32 → f64) → f64 { f(0) }
+
+main {
+    var x = 1.5
+    assert(apply32((|i| x + 1.0)) == 2.5)
+
+    var y = 1.5f64
+    assert(apply64((|i| y + 1.0f64)) == 2.5f64)
+
+    // Indirect call through a local variable holding a closure.
+    var g = (|i: i32| x * 2.0)
+    assert(g(0) == 3.0)
+}
