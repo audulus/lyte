@@ -1,0 +1,18 @@
+// Writes through a lambda parameter are checked too — this used to be a
+// silent out-of-bounds store on every backend.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_write_unproven.lyte:15:18: couldn't prove index is >= 0
+//         var g = (|i| arr[i] = 7)
+//                      ^
+// ❌ ../tests/cases/lambdas/lambda_write_unproven.lyte:15:18: couldn't prove index is less than array length
+//         var g = (|i| arr[i] = 7)
+//                      ^
+
+main {
+    var arr: [i32; 4]
+    var g = (|i| arr[i] = 7)
+    g(1000)
+    print(arr[0])
+}

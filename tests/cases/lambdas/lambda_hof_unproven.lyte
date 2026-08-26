@@ -1,0 +1,20 @@
+// A lambda passed to a higher-order function is checked at its definition
+// site, where the argument it will be called with is unknown.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_hof_unproven.lyte:19:21: couldn't prove index is >= 0
+//         print(apply(|i| arr[i], 2))
+//                         ^
+// ❌ ../tests/cases/lambdas/lambda_hof_unproven.lyte:19:21: couldn't prove index is less than array length
+//         print(apply(|i| arr[i], 2))
+//                         ^
+
+apply(f: (i32) → i32, x: i32) → i32 {
+    return f(x)
+}
+
+main {
+    var arr: [i32; 4]
+    print(apply(|i| arr[i], 2))
+}

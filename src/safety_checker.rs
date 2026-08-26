@@ -110,6 +110,10 @@ struct Var {
 /// - Only tracks `+`, `-`, and `*` for arithmetic
 /// - Constraints from while loop conditions don't persist after mutation
 /// - Complex expressions may result in unconstrained intervals
+/// - A lambda body is checked with its parameters unconstrained, the same way
+///   a function body is, unless the lambda is called directly (`(|i| ..)(5)`),
+///   in which case the argument intervals are used. A lambda stored in a
+///   variable and called later must therefore guard its own parameters.
 pub struct SafetyChecker {
     /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
@@ -172,6 +176,18 @@ impl SafetyChecker {
                 non_zero: true,
             });
         }
+    }
+
+    /// Drop everything we know about `name`. Used when a lambda parameter
+    /// shadows a captured variable of the same name.
+    fn forget(&mut self, name: Name) {
+        self.constraints.retain(|c| c.name != name);
+        self.len_bounds
+            .retain(|b| b.index != name && b.array != name);
+        self.leq_len_bounds
+            .retain(|b| b.index != name && b.array != name);
+        self.min_len_bounds.retain(|b| b.array != name);
+        self.var_bounds.retain(|b| b.lo != name && b.hi != name);
     }
 
     fn find(&self, name: Name) -> Option<IndexConstraint> {
@@ -890,8 +906,22 @@ impl SafetyChecker {
                 IndexInterval::default()
             }
             Expr::Call(callee_expr, args) => {
-                for arg in args {
-                    self.check_expr(*arg, decl, decls);
+                let arg_ivals: Vec<_> = args
+                    .iter()
+                    .map(|arg| self.check_expr(*arg, decl, decls))
+                    .collect();
+                // An immediately-invoked lambda has known arguments, so check
+                // its body against them rather than unconstrained.
+                if let Expr::Lambda { params, body } = &decl.arena[*callee_expr] {
+                    let (params, body) = (params.clone(), *body);
+                    self.check_lambda_body(
+                        *callee_expr,
+                        &params,
+                        body,
+                        Some((args, &arg_ivals)),
+                        decl,
+                        decls,
+                    );
                 }
                 self.check_call_requires(*callee_expr, args, expr, decl, decls);
                 IndexInterval::default()
@@ -1058,8 +1088,109 @@ impl SafetyChecker {
                 }
                 IndexInterval::default()
             }
+            Expr::Lambda { params, body } => {
+                // Nothing is known about the arguments at the definition site,
+                // so the body is checked with its parameters unconstrained.
+                // (A directly-called lambda is handled by the `Call` arm, which
+                // knows the arguments.)
+                self.check_lambda_body(expr, &params.clone(), *body, None, decl, decls);
+                IndexInterval::default()
+            }
             _ => IndexInterval::default(),
         }
+    }
+
+    /// Check a lambda body. Parameters shadow any captured variable of the
+    /// same name; `call_args` supplies the argument intervals (and the
+    /// argument expressions, for symbolic length bounds) when the lambda is
+    /// called directly at a known call site, and is `None` at the definition
+    /// site, where the arguments are unknown.
+    fn check_lambda_body(
+        &mut self,
+        lambda_expr: ExprID,
+        params: &[Param],
+        body: ExprID,
+        call_args: Option<(&[ExprID], &[IndexInterval])>,
+        decl: &FuncDecl,
+        decls: &DeclTable,
+    ) {
+        let saved_vars = self.vars.clone();
+        let saved_constraints = self.constraints.clone();
+        let saved_len_bounds = self.len_bounds.clone();
+        let saved_leq_len_bounds = self.leq_len_bounds.clone();
+        let saved_min_len_bounds = self.min_len_bounds.clone();
+        let saved_var_bounds = self.var_bounds.clone();
+
+        // Lambda params are usually unannotated, so recover their types from
+        // the solved function type of the lambda expression.
+        let solved_param_tys = if lambda_expr < decl.types.len() {
+            match &*decl.types[lambda_expr] {
+                Type::Func(dom, _) => match &**dom {
+                    Type::Tuple(tys) => tys.clone(),
+                    _ => vec![*dom],
+                },
+                _ => vec![],
+            }
+        } else {
+            vec![]
+        };
+
+        for (i, param) in params.iter().enumerate() {
+            let ty = param.ty.or_else(|| solved_param_tys.get(i).copied());
+            let is_u32 = ty == Some(mk_type(Type::UInt32));
+
+            // The param shadows any captured variable of the same name.
+            self.forget(param.name);
+            self.vars.push(Var {
+                name: param.name,
+                ty: ty.unwrap_or_else(|| mk_type(Type::Void)),
+            });
+
+            let arg = call_args.and_then(|(exprs, ivals)| Some((exprs.get(i)?, ivals.get(i)?)));
+            match arg {
+                Some((arg_expr, ival)) => {
+                    let mut min = (ival.min != i64::MIN).then_some(ival.min);
+                    let max = (ival.max != i64::MAX).then_some(ival.max);
+                    if is_u32 {
+                        min = Some(min.unwrap_or(0).max(0));
+                    }
+                    self.add(param.name, min, max);
+                    if ival.non_zero {
+                        self.add_non_zero(param.name);
+                    }
+                    // The param inherits the argument's symbolic length bounds.
+                    if let Expr::Id(arg_name) = &decl.arena[*arg_expr] {
+                        let inherited: Vec<_> = saved_len_bounds
+                            .iter()
+                            .filter(|b| b.index == *arg_name)
+                            .map(|b| b.array)
+                            .collect();
+                        for array in inherited {
+                            self.len_bounds.push(LenBound {
+                                index: param.name,
+                                array,
+                            });
+                        }
+                    }
+                }
+                None if is_u32 => self.add(param.name, Some(0), None),
+                None => self.add(param.name, None, None),
+            }
+        }
+
+        self.check_expr(body, decl, decls);
+
+        self.vars = saved_vars;
+        self.constraints = saved_constraints;
+        self.len_bounds = saved_len_bounds;
+        self.leq_len_bounds = saved_leq_len_bounds;
+        self.min_len_bounds = saved_min_len_bounds;
+        self.var_bounds = saved_var_bounds;
+
+        // Assignments in the body take effect whenever the lambda is called,
+        // which we can't pin down, so conservatively drop what we knew about
+        // the variables it writes to.
+        self.invalidate_assigned(body, &decl.arena);
     }
 
     /// Check if every assignment to `var_name` in the expression tree is of the
@@ -2864,5 +2995,170 @@ mod tests {
         ";
         let errors = check(s);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_index_unconstrained() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var g = (|i: i32| a[i])
+        }
+        ";
+
+        let errors = check(s);
+        // Nothing is known about i at the definition site.
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_index_guarded() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var g = (|i| if i >= 0 && i < 100 { a[i] } else { 0 })
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_assign_index_unconstrained() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var g = (|i: i32| a[i] = 7)
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_div_by_param() {
+        let s = "
+        f() {
+            var g = (|d| 100 / d)
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_lambda_div_guarded() {
+        let s = "
+        f() {
+            var g = (|d| if d != 0 { 100 / d } else { 0 })
+        }
+        ";
+
+        let errors = check(s);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_captures_constraint() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            let i = 5
+            var g = (| | a[i])
+        }
+        ";
+
+        let errors = check(s);
+        // The captured i keeps the interval it has at the definition site.
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_param_shadows_capture() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            let i = 5
+            var g = (|i: i32| a[i])
+        }
+        ";
+
+        let errors = check(s);
+        // The param shadows the captured i, so its bounds don't apply.
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_immediate_call_safe_arg() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            let x = (|i| a[i])(5)
+        }
+        ";
+
+        let errors = check(s);
+        // A direct call gives the param a known interval.
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    pub fn test_lambda_immediate_call_unsafe_arg() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            let x = (|i| a[i])(1000)
+        }
+        ";
+
+        let errors = check(s);
+        assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    pub fn test_lambda_nested_unconstrained() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var g = (|i: i32| (|j| a[j])(i))
+        }
+        ";
+
+        let errors = check(s);
+        // The inner lambda is called with the outer's unconstrained param.
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_body_assignment_invalidates_capture() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var i = 5
+            var g = (| | i = 1000)
+            a[i]
+        }
+        ";
+
+        let errors = check(s);
+        // Calling g could have changed i, so its interval no longer holds.
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    pub fn test_lambda_u32_param_non_negative() {
+        let s = "
+        f() {
+            var a: [i32; 100]
+            var g = (|i: u32| a[i])
+        }
+        ";
+
+        let errors = check(s);
+        // u32 is known to be >= 0, so only the upper bound is unproven.
+        assert_eq!(errors.len(), 1);
     }
 }
