@@ -1440,7 +1440,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Store each element in the stack slot.
                     for (i, value) in element_values.iter().enumerate() {
                         let offset = i as i32 * element_size as i32;
-                        self.builder.ins().stack_store(*value, slot, offset);
+                        self.store_element(*elem_ty, addr, slot, offset, *value, decls);
                     }
 
                     addr
@@ -1472,7 +1472,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     for i in 0..count {
                         let offset = i * element_size as i32;
-                        self.builder.ins().stack_store(fill_value, slot, offset);
+                        self.store_element(*elem_ty, addr, slot, offset, fill_value, decls);
                     }
 
                     addr
@@ -1789,7 +1789,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Store each element at its offset.
                     let mut offset = 0i32;
                     for (i, value) in element_values.iter().enumerate() {
-                        self.builder.ins().stack_store(*value, slot, offset);
+                        self.store_element(elem_types[i], addr, slot, offset, *value, decls);
                         offset += elem_types[i].size(decls) as i32;
                     }
 
@@ -2079,6 +2079,33 @@ impl<'a> FunctionTranslator<'a> {
         // Clamp: alignment must not exceed the largest power of 2 dividing size.
         let max_align = size & size.wrapping_neg(); // greatest_divisible_power_of_two
         std::cmp::min(natural, max_align as u8)
+    }
+
+    /// True when a value of type `t` is carried around as a pointer to its
+    /// storage rather than in a register. Composite types (structs, tuples,
+    /// arrays, slices, closures) are indirect; f32x4 lives in a SIMD register.
+    fn is_indirect(t: crate::TypeID) -> bool {
+        t.is_ptr() && !matches!(*t, crate::types::Type::Float32x4)
+    }
+
+    /// Store one element of an aggregate literal at `offset` within `slot`.
+    /// An indirect element is represented by the address of its storage, so
+    /// its bytes have to be copied into place rather than stored as-is.
+    fn store_element(
+        &mut self,
+        elem_ty: crate::TypeID,
+        addr: Value,
+        slot: cranelift::codegen::ir::StackSlot,
+        offset: i32,
+        value: Value,
+        decls: &crate::DeclTable,
+    ) {
+        if Self::is_indirect(elem_ty) {
+            let dst = self.builder.ins().iadd_imm(addr, offset as i64);
+            self.gen_copy(elem_ty, dst, value, decls);
+        } else {
+            self.builder.ins().stack_store(value, slot, offset);
+        }
     }
 
     fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &crate::DeclTable) {

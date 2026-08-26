@@ -3540,13 +3540,27 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Emit a store instruction with offset.
     fn emit_store_offset(
-        &self,
+        &mut self,
         ty: &TypeID,
         base: Reg,
         offset: i32,
         src: Reg,
         func: &mut VMFunction,
     ) {
+        if self.is_ptr_type(ty) {
+            // Composite values (structs, tuples, arrays, slices, closures) are
+            // represented by the address of their storage, so copy the bytes
+            // into place rather than storing the pointer itself.
+            let dst = self.alloc_reg();
+            func.emit(Opcode::IAddImm {
+                dst,
+                src: base,
+                imm: offset,
+            });
+            let size = self.vm_type_size(ty);
+            func.emit(Opcode::MemCopy { dst, src, size });
+            return;
+        }
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => {
                 func.emit(Opcode::Store8Off { base, offset, src });

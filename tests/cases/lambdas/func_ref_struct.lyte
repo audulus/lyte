@@ -2,6 +2,7 @@
 // compilation successful
 // assert(true)
 // assert(true)
+// assert(true)
 
 add_one(x: i32) -> i32 { x + 1 }
 double(x: i32) -> i32 { x * 2 }
@@ -22,4 +23,10 @@ main {
 
     assert(apply_op(op1, 10) == 11)
     assert(apply_op(op2, 10) == 20)
+
+    // Same thing built with a struct literal: the function value is a
+    // composite, so the field has to be copied rather than stored as a
+    // pointer to the temporary holding it.
+    var op3 = Op(f: add_one)
+    assert(apply_op(op3, 10) == 11)
 }

@@ -1509,6 +1509,24 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         }
     }
 
+    /// Store one element of an aggregate literal at `offset` within `storage`.
+    /// A pointer-represented element carries the address of its storage, so
+    /// its bytes have to be copied into place rather than stored as-is.
+    fn store_element(
+        &mut self,
+        elem_ty: crate::TypeID,
+        storage: PointerValue<'ctx>,
+        offset: u64,
+        val: BasicValueEnum<'ctx>,
+    ) {
+        let ptr = self.ptr_at_offset(storage, offset);
+        if elem_ty.is_ptr() && !is_llvm_value_type(elem_ty) {
+            self.gen_copy(elem_ty, ptr, val);
+        } else {
+            self.builder().build_store(ptr, val).unwrap();
+        }
+    }
+
     fn gen_copy(&mut self, ty: crate::TypeID, dst: PointerValue<'ctx>, src: BasicValueEnum<'ctx>) {
         if ty.is_ptr() {
             let size = ty.size(self.decls) as u64;
@@ -2074,9 +2092,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let total_size = elem_size * elements.len() as u64;
                     let storage = self.entry_array_alloca(self.i8_ty(), total_size, "arr_lit");
                     for (i, val) in elem_values.iter().enumerate() {
-                        let off = self.i64_ty().const_int(i as u64 * elem_size, false);
-                        let ptr = self.ptr_add_i64(storage, off);
-                        self.builder().build_store(ptr, *val).unwrap();
+                        self.store_element(*elem_ty, storage, i as u64 * elem_size, *val);
                     }
                     storage.into()
                 } else {
@@ -2350,8 +2366,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let storage = self.entry_array_alloca(self.i8_ty(), total_size, "tuple");
                     let mut off = 0u64;
                     for (i, val) in elem_vals.iter().enumerate() {
-                        let ptr = self.ptr_at_offset(storage, off);
-                        self.builder().build_store(ptr, *val).unwrap();
+                        self.store_element(elem_types[i], storage, off, *val);
                         off += elem_types[i].size(self.decls) as u64;
                     }
                     storage.into()
@@ -2451,8 +2466,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         for (fname, fval) in &fields {
                             let val = self.translate_expr(*fval, decl);
                             let off = s.field_offset(fname, self.decls, &inst);
-                            let field_ptr = self.ptr_at_offset(storage, off as u64);
-                            self.builder().build_store(field_ptr, val).unwrap();
+                            let field_ty = decl.types[*fval];
+                            self.store_element(field_ty, storage, off as u64, val);
                         }
                     }
                 }
@@ -2469,9 +2484,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let total_size = elem_size * count as u64;
                     let storage = self.entry_array_alloca(self.i8_ty(), total_size, "arr_fill");
                     for i in 0..count {
-                        let off = self.i64_ty().const_int(i as u64 * elem_size, false);
-                        let ptr = self.ptr_add_i64(storage, off);
-                        self.builder().build_store(ptr, fill_value).unwrap();
+                        self.store_element(*elem_ty, storage, i as u64 * elem_size, fill_value);
                     }
                     storage.into()
                 } else {

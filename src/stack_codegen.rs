@@ -1027,7 +1027,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalSet(val_local));
                     for i in 0..count {
                         let offset = i * elem_size;
-                        func.emit(StackOp::LocalAddr(mem_slot));
+                        self.emit_dest_addr(mem_slot, &elem_ty, offset, func);
                         func.emit(StackOp::LocalGet(val_local));
                         self.emit_store_offset(&elem_ty, offset, func);
                     }
@@ -2490,10 +2490,10 @@ impl<'a> FunctionTranslator<'a> {
             let elem_size = elem_ty.size(self.decls);
             let elem_ty = *elem_ty;
             for (i, &elem_id) in elements.iter().enumerate() {
-                func.emit(StackOp::LocalAddr(mem_slot));
+                let offset = (i as i32) * elem_size;
+                self.emit_dest_addr(mem_slot, &elem_ty, offset, func);
                 self.translate_expr(elem_id, func);
                 self.emit_wrap_for_expected_slice(elem_ty, elem_id, func);
-                let offset = (i as i32) * elem_size;
                 self.emit_store_offset(&elem_ty, offset, func);
             }
         }
@@ -2529,7 +2529,7 @@ impl<'a> FunctionTranslator<'a> {
                 for (fname, fval) in fields {
                     let offset = s.field_offset(fname, self.decls, &inst);
                     let field_ty = self.expr_type(*fval);
-                    func.emit(StackOp::LocalAddr(mem_slot));
+                    self.emit_dest_addr(mem_slot, &field_ty, offset, func);
                     self.translate_expr(*fval, func);
                     self.emit_store_offset(&field_ty, offset, func);
                 }
@@ -2549,7 +2549,7 @@ impl<'a> FunctionTranslator<'a> {
             let mut offset = 0;
             for (i, &elem_id) in elements.iter().enumerate() {
                 let elem_ty = &elem_types[i];
-                func.emit(StackOp::LocalAddr(mem_slot));
+                self.emit_dest_addr(mem_slot, elem_ty, offset, func);
                 self.translate_expr(elem_id, func);
                 self.emit_store_offset(elem_ty, offset, func);
                 offset += elem_ty.size(self.decls);
@@ -2798,82 +2798,26 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Push the destination address for storing a value of type `ty` at
+    /// `offset` within `slot`, ready for a following `emit_store_offset`.
+    /// Composite types are stored with MemCopy, which has no offset operand,
+    /// so the offset is folded into the address here.
+    fn emit_dest_addr(&self, slot: u16, ty: &TypeID, offset: i32, func: &mut StackFunction) {
+        func.emit(StackOp::LocalAddr(slot));
+        if self.is_ptr_type(ty) && offset != 0 {
+            func.emit(StackOp::IAddImm(offset));
+        }
+    }
+
     /// Emit a store with offset. Stack: [base, value] -> [].
+    /// For composite types the base must already include the offset — see
+    /// `emit_dest_addr`, which the aggregate-literal callers use.
     fn emit_store_offset(&self, ty: &TypeID, offset: i32, func: &mut StackFunction) {
         if self.is_ptr_type(ty) {
-            // For pointer types: source is an address, do MemCopy.
-            // Stack: [base, src_addr]
-            // We need: dst = base + offset, src = src_addr.
-            let size = self.vm_type_size(ty);
-            // Save src_addr, compute dst, push src, memcopy.
-            // But we can't easily manipulate the stack without locals here.
-            // For store_offset of pointer types in struct/array literals,
-            // we handle it inline. MemCopy wants [dst, src].
-            // Stack is [base, src_addr]. We need [base+offset, src_addr].
-            // Use a different approach: swap, add offset, swap, memcopy.
-            // Actually in our callers, we can just emit IAddImm first.
-            // For now, use the simple approach with an intermediate save.
-
-            // This is called with stack: [base, value_addr].
-            // Actually the convention for Store8Off etc is "pop value, pop base".
-            // For MemCopy it's "pop src, pop dst".
-            // So [base, value_addr] with MemCopy pops value_addr as src, base as dst.
-            // But we need base+offset as dst.
-            // So: push base, push value_addr -> need to add offset to base.
-
-            // We handle this by having callers push LocalAddr(slot) which gives base.
-            // Let's just add the offset to base before pushing value:
-            // Actually in the callers, they do:
-            //   LocalAddr(slot) -> push base
-            //   translate_expr  -> push value
-            //   emit_store_offset
-            // So stack is [base, value]. We need [base+offset, value] for MemCopy.
-            // We can't easily swap on a stack machine without locals.
-            // Let's use the simple approach: this path is only for composite types
-            // in struct/array construction, which is not performance-critical.
-
-            // For simplicity, if offset != 0, handle via explicit addr computation.
-            if offset == 0 {
-                func.emit(StackOp::MemCopy(size));
-            } else {
-                // Stack: [base, value_addr]
-                // We need: dst = base + offset, src = value_addr
-                // Approach: store value_addr to temp, add offset to base, load temp, memcopy
-                // But we don't have easy access to temp scalars from here.
-                // Alternative: emit as Store32Off/Store64Off for small types,
-                // or use MemCopy with address computation.
-                // Since this is a pointer type with offset, load each word.
-                // Actually, let's just do byte-level copy as a last resort.
-                // OR: we can note that the callers should handle this differently.
-                // For now, do the simple thing: emit a sequence.
-
-                // Since we need to use locals and this fn takes &self, we'll just
-                // compute addr + offset and then memcopy.
-                // Actually we can emit IAddImm on the second-to-top element
-                // by saving top, adding, then restoring.
-                // But that requires locals... and we take &self not &mut self.
-
-                // Let's accept the limitation: for ptr-type store_offset with
-                // nonzero offset, we need the caller to handle it. But our callers
-                // already push [base, value]. Let's just do:
-                //   base is underneath value on the stack.
-                //   We can't easily add offset to base.
-                // For now, just emit store of each component.
-                // This is a correctness issue for nested structs/arrays. We'll document
-                // that callers should adjust the base before calling for ptr types.
-
-                // HACK: For now, emit element-wise copy. This is suboptimal but correct.
-                // Actually we have Store32Off and Store64Off which take [base, value].
-                // But for composite types the value is an address. We need MemCopy.
-                // The simplest correct approach: the caller adjusts the base pointer.
-                // Since our callers (struct_lit, tuple, array_literal) always do
-                // LocalAddr(slot) before this, they should add offset before pushing value.
-
-                // For now, fall through to MemCopy assuming caller adjusts base.
-                // This won't work for nonzero offset with ptr types through this path.
-                // TODO: Fix callers to push (base+offset) instead of base.
-                func.emit(StackOp::MemCopy(size));
-            }
+            // Composite values are represented by the address of their storage,
+            // so copy the bytes into place. Stack is [dst_addr, src_addr] and
+            // MemCopy takes no offset operand, hence the emit_dest_addr contract.
+            func.emit(StackOp::MemCopy(self.vm_type_size(ty)));
         } else {
             match &**ty {
                 Type::Bool | Type::Int8 | Type::UInt8 => {
