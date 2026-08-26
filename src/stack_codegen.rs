@@ -350,6 +350,10 @@ struct FunctionTranslator<'a> {
 
     /// True when the current expression's result will be discarded.
     void_ctx: bool,
+
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<ExprID>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -380,6 +384,7 @@ impl<'a> FunctionTranslator<'a> {
             captured_vars: HashSet::new(),
             captured_slots: HashMap::new(),
             void_ctx: false,
+            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
         }
     }
 
@@ -804,6 +809,27 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
+                } else if crate::copy_elision::is_value_aggregate(&ty)
+                    && !self.elidable_lets.contains(&expr)
+                {
+                    // `let` binds aggregates by value, so the initializer's
+                    // storage has to be copied — otherwise a slice coerced from
+                    // the binding writes back into the source. Same shape as
+                    // `var`, which has always copied.
+                    self.translate_expr(init, func);
+                    self.emit_wrap_for_expected_slice(ty, init, func);
+                    let size = self.vm_type_size(&ty);
+                    let mem_slot = self.alloc_memory(size);
+                    let tmp = self.alloc_scalar();
+                    func.emit(StackOp::LocalSet(tmp));
+                    func.emit(StackOp::LocalAddr(mem_slot));
+                    func.emit(StackOp::LocalGet(tmp));
+                    func.emit(StackOp::MemCopy(size));
+                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
+                    if !self.void_ctx {
+                        func.emit(StackOp::LocalAddr(mem_slot));
+                    }
                 } else {
                     // Pointer-represented let bindings carry the address value.
                     self.translate_expr(init, func);

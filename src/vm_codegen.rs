@@ -365,6 +365,10 @@ struct FunctionTranslator<'a> {
     /// Map from variable names to their local slot indices (for addressable vars).
     local_slots: HashMap<Name, u16>,
 
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<crate::ExprID>,
+
     /// Next available register.
     next_reg: Reg,
 
@@ -468,6 +472,7 @@ impl<'a> FunctionTranslator<'a> {
             reg_promoted: HashSet::new(),
             reference_vars: HashSet::new(),
             local_slots: HashMap::new(),
+            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
             next_reg: 0,
             next_slot: 0,
             locals_size: 0,
@@ -976,6 +981,26 @@ impl<'a> FunctionTranslator<'a> {
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
+                } else if crate::copy_elision::is_value_aggregate(&ty)
+                    && !self.elidable_lets.contains(&expr)
+                {
+                    // `let` binds aggregates by value, so the initializer's
+                    // storage has to be copied — otherwise a slice coerced from
+                    // the binding writes back into the source. Same shape as
+                    // `var`, which has always copied.
+                    let size = self.vm_type_size(&ty);
+                    let slot = self.alloc_local(size);
+                    self.local_slots.insert(*name, slot);
+
+                    let addr_reg = self.alloc_reg();
+                    func.emit(Opcode::LocalAddr {
+                        dst: addr_reg,
+                        slot,
+                    });
+                    self.variables.insert(*name, addr_reg);
+                    self.variable_types.insert(*name, ty);
+                    self.emit_store(&ty, addr_reg, init_reg, func);
+                    return addr_reg;
                 } else {
                     // Pointer-represented let bindings carry the address value.
                     let reg = self.alloc_reg();
