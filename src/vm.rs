@@ -568,6 +568,13 @@ impl LinkedProgram {
             Opcode::IPow { dst, a, b } => PackedOp::abc(tags::IPOW, r(dst), r(a), r(b)),
             Opcode::INeg { dst, src } => PackedOp::abc(tags::INEG, r(dst), r(src), 0),
             Opcode::IAddImm { dst, src, imm } => {
+                // C is a single signed byte and there is no WIDE form; codegen
+                // must materialize larger constants (see emit_offset_addr).
+                debug_assert!(
+                    (i8::MIN as i32..=i8::MAX as i32).contains(&imm),
+                    "IAddImm immediate {} does not fit in i8",
+                    imm
+                );
                 PackedOp::abc(tags::IADD_IMM, r(dst), r(src), imm as i8 as u8)
             }
             // Float32 arithmetic — ABC

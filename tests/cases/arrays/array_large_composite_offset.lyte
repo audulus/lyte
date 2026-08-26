@@ -1,0 +1,27 @@
+// Element and field offsets past 128 bytes. The register VM packs IAddImm's
+// immediate into a signed byte, so an aggregate large enough to push a
+// composite member past offset 127 has to materialize the offset instead.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct P { a: i32, b: i32 }
+struct Big { pad: [i32; 40], p: [i32; 2], flag: bool }
+
+main {
+    // Element 16 of an 8-byte-element array sits at offset 128.
+    var fill = [P(a: 7, b: 8); 20]
+    assert(fill[16].a == 7)
+    assert(fill[19].b == 8)
+
+    // Same for a field beyond the first 160 bytes of a struct.
+    var b: Big
+    b.p[0] = 3
+    b.flag = true
+    assert(b.p[0] == 3)
+    assert(b.flag)
+}

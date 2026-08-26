@@ -486,12 +486,16 @@ impl crate::Type {
     }
 }
 
+/// True when a value of this type is carried around as a pointer to its
+/// storage rather than in a register. Composite types (structs, tuples,
+/// arrays, slices, closures) are indirect; f32x4 lives in a SIMD register.
+fn is_indirect(ty: crate::TypeID) -> bool {
+    ty.is_ptr() && !matches!(*ty, crate::Type::Float32x4)
+}
+
 /// Returns true if this type is returned via an output pointer parameter.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
-    if matches!(*ty, crate::Type::Float32x4) {
-        return false;
-    }
-    ty.is_ptr()
+    is_indirect(ty)
 }
 
 /// Returns true if the type is a slice.
@@ -859,7 +863,7 @@ impl<'a> FunctionTranslator<'a> {
                     let addr = self.builder.ins().iadd_imm(base, offset as i64);
                     // Composite types (arrays, structs) are pointer-represented:
                     // return the address, don't load. f32x4 is a value type — load it.
-                    if ty.is_ptr() && !matches!(**ty, crate::types::Type::Float32x4) {
+                    if is_indirect(*ty) {
                         addr
                     } else {
                         self.builder
@@ -1266,7 +1270,7 @@ impl<'a> FunctionTranslator<'a> {
                             let off = s.field_offset(fname, decls, &inst);
                             let field_ty = &decl.types[*fval];
                             let field_addr = self.builder.ins().iadd_imm(addr, off as i64);
-                            if field_ty.is_ptr() {
+                            if is_indirect(*field_ty) {
                                 self.gen_copy(*field_ty, field_addr, val, decls);
                             } else {
                                 self.builder
@@ -1319,7 +1323,7 @@ impl<'a> FunctionTranslator<'a> {
                         let off = s.field_offset(name, decls, &inst);
                         let field_ty = &decl.types[expr];
                         // Arrays are stored inline, so return the address of the field
-                        if field_ty.is_ptr() {
+                        if is_indirect(*field_ty) {
                             let off_val = self.builder.ins().iconst(I64, off as i64);
                             self.builder.ins().iadd(lhs_val, off_val)
                         } else {
@@ -1342,7 +1346,7 @@ impl<'a> FunctionTranslator<'a> {
                         off += elem_types[i].size(decls) as i32;
                     }
                     let field_ty = &decl.types[expr];
-                    if field_ty.is_ptr() {
+                    if is_indirect(*field_ty) {
                         let off_val = self.builder.ins().iconst(I64, off as i64);
                         self.builder.ins().iadd(lhs_val, off_val)
                     } else {
@@ -1405,7 +1409,7 @@ impl<'a> FunctionTranslator<'a> {
                 let off = self.builder.ins().uextend(I64, off);
                 let p = self.builder.ins().iadd(data_ptr, off);
                 let result_ty = decl.types[expr];
-                if result_ty.is_ptr() {
+                if is_indirect(result_ty) {
                     // Composite types (arrays, structs, tuples) are represented
                     // as pointers — return the address directly.
                     p
@@ -1440,7 +1444,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Store each element in the stack slot.
                     for (i, value) in element_values.iter().enumerate() {
                         let offset = i as i32 * element_size as i32;
-                        self.builder.ins().stack_store(*value, slot, offset);
+                        self.store_element(*elem_ty, addr, slot, offset, *value, decls);
                     }
 
                     addr
@@ -1472,7 +1476,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     for i in 0..count {
                         let offset = i * element_size as i32;
-                        self.builder.ins().stack_store(fill_value, slot, offset);
+                        self.store_element(*elem_ty, addr, slot, offset, fill_value, decls);
                     }
 
                     addr
@@ -1789,7 +1793,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Store each element at its offset.
                     let mut offset = 0i32;
                     for (i, value) in element_values.iter().enumerate() {
-                        self.builder.ins().stack_store(*value, slot, offset);
+                        self.store_element(elem_types[i], addr, slot, offset, *value, decls);
                         offset += elem_types[i].size(decls) as i32;
                     }
 
@@ -2079,6 +2083,26 @@ impl<'a> FunctionTranslator<'a> {
         // Clamp: alignment must not exceed the largest power of 2 dividing size.
         let max_align = size & size.wrapping_neg(); // greatest_divisible_power_of_two
         std::cmp::min(natural, max_align as u8)
+    }
+
+    /// Store one element of an aggregate literal at `offset` within `slot`.
+    /// An indirect element is represented by the address of its storage, so
+    /// its bytes have to be copied into place rather than stored as-is.
+    fn store_element(
+        &mut self,
+        elem_ty: crate::TypeID,
+        addr: Value,
+        slot: cranelift::codegen::ir::StackSlot,
+        offset: i32,
+        value: Value,
+        decls: &crate::DeclTable,
+    ) {
+        if is_indirect(elem_ty) {
+            let dst = self.builder.ins().iadd_imm(addr, offset as i64);
+            self.gen_copy(elem_ty, dst, value, decls);
+        } else {
+            self.builder.ins().stack_store(value, slot, offset);
+        }
     }
 
     fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &crate::DeclTable) {

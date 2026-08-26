@@ -1,0 +1,30 @@
+// Array literals and fill-arrays whose elements are themselves composite
+// values (structs, nested arrays). Composite elements are represented by the
+// address of their storage, so they have to be copied into the element slot.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct Point { x: f32, y: f32 }
+
+main {
+    var ps = [Point(x: 1.0, y: 2.0), Point(x: 3.0, y: 4.0)]
+    assert(ps[0].x == 1.0)
+    assert(ps[0].y == 2.0)
+    assert(ps[1].x == 3.0)
+    assert(ps[1].y == 4.0)
+
+    var qs = [Point(x: 5.0, y: 6.0); 3]
+    assert(qs[2].x == 5.0)
+
+    var rows = [[1, 2], [3, 4]]
+    assert(rows[0][1] == 2)
+    assert(rows[1][0] == 3)
+}

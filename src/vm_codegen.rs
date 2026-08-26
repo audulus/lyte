@@ -2141,13 +2141,7 @@ impl<'a> FunctionTranslator<'a> {
                         "w" | "a" => 12,
                         _ => panic!("invalid f32x4 field: {}", name),
                     };
-                    let dst = self.alloc_reg();
-                    func.emit(Opcode::IAddImm {
-                        dst,
-                        src: lhs_addr,
-                        imm: offset,
-                    });
-                    return dst;
+                    return self.emit_offset_addr(lhs_addr, offset, func);
                 }
 
                 if let Type::Name(struct_name, type_args) = &*lhs_ty {
@@ -2160,13 +2154,7 @@ impl<'a> FunctionTranslator<'a> {
                             .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
                         let offset = s.field_offset(name, self.decls, &inst);
-                        let dst = self.alloc_reg();
-                        func.emit(Opcode::IAddImm {
-                            dst,
-                            src: lhs_addr,
-                            imm: offset,
-                        });
-                        return dst;
+                        return self.emit_offset_addr(lhs_addr, offset, func);
                     }
                 }
                 lhs_addr
@@ -3070,13 +3058,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Arrays and other pointer types are stored inline,
                     // so return the address of the field instead of loading.
                     if self.is_ptr_type(&field_ty) {
-                        let dst = self.alloc_reg();
-                        func.emit(Opcode::IAddImm {
-                            dst,
-                            src: lhs,
-                            imm: offset,
-                        });
-                        return dst;
+                        return self.emit_offset_addr(lhs, offset, func);
                     } else {
                         let dst = self.alloc_reg();
                         self.emit_load_offset(&field_ty, dst, lhs, offset, func);
@@ -3093,13 +3075,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             let elem_ty = &elem_types[index];
             if self.is_ptr_type(elem_ty) {
-                let dst = self.alloc_reg();
-                func.emit(Opcode::IAddImm {
-                    dst,
-                    src: lhs,
-                    imm: offset,
-                });
-                return dst;
+                return self.emit_offset_addr(lhs, offset, func);
             } else {
                 let dst = self.alloc_reg();
                 self.emit_load_offset(elem_ty, dst, lhs, offset, func);
@@ -3462,6 +3438,32 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Emit `base + offset` into a fresh register. `IAddImm` packs its
+    /// immediate as an i8, so materialize the constant when the offset is
+    /// out of range — aggregates larger than 128 bytes reach this.
+    fn emit_offset_addr(&mut self, base: Reg, offset: i32, func: &mut VMFunction) -> Reg {
+        let dst = self.alloc_reg();
+        if (i8::MIN as i32..=i8::MAX as i32).contains(&offset) {
+            func.emit(Opcode::IAddImm {
+                dst,
+                src: base,
+                imm: offset,
+            });
+        } else {
+            let off_reg = self.alloc_reg();
+            func.emit(Opcode::LoadImm {
+                dst: off_reg,
+                value: offset as i64,
+            });
+            func.emit(Opcode::IAdd {
+                dst,
+                a: base,
+                b: off_reg,
+            });
+        }
+        dst
+    }
+
     /// Emit a load instruction based on type.
     fn emit_load(&self, ty: &TypeID, dst: Reg, addr: Reg, func: &mut VMFunction) {
         match &**ty {
@@ -3491,12 +3493,7 @@ impl<'a> FunctionTranslator<'a> {
     ) {
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => {
-                let addr = self.alloc_reg();
-                func.emit(Opcode::IAddImm {
-                    dst: addr,
-                    src: base,
-                    imm: offset,
-                });
+                let addr = self.emit_offset_addr(base, offset, func);
                 func.emit(Opcode::Load8 { dst, addr });
             }
             Type::Int32 | Type::UInt32 | Type::Float32 => {
@@ -3540,13 +3537,22 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Emit a store instruction with offset.
     fn emit_store_offset(
-        &self,
+        &mut self,
         ty: &TypeID,
         base: Reg,
         offset: i32,
         src: Reg,
         func: &mut VMFunction,
     ) {
+        if self.is_ptr_type(ty) {
+            // Composite values (structs, tuples, arrays, slices, closures) are
+            // represented by the address of their storage, so copy the bytes
+            // into place rather than storing the pointer itself.
+            let dst = self.emit_offset_addr(base, offset, func);
+            let size = self.vm_type_size(ty);
+            func.emit(Opcode::MemCopy { dst, src, size });
+            return;
+        }
         match &**ty {
             Type::Bool | Type::Int8 | Type::UInt8 => {
                 func.emit(Opcode::Store8Off { base, offset, src });
