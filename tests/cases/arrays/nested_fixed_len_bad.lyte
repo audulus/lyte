@@ -1,0 +1,53 @@
+// Knowing `[T; N].len == N` must not weaken the bounds proof: a guard that is
+// off by one, or missing entirely, is still rejected. See issue #36.
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/nested_fixed_len_bad.lyte:43:13: couldn't prove index is less than array length
+//                 buffers[outer_idx][inner_idx] = value
+//                 ^
+// ❌ ../tests/cases/arrays/nested_fixed_len_bad.lyte:34:13: couldn't prove require clause `idx < buf.len` for call to `write_mem`
+//                 write_mem(buffers[outer_idx], inner_idx, value)
+//                 ^
+// ❌ ../tests/cases/arrays/nested_fixed_len_bad.lyte:51:9: couldn't prove index is >= 0
+//             buffers[outer_idx][inner_idx] = value
+//             ^
+// ❌ ../tests/cases/arrays/nested_fixed_len_bad.lyte:51:9: couldn't prove index is less than array length
+//             buffers[outer_idx][inner_idx] = value
+//             ^
+
+const OUTER_LEN = 4
+const INNER_LEN = 8
+
+var buffers: [[f32; INNER_LEN]; OUTER_LEN]
+
+write_mem(buf: [f32], idx: i32, value: f32)
+require idx >= 0
+require idx < buf.len
+{
+    buf[idx] = value
+}
+
+// `<=` admits inner_idx == INNER_LEN.
+off_by_one(outer_idx: i32, inner_idx: i32, value: f32) {
+    if outer_idx >= 0 && outer_idx < OUTER_LEN {
+        if inner_idx >= 0 && inner_idx <= INNER_LEN {
+            write_mem(buffers[outer_idx], inner_idx, value)
+        }
+    }
+}
+
+// `.len + 1` is one too many.
+len_plus_one(outer_idx: i32, inner_idx: i32, value: f32) {
+    if outer_idx >= 0 && outer_idx < OUTER_LEN {
+        if inner_idx >= 0 && inner_idx < buffers[outer_idx].len + 1 {
+            buffers[outer_idx][inner_idx] = value
+        }
+    }
+}
+
+// Outer index is never guarded.
+unguarded_outer(outer_idx: i32, inner_idx: i32, value: f32) {
+    if inner_idx >= 0 && inner_idx < INNER_LEN {
+        buffers[outer_idx][inner_idx] = value
+    }
+}

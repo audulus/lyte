@@ -54,6 +54,7 @@ pub mod llvm_aot;
 
 pub mod mangle;
 
+mod copy_elision;
 mod hoist;
 use hoist::*;
 

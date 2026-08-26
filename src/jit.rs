@@ -560,6 +560,10 @@ struct FunctionTranslator<'a> {
 
     /// When true, skip emission of call-depth prologue/epilogue.
     no_recursion: bool,
+
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<ExprID>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -588,10 +592,13 @@ impl<'a> FunctionTranslator<'a> {
             lambda_counter,
             loop_stack: Vec::new(),
             no_recursion,
+            elidable_lets: HashSet::new(),
         }
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
+        self.elidable_lets = crate::copy_elision::elidable_let_copies(decl);
+
         // With --no-recursion the safety checker has proved the call graph
         // is a DAG, so the counter traffic is unnecessary.
         if !self.no_recursion {
@@ -1144,6 +1151,33 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = &decl.types[expr];
                 let init_val = self.translate_expr(*init, decl, decls);
                 let init_val = self.wrap_for_expected_slice(init_val, *ty, *init, decl, decls);
+
+                // `let` binds aggregates by value, so the initializer's storage
+                // has to be copied — otherwise a slice coerced from the binding
+                // writes back into the source. Skip the copy when the elision
+                // analysis proved nothing in scope can observe it.
+                let sz = ty.size(decls) as u32;
+                if crate::copy_elision::is_value_aggregate(ty)
+                    && !self.elidable_lets.contains(&expr)
+                    && sz > 0
+                {
+                    let var = self.declare_variable(name, I64);
+                    let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size: sz,
+                        align_shift: 0,
+                        key: None,
+                    });
+                    let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                    self.builder.def_var(var, addr);
+                    self.gen_copy(*ty, addr, init_val, decls);
+                    self.variable_types.insert(name.to_string(), *ty);
+                    // The binding owns a stack slot now, exactly like a `var`,
+                    // so it must not be treated as holding a value directly.
+                    self.let_bindings.remove(&name.to_string());
+                    return addr;
+                }
+
                 let var = self.declare_variable(name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
                 self.variable_types.insert(name.to_string(), *ty);

@@ -1,0 +1,25 @@
+// Direct nested indexing guarded by the declaring consts, with no redundant
+// `.len` proof. See issue #36.
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+const OUTER_LEN = 3
+const INNER_LEN = 5
+
+var buffers: [[i32; INNER_LEN]; OUTER_LEN]
+
+write_sample(outer_idx: i32, inner_idx: i32, value: i32) {
+    if outer_idx >= 0 && outer_idx < OUTER_LEN {
+        if inner_idx >= 0 && inner_idx < INNER_LEN {
+            buffers[outer_idx][inner_idx] = value
+        }
+    }
+}
+
+main {
+    write_sample(1, 4, 42)
+    assert(buffers[1][4] == 42)
+    assert(buffers[1][3] == 0)
+}

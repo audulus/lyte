@@ -1085,6 +1085,7 @@ impl<'ctx> LLVMJITState<'ctx> {
             called_functions: HashSet::new(),
             pending_lambdas: Vec::new(),
             loop_stack: Vec::new(),
+            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
         };
 
         // Call-depth check + cancel-check at function entry.
@@ -1167,6 +1168,9 @@ struct FunctionTranslator<'a, 'ctx> {
     pending_lambdas: Vec<FuncDecl>,
     /// Stack of (continue_bb, break_bb) for nested loops.
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<crate::ExprID>,
 }
 
 impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
@@ -1905,6 +1909,32 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let ty = decl.types[expr];
                 let init_val = self.translate_expr(init_id, decl);
                 let init_val = self.wrap_for_expected_slice(init_val, ty, init_id, decl);
+
+                // `let` binds aggregates by value, so the initializer's storage
+                // has to be copied — otherwise a slice coerced from the binding
+                // writes back into the source. Same shape as `var`, which has
+                // always copied.
+                let sz = ty.size(self.decls) as usize;
+                if crate::copy_elision::is_value_aggregate(&ty)
+                    && !self.elidable_lets.contains(&expr)
+                    && sz > 0
+                {
+                    let storage = self.entry_array_alloca(
+                        self.i8_ty(),
+                        sz as u64,
+                        &format!("{}_storage", name),
+                    );
+                    let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
+                    self.builder().build_store(alloca, storage).unwrap();
+                    self.variables.insert(name.to_string(), alloca);
+                    self.variable_types.insert(name.to_string(), ty);
+                    // The binding owns storage now, exactly like a `var`, so it
+                    // must not be treated as holding a value directly.
+                    self.let_bindings.remove(&name.to_string());
+                    self.gen_copy(ty, storage, init_val);
+                    return storage.into();
+                }
+
                 let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
                 self.builder().build_store(alloca, init_val).unwrap();
                 self.variables.insert(name.to_string(), alloca);
