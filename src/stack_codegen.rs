@@ -1081,8 +1081,13 @@ impl<'a> FunctionTranslator<'a> {
             let addr_local = *self.captured_slots.get(&name).unwrap();
             // Load the pointer to the captured variable's storage.
             func.emit(StackOp::LocalGet(addr_local));
-            // Load the value through the pointer.
-            self.emit_load(&ty, func);
+            // Aggregates and slices are represented by their address, and the
+            // captured pointer already is that address — dereferencing it would
+            // yield the first word of the value.
+            if !self.is_ptr_type(&ty) {
+                // Load the value through the pointer.
+                self.emit_load(&ty, func);
+            }
             return;
         }
 

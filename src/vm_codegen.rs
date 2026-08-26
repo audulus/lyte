@@ -866,6 +866,12 @@ impl<'a> FunctionTranslator<'a> {
                         dst: captured_addr,
                         addr: slot_addr,
                     });
+                    // Aggregates and slices are represented by their address,
+                    // and the captured pointer already is that address —
+                    // dereferencing it would yield the first word of the value.
+                    if self.is_ptr_type(&ty) {
+                        return captured_addr;
+                    }
                     // Now load the value from the captured variable's storage.
                     let dst = self.alloc_reg();
                     self.emit_load(&ty, dst, captured_addr, func);
