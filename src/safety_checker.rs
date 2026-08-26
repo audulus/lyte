@@ -44,6 +44,60 @@ fn expr_constraint_name(id: ExprID, arena: &ExprArena) -> Option<Name> {
     }
 }
 
+/// The fixed-size array type of an expression, ignoring any coercion applied
+/// to it as a call argument.
+///
+/// The checker records one type per expression, and passing a `[T; N]` to a
+/// `[T]` parameter can leave that recorded type as a slice — `unify` relates
+/// the two by element type alone, so the length is not part of the match.
+/// The base of an index or field expression is never itself the argument, so
+/// walking down from it recovers the array type the coercion hid.
+fn array_type(expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<TypeID> {
+    if expr < decl.types.len() {
+        let ty = decl.types[expr];
+        if let Type::Array(_, ArraySize::Known(_)) = *ty {
+            return Some(ty);
+        }
+    }
+    match &decl.arena[expr] {
+        // An element of `[[T; N]; M]` is a `[T; N]`; anything else has no
+        // length to recover.
+        Expr::ArrayIndex(base, _) => match &*array_type(*base, decl, decls)? {
+            Type::Array(elem, _) if matches!(**elem, Type::Array(_, ArraySize::Known(_))) => {
+                Some(*elem)
+            }
+            _ => None,
+        },
+        Expr::Field(base, field) => {
+            let base_ty = if *base < decl.types.len() {
+                decl.types[*base]
+            } else {
+                return None;
+            };
+            let Type::Name(struct_name, _) = &*base_ty else {
+                return None;
+            };
+            for d in decls.find(*struct_name) {
+                if let Decl::Struct(sd) = d {
+                    if let Some(f) = sd.find_field(field) {
+                        return Some(f.ty);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Static length of an array-typed expression, when it has one.
+fn static_len(expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<i64> {
+    match &*array_type(expr, decl, decls)? {
+        Type::Array(_, ArraySize::Known(n)) => Some(*n as i64),
+        _ => None,
+    }
+}
+
 #[derive(Clone)]
 pub struct SafetyError {
     pub location: Loc,
@@ -923,7 +977,22 @@ impl SafetyChecker {
                 self.propagate_len_bounds();
                 IndexInterval::default()
             }
-            Expr::Field(_, _) => {
+            Expr::Field(base, field) => {
+                // `[T; N].len` is the constant N. A fixed-size array knows its
+                // length statically, so a guard like `i < buf.len` carries the
+                // same information as `i < N`. This holds for any expression
+                // of sized-array type, including an element of a nested array
+                // such as `buffers[outer]`.
+                if field.as_str() == "len" {
+                    if let Some(n) = static_len(*base, decl, decls) {
+                        return IndexInterval {
+                            min: n,
+                            max: n,
+                            non_zero: n != 0,
+                        };
+                    }
+                }
+
                 // Look up constraints using the compound name (e.g., "h.index").
                 if let Some(name) = expr_constraint_name(expr, &decl.arena) {
                     let mut min = i64::min_value();
@@ -1317,16 +1386,12 @@ impl SafetyChecker {
                                         return true;
                                     }
                                 }
-                                // Sized-array path: if the caller's arg has type
-                                // `[T; Known(K)]`, prove via interval check.
-                                if arr_arg < caller.types.len() {
-                                    if let Type::Array(_, ArraySize::Known(k)) =
-                                        *caller.types[arr_arg]
-                                    {
-                                        let li = self.check_expr(idx_arg, caller, decls);
-                                        if li.max != i64::MAX && li.max < k as i64 {
-                                            return true;
-                                        }
+                                // Sized-array path: if the caller's arg is a
+                                // fixed-size array, prove via interval check.
+                                if let Some(k) = static_len(arr_arg, caller, decls) {
+                                    let li = self.check_expr(idx_arg, caller, decls);
+                                    if li.max != i64::MAX && li.max < k {
+                                        return true;
                                     }
                                 }
                             }

@@ -221,6 +221,29 @@ fn format_equality_error(
     }
 }
 
+/// Replace a constraint that has just been resolved with the equality it
+/// implies, and unify immediately rather than leaving that to the next solver
+/// iteration.
+///
+/// Solving eagerly matters because `unify` coerces `[T; N]` to `[T]` by
+/// matching element types only. A constraint that would give a type variable
+/// its true `[T; N]` type but merely rewrites itself lets an intervening
+/// call-argument constraint bind that variable to a slice parameter type
+/// first, silently dropping the declared size — after which the safety
+/// checker can no longer see how long the array is. Errors are still reported
+/// from the rewritten `Equal` on a later iteration, so ignoring the result
+/// here doesn't lose diagnostics.
+fn solve_as_equal(
+    constraint: &mut Constraint,
+    a: TypeID,
+    b: TypeID,
+    loc: Loc,
+    instance: &mut Instance,
+) {
+    unify(a, b, instance);
+    *constraint = Constraint::Equal(a, b, loc, None);
+}
+
 pub fn iterate_solver(
     constraints: &mut [Constraint],
     instance: &mut Instance,
@@ -313,14 +336,16 @@ pub fn iterate_solver(
             }
             Constraint::Field(struct_ty, field_name, ft, loc) => {
                 // This starts feeling a bit too nested.
+                let (struct_ty, field_name, ft, loc) = (*struct_ty, *field_name, *ft, *loc);
 
-                match &*find(*struct_ty, instance) {
+                let resolved = find(struct_ty, instance);
+                match &*resolved {
                     Type::Name(struct_name, vars) => {
                         let d = decls.find(*struct_name);
 
                         if let Some(Decl::Struct(st)) = d.first() {
                             // We've narrowed it down. Better unify!
-                            if let Some(field) = find_field(&st.fields, *field_name) {
+                            if let Some(field) = find_field(&st.fields, field_name) {
                                 let field_ty = if let Type::Var(name) = *field.ty {
                                     let index =
                                         st.typevars.iter().position(|&n| n == name).unwrap();
@@ -329,29 +354,29 @@ pub fn iterate_solver(
                                     field.ty
                                 };
 
-                                *constraint = Constraint::Equal(field_ty, *ft, *loc, None);
+                                solve_as_equal(constraint, field_ty, ft, loc, instance);
                             } else {
                                 errors.push(TypeError {
-                                    location: *loc,
+                                    location: loc,
                                     message: format!("no such field: {}", field_name),
                                 });
                             }
                         } else {
                             errors.push(TypeError {
-                                location: *loc,
+                                location: loc,
                                 message: format!("{} does not refer to a struct", struct_name),
                             });
                         }
                     }
                     Type::Float32x4 => {
-                        let s: &str = field_name;
+                        let s: &str = &field_name;
                         let valid = matches!(s, "x" | "y" | "z" | "w" | "r" | "g" | "b" | "a");
                         if valid {
-                            *constraint =
-                                Constraint::Equal(mk_type(Type::Float32), *ft, *loc, None);
+                            let f32_ty = mk_type(Type::Float32);
+                            solve_as_equal(constraint, f32_ty, ft, loc, instance);
                         } else {
                             errors.push(TypeError {
-                                location: *loc,
+                                location: loc,
                                 message: format!(
                                     "f32x4 has fields x/y/z/w or r/g/b/a, not {}",
                                     field_name
@@ -360,11 +385,12 @@ pub fn iterate_solver(
                         }
                     }
                     Type::Array(_, _) | Type::Slice(_) => {
-                        if *field_name == Name::new("len".into()) {
-                            *constraint = Constraint::Equal(mk_type(Type::Int32), *ft, *loc, None);
+                        if field_name == Name::new("len".into()) {
+                            let i32_ty = mk_type(Type::Int32);
+                            solve_as_equal(constraint, i32_ty, ft, loc, instance);
                         } else {
                             errors.push(TypeError {
-                                location: *loc,
+                                location: loc,
                                 message: format!("array only has len field, not {}", field_name),
                             });
                         }
@@ -374,20 +400,24 @@ pub fn iterate_solver(
             }
             Constraint::ArrayOf(arr_ty, elem_ty, loc) => {
                 let resolved = find(*arr_ty, instance);
+                let (elem_ty, loc) = (*elem_ty, *loc);
                 match &*resolved {
                     Type::Array(a, _) | Type::Slice(a) => {
-                        *constraint = Constraint::Equal(*a, *elem_ty, *loc, None);
+                        // Solving now rather than next iteration is what
+                        // keeps `arr[i]` typed as its true element type —
+                        // `[f32; N]` for `[[f32; N]; M]`, not `[f32]`.
+                        solve_as_equal(constraint, *a, elem_ty, loc, instance);
                     }
                     Type::Float32x4 => {
                         let f32_ty = mk_type(Type::Float32);
-                        *constraint = Constraint::Equal(f32_ty, *elem_ty, *loc, None);
+                        solve_as_equal(constraint, f32_ty, elem_ty, loc, instance);
                     }
                     Type::Anon(_) => {
                         // Not yet resolved, wait for more info.
                     }
                     _ => {
                         errors.push(TypeError {
-                            location: *loc,
+                            location: loc,
                             message: format!(
                                 "expected array type, got {}",
                                 resolved.subst(instance)
