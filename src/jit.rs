@@ -568,6 +568,11 @@ struct FunctionTranslator<'a> {
     /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
     /// alias the initializer's storage instead. See `crate::copy_elision`.
     elidable_lets: HashSet<ExprID>,
+
+    /// Names referenced from inside a lambda body in the function being
+    /// translated. Such a variable is captured by address, so it has to live in
+    /// memory even when its type would otherwise be kept in a register.
+    lambda_referenced: HashSet<String>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -597,11 +602,13 @@ impl<'a> FunctionTranslator<'a> {
             loop_stack: Vec::new(),
             no_recursion,
             elidable_lets: HashSet::new(),
+            lambda_referenced: HashSet::new(),
         }
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
         self.elidable_lets = crate::copy_elision::elidable_let_copies(decl);
+        self.lambda_referenced = names_referenced_in_lambdas(decl);
 
         // With --no-recursion the safety checker has proved the call graph
         // is a DAG, so the counter traffic is unnecessary.
@@ -849,8 +856,10 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
                     let val = self.builder.use_var(*variable);
-                    // Let bindings hold values directly; var bindings hold pointers
-                    if self.let_bindings.contains(&**name) || ty.is_ptr() {
+                    // Let bindings hold values directly; var bindings hold pointers.
+                    // f32x4 is pointer-typed but lives in a register, so a var
+                    // binding holding one still has to be loaded.
+                    if self.let_bindings.contains(&**name) || is_indirect(*ty) {
                         val
                     } else {
                         self.builder
@@ -1196,7 +1205,11 @@ impl<'a> FunctionTranslator<'a> {
 
                 // f32x4: treat as value type (like a let binding) so it lives in
                 // a Cranelift variable (F32X4) rather than a pointer to a stack slot.
-                if matches!(**ty, crate::types::Type::Float32x4) {
+                // A variable a lambda captures is shared by address, so it has to
+                // stay in memory for writes on either side to be visible.
+                if matches!(**ty, crate::types::Type::Float32x4)
+                    && !self.lambda_referenced.contains(&name.to_string())
+                {
                     let var = self.declare_variable(name, F32X4);
                     let init_val = if let Some(init_id) = init {
                         self.translate_expr(*init_id, decl, decls)
@@ -1383,6 +1396,7 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.ins().store(MemFlags::new(), vec, addr, 0);
                     let idx = self.translate_expr(*rhs, decl, decls);
                     let byte_offset = self.builder.ins().imul_imm(idx, 4);
+                    let byte_offset = self.builder.ins().uextend(I64, byte_offset);
                     let elem_addr = self.builder.ins().iadd(addr, byte_offset);
                     return self.builder.ins().load(F32, MemFlags::new(), elem_addr, 0);
                 }
@@ -2106,7 +2120,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &crate::DeclTable) {
-        if t.is_ptr() {
+        if is_indirect(t) {
             let size = t.size(decls) as u64;
             let align = Self::type_align(&t, decls);
             self.builder.emit_small_memory_copy(
@@ -2292,25 +2306,46 @@ impl<'a> FunctionTranslator<'a> {
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
                         let rhs = self.translate_expr(rhs_id, decl, decls);
-                        if let Expr::Id(name) = &decl.arena[*vec_id] {
-                            if let Some(&var) = self.variables.get(&**name) {
-                                let vec = self.builder.use_var(var);
-                                let new_vec = self.builder.ins().insertlane(vec, rhs, lane);
-                                self.builder.def_var(var, new_vec);
-                                return rhs;
-                            }
+                        if self.store_f32x4_lane(*vec_id, lane, rhs, decl, decls) {
+                            return rhs;
                         }
                     }
                 }
-                // f32x4: full value-type assignment via def_var
+                // f32x4 element assignment: v[i] = val → insertlane
+                if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena[lhs_id] {
+                    let vec_ty = decl.types[*vec_id];
+                    if matches!(*vec_ty, crate::types::Type::Float32x4) {
+                        let rhs = self.translate_expr(rhs_id, decl, decls);
+                        if let Expr::Int(n, _) = &decl.arena.exprs[*idx_id] {
+                            let lane = *n as u8;
+                            if self.store_f32x4_lane(*vec_id, lane, rhs, decl, decls) {
+                                return rhs;
+                            }
+                        } else if self.store_f32x4_dynamic_lane(*vec_id, *idx_id, rhs, decl, decls)
+                        {
+                            return rhs;
+                        }
+                    }
+                }
+                // f32x4 is a register value, so a whole-vector assignment is a
+                // def_var when the destination is a variable and a store when it
+                // lives in memory.
                 if matches!(*t, crate::types::Type::Float32x4) {
+                    let rhs = self.translate_expr(rhs_id, decl, decls);
+                    if let Some(ptr) = self.f32x4_storage(lhs_id, decl, decls) {
+                        self.builder.ins().store(MemFlags::new(), rhs, ptr, 0);
+                        return rhs;
+                    }
                     if let Expr::Id(name) = &decl.arena[lhs_id] {
                         if let Some(&var) = self.variables.get(&**name) {
-                            let rhs = self.translate_expr(rhs_id, decl, decls);
                             self.builder.def_var(var, rhs);
                             return rhs;
                         }
                     }
+                    panic!(
+                        "JIT: unsupported f32x4 assignment target: {:?}",
+                        decl.arena[lhs_id]
+                    );
                 }
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
@@ -2519,6 +2554,98 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Address of an `f32x4` lvalue that lives in memory rather than directly in
+    /// a Cranelift variable: a `var` binding captured by a lambda (its closure
+    /// slot holds a pointer to the variable's storage), a global, or a place
+    /// inside an aggregate. Returns `None` when the vector is held by value in
+    /// a variable, or when the expression isn't a place at all.
+    fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<Value> {
+        match &decl.arena[expr] {
+            Expr::Id(name) => {
+                if let Some(&var) = self.variables.get(&**name) {
+                    if self.let_bindings.contains(&**name) {
+                        return None;
+                    }
+                    return Some(self.builder.use_var(var));
+                }
+                let offset = *self.globals.get(name)?;
+                let base = self.globals_base.expect("globals_base not set");
+                Some(self.builder.ins().iadd_imm(base, offset as i64))
+            }
+            Expr::Field(_, _) | Expr::ArrayIndex(_, _) => {
+                Some(self.translate_lvalue(expr, decl, decls))
+            }
+            _ => None,
+        }
+    }
+
+    /// Writes `value` into lane `lane` of the `f32x4` lvalue `vec_id`, whether
+    /// the vector is held in a Cranelift variable or in memory. Returns false
+    /// when the target is neither a variable nor a global.
+    fn store_f32x4_lane(
+        &mut self,
+        vec_id: ExprID,
+        lane: u8,
+        value: Value,
+        decl: &FuncDecl,
+        decls: &DeclTable,
+    ) -> bool {
+        if let Some(ptr) = self.f32x4_storage(vec_id, decl, decls) {
+            let vec = self.builder.ins().load(F32X4, MemFlags::new(), ptr, 0);
+            let new_vec = self.builder.ins().insertlane(vec, value, lane);
+            self.builder.ins().store(MemFlags::new(), new_vec, ptr, 0);
+            return true;
+        }
+        if let Expr::Id(name) = &decl.arena[vec_id] {
+            if let Some(&var) = self.variables.get(&**name) {
+                let vec = self.builder.use_var(var);
+                let new_vec = self.builder.ins().insertlane(vec, value, lane);
+                self.builder.def_var(var, new_vec);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Same as [`Self::store_f32x4_lane`] for a lane index that isn't a
+    /// constant: a value-resident vector is spilled, written, and reloaded.
+    fn store_f32x4_dynamic_lane(
+        &mut self,
+        vec_id: ExprID,
+        idx_id: ExprID,
+        value: Value,
+        decl: &FuncDecl,
+        decls: &DeclTable,
+    ) -> bool {
+        let idx = self.translate_expr(idx_id, decl, decls);
+        let byte_offset = self.builder.ins().imul_imm(idx, 4);
+        let byte_offset = self.builder.ins().uextend(I64, byte_offset);
+        if let Some(ptr) = self.f32x4_storage(vec_id, decl, decls) {
+            let addr = self.builder.ins().iadd(ptr, byte_offset);
+            self.builder.ins().store(MemFlags::new(), value, addr, 0);
+            return true;
+        }
+        if let Expr::Id(name) = &decl.arena[vec_id] {
+            if let Some(&var) = self.variables.get(&**name) {
+                let vec = self.builder.use_var(var);
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: 16,
+                    align_shift: 0,
+                    key: None,
+                });
+                let base = self.builder.ins().stack_addr(I64, slot, 0);
+                self.builder.ins().store(MemFlags::new(), vec, base, 0);
+                let addr = self.builder.ins().iadd(base, byte_offset);
+                self.builder.ins().store(MemFlags::new(), value, addr, 0);
+                let new_vec = self.builder.ins().load(F32X4, MemFlags::new(), base, 0);
+                self.builder.def_var(var, new_vec);
+                return true;
+            }
+        }
+        false
+    }
+
     /// Returns the address of a variable's storage for use in a closure struct.
     /// For var bindings the variable already holds a pointer; for let bindings
     /// a fresh stack slot is allocated and the value is copied into it.
@@ -2644,6 +2771,29 @@ impl<'a> FunctionTranslator<'a> {
         self.variables.insert(name.into(), var);
         self.next_index += 1;
         var
+    }
+}
+
+/// Every name mentioned inside a lambda body anywhere in `decl`, including
+/// nested lambdas. An over-approximation of what the function's lambdas
+/// capture: a name shadowed by a lambda parameter is included too, which only
+/// costs the enclosing variable its register representation.
+fn names_referenced_in_lambdas(decl: &FuncDecl) -> HashSet<String> {
+    let mut result = HashSet::new();
+    for expr in &decl.arena.exprs {
+        if let Expr::Lambda { body, .. } = expr {
+            collect_names_rec(*body, &decl.arena, &mut result);
+        }
+    }
+    result
+}
+
+fn collect_names_rec(expr: crate::ExprID, arena: &crate::ExprArena, result: &mut HashSet<String>) {
+    if let Expr::Id(name) = &arena[expr] {
+        result.insert(name.to_string());
+    }
+    for sub in arena[expr].subexprs() {
+        collect_names_rec(sub, arena, result);
     }
 }
 
