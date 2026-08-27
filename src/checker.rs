@@ -1257,23 +1257,49 @@ impl Checker {
         decls: &DeclTable,
         func_decl: &FuncDecl,
     ) -> Vec<usize> {
-        let Expr::Id(callee_name) = &func_decl.arena[callee] else {
-            return Vec::new();
-        };
-
         let mut positions = Vec::new();
-        for d in decls.find(*callee_name) {
-            if let Decl::Func(fd) = d {
-                for (i, param) in fd.params.iter().enumerate() {
-                    if let Some(ty) = param.ty {
-                        if matches!(*ty, Type::Reference(_)) && !positions.contains(&i) {
-                            positions.push(i);
+        let mut found_decl = false;
+
+        if let Expr::Id(callee_name) = &func_decl.arena[callee] {
+            for d in decls.find(*callee_name) {
+                if let Decl::Func(fd) = d {
+                    found_decl = true;
+                    for (i, param) in fd.params.iter().enumerate() {
+                        if let Some(ty) = param.ty {
+                            if matches!(*ty, Type::Reference(_)) && !positions.contains(&i) {
+                                positions.push(i);
+                            }
                         }
                     }
                 }
             }
         }
-        positions
+
+        if found_decl {
+            return positions;
+        }
+
+        // Indirect call through a fat pointer. There is no declaration to
+        // consult, so take the parameter types from the callee expression's
+        // solved type — the same source the backends use to decide which
+        // arguments to pass by address.
+        self.callee_param_types(callee)
+            .iter()
+            .enumerate()
+            .filter(|(_, ty)| matches!(***ty, Type::Reference(_)))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Parameter types of a callee expression, from its solved type. Used for
+    /// indirect calls, where there is no declaration to consult.
+    fn callee_param_types(&self, callee: ExprID) -> Vec<TypeID> {
+        if let Type::Func(from, _) = &*self.types[callee].subst(&self.inst) {
+            if let Type::Tuple(params) = &**from {
+                return params.clone();
+            }
+        }
+        Vec::new()
     }
 
     /// Enforce the no-alias rule: two borrowed parameters in the same call must not
@@ -1289,27 +1315,39 @@ impl Checker {
                 continue;
             };
 
-            // Only check direct named calls — indirect calls (lambdas) can't
-            // have slice parameters (slices can't appear in function types).
-            let Expr::Id(callee_name) = &func_decl.arena[*f] else {
-                continue;
-            };
-
             // Find which parameter positions are borrowed in the callee's declaration.
             // For overloaded functions, union all borrowed positions (conservative).
-            let callee_decls = decls.find(*callee_name);
             let mut borrow_positions: Vec<(usize, bool)> = Vec::new();
-            for d in callee_decls {
-                if let Decl::Func(fd) = d {
-                    for (i, param) in fd.params.iter().enumerate() {
-                        if let Some(ty) = param.ty {
-                            let is_slice = matches!(*ty, Type::Slice(_));
-                            if matches!(*ty, Type::Slice(_) | Type::Reference(_))
-                                && !borrow_positions.iter().any(|(pos, _)| *pos == i)
-                            {
-                                borrow_positions.push((i, is_slice));
+            let mut found_decl = false;
+            if let Expr::Id(callee_name) = &func_decl.arena[*f] {
+                for d in decls.find(*callee_name) {
+                    if let Decl::Func(fd) = d {
+                        found_decl = true;
+                        for (i, param) in fd.params.iter().enumerate() {
+                            if let Some(ty) = param.ty {
+                                let is_slice = matches!(*ty, Type::Slice(_));
+                                if matches!(*ty, Type::Slice(_) | Type::Reference(_))
+                                    && !borrow_positions.iter().any(|(pos, _)| *pos == i)
+                                {
+                                    borrow_positions.push((i, is_slice));
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            // Indirect call through a fat pointer: fall back to the callee
+            // expression's solved type. Slices can't appear in function types,
+            // but references can, so this catches aliased borrowed arguments
+            // that would otherwise slip through the closure call path.
+            if !found_decl {
+                for (i, ty) in self.callee_param_types(*f).iter().enumerate() {
+                    let is_slice = matches!(**ty, Type::Slice(_));
+                    if matches!(**ty, Type::Slice(_) | Type::Reference(_))
+                        && !borrow_positions.iter().any(|(pos, _)| *pos == i)
+                    {
+                        borrow_positions.push((i, is_slice));
                     }
                 }
             }

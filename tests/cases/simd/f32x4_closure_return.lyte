@@ -1,0 +1,22 @@
+// f32x4 returned from a call through a fat pointer. The VM backend returns
+// f32x4 via an sret output pointer like every other pointer-represented type,
+// so the result must not alias the callee's frame.
+// expected stdout:
+// compilation successful
+// 2
+// 8
+// 20
+
+dbl(v: f32x4) -> f32x4 { v + v }
+
+apply(f: f32x4 -> f32x4, v: f32x4) -> f32x4 { f(v) }
+
+main {
+    var f = dbl
+    var r = f(f32x4(1.0, 2.0, 3.0, 4.0))
+    print(r[0] as i32)
+    print(r[3] as i32)
+
+    var s = apply(dbl, f32x4(10.0, 20.0, 30.0, 40.0))
+    print(s[0] as i32)
+}

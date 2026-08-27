@@ -452,7 +452,7 @@ fn type_to_extern_types(ty: TypeID) -> Vec<crate::vm::ExternType> {
 fn returns_via_pointer(ty: TypeID) -> bool {
     matches!(
         &*ty,
-        Type::Array(_, _) | Type::Slice(_) | Type::Name(_, _) | Type::Tuple(_)
+        Type::Array(_, _) | Type::Slice(_) | Type::Name(_, _) | Type::Tuple(_) | Type::Float32x4
     )
 }
 
@@ -2267,45 +2267,8 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
-        // If fn_id is a local variable (lambda or function pointer), use CallClosure.
-        // The variable holds a pointer to a fat pointer {func_idx, closure_ptr}.
-        let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
-            self.variables.contains_key(name)
-        } else {
-            false
-        };
-
-        if is_local_var {
-            let fat_ptr_reg = self.translate_expr(fn_id, func);
-
-            let mut arg_values = Vec::new();
-            for arg_id in arg_ids {
-                arg_values.push(self.translate_expr(*arg_id, func));
-            }
-
-            let args_start = self.next_reg;
-            for (i, &arg_reg) in arg_values.iter().enumerate() {
-                let target = args_start + i as Reg;
-                let _ = self.alloc_reg();
-                if arg_reg != target {
-                    func.emit(Opcode::Move {
-                        dst: target,
-                        src: arg_reg,
-                    });
-                }
-            }
-
-            func.emit(Opcode::CallClosure {
-                fat_ptr: fat_ptr_reg,
-                args_start,
-                arg_count: arg_ids.len() as u8,
-            });
-            let result_reg = self.alloc_reg();
-            func.emit(Opcode::Move {
-                dst: result_reg,
-                src: 0,
-            });
-            return result_reg;
+        if self.holds_fat_pointer(fn_id) {
+            return self.translate_closure_call(fn_id, arg_ids, call_expr, func);
         }
 
         // Special handling for built-in functions.
@@ -2622,16 +2585,7 @@ impl<'a> FunctionTranslator<'a> {
                         vec![]
                     }
                 } else {
-                    let fn_ty = self.expr_type(fn_id);
-                    if let Type::Func(from, _) = &*fn_ty {
-                        if let Type::Tuple(pts) = &**from {
-                            pts.clone()
-                        } else {
-                            vec![]
-                        }
-                    } else {
-                        vec![]
-                    }
+                    self.closure_param_types(fn_id)
                 };
 
             // First, translate all arguments to get their values.
@@ -2732,38 +2686,132 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             // Indirect call via expression (e.g. lambda literal in call position).
             // The expression evaluates to a fat pointer {func_idx, closure_ptr}.
-            let fat_ptr_reg = self.translate_expr(fn_id, func);
-
-            let mut arg_values = Vec::new();
-            for arg_id in arg_ids {
-                arg_values.push(self.translate_expr(*arg_id, func));
-            }
-
-            let args_start = self.next_reg;
-            for (i, &arg_reg) in arg_values.iter().enumerate() {
-                let target = args_start + i as Reg;
-                let _ = self.alloc_reg();
-                if arg_reg != target {
-                    func.emit(Opcode::Move {
-                        dst: target,
-                        src: arg_reg,
-                    });
-                }
-            }
-
-            func.emit(Opcode::CallClosure {
-                fat_ptr: fat_ptr_reg,
-                args_start,
-                arg_count: arg_ids.len() as u8,
-            });
-
-            let result_reg = self.alloc_reg();
-            func.emit(Opcode::Move {
-                dst: result_reg,
-                src: 0,
-            });
-            result_reg
+            self.translate_closure_call(fn_id, arg_ids, call_expr, func)
         }
+    }
+
+    /// True when the callee expression names storage holding a fat pointer
+    /// {func_idx, closure_ptr} — a local variable or a function-typed global —
+    /// rather than naming a function declaration. Such calls go through
+    /// `translate_closure_call` instead of the direct-call path.
+    fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
+        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
+            return false;
+        };
+        if self.variables.contains_key(name) {
+            return true;
+        }
+        // Extern functions live in globals memory too, but they are called
+        // through the direct-call path.
+        self.globals.contains_key(name)
+            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
+            && !self
+                .decls
+                .find(*name)
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
+    }
+
+    /// Parameter types of a callee reached through a fat pointer, taken from
+    /// the function expression's solved type.
+    fn closure_param_types(&self, fn_id: ExprID) -> Vec<TypeID> {
+        if let Type::Func(from, _) = &*self.expr_type(fn_id) {
+            if let Type::Tuple(param_types) = &**from {
+                return param_types.clone();
+            }
+        }
+        vec![]
+    }
+
+    /// Translate a call through a fat pointer {func_idx, closure_ptr}. Mirrors
+    /// the direct-call ABI: an sret output pointer is passed as the first
+    /// argument, `Reference` params are passed by address, and sized arrays are
+    /// wrapped as slices where the callee expects one.
+    fn translate_closure_call(
+        &mut self,
+        fn_id: ExprID,
+        arg_ids: &[ExprID],
+        call_expr: ExprID,
+        func: &mut VMFunction,
+    ) -> Reg {
+        let fat_ptr_reg = self.translate_expr(fn_id, func);
+
+        let param_types = self.closure_param_types(fn_id);
+
+        let ret_ty = self.expr_type(call_expr);
+        let output_slot = if returns_via_pointer(ret_ty) {
+            let size = ret_ty.size(self.decls);
+            Some(self.alloc_local(size as u32))
+        } else {
+            None
+        };
+
+        let mut arg_values = Vec::new();
+        for (i, arg_id) in arg_ids.iter().enumerate() {
+            let param_ty = param_types.get(i).copied();
+            let arg_reg = if param_ty.is_some_and(|ty| matches!(&*ty, Type::Reference(_))) {
+                self.translate_lvalue(*arg_id, func)
+            } else {
+                self.translate_expr(*arg_id, func)
+            };
+            if param_ty.is_some_and(|ty| matches!(&*ty, Type::Slice(_))) {
+                let wrapped = self.wrap_as_slice(arg_reg, self.representation_type(*arg_id), func);
+                arg_values.push(wrapped);
+                continue;
+            }
+            arg_values.push(arg_reg);
+        }
+
+        let args_start = self.next_reg;
+
+        if let Some(slot) = output_slot {
+            let addr_reg = self.alloc_reg();
+            func.emit(Opcode::LocalAddr {
+                dst: addr_reg,
+                slot,
+            });
+        }
+
+        let first_arg_reg = if output_slot.is_some() {
+            args_start + 1
+        } else {
+            args_start
+        };
+
+        for (i, &arg_reg) in arg_values.iter().enumerate() {
+            let target = first_arg_reg + i as Reg;
+            let _ = self.alloc_reg();
+            if arg_reg != target {
+                func.emit(Opcode::Move {
+                    dst: target,
+                    src: arg_reg,
+                });
+            }
+        }
+
+        func.emit(Opcode::CallClosure {
+            fat_ptr: fat_ptr_reg,
+            args_start,
+            arg_count: arg_ids.len() as u8 + u8::from(output_slot.is_some()),
+        });
+
+        // sret callees return void; the result is the address of the output
+        // storage we passed in.
+        if let Some(slot) = output_slot {
+            let addr_reg = self.alloc_reg();
+            func.emit(Opcode::LocalAddr {
+                dst: addr_reg,
+                slot,
+            });
+            return addr_reg;
+        }
+
+        let result_reg = self.alloc_reg();
+        func.emit(Opcode::Move {
+            dst: result_reg,
+            src: 0,
+        });
+        result_reg
     }
 
     /// Translate an if expression.

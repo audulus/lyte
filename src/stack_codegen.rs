@@ -1682,21 +1682,8 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut StackFunction,
     ) {
-        // Check if it's a local variable (lambda/function pointer) — use CallClosure.
-        let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
-            self.variables.contains_key(name)
-        } else {
-            false
-        };
-
-        if is_local_var {
-            // Push arguments first, then the fat pointer address.
-            self.push_closure_args(arg_ids, func);
-            self.translate_expr(fn_id, func); // pushes fat_ptr_addr
-            func.emit(StackOp::CallClosure {
-                args: arg_ids.len() as u8,
-            });
-            self.bridge_call_result(call_expr, func);
+        if self.holds_fat_pointer(fn_id) {
+            self.translate_closure_call(fn_id, arg_ids, call_expr, func);
             return;
         }
 
@@ -2080,24 +2067,101 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Indirect call via expression.
-        self.push_closure_args(arg_ids, func);
+        self.translate_closure_call(fn_id, arg_ids, call_expr, func);
+    }
+
+    /// Translate a call through a fat pointer (lambda, closure or function
+    /// pointer). Mirrors the direct-call ABI: an sret output pointer is passed
+    /// as the first argument, `Reference` params are passed by address, and
+    /// sized arrays are wrapped as slices where the callee expects one.
+    fn translate_closure_call(
+        &mut self,
+        fn_id: ExprID,
+        arg_ids: &[ExprID],
+        call_expr: ExprID,
+        func: &mut StackFunction,
+    ) {
+        let ret_ty = self.expr_type(call_expr);
+        let output_slot = if returns_via_pointer(ret_ty) {
+            let size = ret_ty.size(self.decls) as u32;
+            Some(self.alloc_memory(size))
+        } else {
+            None
+        };
+
+        // Push the output pointer as the first argument if sret.
+        if let Some(slot) = output_slot {
+            func.emit(StackOp::LocalAddr(slot));
+        }
+
+        // Push arguments, then the fat pointer address.
+        self.push_closure_args(fn_id, arg_ids, func);
         self.translate_expr(fn_id, func); // pushes fat_ptr_addr
-        func.emit(StackOp::CallClosure {
-            args: arg_ids.len() as u8,
-        });
-        self.bridge_call_result(call_expr, func);
+
+        let args = arg_ids.len() as u8 + u8::from(output_slot.is_some());
+        func.emit(StackOp::CallClosure { args });
+
+        if let Some(slot) = output_slot {
+            // sret callees return void; the result is the output storage.
+            func.emit(StackOp::LocalAddr(slot));
+        } else {
+            self.bridge_call_result(call_expr, func);
+        }
+    }
+
+    /// True when the callee expression names storage holding a fat pointer
+    /// {func_idx, closure_ptr} — a local variable or a function-typed global —
+    /// rather than naming a function declaration. Such calls go through
+    /// `translate_closure_call` instead of the direct-call path.
+    fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
+        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
+            return false;
+        };
+        if self.variables.contains_key(name) {
+            return true;
+        }
+        // Extern functions live in globals memory too, but they are called
+        // through the direct-call path.
+        self.globals.contains_key(name)
+            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
+            && !self
+                .decls
+                .find(*name)
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
+    }
+
+    /// Parameter types of a callee reached through a fat pointer, taken from
+    /// the function expression's solved type.
+    fn closure_param_types(&self, fn_id: ExprID) -> Vec<TypeID> {
+        if let Type::Func(from, _) = &*self.expr_type(fn_id) {
+            if let Type::Tuple(param_types) = &**from {
+                return param_types.clone();
+            }
+        }
+        vec![]
     }
 
     /// Push the arguments for a `CallClosure`. Like `op_call`, `op_call_closure`
     /// copies args out of the int TOS window, so f32/f64 args that rode through
     /// the float window have to be bridged back to their bit pattern.
-    fn push_closure_args(&mut self, arg_ids: &[ExprID], func: &mut StackFunction) {
-        for arg_id in arg_ids {
-            self.translate_expr(*arg_id, func);
-            match &*self.expr_type(*arg_id) {
-                Type::Float32 => func.emit(StackOp::FToBitsF),
-                Type::Float64 => func.emit(StackOp::DToBitsD),
-                _ => {}
+    fn push_closure_args(&mut self, fn_id: ExprID, arg_ids: &[ExprID], func: &mut StackFunction) {
+        let param_types = self.closure_param_types(fn_id);
+        for (i, arg_id) in arg_ids.iter().enumerate() {
+            let param_ty = param_types.get(i).copied();
+            if param_ty.is_some_and(|t| matches!(&*t, Type::Reference(_))) {
+                self.translate_lvalue(*arg_id, func);
+            } else {
+                self.translate_expr(*arg_id, func);
+                match &*self.expr_type(*arg_id) {
+                    Type::Float32 => func.emit(StackOp::FToBitsF),
+                    Type::Float64 => func.emit(StackOp::DToBitsD),
+                    _ => {}
+                }
+            }
+            if param_ty.is_some_and(|t| matches!(&*t, Type::Slice(_))) {
+                let actual_ty = self.representation_type(*arg_id);
+                self.emit_wrap_as_slice(actual_ty, func);
             }
         }
     }

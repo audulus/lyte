@@ -1,0 +1,70 @@
+// Calls through a fat pointer (function pointer, lambda, or function-typed
+// parameter) must use the same ABI as direct calls: an sret output pointer for
+// pointer-returned types, reference params passed by address, and sized arrays
+// wrapped as slices.
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct P { x: i32, y: i32 }
+
+mk(a: i32) -> P { var p: P; p.x = a; p.y = a * 2; p }
+
+arr(a: i32) -> [i32; 3] { var r: [i32; 3]; r[0] = a; r[1] = a + 1; r[2] = a + 2; r }
+
+pair(a: i32) -> (i32, i32) { (a, a + 1) }
+
+bump(r: &i32) { r = r + 10 }
+
+total(s: [i32]) -> i32 {
+    var t = 0
+    for i in 0 .. s.len { t = t + s[i] }
+    t
+}
+
+apply(f: i32 -> P, a: i32) -> P { f(a) }
+
+main {
+    // Struct returned through a function pointer.
+    var g = mk
+    var p = g(3)
+    assert(p.x == 3)
+    assert(p.y == 6)
+
+    // Struct returned through a function-typed parameter.
+    var q = apply(mk, 5)
+    assert(q.y == 10)
+
+    // Array and tuple returns.
+    var f = arr
+    var xs = f(1)
+    assert(xs[2] == 3)
+
+    var h = pair
+    var t = h(7)
+    assert(t.0 == 7)
+    assert(t.1 == 8)
+
+    // Reference parameter through a function pointer.
+    var b = bump
+    var v = 5
+    b(v)
+    assert(v == 15)
+
+    // Sized array coerced to a slice parameter through a function pointer.
+    var sum = total
+    var a = [1, 2, 3]
+    assert(sum(a) == 6)
+
+    // Struct returned through a lambda.
+    var lam = (|n| mk(n))
+    assert(lam(4).y == 8)
+}

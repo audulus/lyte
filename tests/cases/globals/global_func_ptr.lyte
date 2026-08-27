@@ -1,0 +1,54 @@
+// Calls through a function-typed global go through the fat-pointer call path,
+// with the same ABI as a direct call: scalar, float, void, reference, and
+// sret (struct) returns all have to work.
+// expected stdout:
+// compilation successful
+// 2
+// 42
+// 3
+// 99
+// 6
+// 7
+
+struct P {
+    x: i32
+}
+
+inc(x: i32) → i32 { x + 1 }
+dbl(x: i32) → i32 { x * 2 }
+addf(a: f32, b: f32) → f32 { a + b }
+noop { }
+bump(r: &i32) { r = r + 1 }
+mkp(k: i32) → P {
+    var p: P
+    p.x = k
+    return p
+}
+
+var gi: i32 → i32
+var gf: (f32, f32) → f32
+var gv: void → void
+var gb: &i32 → void
+var gp: i32 → P
+
+main {
+    gi = inc
+    print(gi(1))
+    gi = dbl
+    print(gi(21))
+
+    gf = addf
+    print(gf(1.5, 2.0) as i32)
+
+    gv = noop
+    print(99)
+
+    gb = bump
+    var v = 5
+    gb(v)
+    print(v)
+
+    gp = mkp
+    var q = gp(7)
+    print(q.x)
+}

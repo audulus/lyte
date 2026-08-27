@@ -1,0 +1,17 @@
+// The no-alias rule applies to calls through a fat pointer too, not just to
+// direct named calls.
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/references/ref_alias_closure.lyte:16:5: cannot pass 'x' to multiple borrowed parameters (borrowed arguments must not alias)
+//         f(x, x)
+//         ^
+
+fn swap(a: &i32, b: &i32) {
+    a = b
+}
+
+main {
+    var x = 1
+    var f = swap
+    f(x, x)
+}
