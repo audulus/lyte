@@ -166,8 +166,9 @@ fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashS
             collect_written_fields(*body, fdecl, written);
         }
         Expr::For {
-            start, end, body, ..
+            var, start, end, body,
         } => {
+            written.insert((*var, Name::str("*")));
             collect_written_fields(*start, fdecl, written);
             collect_written_fields(*end, fdecl, written);
             collect_written_fields(*body, fdecl, written);
@@ -202,15 +203,25 @@ fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashS
         Expr::Return(e) | Expr::Assume(e) => {
             collect_written_fields(*e, fdecl, written);
         }
-        Expr::Var(_, init, _) => {
+        Expr::Var(name, init, _) => {
+            // A binding introduced inside the loop is a fresh variable on every
+            // iteration, and it doesn't exist before the loop at all — nothing
+            // about it can be hoisted.
+            written.insert((*name, Name::str("*")));
             if let Some(e) = init {
                 collect_written_fields(*e, fdecl, written);
             }
         }
-        Expr::Let(_, init, _) => {
+        Expr::Let(name, init, _) => {
+            written.insert((*name, Name::str("*")));
             collect_written_fields(*init, fdecl, written);
         }
-        Expr::Lambda { body, .. } => {
+        Expr::Lambda { params, body } => {
+            // Lambda parameters shadow anything of the same name in the
+            // enclosing scope, so reads through them aren't invariant either.
+            for p in params {
+                written.insert((p.name, Name::str("*")));
+            }
             collect_written_fields(*body, fdecl, written);
         }
         Expr::AsTy(e, _) => {
