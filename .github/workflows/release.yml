@@ -1,15 +1,85 @@
 name: Release xcframework
 
+# Cut a release by running this workflow (Actions -> Release xcframework -> Run
+# workflow) with the version number, e.g. "0.36". Do NOT create the GitHub
+# release or the tag by hand.
+#
+# The tag is created LAST, on purpose. Package.swift's binaryTarget must name
+# the URL and checksum of the artifact for the release being cut, so the commit
+# that updates Package.swift has to exist before the tag does. The old
+# release-triggered flow tagged first and pushed the Package.swift update
+# afterwards, which left every tag pointing at the *previous* release's
+# xcframework (see issue #37: tag 0.35 downloaded the 0.34 artifact, whose
+# header predated lyte_program_has_entry_point, so the package failed to build
+# for anyone resolving by version instead of by branch).
+#
+# Order matters in both directions. Nothing reaches main until the release is
+# published and verified, because a Package.swift on main naming an artifact
+# that does not exist yet breaks every consumer resolving by branch. So the
+# Package.swift commit is staged on a throwaway release/<tag> branch, the
+# release and tag are created there, and main is fast-forwarded onto it only
+# once the published tag has been verified.
+#
+#   build -> verify against the local xcframework -> stage the Package.swift
+#   commit -> create release + tag there -> verify the published tag ->
+#   fast-forward main
+
 on:
-  release:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.36 (must not already exist)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   xcframework:
     runs-on: macos-latest
 
+    env:
+      TAG: ${{ inputs.version }}
+      REPO: ${{ github.repository }}
+      STAGING: release/${{ inputs.version }}
+
     steps:
     - uses: actions/checkout@v5
+      with:
+        ref: main
+        fetch-depth: 0
+
+    - name: Validate version
+      id: setup
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Strict shape: a typo'd "036" would otherwise produce a real tag and a
+        # Package.swift URL that nothing can ever resolve.
+        printf '%s' "$TAG" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || {
+          echo "Error: version must look like 0.36 or 0.36.1, got '$TAG'" >&2
+          exit 1
+        }
+
+        git fetch --tags --quiet
+        if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+          echo "Error: tag $TAG already exists" >&2
+          exit 1
+        fi
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Error: release $TAG already exists" >&2
+          exit 1
+        fi
+        if git ls-remote --exit-code --heads origin "$STAGING" >/dev/null 2>&1; then
+          echo "Error: staging branch $STAGING already exists (leftover from a failed run?)" >&2
+          exit 1
+        fi
+
+        # The artifact is built from this commit, and this is the commit that
+        # gets tagged. Recording it keeps the tagged tree and the shipped
+        # binary in lockstep.
+        echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Install arm64 LLVM 18 and libffi
       run: brew install llvm@18 libffi
@@ -30,30 +100,157 @@ jobs:
     - name: Build xcframework
       run: ./build-xcframework.sh
 
-    - name: Upload xcframework to release
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release upload "${{ github.event.release.tag_name }}" CLyte.xcframework.zip --clobber
-
-    - name: Update Package.swift with new URL and checksum
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Verify the package builds against the new xcframework
       run: |
-        TAG="${{ github.event.release.tag_name }}"
-        CHECKSUM=$(swift package compute-checksum CLyte.xcframework.zip)
-        URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/CLyte.xcframework.zip"
+        # The issue #37 check, run before anything is published: does the Swift
+        # wrapper at this commit compile against the header in the xcframework
+        # we just built? Uses a local binaryTarget path, so no release needed.
+        rm -rf "$RUNNER_TEMP/preflight"
+        mkdir -p "$RUNNER_TEMP/preflight"
+        git archive HEAD | tar -x -C "$RUNNER_TEMP/preflight"
+        cp -R CLyte.xcframework "$RUNNER_TEMP/preflight/"
 
-        # Update URL and checksum in Package.swift
+        cd "$RUNNER_TEMP/preflight"
+        sed -i '' \
+          -e '/url: "https:\/\/github.com\/.*\/CLyte.xcframework.zip",/d' \
+          -e 's|checksum: "[a-f0-9]*"|path: "CLyte.xcframework"|' \
+          Package.swift
+        grep -q 'path: "CLyte.xcframework"' Package.swift || {
+          echo "Error: failed to point binaryTarget at the local xcframework" >&2
+          exit 1
+        }
+
+        swift build
+
+    - name: Update Package.swift for the pending release
+      run: |
+        CHECKSUM=$(swift package compute-checksum CLyte.xcframework.zip)
+        URL="https://github.com/${REPO}/releases/download/${TAG}/CLyte.xcframework.zip"
+
         sed -i '' "s|url: \"https://github.com/.*/CLyte.xcframework.zip\"|url: \"${URL}\"|" Package.swift
         sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+
+        # The sed patterns are load-bearing: if either stops matching, the tag
+        # would ship a Package.swift pointing at the wrong artifact.
+        grep -q "url: \"${URL}\"" Package.swift || {
+          echo "Error: failed to rewrite binaryTarget url in Package.swift" >&2
+          exit 1
+        }
+        grep -q "checksum: \"${CHECKSUM}\"" Package.swift || {
+          echo "Error: failed to rewrite binaryTarget checksum in Package.swift" >&2
+          exit 1
+        }
 
         echo "Updated Package.swift:"
         grep -A1 'url:' Package.swift
 
-    - name: Commit and push Package.swift
+    - name: Stage the Package.swift commit
+      id: stage
+      env:
+        BUILD_SHA: ${{ steps.setup.outputs.build_sha }}
       run: |
+        # Refuse to tag a tree the artifact was not built from. If main moved
+        # during the build, a rebase would tag sources newer than the binary —
+        # exactly the issue #37 shape (a new FFI symbol in Lyte.swift that the
+        # shipped header lacks).
+        git fetch origin main
+        REMOTE_MAIN=$(git rev-parse origin/main)
+        if [ "$REMOTE_MAIN" != "$BUILD_SHA" ]; then
+          echo "Error: main moved during the build ($BUILD_SHA -> $REMOTE_MAIN)." >&2
+          echo "Nothing was published. Re-run the release to build from current main." >&2
+          exit 1
+        fi
+
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add Package.swift
-        git commit -m "Update Package.swift for release ${{ github.event.release.tag_name }}"
-        git push origin HEAD:main
+
+        if git diff --quiet -- Package.swift; then
+          echo "Package.swift already up to date; tagging $BUILD_SHA as is."
+        else
+          git add Package.swift
+          git commit -m "Update Package.swift for release ${TAG}"
+        fi
+
+        # Staged on a throwaway branch, not main: the commit names an artifact
+        # that does not exist yet, so it must not reach consumers until the
+        # release is published and verified.
+        git push origin "HEAD:refs/heads/${STAGING}"
+        echo "pushed=true" >> "$GITHUB_OUTPUT"
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Create release and tag at the staged commit
+      id: release
+      env:
+        SHA: ${{ steps.stage.outputs.sha }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "$TAG" \
+          --target "$SHA" \
+          --title "$TAG" \
+          --generate-notes \
+          CLyte.xcframework.zip
+        echo "created=true" >> "$GITHUB_OUTPUT"
+
+    - name: Verify the published tag builds
+      id: verify
+      run: |
+        # Belt and braces over the pre-publish check: this resolves the real
+        # release URL and checksum the way a version-pinned consumer does.
+        rm -rf "$RUNNER_TEMP/verify"
+
+        # The tag was created seconds ago; allow for replication lag.
+        cloned=0
+        for attempt in 1 2 3; do
+          if git clone --depth 1 --branch "$TAG" \
+              "https://github.com/${REPO}.git" "$RUNNER_TEMP/verify"; then
+            cloned=1
+            break
+          fi
+          echo "Clone of tag $TAG failed (attempt ${attempt}); retrying."
+          rm -rf "$RUNNER_TEMP/verify"
+          sleep 10
+        done
+        if [ "$cloned" != 1 ]; then
+          echo "Error: could not clone tag $TAG" >&2
+          exit 1
+        fi
+
+        swift build --package-path "$RUNNER_TEMP/verify"
+
+    - name: Fast-forward main onto the released commit
+      env:
+        SHA: ${{ steps.stage.outputs.sha }}
+      run: |
+        # Only now, with the artifact published and verified, is it safe for
+        # branch consumers to see this Package.swift.
+        for attempt in 1 2 3; do
+          if git push origin "${SHA}:main"; then
+            exit 0
+          fi
+          echo "Push rejected (attempt ${attempt}); main moved. Replaying onto it."
+          git fetch origin main
+          git rebase origin/main || {
+            echo "Error: could not replay Package.swift onto main." >&2
+            echo "Release $TAG is published and verified; push the commit manually." >&2
+            exit 1
+          }
+          SHA=$(git rev-parse HEAD)
+        done
+        echo "Error: could not push Package.swift to main" >&2
+        echo "Release $TAG is published and verified; push $SHA to main manually." >&2
+        exit 1
+
+    - name: Roll back the release if it could not be published or verified
+      # Scoped to the publish/verify failures. A failure to fast-forward main
+      # leaves a good release behind and must not delete it.
+      if: failure() && (steps.release.outcome == 'failure' || steps.verify.outcome == 'failure')
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "Deleting release and tag $TAG so the version can be re-run."
+        gh release delete "$TAG" --yes --cleanup-tag || true
+        git push origin --delete "refs/tags/$TAG" 2>/dev/null || true
+
+    - name: Delete the staging branch
+      if: always() && steps.stage.outputs.pushed == 'true'
+      run: git push origin --delete "$STAGING" || true
