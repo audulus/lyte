@@ -493,6 +493,18 @@ fn is_indirect(ty: crate::TypeID) -> bool {
     ty.is_ptr() && !matches!(*ty, crate::Type::Float32x4)
 }
 
+/// A constant `f32x4` lane index, which the safety checker has already proved
+/// lies in `0..4`. Narrowing it with `as` would silently wrap an out-of-range
+/// index onto a valid lane, so the conversion is checked.
+fn lane_index(n: i64) -> u8 {
+    assert!(
+        (0..4).contains(&n),
+        "f32x4 lane index {} out of range — safety checker should have rejected it",
+        n
+    );
+    n as u8
+}
+
 /// Returns true if this type is returned via an output pointer parameter.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
     is_indirect(ty)
@@ -2296,43 +2308,50 @@ impl<'a> FunctionTranslator<'a> {
                 let t = self.representation_type(lhs_id, decl, decls);
                 // f32x4 field assignment: v.x = val → insertlane
                 if let Expr::Field(vec_id, field_name) = &decl.arena[lhs_id] {
-                    let vec_ty = decl.types[*vec_id];
+                    let (vec_id, field_name) = (*vec_id, *field_name);
+                    let vec_ty = decl.types[vec_id];
                     if matches!(*vec_ty, crate::types::Type::Float32x4) {
-                        let lane: u8 = match &***field_name {
+                        let lane: u8 = match &**field_name {
                             "x" | "r" => 0,
                             "y" | "g" => 1,
                             "z" | "b" => 2,
                             "w" | "a" => 3,
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
+                        let storage = self.f32x4_storage(vec_id, decl, decls);
                         let rhs = self.translate_expr(rhs_id, decl, decls);
-                        if self.store_f32x4_lane(*vec_id, lane, rhs, decl, decls) {
-                            return rhs;
-                        }
+                        self.store_f32x4_lane(vec_id, storage, lane, rhs, decl);
+                        return rhs;
                     }
                 }
                 // f32x4 element assignment: v[i] = val → insertlane
                 if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena[lhs_id] {
-                    let vec_ty = decl.types[*vec_id];
+                    let (vec_id, idx_id) = (*vec_id, *idx_id);
+                    let vec_ty = decl.types[vec_id];
                     if matches!(*vec_ty, crate::types::Type::Float32x4) {
-                        let rhs = self.translate_expr(rhs_id, decl, decls);
-                        if let Expr::Int(n, _) = &decl.arena.exprs[*idx_id] {
-                            let lane = *n as u8;
-                            if self.store_f32x4_lane(*vec_id, lane, rhs, decl, decls) {
-                                return rhs;
-                            }
-                        } else if self.store_f32x4_dynamic_lane(*vec_id, *idx_id, rhs, decl, decls)
-                        {
+                        // The lane index is in 0..4: the safety checker proves it,
+                        // and no backend checks it at runtime.
+                        if let Expr::Int(n, _) = &decl.arena.exprs[idx_id] {
+                            let lane = lane_index(*n);
+                            let storage = self.f32x4_storage(vec_id, decl, decls);
+                            let rhs = self.translate_expr(rhs_id, decl, decls);
+                            self.store_f32x4_lane(vec_id, storage, lane, rhs, decl);
                             return rhs;
                         }
+                        let storage = self.f32x4_storage(vec_id, decl, decls);
+                        let idx = self.translate_expr(idx_id, decl, decls);
+                        let rhs = self.translate_expr(rhs_id, decl, decls);
+                        self.store_f32x4_dynamic_lane(vec_id, storage, idx, rhs, decl);
+                        return rhs;
                     }
                 }
                 // f32x4 is a register value, so a whole-vector assignment is a
                 // def_var when the destination is a variable and a store when it
                 // lives in memory.
                 if matches!(*t, crate::types::Type::Float32x4) {
+                    let storage = self.f32x4_storage(lhs_id, decl, decls);
                     let rhs = self.translate_expr(rhs_id, decl, decls);
-                    if let Some(ptr) = self.f32x4_storage(lhs_id, decl, decls) {
+                    if let Some(ptr) = storage {
                         self.builder.ins().store(MemFlags::new(), rhs, ptr, 0);
                         return rhs;
                     }
@@ -2579,32 +2598,35 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    /// Writes `value` into lane `lane` of the `f32x4` lvalue `vec_id`, whether
-    /// the vector is held in a Cranelift variable or in memory. Returns false
-    /// when the target is neither a variable nor a global.
+    /// Writes `value` into lane `lane` of the `f32x4` lvalue `vec_id`, given the
+    /// `storage` [`Self::f32x4_storage`] found for it: a read-modify-write when
+    /// the vector lives in memory, an insertlane when it lives in a variable.
     fn store_f32x4_lane(
         &mut self,
         vec_id: ExprID,
+        storage: Option<Value>,
         lane: u8,
         value: Value,
         decl: &FuncDecl,
-        decls: &DeclTable,
-    ) -> bool {
-        if let Some(ptr) = self.f32x4_storage(vec_id, decl, decls) {
+    ) {
+        if let Some(ptr) = storage {
             let vec = self.builder.ins().load(F32X4, MemFlags::new(), ptr, 0);
             let new_vec = self.builder.ins().insertlane(vec, value, lane);
             self.builder.ins().store(MemFlags::new(), new_vec, ptr, 0);
-            return true;
+            return;
         }
         if let Expr::Id(name) = &decl.arena[vec_id] {
             if let Some(&var) = self.variables.get(&**name) {
                 let vec = self.builder.use_var(var);
                 let new_vec = self.builder.ins().insertlane(vec, value, lane);
                 self.builder.def_var(var, new_vec);
-                return true;
+                return;
             }
         }
-        false
+        panic!(
+            "JIT: unsupported f32x4 lane assignment target: {:?}",
+            decl.arena[vec_id]
+        );
     }
 
     /// Same as [`Self::store_f32x4_lane`] for a lane index that isn't a
@@ -2612,18 +2634,17 @@ impl<'a> FunctionTranslator<'a> {
     fn store_f32x4_dynamic_lane(
         &mut self,
         vec_id: ExprID,
-        idx_id: ExprID,
+        storage: Option<Value>,
+        idx: Value,
         value: Value,
         decl: &FuncDecl,
-        decls: &DeclTable,
-    ) -> bool {
-        let idx = self.translate_expr(idx_id, decl, decls);
+    ) {
         let byte_offset = self.builder.ins().imul_imm(idx, 4);
         let byte_offset = self.builder.ins().uextend(I64, byte_offset);
-        if let Some(ptr) = self.f32x4_storage(vec_id, decl, decls) {
+        if let Some(ptr) = storage {
             let addr = self.builder.ins().iadd(ptr, byte_offset);
             self.builder.ins().store(MemFlags::new(), value, addr, 0);
-            return true;
+            return;
         }
         if let Expr::Id(name) = &decl.arena[vec_id] {
             if let Some(&var) = self.variables.get(&**name) {
@@ -2640,10 +2661,13 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().store(MemFlags::new(), value, addr, 0);
                 let new_vec = self.builder.ins().load(F32X4, MemFlags::new(), base, 0);
                 self.builder.def_var(var, new_vec);
-                return true;
+                return;
             }
         }
-        false
+        panic!(
+            "JIT: unsupported f32x4 lane assignment target: {:?}",
+            decl.arena[vec_id]
+        );
     }
 
     /// Returns the address of a variable's storage for use in a closure struct.

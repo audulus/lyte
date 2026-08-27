@@ -2775,8 +2775,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             "w" | "a" => 3,
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
+                        let storage = self.f32x4_storage(vec_id, decl);
                         let rhs_val = self.translate_expr(rhs_id, decl);
-                        if let Some(ptr) = self.f32x4_storage(vec_id, decl) {
+                        if let Some(ptr) = storage {
                             let idx = self.i32_ty().const_int(lane, false);
                             self.store_f32x4_lane(ptr, idx, rhs_val);
                             return rhs_val;
@@ -2788,9 +2789,12 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let (vec_id, idx_id) = (*vec_id, *idx_id);
                     let vec_ty = decl.types[vec_id];
                     if matches!(*vec_ty, crate::Type::Float32x4) {
-                        let rhs_val = self.translate_expr(rhs_id, decl);
+                        // The lane index is in 0..4: the safety checker proves it,
+                        // and no backend checks it at runtime.
+                        let storage = self.f32x4_storage(vec_id, decl);
                         let idx = self.translate_expr(idx_id, decl).into_int_value();
-                        if let Some(ptr) = self.f32x4_storage(vec_id, decl) {
+                        let rhs_val = self.translate_expr(rhs_id, decl);
+                        if let Some(ptr) = storage {
                             self.store_f32x4_lane(ptr, idx, rhs_val);
                             return rhs_val;
                         }
@@ -2799,8 +2803,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 // f32x4 full assignment: v = expr → store the vector to its storage
                 let t = self.representation_type(lhs_id, decl);
                 if matches!(*t, crate::Type::Float32x4) {
+                    let storage = self.f32x4_storage(lhs_id, decl);
                     let rhs_val = self.translate_expr(rhs_id, decl);
-                    if let Some(ptr) = self.f32x4_storage(lhs_id, decl) {
+                    if let Some(ptr) = storage {
                         self.builder().build_store(ptr, rhs_val).unwrap();
                         return rhs_val;
                     }
