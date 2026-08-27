@@ -1682,14 +1682,7 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut StackFunction,
     ) {
-        // Check if it's a local variable (lambda/function pointer) — use CallClosure.
-        let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
-            self.variables.contains_key(name)
-        } else {
-            false
-        };
-
-        if is_local_var {
+        if self.holds_fat_pointer(fn_id) {
             self.translate_closure_call(fn_id, arg_ids, call_expr, func);
             return;
         }
@@ -2114,6 +2107,28 @@ impl<'a> FunctionTranslator<'a> {
         } else {
             self.bridge_call_result(call_expr, func);
         }
+    }
+
+    /// True when the callee expression names storage holding a fat pointer
+    /// {func_idx, closure_ptr} — a local variable or a function-typed global —
+    /// rather than naming a function declaration. Such calls go through
+    /// `translate_closure_call` instead of the direct-call path.
+    fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
+        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
+            return false;
+        };
+        if self.variables.contains_key(name) {
+            return true;
+        }
+        // Extern functions live in globals memory too, but they are called
+        // through the direct-call path.
+        self.globals.contains_key(name)
+            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
+            && !self
+                .decls
+                .find(*name)
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
     }
 
     /// Parameter types of a callee reached through a fat pointer, taken from

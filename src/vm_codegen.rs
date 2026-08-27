@@ -2267,15 +2267,7 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
-        // If fn_id is a local variable (lambda or function pointer), use CallClosure.
-        // The variable holds a pointer to a fat pointer {func_idx, closure_ptr}.
-        let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
-            self.variables.contains_key(name)
-        } else {
-            false
-        };
-
-        if is_local_var {
+        if self.holds_fat_pointer(fn_id) {
             return self.translate_closure_call(fn_id, arg_ids, call_expr, func);
         }
 
@@ -2593,16 +2585,7 @@ impl<'a> FunctionTranslator<'a> {
                         vec![]
                     }
                 } else {
-                    let fn_ty = self.expr_type(fn_id);
-                    if let Type::Func(from, _) = &*fn_ty {
-                        if let Type::Tuple(pts) = &**from {
-                            pts.clone()
-                        } else {
-                            vec![]
-                        }
-                    } else {
-                        vec![]
-                    }
+                    self.closure_param_types(fn_id)
                 };
 
             // First, translate all arguments to get their values.
@@ -2707,6 +2690,39 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// True when the callee expression names storage holding a fat pointer
+    /// {func_idx, closure_ptr} — a local variable or a function-typed global —
+    /// rather than naming a function declaration. Such calls go through
+    /// `translate_closure_call` instead of the direct-call path.
+    fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
+        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
+            return false;
+        };
+        if self.variables.contains_key(name) {
+            return true;
+        }
+        // Extern functions live in globals memory too, but they are called
+        // through the direct-call path.
+        self.globals.contains_key(name)
+            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
+            && !self
+                .decls
+                .find(*name)
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
+    }
+
+    /// Parameter types of a callee reached through a fat pointer, taken from
+    /// the function expression's solved type.
+    fn closure_param_types(&self, fn_id: ExprID) -> Vec<TypeID> {
+        if let Type::Func(from, _) = &*self.expr_type(fn_id) {
+            if let Type::Tuple(param_types) = &**from {
+                return param_types.clone();
+            }
+        }
+        vec![]
+    }
+
     /// Translate a call through a fat pointer {func_idx, closure_ptr}. Mirrors
     /// the direct-call ABI: an sret output pointer is passed as the first
     /// argument, `Reference` params are passed by address, and sized arrays are
@@ -2720,17 +2736,7 @@ impl<'a> FunctionTranslator<'a> {
     ) -> Reg {
         let fat_ptr_reg = self.translate_expr(fn_id, func);
 
-        // Parameter types of the callee, taken from the solved type of the
-        // function expression.
-        let param_types: Vec<TypeID> = if let Type::Func(from, _) = &*self.expr_type(fn_id) {
-            if let Type::Tuple(param_types) = &**from {
-                param_types.clone()
-            } else {
-                vec![]
-            }
-        } else {
-            vec![]
-        };
+        let param_types = self.closure_param_types(fn_id);
 
         let ret_ty = self.expr_type(call_expr);
         let output_slot = if returns_via_pointer(ret_ty) {
