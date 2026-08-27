@@ -1,6 +1,15 @@
 use crate::*;
 use std::collections::{HashMap, HashSet};
 
+/// A hoistable field read: which binding and field, plus the types the
+/// checker assigned to the base and to the field at the read site.
+struct FieldRead {
+    var_name: Name,
+    field_name: Name,
+    var_type: TypeID,
+    field_type: TypeID,
+}
+
 /// Hoist loop-invariant struct field loads out of loops.
 ///
 /// For each loop (For/While), finds struct field accesses (`expr.field`) where:
@@ -10,36 +19,36 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Each such access is replaced with a reference to a hoisted `let` binding
 /// inserted just before the loop.
-pub fn hoist_loop_invariant_fields(fdecl: &mut FuncDecl, decls: &DeclTable) {
+pub fn hoist_loop_invariant_fields(fdecl: &mut FuncDecl) {
     if fdecl.body.is_none() {
         return;
     }
     let body = fdecl.body.unwrap();
-    hoist_in_expr(body, fdecl, decls);
+    hoist_in_expr(body, fdecl);
 }
 
 /// Recursively walk the AST looking for loops inside blocks.
 /// When we find a loop inside a block, we can insert hoisted bindings before it.
-fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTable) {
+fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl) {
     match fdecl.arena.exprs[expr_id].clone() {
         Expr::Block(stmts) => {
             // First, recurse into each statement.
             for &s in &stmts {
-                hoist_in_expr(s, fdecl, decls);
+                hoist_in_expr(s, fdecl);
             }
             // Now look for loops in this block and hoist their invariant fields.
-            hoist_loops_in_block(expr_id, fdecl, decls);
+            hoist_loops_in_block(expr_id, fdecl);
         }
         Expr::For { body, .. } => {
-            hoist_in_expr(body, fdecl, decls);
+            hoist_in_expr(body, fdecl);
         }
         Expr::While(_, body) => {
-            hoist_in_expr(body, fdecl, decls);
+            hoist_in_expr(body, fdecl);
         }
         Expr::If(_, then_branch, else_branch) => {
-            hoist_in_expr(then_branch, fdecl, decls);
+            hoist_in_expr(then_branch, fdecl);
             if let Some(e) = else_branch {
-                hoist_in_expr(e, fdecl, decls);
+                hoist_in_expr(e, fdecl);
             }
         }
         _ => {}
@@ -47,7 +56,7 @@ fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTable) {
 }
 
 /// For each loop statement in a block, hoist invariant struct field reads.
-fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTable) {
+fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl) {
     let stmts = if let Expr::Block(ref stmts) = fdecl.arena.exprs[block_id] {
         stmts.clone()
     } else {
@@ -73,38 +82,50 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
             }
 
             // Find all field reads that are loop-invariant.
-            let mut field_reads: Vec<(Name, Name)> = Vec::new();
-            collect_invariant_field_reads(body_id, fdecl, decls, &written_fields, &mut field_reads);
+            let mut field_reads: Vec<FieldRead> = Vec::new();
+            collect_invariant_field_reads(body_id, fdecl, &written_fields, &mut field_reads);
             if let Expr::While(cond, _) = &fdecl.arena.exprs[stmt_id] {
-                collect_invariant_field_reads(
-                    *cond,
-                    fdecl,
-                    decls,
-                    &written_fields,
-                    &mut field_reads,
-                );
+                collect_invariant_field_reads(*cond, fdecl, &written_fields, &mut field_reads);
             }
 
-            // Deduplicate.
+            // Bindings created inside the loop can't be hoisted out of it:
+            // the hoisted `let` would sit before the loop, where the name
+            // isn't in scope yet, and the binding is remade on every
+            // iteration anyway. Shadowed outer names are dropped too, since
+            // reads inside the loop see the inner binding.
+            let mut bound: HashSet<Name> = HashSet::new();
+            collect_bound_names(body_id, fdecl, &mut bound);
+            if let Expr::For { var, .. } = &fdecl.arena.exprs[stmt_id] {
+                bound.insert(*var);
+            }
+            field_reads.retain(|read| !bound.contains(&read.var_name));
+
+            // Deduplicate. Every surviving read of a given name resolves to the
+            // same binding — the ones bound in the loop were just dropped — so
+            // the first read's types describe all of them.
             let mut seen = HashSet::new();
-            field_reads.retain(|pair| seen.insert(*pair));
+            field_reads.retain(|read| seen.insert((read.var_name, read.field_name)));
 
             if !field_reads.is_empty() {
                 // Create hoisted let bindings and a substitution map.
                 let mut subst: HashMap<(Name, Name), Name> = HashMap::new();
                 let loc = fdecl.arena.locs[stmt_id];
 
-                for (var_name, field_name) in &field_reads {
+                for read in &field_reads {
+                    let FieldRead {
+                        var_name,
+                        field_name,
+                        var_type,
+                        field_type,
+                    } = *read;
                     let hoisted_name =
-                        Name::new(format!("__hoisted_{}_{}", &**var_name, &**field_name));
+                        Name::new(format!("__hoisted_{}_{}", &*var_name, &*field_name));
 
                     // Build: let __hoisted_var_field = var.field
-                    let id_expr = fdecl.arena.add(Expr::Id(*var_name), loc);
-                    let var_type = find_var_type(*var_name, fdecl);
+                    let id_expr = fdecl.arena.add(Expr::Id(var_name), loc);
                     fdecl.types.push(var_type); // type for the Id expr
 
-                    let field_expr = fdecl.arena.add(Expr::Field(id_expr, *field_name), loc);
-                    let field_type = find_field_type(var_type, *field_name, decls);
+                    let field_expr = fdecl.arena.add(Expr::Field(id_expr, field_name), loc);
                     fdecl.types.push(field_type); // type for the Field expr
 
                     let let_expr = fdecl
@@ -113,7 +134,7 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
                     fdecl.types.push(field_type); // type for the Let expr (must match init)
 
                     new_stmts.push(let_expr);
-                    subst.insert((*var_name, *field_name), hoisted_name);
+                    subst.insert((var_name, field_name), hoisted_name);
                 }
 
                 // Replace field accesses in the loop body with hoisted variable references.
@@ -129,6 +150,28 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
 
     if new_stmts.len() != stmts.len() {
         fdecl.arena.exprs[block_id] = Expr::Block(new_stmts);
+    }
+}
+
+/// Collect the names bound inside an expression tree: `var` and `let`
+/// declarations, `for` loop variables, and lambda parameters.
+fn collect_bound_names(expr_id: ExprID, fdecl: &FuncDecl, bound: &mut HashSet<Name>) {
+    match &fdecl.arena.exprs[expr_id] {
+        Expr::Var(name, _, _) | Expr::Let(name, _, _) => {
+            bound.insert(*name);
+        }
+        Expr::For { var, .. } => {
+            bound.insert(*var);
+        }
+        Expr::Lambda { params, .. } => {
+            for param in params {
+                bound.insert(param.name);
+            }
+        }
+        _ => {}
+    }
+    for sub in fdecl.arena.exprs[expr_id].subexprs() {
+        collect_bound_names(sub, fdecl, bound);
     }
 }
 
@@ -234,9 +277,8 @@ fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashS
 fn collect_invariant_field_reads(
     expr_id: ExprID,
     fdecl: &FuncDecl,
-    decls: &DeclTable,
     written: &HashSet<(Name, Name)>,
-    reads: &mut Vec<(Name, Name)>,
+    reads: &mut Vec<FieldRead>,
 ) {
     match &fdecl.arena.exprs[expr_id] {
         Expr::Field(base, field_name) => {
@@ -248,78 +290,86 @@ fn collect_invariant_field_reads(
                     // Only hoist scalar fields (not sub-structs, arrays, etc.)
                     let field_type = fdecl.types[expr_id];
                     if !is_ptr_type(&field_type) {
-                        reads.push(pair);
+                        // Take both types from this read site. Resolving them
+                        // by name instead would pick up an unrelated binding
+                        // that happens to share the name.
+                        reads.push(FieldRead {
+                            var_name: *var_name,
+                            field_name: *field_name,
+                            var_type: fdecl.types[*base],
+                            field_type,
+                        });
                     }
                 }
             }
-            collect_invariant_field_reads(*base, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*base, fdecl, written, reads);
         }
         Expr::Binop(Binop::Assign, _lhs, rhs) => {
             // Don't collect reads from the LHS of assignments.
-            collect_invariant_field_reads(*rhs, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*rhs, fdecl, written, reads);
         }
         Expr::Binop(_, lhs, rhs) => {
-            collect_invariant_field_reads(*lhs, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*rhs, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*lhs, fdecl, written, reads);
+            collect_invariant_field_reads(*rhs, fdecl, written, reads);
         }
         Expr::Unop(_, arg) => {
-            collect_invariant_field_reads(*arg, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*arg, fdecl, written, reads);
         }
         Expr::Call(func, args) => {
-            collect_invariant_field_reads(*func, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*func, fdecl, written, reads);
             for &arg in args {
-                collect_invariant_field_reads(arg, fdecl, decls, written, reads);
+                collect_invariant_field_reads(arg, fdecl, written, reads);
             }
         }
         Expr::Block(stmts) => {
             for &s in stmts {
-                collect_invariant_field_reads(s, fdecl, decls, written, reads);
+                collect_invariant_field_reads(s, fdecl, written, reads);
             }
         }
         Expr::If(cond, then_b, else_b) => {
-            collect_invariant_field_reads(*cond, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*then_b, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*cond, fdecl, written, reads);
+            collect_invariant_field_reads(*then_b, fdecl, written, reads);
             if let Some(e) = else_b {
-                collect_invariant_field_reads(*e, fdecl, decls, written, reads);
+                collect_invariant_field_reads(*e, fdecl, written, reads);
             }
         }
         Expr::While(cond, body) => {
-            collect_invariant_field_reads(*cond, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*body, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*cond, fdecl, written, reads);
+            collect_invariant_field_reads(*body, fdecl, written, reads);
         }
         Expr::For {
             start, end, body, ..
         } => {
-            collect_invariant_field_reads(*start, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*end, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*body, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*start, fdecl, written, reads);
+            collect_invariant_field_reads(*end, fdecl, written, reads);
+            collect_invariant_field_reads(*body, fdecl, written, reads);
         }
         Expr::ArrayIndex(base, idx) => {
-            collect_invariant_field_reads(*base, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*idx, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*base, fdecl, written, reads);
+            collect_invariant_field_reads(*idx, fdecl, written, reads);
         }
         Expr::Return(e) | Expr::Assume(e) | Expr::AsTy(e, _) => {
-            collect_invariant_field_reads(*e, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*e, fdecl, written, reads);
         }
         Expr::Var(_, init, _) => {
             if let Some(e) = init {
-                collect_invariant_field_reads(*e, fdecl, decls, written, reads);
+                collect_invariant_field_reads(*e, fdecl, written, reads);
             }
         }
         Expr::Let(_, init, _) => {
-            collect_invariant_field_reads(*init, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*init, fdecl, written, reads);
         }
         Expr::Lambda { body, .. } => {
-            collect_invariant_field_reads(*body, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*body, fdecl, written, reads);
         }
         Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
             for &e in elems {
-                collect_invariant_field_reads(e, fdecl, decls, written, reads);
+                collect_invariant_field_reads(e, fdecl, written, reads);
             }
         }
         Expr::StructLit(_, fields) => {
             for (_, fval) in fields {
-                collect_invariant_field_reads(*fval, fdecl, decls, written, reads);
+                collect_invariant_field_reads(*fval, fdecl, written, reads);
             }
         }
         _ => {}
@@ -412,73 +462,10 @@ fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(N
     }
 }
 
-/// Find the type of a variable by scanning the function's parameter list and body.
-fn find_var_type(var_name: Name, fdecl: &FuncDecl) -> TypeID {
-    // Check parameters first.
-    for param in &fdecl.params {
-        if param.name == var_name {
-            if let Some(ty) = param.ty {
-                return ty;
-            }
-        }
-    }
-
-    // Scan the arena for a Var or Let binding with this name.
-    for (_i, expr) in fdecl.arena.exprs.iter().enumerate() {
-        match expr {
-            Expr::Var(name, _, _) | Expr::Let(name, _, _) => {
-                if *name == var_name {
-                    // For Var/Let, the type in the types array is Void (statement type).
-                    // We need to look at the initializer's type or the annotated type.
-                    if let Expr::Var(_, _, Some(ty)) = expr {
-                        return *ty;
-                    }
-                    if let Expr::Let(_, _, Some(ty)) = expr {
-                        return *ty;
-                    }
-                    if let Expr::Var(_, Some(init), _) = expr {
-                        return fdecl.types[*init];
-                    }
-                    if let Expr::Let(_, init, _) = expr {
-                        return fdecl.types[*init];
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Fallback: search for any Id with this name and use its type.
-    for (i, expr) in fdecl.arena.exprs.iter().enumerate() {
-        if let Expr::Id(name) = expr {
-            if *name == var_name && i < fdecl.types.len() {
-                return fdecl.types[i];
-            }
-        }
-    }
-
-    mk_type(Type::Void)
-}
-
 /// Check if a type is a pointer type (struct, array, slice, tuple).
 fn is_ptr_type(ty: &TypeID) -> bool {
     matches!(
         &**ty,
         Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
     )
-}
-
-/// Find the type of a field on a struct type.
-fn find_field_type(struct_type: TypeID, field_name: Name, decls: &DeclTable) -> TypeID {
-    if let Type::Name(struct_name, _type_args) = &*struct_type {
-        let found = decls.find(*struct_name);
-        for decl in found {
-            if let Decl::Struct(sd) = decl {
-                if let Some(field) = sd.find_field(&field_name) {
-                    return field.ty;
-                }
-            }
-        }
-    }
-    mk_type(Type::Void)
 }
