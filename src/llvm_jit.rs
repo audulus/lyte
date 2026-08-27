@@ -1532,7 +1532,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     fn gen_copy(&mut self, ty: crate::TypeID, dst: PointerValue<'ctx>, src: BasicValueEnum<'ctx>) {
-        if ty.is_ptr() {
+        if is_indirect(ty) {
             let size = ty.size(self.decls) as u64;
             self.emit_memcpy(dst, src.into_pointer_value(), size);
         } else {
@@ -1779,6 +1779,55 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         }
     }
 
+    /// Address of the storage backing an `f32x4` lvalue: the variable's own
+    /// alloca, the pointer a captured variable's alloca holds, a global's
+    /// address, or a place inside an aggregate. `None` when the expression
+    /// isn't a place at all.
+    fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl) -> Option<PointerValue<'ctx>> {
+        match &decl.arena[expr] {
+            Expr::Id(name) => {
+                if let Some(&alloca) = self.variables.get(&**name) {
+                    if self.let_bindings.contains(&**name) {
+                        // The alloca holds the vector itself.
+                        return Some(alloca);
+                    }
+                    // A captured variable's alloca holds the address of the
+                    // vector in the enclosing frame.
+                    return Some(
+                        self.builder()
+                            .build_load(self.ptr_ty(), alloca, "vec_ptr")
+                            .unwrap()
+                            .into_pointer_value(),
+                    );
+                }
+                let offset = *self.state.globals.get(name)?;
+                Some(self.ptr_at_offset(self.globals_base, offset as u64))
+            }
+            Expr::Field(_, _) | Expr::ArrayIndex(_, _) => Some(self.translate_lvalue(expr, decl)),
+            _ => None,
+        }
+    }
+
+    /// Read-modify-write of one lane of the `f32x4` stored at `ptr`.
+    fn store_f32x4_lane(
+        &mut self,
+        ptr: PointerValue<'ctx>,
+        lane: inkwell::values::IntValue<'ctx>,
+        value: BasicValueEnum<'ctx>,
+    ) {
+        let vec_ty: inkwell::types::BasicTypeEnum = self.ctx().f32_type().vec_type(4).into();
+        let vec_val = self
+            .builder()
+            .build_load(vec_ty, ptr, "vec")
+            .unwrap()
+            .into_vector_value();
+        let new_vec = self
+            .builder()
+            .build_insert_element(vec_val, value.into_float_value(), lane, "ins")
+            .unwrap();
+        self.builder().build_store(ptr, new_vec).unwrap();
+    }
+
     fn compute_field_ptr(
         &mut self,
         base: PointerValue<'ctx>,
@@ -1865,8 +1914,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::Id(name) => {
                 let ty = decl.types[expr];
                 if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) || ty.is_ptr() || is_llvm_value_type(ty)
-                    {
+                    if self.let_bindings.contains(&**name) || is_indirect(ty) {
                         // let binding or pointer type: load the value from the alloca.
                         self.builder()
                             .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
@@ -1877,7 +1925,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             .build_load(self.ptr_ty(), alloca, "var_ptr")
                             .unwrap();
                         if let Some(var_ty) = self.variable_types.get(name.as_str()).copied() {
-                            if var_ty.is_ptr() {
+                            if is_indirect(var_ty) {
                                 stored
                             } else {
                                 self.builder()
@@ -2717,9 +2765,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Binop::Assign => {
                 // f32x4 field assignment: v.x = val → insert_element + store
                 if let Expr::Field(vec_id, field_name) = &decl.arena.exprs[lhs_id] {
-                    let vec_ty = decl.types[*vec_id];
+                    let (vec_id, field_name) = (*vec_id, *field_name);
+                    let vec_ty = decl.types[vec_id];
                     if matches!(*vec_ty, crate::Type::Float32x4) {
-                        let lane: u64 = match &***field_name {
+                        let lane: u64 = match &**field_name {
                             "x" | "r" => 0,
                             "y" | "g" => 1,
                             "z" | "b" => 2,
@@ -2727,41 +2776,38 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
                         let rhs_val = self.translate_expr(rhs_id, decl);
-                        if let Expr::Id(name) = &decl.arena.exprs[*vec_id] {
-                            if let Some(&alloca) = self.variables.get(&**name) {
-                                let vec_ty: inkwell::types::BasicTypeEnum =
-                                    self.ctx().f32_type().vec_type(4).into();
-                                let vec_val = self
-                                    .builder()
-                                    .build_load(vec_ty, alloca, "vec")
-                                    .unwrap()
-                                    .into_vector_value();
-                                let idx = self.i32_ty().const_int(lane, false);
-                                let new_vec = self
-                                    .builder()
-                                    .build_insert_element(
-                                        vec_val,
-                                        rhs_val.into_float_value(),
-                                        idx,
-                                        "ins",
-                                    )
-                                    .unwrap();
-                                self.builder().build_store(alloca, new_vec).unwrap();
-                                return rhs_val;
-                            }
-                        }
-                    }
-                }
-                // f32x4 full assignment: v = expr → store vector to alloca
-                let t = self.representation_type(lhs_id, decl);
-                if matches!(*t, crate::Type::Float32x4) {
-                    if let Expr::Id(name) = &decl.arena.exprs[lhs_id] {
-                        if let Some(&alloca) = self.variables.get(&**name) {
-                            let rhs_val = self.translate_expr(rhs_id, decl);
-                            self.builder().build_store(alloca, rhs_val).unwrap();
+                        if let Some(ptr) = self.f32x4_storage(vec_id, decl) {
+                            let idx = self.i32_ty().const_int(lane, false);
+                            self.store_f32x4_lane(ptr, idx, rhs_val);
                             return rhs_val;
                         }
                     }
+                }
+                // f32x4 element assignment: v[i] = val → insert_element + store
+                if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena.exprs[lhs_id] {
+                    let (vec_id, idx_id) = (*vec_id, *idx_id);
+                    let vec_ty = decl.types[vec_id];
+                    if matches!(*vec_ty, crate::Type::Float32x4) {
+                        let rhs_val = self.translate_expr(rhs_id, decl);
+                        let idx = self.translate_expr(idx_id, decl).into_int_value();
+                        if let Some(ptr) = self.f32x4_storage(vec_id, decl) {
+                            self.store_f32x4_lane(ptr, idx, rhs_val);
+                            return rhs_val;
+                        }
+                    }
+                }
+                // f32x4 full assignment: v = expr → store the vector to its storage
+                let t = self.representation_type(lhs_id, decl);
+                if matches!(*t, crate::Type::Float32x4) {
+                    let rhs_val = self.translate_expr(rhs_id, decl);
+                    if let Some(ptr) = self.f32x4_storage(lhs_id, decl) {
+                        self.builder().build_store(ptr, rhs_val).unwrap();
+                        return rhs_val;
+                    }
+                    panic!(
+                        "LLVM: unsupported f32x4 assignment target: {:?}",
+                        decl.arena[lhs_id]
+                    );
                 }
                 let lhs_addr = self.translate_lvalue(lhs_id, decl);
                 let rhs_val = self.translate_expr(rhs_id, decl);
