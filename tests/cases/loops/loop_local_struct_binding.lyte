@@ -1,0 +1,46 @@
+// Regression test for #49: a struct-returning call bound to a `var`/`let`
+// inside a loop body is re-evaluated every iteration, so the loop-invariant
+// field hoister must not lift `q.x` out of the loop — the binding doesn't
+// even exist before the loop.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+// 10
+// 11
+// 12
+// assert(true)
+
+struct P {
+    x: i32
+}
+
+mk(k: i32) → P {
+    var p: P
+    p.x = k
+    return p
+}
+
+main {
+    var k = 0
+    while k < 3 {
+        var q = mk(k)
+        print(q.x)
+        k = k + 1
+    }
+
+    for i in 0 .. 3 {
+        let r = mk(i + 10)
+        print(r.x)
+    }
+
+    var sum = 0
+    var j = 0
+    while j < 3 {
+        let s = mk(j)
+        sum = sum + s.x
+        j = j + 1
+    }
+    assert(sum == 3)
+}
