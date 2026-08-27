@@ -1,0 +1,25 @@
+// Regression test for #58: the hoisted binding is inserted before the loop
+// statement, so it runs before a `for` range is evaluated. A range expression
+// that writes a global has to clobber it.
+// expected stdout:
+// compilation successful
+// 42
+// 42
+
+struct C {
+    gain: i32
+}
+
+var g: C
+
+setup → i32 {
+    g.gain = 42
+    return 2
+}
+
+main {
+    g.gain = 1
+    for i in 0 .. setup() {
+        print(g.gain)
+    }
+}

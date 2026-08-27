@@ -345,6 +345,10 @@ struct FunctionTranslator<'a> {
     /// Variables captured from an enclosing scope (double indirection).
     captured_vars: HashSet<Name>,
 
+    /// Names a lambda in this function mentions. Shared with the closure by
+    /// address, so they must be memory-backed from the start.
+    lambda_referenced: HashSet<Name>,
+
     /// Memory slot indices for captured variables (stores pointer-to-storage).
     captured_slots: HashMap<Name, u16>,
 
@@ -382,6 +386,7 @@ impl<'a> FunctionTranslator<'a> {
             has_returned: false,
             loop_stack: Vec::new(),
             captured_vars: HashSet::new(),
+            lambda_referenced: decl.names_referenced_in_lambdas(),
             captured_slots: HashMap::new(),
             void_ctx: false,
             elidable_lets: crate::copy_elision::elidable_let_copies(decl),
@@ -798,7 +803,21 @@ impl<'a> FunctionTranslator<'a> {
                 let init = *init;
                 let ty = self.expr_type(expr);
 
-                if !self.is_ptr_type(&ty) {
+                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(&name) {
+                    // Captured by a lambda: memory-backed from the start.
+                    self.translate_expr(init, func);
+                    let tmp = self.alloc_scalar();
+                    self.emit_local_set(&ty, tmp, func);
+                    let mem_slot = self.alloc_memory(self.vm_type_size(&ty));
+                    func.emit(StackOp::LocalAddr(mem_slot));
+                    self.emit_local_get(&ty, tmp, func);
+                    self.emit_store_op(&ty, func);
+                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
+                    if !self.void_ctx {
+                        self.emit_local_get(&ty, tmp, func);
+                    }
+                } else if !self.is_ptr_type(&ty) {
                     // Scalar: translate init, store in local.
                     self.translate_expr(init, func);
                     let local = self.alloc_scalar();
@@ -850,7 +869,24 @@ impl<'a> FunctionTranslator<'a> {
                 let init = *init;
                 let ty = self.expr_type(expr);
 
-                if !self.is_ptr_type(&ty) {
+                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(&name) {
+                    // Captured by a lambda: memory-backed from the start.
+                    let size = self.vm_type_size(&ty);
+                    let mem_slot = self.alloc_memory(size);
+                    if let Some(init_id) = init {
+                        self.translate_expr(init_id, func);
+                        let tmp = self.alloc_scalar();
+                        self.emit_local_set(&ty, tmp, func);
+                        func.emit(StackOp::LocalAddr(mem_slot));
+                        self.emit_local_get(&ty, tmp, func);
+                        self.emit_store_op(&ty, func);
+                    } else {
+                        func.emit(StackOp::LocalAddr(mem_slot));
+                        func.emit(StackOp::MemZero(size));
+                    }
+                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
+                } else if !self.is_ptr_type(&ty) {
                     let local = self.alloc_scalar();
                     if let Some(init_id) = init {
                         if !self.try_emit_binop_set(local, init_id, func) {

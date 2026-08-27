@@ -1,0 +1,36 @@
+// Regression test for #58: the hoisted read must take its type from the node
+// it copies. A same-named binding in a sibling scope used to supply the type,
+// so `c.gain` was read at the wrong struct's field offset.
+// expected stdout:
+// compilation successful
+// 111
+// 5
+// 5
+
+struct C {
+    gain: i32
+}
+
+struct D {
+    pad: i32,
+    gain: i32
+}
+
+main {
+    var z = 0
+    while z < 1 {
+        var c: D
+        c.pad = 111
+        c.gain = 222
+        print(c.pad)
+        z = z + 1
+    }
+
+    var c: C
+    c.gain = 5
+    var k = 0
+    while k < 2 {
+        print(c.gain)
+        k = k + 1
+    }
+}

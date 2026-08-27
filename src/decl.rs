@@ -84,6 +84,37 @@ pub struct FuncDecl {
 }
 
 impl FuncDecl {
+    /// Every name mentioned anywhere inside a lambda body in this function.
+    ///
+    /// A `var` that a lambda captures is shared by address, so it has to live
+    /// in memory. A backend that would otherwise keep a scalar in a register
+    /// must skip that promotion for these names — de-promoting later, at the
+    /// point of capture, puts the spill wherever the lambda happens to sit,
+    /// and inside a loop that spill re-runs every iteration and clobbers the
+    /// variable with a stale value.
+    pub fn names_referenced_in_lambdas(&self) -> std::collections::HashSet<Name> {
+        fn collect(
+            expr: ExprID,
+            arena: &ExprArena,
+            result: &mut std::collections::HashSet<Name>,
+        ) {
+            if let Expr::Id(name) = &arena[expr] {
+                result.insert(*name);
+            }
+            for sub in arena[expr].subexprs() {
+                collect(sub, arena, result);
+            }
+        }
+
+        let mut result = std::collections::HashSet::new();
+        for expr in &self.arena.exprs {
+            if let Expr::Lambda { body, .. } = expr {
+                collect(*body, &self.arena, &mut result);
+            }
+        }
+        result
+    }
+
     /// Get the types of the function parameters.
     pub fn param_types(&self) -> Vec<TypeID> {
         self.params

@@ -1,6 +1,194 @@
 use crate::*;
 use std::collections::{HashMap, HashSet};
 
+/// The globals a function may write, directly or through anything it calls.
+/// `None` means "may write any global" — the function reaches a callee we
+/// can't see through (an indirect call, or an `extern` body).
+type GlobalWrites = Option<HashSet<Name>>;
+
+/// Whole-module may-write summary, used to decide whether a call inside a loop
+/// can invalidate a hoisted field read.
+///
+/// Lyte function parameters aren't assignable, so a callee's only channel for
+/// mutating state its caller can observe is a global. That makes a
+/// global-granularity summary exact enough to be useful: a loop calling a
+/// function that touches no globals keeps all of its hoists.
+pub struct SideEffects {
+    globals: HashSet<Name>,
+    per_func: HashMap<Name, GlobalWrites>,
+}
+
+impl SideEffects {
+    /// Build the summary by taking each function's direct global writes and
+    /// closing over the call graph to a fixpoint.
+    ///
+    /// Overloads are merged: the graph is keyed by name, so a name resolves to
+    /// the union of every overload's writes. That over-approximates, which is
+    /// the safe direction.
+    pub fn analyze(decls: &DeclTable) -> Self {
+        let globals: HashSet<Name> = decls
+            .decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::Global { name, .. } => Some(*name),
+                _ => None,
+            })
+            .collect();
+
+        let known_funcs: HashSet<Name> = decls
+            .decls
+            .iter()
+            .filter_map(|d| match d {
+                Decl::Func(f) => Some(f.name),
+                _ => None,
+            })
+            .collect();
+
+        let mut direct: HashMap<Name, HashSet<Name>> = HashMap::new();
+        let mut callees: HashMap<Name, HashSet<Name>> = HashMap::new();
+        let mut opaque: HashSet<Name> = HashSet::new();
+
+        for d in &decls.decls {
+            let f = match d {
+                Decl::Func(f) => f,
+                _ => continue,
+            };
+            let writes = direct.entry(f.name).or_default();
+            let calls = callees.entry(f.name).or_default();
+            let body = match f.body {
+                Some(b) => b,
+                None => {
+                    // No body: either a builtin (print/assert/putc/math), which
+                    // touches no globals, or an `extern` we can't see into.
+                    if f.is_extern {
+                        opaque.insert(f.name);
+                    }
+                    continue;
+                }
+            };
+            let mut is_opaque = false;
+            scan_effects(
+                body,
+                f,
+                &globals,
+                &known_funcs,
+                writes,
+                calls,
+                &mut is_opaque,
+            );
+            if is_opaque {
+                opaque.insert(f.name);
+            }
+        }
+
+        // Fixpoint: propagate writes and opacity along call edges. Cycles just
+        // stop changing the sets, so recursion terminates without special
+        // handling.
+        loop {
+            let mut changed = false;
+            let names: Vec<Name> = direct.keys().copied().collect();
+            for name in names {
+                let targets: Vec<Name> = callees[&name].iter().copied().collect();
+                for t in targets {
+                    if opaque.contains(&t) && !opaque.contains(&name) {
+                        opaque.insert(name);
+                        changed = true;
+                    }
+                    let t_writes: Vec<Name> = direct
+                        .get(&t)
+                        .map(|w| w.iter().copied().collect())
+                        .unwrap_or_default();
+                    let w = direct.get_mut(&name).unwrap();
+                    for g in t_writes {
+                        if w.insert(g) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        let per_func = direct
+            .into_iter()
+            .map(|(name, writes)| {
+                if opaque.contains(&name) {
+                    (name, None)
+                } else {
+                    (name, Some(writes))
+                }
+            })
+            .collect();
+
+        SideEffects { globals, per_func }
+    }
+
+    /// Globals possibly written by a call whose callee expression is `func`.
+    /// An indirect callee (a local or parameter of function type) is opaque.
+    fn writes_of_call(&self, func: ExprID, fdecl: &FuncDecl) -> GlobalWrites {
+        match &fdecl.arena.exprs[func] {
+            Expr::Id(name) => self.writes_of(*name),
+            _ => None,
+        }
+    }
+
+    /// Globals possibly written by calling `name`. `None` means "any global".
+    fn writes_of(&self, name: Name) -> GlobalWrites {
+        match self.per_func.get(&name) {
+            Some(w) => w.clone(),
+            // Not a function we know about — a call through a local or
+            // parameter of function type. Assume the worst.
+            None => None,
+        }
+    }
+}
+
+/// Collect one function's direct global writes and its call edges.
+///
+/// Sets `is_opaque` when the function calls something that isn't a statically
+/// known function name, since we can't summarize such a callee.
+fn scan_effects(
+    expr_id: ExprID,
+    fdecl: &FuncDecl,
+    globals: &HashSet<Name>,
+    known_funcs: &HashSet<Name>,
+    writes: &mut HashSet<Name>,
+    calls: &mut HashSet<Name>,
+    is_opaque: &mut bool,
+) {
+    match &fdecl.arena.exprs[expr_id] {
+        Expr::Binop(Binop::Assign, lhs, _) => {
+            if let Some(base) = assigned_root(*lhs, fdecl) {
+                if globals.contains(&base) {
+                    writes.insert(base);
+                }
+            }
+        }
+        Expr::Call(func, _) => match &fdecl.arena.exprs[*func] {
+            Expr::Id(name) if known_funcs.contains(name) => {
+                calls.insert(*name);
+            }
+            _ => *is_opaque = true,
+        },
+        _ => {}
+    }
+
+    for sub in fdecl.arena.exprs[expr_id].subexprs() {
+        scan_effects(sub, fdecl, globals, known_funcs, writes, calls, is_opaque);
+    }
+}
+
+/// The variable at the root of an assignment target: `g`, `g.f`, `g[i].f`, ...
+fn assigned_root(expr_id: ExprID, fdecl: &FuncDecl) -> Option<Name> {
+    match &fdecl.arena.exprs[expr_id] {
+        Expr::Id(name) => Some(*name),
+        Expr::Field(base, _) | Expr::ArrayIndex(base, _) => assigned_root(*base, fdecl),
+        _ => None,
+    }
+}
+
 /// Hoist loop-invariant struct field loads out of loops.
 ///
 /// For each loop (For/While), finds struct field accesses (`expr.field`) where:
@@ -10,36 +198,36 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Each such access is replaced with a reference to a hoisted `let` binding
 /// inserted just before the loop.
-pub fn hoist_loop_invariant_fields(fdecl: &mut FuncDecl, decls: &DeclTable) {
+pub fn hoist_loop_invariant_fields(fdecl: &mut FuncDecl, effects: &SideEffects) {
     if fdecl.body.is_none() {
         return;
     }
     let body = fdecl.body.unwrap();
-    hoist_in_expr(body, fdecl, decls);
+    hoist_in_expr(body, fdecl, effects);
 }
 
 /// Recursively walk the AST looking for loops inside blocks.
 /// When we find a loop inside a block, we can insert hoisted bindings before it.
-fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTable) {
+fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, effects: &SideEffects) {
     match fdecl.arena.exprs[expr_id].clone() {
         Expr::Block(stmts) => {
             // First, recurse into each statement.
             for &s in &stmts {
-                hoist_in_expr(s, fdecl, decls);
+                hoist_in_expr(s, fdecl, effects);
             }
             // Now look for loops in this block and hoist their invariant fields.
-            hoist_loops_in_block(expr_id, fdecl, decls);
+            hoist_loops_in_block(expr_id, fdecl, effects);
         }
         Expr::For { body, .. } => {
-            hoist_in_expr(body, fdecl, decls);
+            hoist_in_expr(body, fdecl, effects);
         }
         Expr::While(_, body) => {
-            hoist_in_expr(body, fdecl, decls);
+            hoist_in_expr(body, fdecl, effects);
         }
         Expr::If(_, then_branch, else_branch) => {
-            hoist_in_expr(then_branch, fdecl, decls);
+            hoist_in_expr(then_branch, fdecl, effects);
             if let Some(e) = else_branch {
-                hoist_in_expr(e, fdecl, decls);
+                hoist_in_expr(e, fdecl, effects);
             }
         }
         _ => {}
@@ -47,7 +235,7 @@ fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTable) {
 }
 
 /// For each loop statement in a block, hoist invariant struct field reads.
-fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTable) {
+fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, effects: &SideEffects) {
     let stmts = if let Expr::Block(ref stmts) = fdecl.arena.exprs[block_id] {
         stmts.clone()
     } else {
@@ -66,54 +254,63 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
         if let Some(body_id) = loop_body {
             // Find all fields written in the loop body.
             let mut written_fields: HashSet<(Name, Name)> = HashSet::new();
-            collect_written_fields(body_id, fdecl, &mut written_fields);
-            // Also collect for the condition of while loops.
-            if let Expr::While(cond, _) = &fdecl.arena.exprs[stmt_id] {
-                collect_written_fields(*cond, fdecl, &mut written_fields);
+            collect_written_fields(body_id, fdecl, effects, &mut written_fields);
+            // The hoisted binding is inserted before the whole loop statement,
+            // so anything the loop's own header evaluates runs after it: a
+            // `while` condition, and a `for` range, both have to be scanned.
+            match fdecl.arena.exprs[stmt_id].clone() {
+                Expr::While(cond, _) => {
+                    collect_written_fields(cond, fdecl, effects, &mut written_fields);
+                }
+                Expr::For {
+                    var, start, end, ..
+                } => {
+                    written_fields.insert((var, Name::str("*")));
+                    collect_written_fields(start, fdecl, effects, &mut written_fields);
+                    collect_written_fields(end, fdecl, effects, &mut written_fields);
+                }
+                _ => {}
             }
 
             // Find all field reads that are loop-invariant.
-            let mut field_reads: Vec<(Name, Name)> = Vec::new();
-            collect_invariant_field_reads(body_id, fdecl, decls, &written_fields, &mut field_reads);
+            let mut field_reads: Vec<FieldRead> = Vec::new();
+            collect_invariant_field_reads(body_id, fdecl, &written_fields, &mut field_reads);
             if let Expr::While(cond, _) = &fdecl.arena.exprs[stmt_id] {
-                collect_invariant_field_reads(
-                    *cond,
-                    fdecl,
-                    decls,
-                    &written_fields,
-                    &mut field_reads,
-                );
+                collect_invariant_field_reads(*cond, fdecl, &written_fields, &mut field_reads);
             }
 
             // Deduplicate.
             let mut seen = HashSet::new();
-            field_reads.retain(|pair| seen.insert(*pair));
+            field_reads.retain(|r| seen.insert((r.var, r.field)));
 
             if !field_reads.is_empty() {
                 // Create hoisted let bindings and a substitution map.
                 let mut subst: HashMap<(Name, Name), Name> = HashMap::new();
                 let loc = fdecl.arena.locs[stmt_id];
 
-                for (var_name, field_name) in &field_reads {
+                for read in &field_reads {
                     let hoisted_name =
-                        Name::new(format!("__hoisted_{}_{}", &**var_name, &**field_name));
+                        Name::new(format!("__hoisted_{}_{}", &**read.var, &**read.field));
 
                     // Build: let __hoisted_var_field = var.field
-                    let id_expr = fdecl.arena.add(Expr::Id(*var_name), loc);
-                    let var_type = find_var_type(*var_name, fdecl);
-                    fdecl.types.push(var_type); // type for the Id expr
+                    //
+                    // The types come from the nodes we're copying, not from a
+                    // by-name lookup: a same-named binding in a sibling scope
+                    // would otherwise supply the wrong struct type, and the
+                    // hoisted read would use that type's field offset.
+                    let id_expr = fdecl.arena.add(Expr::Id(read.var), loc);
+                    fdecl.types.push(read.base_type); // type for the Id expr
 
-                    let field_expr = fdecl.arena.add(Expr::Field(id_expr, *field_name), loc);
-                    let field_type = find_field_type(var_type, *field_name, decls);
-                    fdecl.types.push(field_type); // type for the Field expr
+                    let field_expr = fdecl.arena.add(Expr::Field(id_expr, read.field), loc);
+                    fdecl.types.push(read.field_type); // type for the Field expr
 
                     let let_expr = fdecl
                         .arena
                         .add(Expr::Let(hoisted_name, field_expr, None), loc);
-                    fdecl.types.push(field_type); // type for the Let expr (must match init)
+                    fdecl.types.push(read.field_type); // type for the Let expr (must match init)
 
                     new_stmts.push(let_expr);
-                    subst.insert((*var_name, *field_name), hoisted_name);
+                    subst.insert((read.var, read.field), hoisted_name);
                 }
 
                 // Replace field accesses in the loop body with hoisted variable references.
@@ -132,122 +329,101 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
     }
 }
 
-/// Collect all (variable_name, field_name) pairs that are written to in the expression tree.
-fn collect_written_fields(expr_id: ExprID, fdecl: &FuncDecl, written: &mut HashSet<(Name, Name)>) {
+/// Collect all (variable_name, field_name) pairs that are written to in the
+/// expression tree. `(name, "*")` means the whole variable is clobbered.
+///
+/// This has to be complete: a write we miss becomes a stale hoisted read. The
+/// traversal therefore handles the shapes it cares about and then recurses
+/// into every subexpression, so a new `Expr` variant can't silently escape it.
+fn collect_written_fields(
+    expr_id: ExprID,
+    fdecl: &FuncDecl,
+    effects: &SideEffects,
+    written: &mut HashSet<(Name, Name)>,
+) {
     match &fdecl.arena.exprs[expr_id] {
-        Expr::Binop(Binop::Assign, lhs, rhs) => {
-            // Check if LHS is a field access: var.field = ...
-            if let Expr::Field(base, field_name) = &fdecl.arena.exprs[*lhs] {
+        Expr::Binop(Binop::Assign, lhs, _) => match &fdecl.arena.exprs[*lhs] {
+            // `var = ...` replaces the whole variable.
+            Expr::Id(var_name) => {
+                written.insert((*var_name, Name::str("*")));
+            }
+            // `var.field = ...` clobbers exactly that field.
+            //
+            // Deeper targets need nothing: `var.a.b = ...` and `var.arr[i] = ...`
+            // write through an aggregate field, and `slice[i] = ...` writes
+            // elements rather than the slice's `len`. Only scalar fields are
+            // ever hoisted, and none of those writes can reach one.
+            Expr::Field(base, field_name) => {
                 if let Expr::Id(var_name) = &fdecl.arena.exprs[*base] {
                     written.insert((*var_name, *field_name));
                 }
             }
-            // Also mark if the whole variable is reassigned.
-            if let Expr::Id(var_name) = &fdecl.arena.exprs[*lhs] {
-                // If the variable itself is assigned, all its fields are tainted.
-                written.insert((*var_name, Name::str("*")));
-            }
-            collect_written_fields(*rhs, fdecl, written);
-        }
-        Expr::Block(stmts) => {
-            for &s in stmts {
-                collect_written_fields(s, fdecl, written);
-            }
-        }
-        Expr::If(cond, then_b, else_b) => {
-            collect_written_fields(*cond, fdecl, written);
-            collect_written_fields(*then_b, fdecl, written);
-            if let Some(e) = else_b {
-                collect_written_fields(*e, fdecl, written);
-            }
-        }
-        Expr::While(cond, body) => {
-            collect_written_fields(*cond, fdecl, written);
-            collect_written_fields(*body, fdecl, written);
-        }
-        Expr::For {
-            var, start, end, body,
-        } => {
-            written.insert((*var, Name::str("*")));
-            collect_written_fields(*start, fdecl, written);
-            collect_written_fields(*end, fdecl, written);
-            collect_written_fields(*body, fdecl, written);
-        }
+            _ => {}
+        },
         Expr::Call(func, args) => {
-            // A function call could mutate structs passed by reference.
-            // Conservatively, mark all variables passed to calls as tainted.
+            // Parameters aren't assignable in Lyte, so a callee reaches its
+            // caller's state only through globals.
+            match effects.writes_of_call(*func, fdecl) {
+                Some(gs) => {
+                    for g in gs {
+                        written.insert((g, Name::str("*")));
+                    }
+                }
+                None => {
+                    for g in &effects.globals {
+                        written.insert((*g, Name::str("*")));
+                    }
+                }
+            }
+            // Aggregates handed to a call stay tainted as before.
             for &arg in args {
                 if let Expr::Id(var_name) = &fdecl.arena.exprs[arg] {
                     written.insert((*var_name, Name::str("*")));
                 }
             }
-            collect_written_fields(*func, fdecl, written);
-            for &arg in args {
-                collect_written_fields(arg, fdecl, written);
-            }
         }
-        Expr::Binop(_, lhs, rhs) => {
-            collect_written_fields(*lhs, fdecl, written);
-            collect_written_fields(*rhs, fdecl, written);
-        }
-        Expr::Unop(_, arg) => {
-            collect_written_fields(*arg, fdecl, written);
-        }
-        Expr::Field(base, _) => {
-            collect_written_fields(*base, fdecl, written);
-        }
-        Expr::ArrayIndex(base, idx) => {
-            collect_written_fields(*base, fdecl, written);
-            collect_written_fields(*idx, fdecl, written);
-        }
-        Expr::Return(e) | Expr::Assume(e) => {
-            collect_written_fields(*e, fdecl, written);
-        }
-        Expr::Var(name, init, _) => {
+        Expr::Var(name, _, _) => {
             // A binding introduced inside the loop is a fresh variable on every
             // iteration, and it doesn't exist before the loop at all — nothing
             // about it can be hoisted.
             written.insert((*name, Name::str("*")));
-            if let Some(e) = init {
-                collect_written_fields(*e, fdecl, written);
-            }
         }
-        Expr::Let(name, init, _) => {
+        Expr::Let(name, _, _) => {
             written.insert((*name, Name::str("*")));
-            collect_written_fields(*init, fdecl, written);
         }
-        Expr::Lambda { params, body } => {
+        Expr::Lambda { params, .. } => {
             // Lambda parameters shadow anything of the same name in the
             // enclosing scope, so reads through them aren't invariant either.
             for p in params {
                 written.insert((p.name, Name::str("*")));
             }
-            collect_written_fields(*body, fdecl, written);
         }
-        Expr::AsTy(e, _) => {
-            collect_written_fields(*e, fdecl, written);
-        }
-        Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
-            for &e in elems {
-                collect_written_fields(e, fdecl, written);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                collect_written_fields(*fval, fdecl, written);
-            }
+        Expr::For { var, .. } => {
+            written.insert((*var, Name::str("*")));
         }
         _ => {}
     }
+
+    for sub in fdecl.arena.exprs[expr_id].subexprs() {
+        collect_written_fields(sub, fdecl, effects, written);
+    }
 }
 
-/// Collect (variable_name, field_name) pairs for loop-invariant scalar field reads.
+/// A field read the hoister decided is loop-invariant, carrying the types of
+/// the nodes it was found on so the hoisted copy reproduces them exactly.
+struct FieldRead {
+    var: Name,
+    field: Name,
+    base_type: TypeID,
+    field_type: TypeID,
+}
+
+/// Collect loop-invariant scalar field reads.
 fn collect_invariant_field_reads(
     expr_id: ExprID,
     fdecl: &FuncDecl,
-    decls: &DeclTable,
     written: &HashSet<(Name, Name)>,
-    reads: &mut Vec<(Name, Name)>,
+    reads: &mut Vec<FieldRead>,
 ) {
     match &fdecl.arena.exprs[expr_id] {
         Expr::Field(base, field_name) => {
@@ -259,78 +435,84 @@ fn collect_invariant_field_reads(
                     // Only hoist scalar fields (not sub-structs, arrays, etc.)
                     let field_type = fdecl.types[expr_id];
                     if !is_ptr_type(&field_type) {
-                        reads.push(pair);
+                        reads.push(FieldRead {
+                            var: *var_name,
+                            field: *field_name,
+                            base_type: fdecl.types[*base],
+                            field_type,
+                        });
                     }
                 }
             }
-            collect_invariant_field_reads(*base, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*base, fdecl, written, reads);
         }
         Expr::Binop(Binop::Assign, _lhs, rhs) => {
             // Don't collect reads from the LHS of assignments.
-            collect_invariant_field_reads(*rhs, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*rhs, fdecl, written, reads);
         }
         Expr::Binop(_, lhs, rhs) => {
-            collect_invariant_field_reads(*lhs, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*rhs, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*lhs, fdecl, written, reads);
+            collect_invariant_field_reads(*rhs, fdecl, written, reads);
         }
         Expr::Unop(_, arg) => {
-            collect_invariant_field_reads(*arg, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*arg, fdecl, written, reads);
         }
         Expr::Call(func, args) => {
-            collect_invariant_field_reads(*func, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*func, fdecl, written, reads);
             for &arg in args {
-                collect_invariant_field_reads(arg, fdecl, decls, written, reads);
+                collect_invariant_field_reads(arg, fdecl, written, reads);
             }
         }
         Expr::Block(stmts) => {
             for &s in stmts {
-                collect_invariant_field_reads(s, fdecl, decls, written, reads);
+                collect_invariant_field_reads(s, fdecl, written, reads);
             }
         }
         Expr::If(cond, then_b, else_b) => {
-            collect_invariant_field_reads(*cond, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*then_b, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*cond, fdecl, written, reads);
+            collect_invariant_field_reads(*then_b, fdecl, written, reads);
             if let Some(e) = else_b {
-                collect_invariant_field_reads(*e, fdecl, decls, written, reads);
+                collect_invariant_field_reads(*e, fdecl, written, reads);
             }
         }
         Expr::While(cond, body) => {
-            collect_invariant_field_reads(*cond, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*body, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*cond, fdecl, written, reads);
+            collect_invariant_field_reads(*body, fdecl, written, reads);
         }
         Expr::For {
             start, end, body, ..
         } => {
-            collect_invariant_field_reads(*start, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*end, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*body, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*start, fdecl, written, reads);
+            collect_invariant_field_reads(*end, fdecl, written, reads);
+            collect_invariant_field_reads(*body, fdecl, written, reads);
         }
         Expr::ArrayIndex(base, idx) => {
-            collect_invariant_field_reads(*base, fdecl, decls, written, reads);
-            collect_invariant_field_reads(*idx, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*base, fdecl, written, reads);
+            collect_invariant_field_reads(*idx, fdecl, written, reads);
         }
         Expr::Return(e) | Expr::Assume(e) | Expr::AsTy(e, _) => {
-            collect_invariant_field_reads(*e, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*e, fdecl, written, reads);
         }
         Expr::Var(_, init, _) => {
             if let Some(e) = init {
-                collect_invariant_field_reads(*e, fdecl, decls, written, reads);
+                collect_invariant_field_reads(*e, fdecl, written, reads);
             }
         }
         Expr::Let(_, init, _) => {
-            collect_invariant_field_reads(*init, fdecl, decls, written, reads);
+            collect_invariant_field_reads(*init, fdecl, written, reads);
         }
-        Expr::Lambda { body, .. } => {
-            collect_invariant_field_reads(*body, fdecl, decls, written, reads);
-        }
+        // Deliberately not descending into lambda bodies: capture lists are
+        // fixed before this pass runs, so a body rewritten to mention a
+        // hoisted binding would reference something it doesn't capture.
+        Expr::Lambda { .. } => {}
         Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
             for &e in elems {
-                collect_invariant_field_reads(e, fdecl, decls, written, reads);
+                collect_invariant_field_reads(e, fdecl, written, reads);
             }
         }
         Expr::StructLit(_, fields) => {
             for (_, fval) in fields {
-                collect_invariant_field_reads(*fval, fdecl, decls, written, reads);
+                collect_invariant_field_reads(*fval, fdecl, written, reads);
             }
         }
         _ => {}
@@ -406,9 +588,9 @@ fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(N
         Expr::Let(_, init, _) => {
             replace_field_reads(init, fdecl, subst);
         }
-        Expr::Lambda { body, .. } => {
-            replace_field_reads(body, fdecl, subst);
-        }
+        // Not descended into, matching collect_invariant_field_reads: a lambda
+        // body must never be rewritten to mention a hoisted binding.
+        Expr::Lambda { .. } => {}
         Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
             for e in elems {
                 replace_field_reads(e, fdecl, subst);
@@ -423,73 +605,10 @@ fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(N
     }
 }
 
-/// Find the type of a variable by scanning the function's parameter list and body.
-fn find_var_type(var_name: Name, fdecl: &FuncDecl) -> TypeID {
-    // Check parameters first.
-    for param in &fdecl.params {
-        if param.name == var_name {
-            if let Some(ty) = param.ty {
-                return ty;
-            }
-        }
-    }
-
-    // Scan the arena for a Var or Let binding with this name.
-    for (_i, expr) in fdecl.arena.exprs.iter().enumerate() {
-        match expr {
-            Expr::Var(name, _, _) | Expr::Let(name, _, _) => {
-                if *name == var_name {
-                    // For Var/Let, the type in the types array is Void (statement type).
-                    // We need to look at the initializer's type or the annotated type.
-                    if let Expr::Var(_, _, Some(ty)) = expr {
-                        return *ty;
-                    }
-                    if let Expr::Let(_, _, Some(ty)) = expr {
-                        return *ty;
-                    }
-                    if let Expr::Var(_, Some(init), _) = expr {
-                        return fdecl.types[*init];
-                    }
-                    if let Expr::Let(_, init, _) = expr {
-                        return fdecl.types[*init];
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Fallback: search for any Id with this name and use its type.
-    for (i, expr) in fdecl.arena.exprs.iter().enumerate() {
-        if let Expr::Id(name) = expr {
-            if *name == var_name && i < fdecl.types.len() {
-                return fdecl.types[i];
-            }
-        }
-    }
-
-    mk_type(Type::Void)
-}
-
 /// Check if a type is a pointer type (struct, array, slice, tuple).
 fn is_ptr_type(ty: &TypeID) -> bool {
     matches!(
         &**ty,
         Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
     )
-}
-
-/// Find the type of a field on a struct type.
-fn find_field_type(struct_type: TypeID, field_name: Name, decls: &DeclTable) -> TypeID {
-    if let Type::Name(struct_name, _type_args) = &*struct_type {
-        let found = decls.find(*struct_name);
-        for decl in found {
-            if let Decl::Struct(sd) = decl {
-                if let Some(field) = sd.find_field(&field_name) {
-                    return field.ty;
-                }
-            }
-        }
-    }
-    mk_type(Type::Void)
 }

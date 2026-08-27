@@ -1,0 +1,27 @@
+// Regression test for #59: a `var` a lambda captures is shared by address, so
+// it has to be memory-backed from the start. Spilling it lazily at the point
+// of capture put the spill inside the loop, where it re-ran every iteration
+// and restored the variable from a stale register.
+// expected stdout:
+// compilation successful
+// 0
+// 100
+// 1
+// 101
+// 2
+// 102
+// 999
+
+apply(f: i32 → i32) → i32 {
+    f(0)
+}
+
+main {
+    var k = 0
+    while k < 3 {
+        print(k)
+        print(apply((|i| k + 100)))
+        k = k + 1
+    }
+    print(999)
+}
