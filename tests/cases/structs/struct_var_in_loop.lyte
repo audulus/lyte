@@ -1,0 +1,47 @@
+// A struct-returning call bound to a var inside a loop body used to be
+// mis-hoisted: the field read `q.x` was lifted into a `let` placed before the
+// loop, where `q` doesn't exist yet. See issue #49.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+// 10
+// 11
+// 12
+// 7
+// 7
+// 7
+
+struct P {
+    x: i32
+}
+
+mk(k: i32) → P {
+    var p: P
+    p.x = k
+    return p
+}
+
+main {
+    var k = 0
+    while k < 3 {
+        var q = mk(k)
+        print(q.x)
+        k = k + 1
+    }
+
+    // Same shape with a for loop, and with the loop-local name shadowing an
+    // outer binding of the same type.
+    var q = mk(7)
+    for i in 0 .. 3 {
+        var q = mk(i + 10)
+        print(q.x)
+    }
+
+    // The outer q is untouched, and its field is still a genuine
+    // loop-invariant read.
+    for i in 0 .. 3 {
+        print(q.x)
+    }
+}

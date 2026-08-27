@@ -85,6 +85,18 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
                 );
             }
 
+            // Bindings created inside the loop can't be hoisted out of it:
+            // the hoisted `let` would sit before the loop, where the name
+            // isn't in scope yet, and the binding is remade on every
+            // iteration anyway. Shadowed outer names are dropped too, since
+            // reads inside the loop see the inner binding.
+            let mut bound: HashSet<Name> = HashSet::new();
+            collect_bound_names(body_id, fdecl, &mut bound);
+            if let Expr::For { var, .. } = &fdecl.arena.exprs[stmt_id] {
+                bound.insert(*var);
+            }
+            field_reads.retain(|(var_name, _)| !bound.contains(var_name));
+
             // Deduplicate.
             let mut seen = HashSet::new();
             field_reads.retain(|pair| seen.insert(*pair));
@@ -129,6 +141,28 @@ fn hoist_loops_in_block(block_id: ExprID, fdecl: &mut FuncDecl, decls: &DeclTabl
 
     if new_stmts.len() != stmts.len() {
         fdecl.arena.exprs[block_id] = Expr::Block(new_stmts);
+    }
+}
+
+/// Collect the names bound inside an expression tree: `var` and `let`
+/// declarations, `for` loop variables, and lambda parameters.
+fn collect_bound_names(expr_id: ExprID, fdecl: &FuncDecl, bound: &mut HashSet<Name>) {
+    match &fdecl.arena.exprs[expr_id] {
+        Expr::Var(name, _, _) | Expr::Let(name, _, _) => {
+            bound.insert(*name);
+        }
+        Expr::For { var, .. } => {
+            bound.insert(*var);
+        }
+        Expr::Lambda { params, .. } => {
+            for param in params {
+                bound.insert(param.name);
+            }
+        }
+        _ => {}
+    }
+    for sub in fdecl.arena.exprs[expr_id].subexprs() {
+        collect_bound_names(sub, fdecl, bound);
     }
 }
 
