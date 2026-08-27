@@ -1,8 +1,31 @@
 name: Release xcframework
 
+# Cut a release by running this workflow (Actions -> Release xcframework -> Run
+# workflow) with the version number, e.g. "0.36". Do NOT create the GitHub
+# release or the tag by hand.
+#
+# The tag is created LAST, on purpose. Package.swift's binaryTarget must name
+# the URL and checksum of the artifact for the release being cut, so the commit
+# that updates Package.swift has to exist before the tag does. The old
+# release-triggered flow tagged first and pushed the Package.swift update
+# afterwards, which left every tag pointing at the *previous* release's
+# xcframework (see issue #37: tag 0.35 downloaded the 0.34 artifact, whose
+# header predated lyte_program_has_entry_point, so the package failed to build
+# for anyone resolving by version instead of by branch).
+#
+# Order: build -> update Package.swift on main -> create release + tag at that
+# commit -> verify a clean checkout of the tag actually builds.
+
 on:
-  release:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.36 (must not already exist)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   xcframework:
@@ -10,6 +33,30 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
+      with:
+        ref: main
+        fetch-depth: 0
+
+    - name: Validate version
+      env:
+        TAG: ${{ inputs.version }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        case "$TAG" in
+          ''|*[!0-9.]*)
+            echo "Error: version must be digits and dots, got '$TAG'" >&2
+            exit 1
+            ;;
+        esac
+        git fetch --tags --quiet
+        if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+          echo "Error: tag $TAG already exists" >&2
+          exit 1
+        fi
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Error: release $TAG already exists" >&2
+          exit 1
+        fi
 
     - name: Install arm64 LLVM 18 and libffi
       run: brew install llvm@18 libffi
@@ -30,30 +77,99 @@ jobs:
     - name: Build xcframework
       run: ./build-xcframework.sh
 
-    - name: Upload xcframework to release
+    - name: Update Package.swift for the pending release
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: gh release upload "${{ github.event.release.tag_name }}" CLyte.xcframework.zip --clobber
-
-    - name: Update Package.swift with new URL and checksum
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ inputs.version }}
+        REPO: ${{ github.repository }}
       run: |
-        TAG="${{ github.event.release.tag_name }}"
         CHECKSUM=$(swift package compute-checksum CLyte.xcframework.zip)
-        URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/CLyte.xcframework.zip"
+        URL="https://github.com/${REPO}/releases/download/${TAG}/CLyte.xcframework.zip"
 
-        # Update URL and checksum in Package.swift
         sed -i '' "s|url: \"https://github.com/.*/CLyte.xcframework.zip\"|url: \"${URL}\"|" Package.swift
         sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+
+        # The sed patterns are load-bearing: if either stops matching, the tag
+        # would ship a Package.swift pointing at the wrong artifact.
+        grep -q "url: \"${URL}\"" Package.swift || {
+          echo "Error: failed to rewrite binaryTarget url in Package.swift" >&2
+          exit 1
+        }
+        grep -q "checksum: \"${CHECKSUM}\"" Package.swift || {
+          echo "Error: failed to rewrite binaryTarget checksum in Package.swift" >&2
+          exit 1
+        }
 
         echo "Updated Package.swift:"
         grep -A1 'url:' Package.swift
 
-    - name: Commit and push Package.swift
+    - name: Commit Package.swift to main
+      id: commit
+      env:
+        TAG: ${{ inputs.version }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add Package.swift
-        git commit -m "Update Package.swift for release ${{ github.event.release.tag_name }}"
-        git push origin HEAD:main
+
+        if git diff --quiet -- Package.swift; then
+          echo "Package.swift already up to date; tagging current main."
+        else
+          git add Package.swift
+          git commit -m "Update Package.swift for release ${TAG}"
+
+          # main may have moved while the xcframework was building.
+          pushed=0
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              pushed=1
+              break
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing on main and retrying."
+            git pull --rebase origin main
+          done
+          if [ "$pushed" != 1 ]; then
+            echo "Error: could not push Package.swift to main" >&2
+            exit 1
+          fi
+        fi
+
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Create release and tag at that commit
+      env:
+        TAG: ${{ inputs.version }}
+        SHA: ${{ steps.commit.outputs.sha }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "$TAG" \
+          --target "$SHA" \
+          --title "$TAG" \
+          --generate-notes \
+          CLyte.xcframework.zip
+
+    - name: Verify a clean checkout of the tag builds
+      env:
+        TAG: ${{ inputs.version }}
+        REPO: ${{ github.repository }}
+      run: |
+        # Catches the issue #37 class of failure: the Swift wrapper calling an
+        # FFI symbol the tagged artifact's header doesn't export.
+        rm -rf "$RUNNER_TEMP/verify"
+
+        # The tag was created seconds ago; allow for replication lag.
+        cloned=0
+        for attempt in 1 2 3; do
+          if git clone --depth 1 --branch "$TAG" \
+              "https://github.com/${REPO}.git" "$RUNNER_TEMP/verify"; then
+            cloned=1
+            break
+          fi
+          echo "Clone of tag $TAG failed (attempt ${attempt}); retrying."
+          rm -rf "$RUNNER_TEMP/verify"
+          sleep 10
+        done
+        if [ "$cloned" != 1 ]; then
+          echo "Error: could not clone tag $TAG" >&2
+          exit 1
+        fi
+
+        swift build --package-path "$RUNNER_TEMP/verify"
