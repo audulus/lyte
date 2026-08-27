@@ -1,0 +1,20 @@
+// A global f32x4 lives in the globals block, so lane and whole-vector
+// assignments to it go through its address rather than a SIMD register.
+// expected stdout:
+// compilation successful
+// 5
+// 0
+// 6
+// 7
+
+var g: f32x4
+
+main {
+    g.x = 5.0
+    print(g[0] as i32)
+    print(g.y as i32)
+
+    g = f32x4(6.0, 7.0, 8.0, 9.0)
+    print(g.x as i32)
+    print(g[1] as i32)
+}

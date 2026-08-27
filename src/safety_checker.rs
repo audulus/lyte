@@ -1,6 +1,10 @@
 use crate::interval::{enclose, IndexInterval};
 use crate::*;
 
+/// Lanes in an `f32x4`. A lane index has to be provably in `0..4` for the same
+/// reason an array index has to be in range: no backend checks it at runtime.
+const F32X4_LANES: i64 = 4;
+
 /// Walk a parameter type and the corresponding caller-argument type in
 /// parallel, recording bindings of `ArraySize::Var(name)` to the concrete
 /// `Known(k)` value found in the argument.
@@ -872,6 +876,15 @@ impl SafetyChecker {
                         self.push_error(SafetyError {
                             location: decl.arena.locs[expr],
                             message: format!("couldn't prove index is less than slice length"),
+                        });
+                    }
+                } else if let Type::Float32x4 = *lhs_ty {
+                    // An f32x4 is four lanes wide and has no `.len` to bound an
+                    // index against, so the interval has to prove it on its own.
+                    if rhs_r.max >= F32X4_LANES {
+                        self.push_error(SafetyError {
+                            location: decl.arena.locs[expr],
+                            message: format!("couldn't prove index is less than 4"),
                         });
                     }
                 }

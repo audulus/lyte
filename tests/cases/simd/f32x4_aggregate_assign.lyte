@@ -1,0 +1,28 @@
+// Assigning to an f32x4 that lives inside an aggregate: the destination is a
+// place in memory, so the whole-vector assignment is a store and the lane
+// assignment is a read-modify-write through the field's address.
+// expected stdout:
+// compilation successful
+// 1
+// 8
+// 2
+// 9
+// 6
+
+struct S { v: f32x4 }
+
+main {
+    var s: S
+    s.v = f32x4(1.0, 2.0, 3.0, 4.0)
+    print(s.v[0] as i32)
+    s.v.x = 8.0
+    print(s.v.x as i32)
+    print(s.v[1] as i32)
+
+    var a: [f32x4; 2]
+    a[0] = f32x4(1.0, 2.0, 3.0, 4.0)
+    a[0].y = 9.0
+    print(a[0].y as i32)
+    a[1] = f32x4(5.0, 6.0, 7.0, 8.0)
+    print(a[1][1] as i32)
+}
