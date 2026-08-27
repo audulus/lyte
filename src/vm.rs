@@ -1287,7 +1287,7 @@ impl VM {
                      locals: {locals_start:#x}..{locals_end:#x}\n  \
                      globals: {globals_start:#x}..{globals_end:#x}\n  \
                      heap: {heap_start:#x}..{heap_end:#x}",
-                    ptr, self.ip - 1,
+                    ptr, self.ip.saturating_sub(1),
                 );
             }
         }

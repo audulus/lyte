@@ -1,9 +1,11 @@
 // A lambda that guards its own parameter is provably safe, so the checker
-// accepts it. Only checked, not run: a lambda that captures an array still
-// misbehaves on the vm/asm/stack backends (unrelated to the safety checker).
+// accepts it, and the guards hold at run time on every backend.
 //
-// args: --check
 // expected stdout:
+// compilation successful
+// -1
+// 0
+// 11
 
 main {
     var arr: [i32; 4]
