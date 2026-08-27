@@ -1,0 +1,28 @@
+// A lambda capturing an array local declared with `var` reads the array
+// itself, not the first word of its storage. The closure slot holds the
+// address of the array, so it must not be dereferenced again.
+//
+// expected stdout:
+// compilation successful
+// 12
+// 18
+// 12
+
+main {
+    var arr: [i32; 4]
+    arr[0] = 1
+    arr[1] = 2
+    arr[2] = 11
+    arr[3] = 4
+
+    // Stored in a variable, then called.
+    var g = (|x| arr[2] + x)
+    print(g(1))
+
+    // Capturing every element.
+    var sum = (|| arr[0] + arr[1] + arr[2] + arr[3])
+    print(sum())
+
+    // Immediately invoked.
+    print((|x| arr[2] + x)(1))
+}
