@@ -34,6 +34,15 @@ struct PendingCall {
     callee: Name,
 }
 
+/// A snapshot of a translator's name-keyed binding state. See
+/// `FunctionTranslator::save_bindings`.
+struct SavedBindings {
+    variables: HashMap<Name, LocalKind>,
+    variable_types: HashMap<Name, TypeID>,
+    captured_vars: HashSet<Name>,
+    captured_slots: HashMap<Name, u16>,
+}
+
 /// How a local variable is stored.
 #[derive(Clone, Copy, Debug)]
 enum LocalKind {
@@ -940,10 +949,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::I64Const(0));
                     }
                 } else {
-                    let saved_vars = self.variables.clone();
-                    let saved_types = self.variable_types.clone();
-                    let saved_captured = self.captured_vars.clone();
-                    let saved_captured_slots = self.captured_slots.clone();
+                    let saved = self.save_bindings();
                     for (i, &expr_id) in exprs.iter().enumerate() {
                         if i < exprs.len() - 1 {
                             // Intermediate expressions: void context.
@@ -956,10 +962,7 @@ impl<'a> FunctionTranslator<'a> {
                             self.translate_expr(expr_id, func);
                         }
                     }
-                    self.variables = saved_vars;
-                    self.variable_types = saved_types;
-                    self.captured_vars = saved_captured;
-                    self.captured_slots = saved_captured_slots;
+                    self.restore_bindings(saved);
                 }
             }
 
@@ -1128,6 +1131,26 @@ impl<'a> FunctionTranslator<'a> {
     fn shadow_outer_binding(&mut self, name: &Name) {
         self.captured_vars.remove(name);
         self.captured_slots.remove(name);
+    }
+
+    /// Snapshot every name-keyed binding fact, to be restored when the scope
+    /// that shadowed it ends. Blocks and `for` loops both need this: a binding
+    /// made inside one must stop being visible when it ends, and an outer
+    /// binding of the same name must come back.
+    fn save_bindings(&self) -> SavedBindings {
+        SavedBindings {
+            variables: self.variables.clone(),
+            variable_types: self.variable_types.clone(),
+            captured_vars: self.captured_vars.clone(),
+            captured_slots: self.captured_slots.clone(),
+        }
+    }
+
+    fn restore_bindings(&mut self, saved: SavedBindings) {
+        self.variables = saved.variables;
+        self.variable_types = saved.variable_types;
+        self.captured_vars = saved.captured_vars;
+        self.captured_slots = saved.captured_slots;
     }
 
     /// Translate an identifier reference.
@@ -2373,12 +2396,36 @@ impl<'a> FunctionTranslator<'a> {
         self.translate_expr(start_id, func);
         let loop_var = self.alloc_scalar();
         func.emit(StackOp::LocalSet(loop_var));
-        self.variables.insert(var, LocalKind::Scalar(loop_var));
 
-        // Translate end expression and save it.
+        // Translate end expression and save it. Both bounds are outside the
+        // loop variable's scope, so they still see any outer binding of the
+        // same name.
         self.translate_expr(end_id, func);
         let end_local = self.alloc_scalar();
         func.emit(StackOp::LocalSet(end_local));
+
+        // The counter is a scalar bound to `var` for the duration of the loop.
+        // Shadowing an outer binding has to forget the outer binding's
+        // name-keyed state, and the snapshot brings it back at loop exit, where
+        // the loop variable is out of scope again.
+        let saved = self.save_bindings();
+        let int_ty = mk_type(Type::Int32);
+        self.shadow_outer_binding(&var);
+        let counter_mem = if self.lambda_referenced.contains(&var) {
+            // A lambda shares the counter by address, so it needs memory of
+            // its own, allocated up front the way `let` and `var` do it.
+            // Letting `emit_var_address` spill it lazily instead would put the
+            // store at the capture site, which can sit on a conditionally-
+            // executed path — iterations that don't reach it would then read
+            // unwritten memory.
+            let mem_slot = self.alloc_memory(self.vm_type_size(&int_ty));
+            self.variables.insert(var, LocalKind::Memory(mem_slot));
+            Some(mem_slot)
+        } else {
+            self.variables.insert(var, LocalKind::Scalar(loop_var));
+            None
+        };
+        self.variable_types.insert(var, int_ty);
 
         let loop_start = func.pos();
 
@@ -2397,8 +2444,18 @@ impl<'a> FunctionTranslator<'a> {
             break_patches: Vec::new(),
         });
 
+        // A counter that lives in memory is refreshed from the scalar local at
+        // the top of every iteration. The loop variable is immutable, so
+        // nothing ever writes back the other way.
+        if let Some(mem_slot) = counter_mem {
+            func.emit(StackOp::LocalAddr(mem_slot));
+            self.emit_local_get(&int_ty, loop_var, func);
+            self.emit_store_op(&int_ty, func);
+        }
+
         // Execute body in void context.
         self.translate_void(body_id, func);
+        self.restore_bindings(saved);
 
         // Increment position (continue target).
         let increment_pos = func.pos();

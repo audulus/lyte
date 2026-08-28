@@ -1,0 +1,100 @@
+// A `for` variable is scoped to its loop, and shadows any outer binding of the
+// same name for that duration. Every code generator bound the name and never
+// unbound it, so after the loop the name still resolved to the counter, and —
+// because none of them cleared the outer binding's name-keyed state — reads
+// *inside* the loop could still go through the outer binding's storage. With
+// an outer struct `var` of the same name, jit failed to compile, vm and asm
+// read the struct's memory as the counter, and stack segfaulted. See issue #65.
+// expected stdout:
+// compilation successful
+// 3
+// 42
+// 3
+// 42
+// 3
+// 100
+// 101
+// 106
+// 8
+// 87
+// 42
+
+struct P {
+    x: i32
+}
+
+apply(f: i32 → i32) → i32 {
+    f(0)
+}
+
+// A loop variable shadowing a reference parameter: reads inside the loop are
+// the counter, not the reference's indirection.
+shadow_ref(q: &i32) → i32 {
+    var s = 0
+    for q in 0 .. 3 {
+        s = s + q
+    }
+    // The shadow ended with the loop: q is the reference parameter again.
+    return s + q
+}
+
+main {
+    // The reported repro: reads inside the loop are the counter, and the outer
+    // struct comes back once the loop ends.
+    var i: P
+    i.x = 42
+    var s = 0
+    for i in 0 .. 3 {
+        s = s + i
+    }
+    print(s)
+    print(i.x)
+
+    // The bounds are outside the loop variable's scope, so they still see the
+    // outer binding.
+    s = 0
+    for i in 0 .. i.x - 39 {
+        s = s + i
+    }
+    print(s)
+    print(i.x)
+
+    // Shadowing a scalar var, which is assignable again after the loop.
+    var n = 100
+    s = 0
+    for n in 0 .. 3 {
+        s = s + n
+    }
+    print(s)
+    print(n)
+    n = n + 1
+    print(n)
+
+    // Nested loops binding the same name: the outer counter comes back for the
+    // rest of the outer body.
+    s = 0
+    for k in 0 .. 2 {
+        for k in 0 .. 3 {
+            s = s + k
+        }
+        s = s + k * 100
+    }
+    print(s)
+
+    var m = 5
+    print(shadow_ref(m))
+
+    // A loop variable shadowing a name captured from an enclosing scope, and a
+    // lambda capturing a loop counter — the latter had no storage to take the
+    // address of on vm and asm, and crashed the compiler.
+    let r = apply(|z| {
+        var a = i.x
+        for i in 0 .. 3 {
+            let g = || { i }
+            a = a + g()
+        }
+        a + i.x
+    })
+    print(r)
+    print(i.x)
+}

@@ -1096,6 +1096,21 @@ impl SafetyChecker {
             } => {
                 let start_r = self.check_expr(*start, decl, decls);
                 let end_r = self.check_expr(*end, decl, decls);
+
+                // Everything below binds the loop variable, which is scoped to
+                // the loop: snapshot first, so the restore after the body drops
+                // the loop variable's interval and bounds instead of keeping
+                // them alive — and brings back those of an outer variable of
+                // the same name, which the binding shadows. Without this,
+                // `var i = 100; for i in 0 .. 3 {}; a[i]` proved `i < 3` for
+                // the *outer* i and accepted an out-of-bounds write.
+                let saved_constraints = self.constraints.clone();
+                let saved_len_bounds = self.len_bounds.clone();
+                let saved_leq_len_bounds = self.leq_len_bounds.clone();
+                let saved_min_len_bounds = self.min_len_bounds.clone();
+                let saved_var_bounds = self.var_bounds.clone();
+                let saved_var_count = self.vars.len();
+
                 self.vars.push(Var {
                     name: *var,
                     ty: mk_type(Type::Int32),
@@ -1120,20 +1135,16 @@ impl SafetyChecker {
                     });
                     self.propagate_len_bounds();
                 }
-                // Save/restore constraints around the body so that mutations
-                // inside the loop (e.g. `i = i + 1`) don't clobber the
+                // Restoring the snapshot after the body also undoes mutations
+                // inside the loop (e.g. `i = i + 1`), so they don't clobber the
                 // constraints of outer variables after the loop exits.
-                let saved_constraints = self.constraints.clone();
-                let saved_len_bounds = self.len_bounds.clone();
-                let saved_leq_len_bounds = self.leq_len_bounds.clone();
-                let saved_min_len_bounds = self.min_len_bounds.clone();
-                let saved_var_bounds = self.var_bounds.clone();
                 self.check_expr(*body, decl, decls);
                 self.constraints = saved_constraints.clone();
                 self.len_bounds = saved_len_bounds.clone();
                 self.leq_len_bounds = saved_leq_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
                 self.var_bounds = saved_var_bounds;
+                self.vars.truncate(saved_var_count);
 
                 // Invalidate constraints for variables assigned inside the loop.
                 self.invalidate_assigned(*body, &decl.arena);

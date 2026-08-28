@@ -332,6 +332,17 @@ fn is_inline_expr(id: ExprID, arena: &ExprArena) -> bool {
     }
 }
 
+/// A snapshot of a translator's name-keyed binding state. See
+/// `FunctionTranslator::save_bindings`.
+struct SavedBindings {
+    variables: HashMap<Name, Reg>,
+    variable_types: HashMap<Name, TypeID>,
+    local_slots: HashMap<Name, u16>,
+    reg_promoted: HashSet<Name>,
+    reference_vars: HashSet<Name>,
+    captured_vars: HashSet<Name>,
+}
+
 /// A call instruction that needs patching.
 struct CallToPatch {
     /// Index of the Call instruction.
@@ -749,6 +760,30 @@ impl<'a> FunctionTranslator<'a> {
         self.reg_promoted.remove(name);
         self.reference_vars.remove(name);
         self.captured_vars.remove(name);
+    }
+
+    /// Snapshot every name-keyed binding fact, to be restored when the scope
+    /// that shadowed it ends. Blocks and `for` loops both need this: a binding
+    /// made inside one must stop being visible when it ends, and an outer
+    /// binding of the same name must come back.
+    fn save_bindings(&self) -> SavedBindings {
+        SavedBindings {
+            variables: self.variables.clone(),
+            variable_types: self.variable_types.clone(),
+            local_slots: self.local_slots.clone(),
+            reg_promoted: self.reg_promoted.clone(),
+            reference_vars: self.reference_vars.clone(),
+            captured_vars: self.captured_vars.clone(),
+        }
+    }
+
+    fn restore_bindings(&mut self, saved: SavedBindings) {
+        self.variables = saved.variables;
+        self.variable_types = saved.variable_types;
+        self.local_slots = saved.local_slots;
+        self.reg_promoted = saved.reg_promoted;
+        self.reference_vars = saved.reference_vars;
+        self.captured_vars = saved.captured_vars;
     }
 
     /// Give a scalar variable a local slot instead of a register, and return a
@@ -1186,22 +1221,12 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     // Save variable scope — declarations inside this block
                     // shadow outer names only for the duration of the block.
-                    let saved_vars = self.variables.clone();
-                    let saved_types = self.variable_types.clone();
-                    let saved_slots = self.local_slots.clone();
-                    let saved_promoted = self.reg_promoted.clone();
-                    let saved_reference = self.reference_vars.clone();
-                    let saved_captured = self.captured_vars.clone();
+                    let saved = self.save_bindings();
                     let mut result = 0;
                     for expr_id in exprs {
                         result = self.translate_expr(*expr_id, func);
                     }
-                    self.variables = saved_vars;
-                    self.variable_types = saved_types;
-                    self.local_slots = saved_slots;
-                    self.reg_promoted = saved_promoted;
-                    self.reference_vars = saved_reference;
-                    self.captured_vars = saved_captured;
+                    self.restore_bindings(saved);
                     result
                 }
             }
@@ -3006,7 +3031,8 @@ impl<'a> FunctionTranslator<'a> {
         body_id: ExprID,
         func: &mut VMFunction,
     ) -> Reg {
-        // Initialize loop variable.
+        // Initialize loop variable. Both bounds are outside its scope, so
+        // they still see any outer binding of the same name.
         let start = self.translate_expr(start_id, func);
         let end = self.translate_expr(end_id, func);
 
@@ -3015,7 +3041,30 @@ impl<'a> FunctionTranslator<'a> {
             dst: loop_var,
             src: start,
         });
-        self.variables.insert(var, loop_var);
+
+        // The counter is a scalar bound to `var` for the duration of the loop.
+        // Shadowing an outer binding has to forget the outer binding's
+        // name-keyed state — otherwise reads of the name go to its slot
+        // instead of the counter — and the snapshot brings that state back at
+        // loop exit, where the loop variable is out of scope again.
+        let saved = self.save_bindings();
+        let int_ty = mk_type(Type::Int32);
+        let counter_slot = if self.lambda_referenced.contains(&var) {
+            // A lambda shares the counter by address, so it needs storage of
+            // its own, allocated up front the way `let` and `var` do it.
+            // Leaving it register-promoted and letting `get_var_address` spill
+            // it lazily would put the store at the capture site, which can sit
+            // on a conditionally-executed path — iterations that don't reach
+            // it would then read an unwritten slot.
+            self.alloc_scalar_slot(var, int_ty, func);
+            self.local_slots.get(&var).copied()
+        } else {
+            self.shadow_outer_binding(&var);
+            self.variables.insert(var, loop_var);
+            self.variable_types.insert(var, int_ty);
+            self.reg_promoted.insert(var);
+            None
+        };
 
         let loop_start = func.code.len();
 
@@ -3038,8 +3087,18 @@ impl<'a> FunctionTranslator<'a> {
             break_patches: Vec::new(),
         });
 
+        // A counter that lives in a slot is refreshed from the register at
+        // the top of every iteration. The loop variable is immutable, so
+        // nothing ever writes back the other way.
+        if let Some(slot) = counter_slot {
+            let addr = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst: addr, slot });
+            self.emit_store(&int_ty, addr, loop_var, func);
+        }
+
         // Execute body.
         self.translate_expr(body_id, func);
+        self.restore_bindings(saved);
 
         // Increment position — this is where continue jumps to.
         let increment_pos = func.code.len();

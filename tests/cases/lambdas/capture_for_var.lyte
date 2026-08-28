@@ -1,0 +1,35 @@
+// A lambda that captures a `for` counter shares it by address, so the counter
+// needs storage of its own, allocated when the loop binds it. Relying on the
+// generators' lazy spill instead put the store at the capture site, which here
+// sits in an `else if` condition: iterations 0 and 1 never run it, so the reads
+// of `i` after the `if` loaded an unwritten slot and the vm, asm and stack
+// backends printed 2052. See issue #65.
+// expected stdout:
+// compilation successful
+// 6
+// 2062
+
+apply(f: i32 → i32) → i32 {
+    f(0)
+}
+
+main {
+    // The straightforward case: a lambda capturing the counter every
+    // iteration. This crashed the vm and asm generators outright with
+    // "get_var_address: variable i has no storage".
+    var s = 0
+    for i in 0 .. 3 {
+        let g = || { i * 2 }
+        s = s + g()
+    }
+    print(s)
+
+    // The capture is reached only from an else-if condition, so the counter's
+    // storage has to be written by the loop itself, not at the capture.
+    s = 0
+    for i in 0 .. 4 {
+        if i < 2 { s = s + 1000 } else if apply(|z| { i }) > 1 { s = s + 1 }
+        s = s + i * 10
+    }
+    print(s)
+}

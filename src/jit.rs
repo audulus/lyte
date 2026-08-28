@@ -1622,9 +1622,17 @@ impl<'a> FunctionTranslator<'a> {
                 end,
                 body,
             } => {
-                // Evaluate start and end values.
+                // Evaluate start and end values. Both are outside the loop
+                // variable's scope, so they still see any outer binding of the
+                // same name.
                 let start_val = self.translate_expr(*start, decl, decls);
                 let end_val = self.translate_expr(*end, decl, decls);
+
+                // The loop variable is scoped to the loop: save the name-keyed
+                // state so an outer binding it shadows comes back at loop exit.
+                let saved_vars = self.variables.clone();
+                let saved_types = self.variable_types.clone();
+                let saved_lets = self.let_bindings.clone();
 
                 // Create a variable for the loop counter.
                 let loop_var = self.declare_variable(var, I32);
@@ -1687,6 +1695,10 @@ impl<'a> FunctionTranslator<'a> {
                 // Exit block.
                 self.builder.switch_to_block(exit_block);
                 self.builder.seal_block(exit_block);
+
+                self.variables = saved_vars;
+                self.variable_types = saved_types;
+                self.let_bindings = saved_lets;
 
                 self.builder.ins().iconst(I32, 0)
             }
