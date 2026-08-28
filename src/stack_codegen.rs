@@ -1645,6 +1645,16 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_lvalue(arr_id, func);
                 let arr_ty = self.representation_type(arr_id);
 
+                // f32x4 lane store: the lane address is base + idx * 4.
+                // The lane index is in 0..4: the safety checker proves it.
+                if matches!(&*arr_ty, Type::Float32x4) {
+                    self.translate_expr(idx_id, func);
+                    func.emit(StackOp::I64Const(4));
+                    func.emit(StackOp::IMul);
+                    func.emit(StackOp::IAdd);
+                    return;
+                }
+
                 let (elem_ty, is_slice) = match &*arr_ty {
                     Type::Array(elem_ty, _) => (*elem_ty, false),
                     Type::Slice(elem_ty) => (*elem_ty, true),
