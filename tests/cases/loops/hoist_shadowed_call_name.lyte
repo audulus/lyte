@@ -1,0 +1,33 @@
+// Regression test for #54: the side-effect summary is keyed by function name,
+// so a call through a local binding that shadows a function name must be
+// treated as indirect. Here `bump` names a function-typed local holding `inc`,
+// not the do-nothing `bump` function whose summary writes no globals.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+
+struct P {
+    x: i32
+}
+
+var g: P
+
+bump(v: i32) -> i32 {
+    v
+}
+
+inc(v: i32) -> i32 {
+    g.x = g.x + 1
+    v
+}
+
+main {
+    g.x = 0
+    let bump = inc
+    for i in 0 .. 3 {
+        print(g.x)
+        bump(0)
+    }
+}
