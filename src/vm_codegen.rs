@@ -2198,6 +2198,29 @@ impl<'a> FunctionTranslator<'a> {
                 let idx = self.translate_expr(*idx_id, func);
                 let arr_ty = self.expr_type(*arr_id);
 
+                // f32x4 lane store: the lane address is base + idx * 4.
+                // The lane index is in 0..4: the safety checker proves it.
+                if matches!(&*arr_ty, Type::Float32x4) {
+                    let size_reg = self.alloc_reg();
+                    func.emit(Opcode::LoadImm {
+                        dst: size_reg,
+                        value: 4,
+                    });
+                    let offset = self.alloc_reg();
+                    func.emit(Opcode::IMul {
+                        dst: offset,
+                        a: idx,
+                        b: size_reg,
+                    });
+                    let dst = self.alloc_reg();
+                    func.emit(Opcode::IAdd {
+                        dst,
+                        a: arr_addr,
+                        b: offset,
+                    });
+                    return dst;
+                }
+
                 let (elem_ty, is_slice) = match &*arr_ty {
                     Type::Array(elem_ty, _) => (*elem_ty, false),
                     Type::Slice(elem_ty) => (*elem_ty, true),

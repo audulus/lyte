@@ -1,0 +1,75 @@
+// A lane store `v[i] = x` has to land in lane `i`. The VM-family backends used
+// to take the address of the whole vector as the lvalue and drop the index
+// entirely, so every lane store wrote lane 0.
+//
+// expected stdout:
+// compilation successful
+// 1
+// 2
+// 3
+// 9
+// 20
+// 1
+// 2
+// 3
+// 4
+// 7
+// 0
+// 1
+// 8
+// 4
+// 9
+// 3
+
+var g: f32x4
+
+main {
+    // Non-constant index.
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+    var i = 0
+    i = 3
+    v[i] = 9.0
+    print(v[0] as i32)
+    print(v[1] as i32)
+    print(v[2] as i32)
+    print(v[3] as i32)
+
+    // Constant index.
+    v[1] = 20.0
+    print(v[1] as i32)
+
+    // Every lane, written through a loop variable.
+    var w = f32x4(0.0, 0.0, 0.0, 0.0)
+    var k = 0
+    while k < 4 {
+        w[k] = (k as f32) + 1.0
+        k = k + 1
+    }
+    print(w[0] as i32)
+    print(w[1] as i32)
+    print(w[2] as i32)
+    print(w[3] as i32)
+
+    // A global lives at an address rather than in a register.
+    g = f32x4(0.0, 0.0, 0.0, 0.0)
+    var j = 0
+    j = 2
+    g[j] = 7.0
+    print(g[2] as i32)
+    print(g[3] as i32)
+
+    // An f32x4 reached through a struct field...
+    var q = V(v: f32x4(1.0, 2.0, 3.0, 4.0))
+    q.v[j] = 8.0
+    print(q.v.x as i32)
+    print(q.v.z as i32)
+    print(q.v.w as i32)
+
+    // ...and through an array element.
+    var vs = [f32x4(1.0, 2.0, 3.0, 4.0), f32x4(5.0, 6.0, 7.0, 8.0)]
+    vs[1][j] = 9.0
+    print(vs[1].z as i32)
+    print(vs[0].z as i32)
+}
+
+struct V { v: f32x4 }
