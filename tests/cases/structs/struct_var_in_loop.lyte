@@ -1,0 +1,88 @@
+// A struct-returning call bound to a var inside a loop body used to be
+// mis-hoisted: the field read `q.x` was lifted into a `let` placed before the
+// loop, where `q` does not exist yet. See issue #49. This file recovers the
+// wider coverage from PR #55, which was merged into a branch that had already
+// been squashed into main and so never landed.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+// 10
+// 11
+// 12
+// 7
+// 7
+// 7
+// 2
+// 11
+
+struct P {
+    x: i32
+}
+
+mk(k: i32) → P {
+    var p: P
+    p.x = k
+    return p
+}
+
+// Two struct types sharing a field name at different offsets, so a hoisted
+// read typed against the wrong one reads the wrong field.
+struct A {
+    a: i32,
+    x: i32
+}
+
+struct B {
+    x: i32,
+    b: i32
+}
+
+mk_a() → A {
+    var r: A
+    r.a = 1
+    r.x = 2
+    return r
+}
+
+mk_b() → B {
+    var r: B
+    r.x = 11
+    r.b = 22
+    return r
+}
+
+main {
+    var k = 0
+    while k < 3 {
+        var q = mk(k)
+        print(q.x)
+        k = k + 1
+    }
+
+    // Same shape with a for loop, and with the loop-local name shadowing an
+    // outer binding of the same type.
+    var q = mk(7)
+    for i in 0 .. 3 {
+        var q = mk(i + 10)
+        print(q.x)
+    }
+
+    // The outer q is untouched, and its field is still a genuine
+    // loop-invariant read.
+    for i in 0 .. 3 {
+        print(q.x)
+    }
+
+    // The loop-local `v: A` must not lend its type to the hoisted read of the
+    // outer `v: B` below — that would load A's `x` offset out of a B.
+    for i in 0 .. 1 {
+        var v = mk_a()
+        print(v.x)
+    }
+    var v = mk_b()
+    for i in 0 .. 1 {
+        print(v.x)
+    }
+}
