@@ -2404,14 +2404,28 @@ impl<'a> FunctionTranslator<'a> {
         let end_local = self.alloc_scalar();
         func.emit(StackOp::LocalSet(end_local));
 
-        // The counter is a scalar local bound to `var` for the duration of the
-        // loop. Shadowing an outer binding has to forget the outer binding's
+        // The counter is a scalar bound to `var` for the duration of the loop.
+        // Shadowing an outer binding has to forget the outer binding's
         // name-keyed state, and the snapshot brings it back at loop exit, where
         // the loop variable is out of scope again.
         let saved = self.save_bindings();
+        let int_ty = mk_type(Type::Int32);
         self.shadow_outer_binding(&var);
-        self.variables.insert(var, LocalKind::Scalar(loop_var));
-        self.variable_types.insert(var, mk_type(Type::Int32));
+        let counter_mem = if self.lambda_referenced.contains(&var) {
+            // A lambda shares the counter by address, so it needs memory of
+            // its own, allocated up front the way `let` and `var` do it.
+            // Letting `emit_var_address` spill it lazily instead would put the
+            // store at the capture site, which can sit on a conditionally-
+            // executed path — iterations that don't reach it would then read
+            // unwritten memory.
+            let mem_slot = self.alloc_memory(self.vm_type_size(&int_ty));
+            self.variables.insert(var, LocalKind::Memory(mem_slot));
+            Some(mem_slot)
+        } else {
+            self.variables.insert(var, LocalKind::Scalar(loop_var));
+            None
+        };
+        self.variable_types.insert(var, int_ty);
 
         let loop_start = func.pos();
 
@@ -2429,6 +2443,15 @@ impl<'a> FunctionTranslator<'a> {
             continue_patches: Vec::new(),
             break_patches: Vec::new(),
         });
+
+        // A counter that lives in memory is refreshed from the scalar local at
+        // the top of every iteration. The loop variable is immutable, so
+        // nothing ever writes back the other way.
+        if let Some(mem_slot) = counter_mem {
+            func.emit(StackOp::LocalAddr(mem_slot));
+            self.emit_local_get(&int_ty, loop_var, func);
+            self.emit_store_op(&int_ty, func);
+        }
 
         // Execute body in void context.
         self.translate_void(body_id, func);

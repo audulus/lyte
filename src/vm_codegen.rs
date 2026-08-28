@@ -3042,16 +3042,29 @@ impl<'a> FunctionTranslator<'a> {
             src: start,
         });
 
-        // The counter is a register-held scalar bound to `var` for the
-        // duration of the loop. Shadowing an outer binding has to forget the
-        // outer binding's name-keyed state — otherwise reads of the name go to
-        // its slot instead of the counter — and the snapshot brings that state
-        // back at loop exit, where the loop variable is out of scope again.
+        // The counter is a scalar bound to `var` for the duration of the loop.
+        // Shadowing an outer binding has to forget the outer binding's
+        // name-keyed state — otherwise reads of the name go to its slot
+        // instead of the counter — and the snapshot brings that state back at
+        // loop exit, where the loop variable is out of scope again.
         let saved = self.save_bindings();
-        self.shadow_outer_binding(&var);
-        self.variables.insert(var, loop_var);
-        self.variable_types.insert(var, mk_type(Type::Int32));
-        self.reg_promoted.insert(var);
+        let int_ty = mk_type(Type::Int32);
+        let counter_slot = if self.lambda_referenced.contains(&var) {
+            // A lambda shares the counter by address, so it needs storage of
+            // its own, allocated up front the way `let` and `var` do it.
+            // Leaving it register-promoted and letting `get_var_address` spill
+            // it lazily would put the store at the capture site, which can sit
+            // on a conditionally-executed path — iterations that don't reach
+            // it would then read an unwritten slot.
+            self.alloc_scalar_slot(var, int_ty, func);
+            self.local_slots.get(&var).copied()
+        } else {
+            self.shadow_outer_binding(&var);
+            self.variables.insert(var, loop_var);
+            self.variable_types.insert(var, int_ty);
+            self.reg_promoted.insert(var);
+            None
+        };
 
         let loop_start = func.code.len();
 
@@ -3073,6 +3086,15 @@ impl<'a> FunctionTranslator<'a> {
             continue_patches: Vec::new(),
             break_patches: Vec::new(),
         });
+
+        // A counter that lives in a slot is refreshed from the register at
+        // the top of every iteration. The loop variable is immutable, so
+        // nothing ever writes back the other way.
+        if let Some(slot) = counter_slot {
+            let addr = self.alloc_reg();
+            func.emit(Opcode::LocalAddr { dst: addr, slot });
+            self.emit_store(&int_ty, addr, loop_var, func);
+        }
 
         // Execute body.
         self.translate_expr(body_id, func);
