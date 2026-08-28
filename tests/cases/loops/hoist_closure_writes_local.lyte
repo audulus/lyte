@@ -1,0 +1,22 @@
+// Regression test for #54: a `var` a lambda captures is shared by address, so
+// a call the summary can't see through reaches locals, not just globals. The
+// closure bumps `p.x` each iteration, so that read can't be hoisted.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+
+struct P {
+    x: i32
+}
+
+main {
+    var p: P
+    p.x = 0
+    let f = (| | { p.x = p.x + 1 })
+    for i in 0 .. 3 {
+        print(p.x)
+        f()
+    }
+}

@@ -72,7 +72,7 @@ impl SideEffects {
                 f,
                 &globals,
                 &known_funcs,
-                &shadowed_names(f),
+                &shadowed_names(f, &globals),
                 writes,
                 calls,
                 &mut is_opaque,
@@ -202,20 +202,35 @@ fn scan_effects(
     }
 }
 
-/// Every name a function binds locally: its parameters, and each `let`, `var`,
-/// lambda parameter and `for` variable in its body.
+/// Names that a call site can't be summarized through: every name the function
+/// binds itself — parameters, each `let`, `var`, lambda parameter and `for`
+/// variable — plus every module-level global.
 ///
-/// Calls are summarized by callee name, so a call through a name that's bound
-/// locally has to be treated as indirect — the summary for the function of that
-/// name describes a callee the call never reaches. The set is function-wide
+/// Calls are summarized by callee name, so a call through a name bound to a
+/// value has to be treated as indirect: the summary for the *function* of that
+/// name describes a callee the call never reaches. Globals count because a
+/// global of function type shadows a same-named function everywhere, not just
+/// in the function that declares a local. The local half is function-wide
 /// rather than scope-precise: shadowing a function name is rare, and the extra
 /// conservatism only costs hoists.
-fn shadowed_names(fdecl: &FuncDecl) -> HashSet<Name> {
+fn shadowed_names(fdecl: &FuncDecl, globals: &HashSet<Name>) -> HashSet<Name> {
     let mut names: HashSet<Name> = fdecl.params.iter().map(|p| p.name).collect();
+    names.extend(globals.iter().copied());
     if let Some(body) = fdecl.body {
         collect_bound_names(body, fdecl, &mut names);
     }
     names
+}
+
+/// What the hoist walk needs to know about one function's names.
+struct LocalNames {
+    /// Callee names that don't resolve to the function of the same name.
+    shadowed: HashSet<Name>,
+
+    /// Names mentioned inside a lambda body in this function. A `var` a lambda
+    /// captures is shared by address, so a call the summary can't see through
+    /// may be that lambda, writing one of these behind the loop's back.
+    captured: HashSet<Name>,
 }
 
 fn collect_bound_names(expr_id: ExprID, fdecl: &FuncDecl, names: &mut HashSet<Name>) {
@@ -262,37 +277,35 @@ pub fn hoist_loop_invariant_fields(fdecl: &mut FuncDecl, effects: &SideEffects) 
         return;
     }
     let body = fdecl.body.unwrap();
-    let shadowed = shadowed_names(fdecl);
-    hoist_in_expr(body, fdecl, effects, &shadowed);
+    let names = LocalNames {
+        shadowed: shadowed_names(fdecl, &effects.globals),
+        captured: fdecl.names_referenced_in_lambdas(),
+    };
+    hoist_in_expr(body, fdecl, effects, &names);
 }
 
 /// Recursively walk the AST looking for loops inside blocks.
 /// When we find a loop inside a block, we can insert hoisted bindings before it.
-fn hoist_in_expr(
-    expr_id: ExprID,
-    fdecl: &mut FuncDecl,
-    effects: &SideEffects,
-    shadowed: &HashSet<Name>,
-) {
+fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, effects: &SideEffects, names: &LocalNames) {
     match fdecl.arena.exprs[expr_id].clone() {
         Expr::Block(stmts) => {
             // First, recurse into each statement.
             for &s in &stmts {
-                hoist_in_expr(s, fdecl, effects, shadowed);
+                hoist_in_expr(s, fdecl, effects, names);
             }
             // Now look for loops in this block and hoist their invariant fields.
-            hoist_loops_in_block(expr_id, fdecl, effects, shadowed);
+            hoist_loops_in_block(expr_id, fdecl, effects, names);
         }
         Expr::For { body, .. } => {
-            hoist_in_expr(body, fdecl, effects, shadowed);
+            hoist_in_expr(body, fdecl, effects, names);
         }
         Expr::While(_, body) => {
-            hoist_in_expr(body, fdecl, effects, shadowed);
+            hoist_in_expr(body, fdecl, effects, names);
         }
         Expr::If(_, then_branch, else_branch) => {
-            hoist_in_expr(then_branch, fdecl, effects, shadowed);
+            hoist_in_expr(then_branch, fdecl, effects, names);
             if let Some(e) = else_branch {
-                hoist_in_expr(e, fdecl, effects, shadowed);
+                hoist_in_expr(e, fdecl, effects, names);
             }
         }
         _ => {}
@@ -304,7 +317,7 @@ fn hoist_loops_in_block(
     block_id: ExprID,
     fdecl: &mut FuncDecl,
     effects: &SideEffects,
-    shadowed: &HashSet<Name>,
+    names: &LocalNames,
 ) {
     let stmts = if let Expr::Block(ref stmts) = fdecl.arena.exprs[block_id] {
         stmts.clone()
@@ -324,20 +337,20 @@ fn hoist_loops_in_block(
         if let Some(body_id) = loop_body {
             // Find all fields written in the loop body.
             let mut written_fields: HashSet<(Name, Name)> = HashSet::new();
-            collect_written_fields(body_id, fdecl, effects, shadowed, &mut written_fields);
+            collect_written_fields(body_id, fdecl, effects, names, &mut written_fields);
             // The hoisted binding is inserted before the whole loop statement,
             // so anything the loop's own header evaluates runs after it: a
             // `while` condition, and a `for` range, both have to be scanned.
             match fdecl.arena.exprs[stmt_id].clone() {
                 Expr::While(cond, _) => {
-                    collect_written_fields(cond, fdecl, effects, shadowed, &mut written_fields);
+                    collect_written_fields(cond, fdecl, effects, names, &mut written_fields);
                 }
                 Expr::For {
                     var, start, end, ..
                 } => {
                     written_fields.insert((var, Name::str("*")));
-                    collect_written_fields(start, fdecl, effects, shadowed, &mut written_fields);
-                    collect_written_fields(end, fdecl, effects, shadowed, &mut written_fields);
+                    collect_written_fields(start, fdecl, effects, names, &mut written_fields);
+                    collect_written_fields(end, fdecl, effects, names, &mut written_fields);
                 }
                 _ => {}
             }
@@ -409,7 +422,7 @@ fn collect_written_fields(
     expr_id: ExprID,
     fdecl: &FuncDecl,
     effects: &SideEffects,
-    shadowed: &HashSet<Name>,
+    names: &LocalNames,
     written: &mut HashSet<(Name, Name)>,
 ) {
     match &fdecl.arena.exprs[expr_id] {
@@ -432,17 +445,22 @@ fn collect_written_fields(
             _ => {}
         },
         Expr::Call(func, args) => {
-            // Parameters aren't assignable in Lyte, so a callee reaches its
-            // caller's state only through globals.
-            match effects.writes_of_call(*func, fdecl, shadowed) {
+            // Parameters aren't assignable in Lyte, so a callee we can name
+            // reaches its caller's state only through globals.
+            match effects.writes_of_call(*func, fdecl, &names.shadowed) {
                 Some(gs) => {
                     for g in gs {
                         written.insert((g, Name::str("*")));
                     }
                 }
                 None => {
+                    // A callee we can't name may be a lambda holding the
+                    // address of one of our own locals, so those go too.
                     for g in &effects.globals {
                         written.insert((*g, Name::str("*")));
+                    }
+                    for c in &names.captured {
+                        written.insert((*c, Name::str("*")));
                     }
                 }
             }
@@ -476,7 +494,7 @@ fn collect_written_fields(
     }
 
     for sub in fdecl.arena.exprs[expr_id].subexprs() {
-        collect_written_fields(sub, fdecl, effects, shadowed, written);
+        collect_written_fields(sub, fdecl, effects, names, written);
     }
 }
 
