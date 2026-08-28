@@ -1,0 +1,32 @@
+// Regression test for #58: a call inside a loop that writes a global struct
+// field must clobber it, so the field read can't be hoisted out of the loop.
+// expected stdout:
+// compilation successful
+// 1
+// 2
+// 3
+// 4
+// 5
+
+struct C {
+    gain: i32
+}
+
+var g: C
+
+bump {
+    g.gain = g.gain + 1
+}
+
+main {
+    bump()
+    print(g.gain)
+    bump()
+    print(g.gain)
+    var k = 0
+    while k < 3 {
+        bump()
+        print(g.gain)
+        k = k + 1
+    }
+}

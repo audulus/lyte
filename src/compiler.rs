@@ -723,10 +723,10 @@ impl Compiler {
         // Hoist loop-invariant struct field reads (after monomorphization
         // so we operate on concrete types, and after safety checking).
         {
-            let decls_snapshot = self.decls.clone();
+            let effects = crate::hoist::SideEffects::analyze(&self.decls);
             for decl in &mut self.decls.decls {
                 if let Decl::Func(ref mut fdecl) = decl {
-                    hoist_loop_invariant_fields(fdecl, &decls_snapshot);
+                    hoist_loop_invariant_fields(fdecl, &effects);
                 }
             }
         }

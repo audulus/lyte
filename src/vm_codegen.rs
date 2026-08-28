@@ -359,6 +359,10 @@ struct FunctionTranslator<'a> {
     /// Set of variable names that are register-promoted (value in register, not memory).
     reg_promoted: HashSet<Name>,
 
+    /// Names a lambda in this function mentions. These are shared with the
+    /// closure by address, so they must never be register-promoted.
+    lambda_referenced: HashSet<Name>,
+
     /// Set of variable names whose register stores a reference address.
     reference_vars: HashSet<Name>,
 
@@ -470,6 +474,7 @@ impl<'a> FunctionTranslator<'a> {
             variables: HashMap::new(),
             variable_types: HashMap::new(),
             reg_promoted: HashSet::new(),
+            lambda_referenced: decl.names_referenced_in_lambdas(),
             reference_vars: HashSet::new(),
             local_slots: HashMap::new(),
             elidable_lets: crate::copy_elision::elidable_let_copies(decl),
@@ -732,6 +737,19 @@ impl<'a> FunctionTranslator<'a> {
         ptr
     }
 
+    /// Give a scalar variable a local slot instead of a register, and return a
+    /// register holding the slot's address.
+    fn alloc_scalar_slot(&mut self, name: Name, ty: TypeID, func: &mut VMFunction) -> Reg {
+        let slot = self.alloc_local(ty.size(self.decls) as u32);
+        self.local_slots.insert(name, slot);
+        let addr = self.alloc_reg();
+        func.emit(Opcode::LocalAddr { dst: addr, slot });
+        self.variables.insert(name, addr);
+        self.variable_types.insert(name, ty);
+        self.reg_promoted.remove(&name);
+        addr
+    }
+
     /// Get the address of a variable's storage (for closure capture).
     /// For register-promoted vars, spills to a local slot first.
     fn get_var_address(&mut self, name: &Name, func: &mut VMFunction) -> Reg {
@@ -977,7 +995,11 @@ impl<'a> FunctionTranslator<'a> {
                 let init_reg = self.translate_expr(*init, func);
                 let init_reg = self.wrap_for_expected_slice(init_reg, ty, *init, func);
 
-                if !self.is_ptr_type(&ty) {
+                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(name) {
+                    // Captured by a lambda: must live in memory, not a register.
+                    let addr = self.alloc_scalar_slot(*name, ty, func);
+                    self.emit_store(&ty, addr, init_reg, func);
+                } else if !self.is_ptr_type(&ty) {
                     // Scalar: keep value in a register (SaveRegs preserves it across calls).
                     let reg = self.alloc_reg();
                     func.emit(Opcode::Move {
@@ -1024,7 +1046,18 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Var(name, init, _) => {
                 let ty = self.expr_type(expr);
 
-                if !self.is_ptr_type(&ty) {
+                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(name) {
+                    // Captured by a lambda: must live in memory, not a register.
+                    let init_reg = if let Some(init_id) = init {
+                        self.translate_expr(*init_id, func)
+                    } else {
+                        let zero = self.alloc_reg();
+                        func.emit(Opcode::LoadImm { dst: zero, value: 0 });
+                        zero
+                    };
+                    let addr = self.alloc_scalar_slot(*name, ty, func);
+                    self.emit_store(&ty, addr, init_reg, func);
+                } else if !self.is_ptr_type(&ty) {
                     // Scalar: keep value in a register.
                     let reg = self.alloc_reg();
                     if let Some(init_id) = init {

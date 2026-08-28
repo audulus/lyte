@@ -2803,22 +2803,10 @@ impl<'a> FunctionTranslator<'a> {
 /// capture: a name shadowed by a lambda parameter is included too, which only
 /// costs the enclosing variable its register representation.
 fn names_referenced_in_lambdas(decl: &FuncDecl) -> HashSet<String> {
-    let mut result = HashSet::new();
-    for expr in &decl.arena.exprs {
-        if let Expr::Lambda { body, .. } = expr {
-            collect_names_rec(*body, &decl.arena, &mut result);
-        }
-    }
-    result
-}
-
-fn collect_names_rec(expr: crate::ExprID, arena: &crate::ExprArena, result: &mut HashSet<String>) {
-    if let Expr::Id(name) = &arena[expr] {
-        result.insert(name.to_string());
-    }
-    for sub in arena[expr].subexprs() {
-        collect_names_rec(sub, arena, result);
-    }
+    decl.names_referenced_in_lambdas()
+        .iter()
+        .map(|n| n.to_string())
+        .collect()
 }
 
 /// Collect the names (and their types) of free variables referenced in `body`
