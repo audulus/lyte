@@ -812,6 +812,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalAddr(mem_slot));
                     self.emit_local_get(&ty, tmp, func);
                     self.emit_store_op(&ty, func);
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                     self.variable_types.insert(name, ty);
                     if !self.void_ctx {
@@ -826,6 +827,7 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         self.emit_local_tee(&ty, local, func);
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
                 } else if crate::copy_elision::is_value_aggregate(&ty)
@@ -844,6 +846,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalAddr(mem_slot));
                     func.emit(StackOp::LocalGet(tmp));
                     func.emit(StackOp::MemCopy(size));
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                     self.variable_types.insert(name, ty);
                     if !self.void_ctx {
@@ -859,6 +862,7 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         func.emit(StackOp::LocalTee(local));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
                 }
@@ -884,6 +888,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalAddr(mem_slot));
                         func.emit(StackOp::MemZero(size));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                     self.variable_types.insert(name, ty);
                 } else if !self.is_ptr_type(&ty) {
@@ -900,6 +905,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::I64Const(0));
                         func.emit(StackOp::LocalSet(local));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
                 } else {
@@ -917,6 +923,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalAddr(mem_slot));
                         func.emit(StackOp::MemZero(size));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                     self.variable_types.insert(name, ty);
                 }
@@ -935,6 +942,8 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     let saved_vars = self.variables.clone();
                     let saved_types = self.variable_types.clone();
+                    let saved_captured = self.captured_vars.clone();
+                    let saved_captured_slots = self.captured_slots.clone();
                     for (i, &expr_id) in exprs.iter().enumerate() {
                         if i < exprs.len() - 1 {
                             // Intermediate expressions: void context.
@@ -949,6 +958,8 @@ impl<'a> FunctionTranslator<'a> {
                     }
                     self.variables = saved_vars;
                     self.variable_types = saved_types;
+                    self.captured_vars = saved_captured;
+                    self.captured_slots = saved_captured_slots;
                 }
             }
 
@@ -1106,6 +1117,17 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::I64Const(0));
             }
         }
+    }
+
+    /// Forget everything known about an outer binding of `name`, so a new
+    /// binding that shadows it is a clean rebinding. Reads consult
+    /// `captured_vars` before `variables`, so a leftover entry sends them
+    /// through the enclosing scope's indirection instead of to this binding.
+    /// Block scope saves and restores these, so the outer binding's state
+    /// comes back at block exit.
+    fn shadow_outer_binding(&mut self, name: &Name) {
+        self.captured_vars.remove(name);
+        self.captured_slots.remove(name);
     }
 
     /// Translate an identifier reference.

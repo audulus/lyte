@@ -1,0 +1,24 @@
+// A binding inside a loop body that shadows a reference parameter must not be
+// read through the reference's indirection. Same stale name-keyed state as
+// issue #56, one map over.
+// expected stdout:
+// compilation successful
+// 12
+
+f(q: &i32) → i32 {
+    var s = 0
+    var j = 0
+    while j < 1 {
+        let q = 7
+        s = s + q
+        j = j + 1
+    }
+    // The shadow ended with the block: q is the reference parameter again.
+    s = s + q
+    return s
+}
+
+main {
+    var n = 5
+    print(f(n))
+}
