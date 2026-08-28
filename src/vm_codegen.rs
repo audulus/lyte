@@ -1009,6 +1009,9 @@ impl<'a> FunctionTranslator<'a> {
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
+                    // Shadowing an outer variable of the same name: this binding
+                    // lives in a register, so drop the outer one's slot mapping.
+                    self.local_slots.remove(name);
                 } else if crate::copy_elision::is_value_aggregate(&ty)
                     && !self.elidable_lets.contains(&expr)
                 {
@@ -1038,6 +1041,11 @@ impl<'a> FunctionTranslator<'a> {
                     });
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
+                    // Shadowing an outer variable of the same name: this binding
+                    // has no slot of its own, so drop the outer one's slot
+                    // mapping — otherwise reads re-emit LocalAddr for the outer
+                    // slot and clobber this binding's address register.
+                    self.local_slots.remove(name);
                     return reg;
                 }
                 init_reg
@@ -1072,6 +1080,9 @@ impl<'a> FunctionTranslator<'a> {
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
+                    // Shadowing an outer variable of the same name: this binding
+                    // lives in a register, so drop the outer one's slot mapping.
+                    self.local_slots.remove(name);
                 } else {
                     // Pointer type: store to local slot.
                     let size = self.vm_type_size(&ty);

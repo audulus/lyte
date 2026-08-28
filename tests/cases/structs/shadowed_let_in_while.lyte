@@ -1,0 +1,75 @@
+// A `let` binding inside a while body that shadows an outer struct `var` of
+// the same name read the *outer* variable on the vm and asm backends. The
+// binding is pointer-represented and carried in a register with no slot of its
+// own, but the outer variable's slot mapping was still in scope, so every read
+// of the name re-emitted a LocalAddr for the outer slot and clobbered the
+// binding's address register. See issue #56.
+// expected stdout:
+// compilation successful
+// 7
+// 3
+// 0
+// 1
+// 2
+// 3
+// 99
+// 6
+// 99
+
+struct P {
+    x: i32
+}
+
+mk(k: i32) → P {
+    var p: P
+    p.x = k
+    return p
+}
+
+main {
+    var q: P
+    q.x = 99
+
+    // The reported repro: a single-iteration while loop whose shadowing read
+    // feeds an assignment.
+    var sum = 0
+    var j = 0
+    while j < 1 {
+        let q = mk(7)
+        sum = q.x
+        j = j + 1
+    }
+    print(sum)
+
+    // Several iterations, with the shadowing read feeding only an assignment.
+    sum = 0
+    j = 0
+    while j < 3 {
+        let q = mk(j)
+        sum = sum + q.x
+        j = j + 1
+    }
+    print(sum)
+
+    // And again with the read also feeding a call.
+    sum = 0
+    j = 0
+    while j < 3 {
+        let q = mk(j)
+        print(q.x)
+        sum = sum + q.x
+        j = j + 1
+    }
+    print(sum)
+
+    // The outer q is untouched by the shadowed stores.
+    print(q.x)
+
+    // Same shape under a for loop.
+    for i in 0 .. 3 {
+        let q = mk(i)
+        sum = sum + q.x
+    }
+    print(sum)
+    print(q.x)
+}
