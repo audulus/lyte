@@ -737,9 +737,24 @@ impl<'a> FunctionTranslator<'a> {
         ptr
     }
 
+    /// Forget everything known about an outer binding of `name`, so a new
+    /// binding that shadows it is a clean rebinding rather than a mix of the
+    /// two. Every read path consults these name-keyed sets before falling back
+    /// to `variables`, so a leftover entry sends reads to the outer binding's
+    /// storage (or through an indirection the new binding doesn't have).
+    /// Block scope saves and restores all of them, so the outer binding's
+    /// state comes back at block exit.
+    fn shadow_outer_binding(&mut self, name: &Name) {
+        self.local_slots.remove(name);
+        self.reg_promoted.remove(name);
+        self.reference_vars.remove(name);
+        self.captured_vars.remove(name);
+    }
+
     /// Give a scalar variable a local slot instead of a register, and return a
     /// register holding the slot's address.
     fn alloc_scalar_slot(&mut self, name: Name, ty: TypeID, func: &mut VMFunction) -> Reg {
+        self.shadow_outer_binding(&name);
         let slot = self.alloc_local(ty.size(self.decls) as u32);
         self.local_slots.insert(name, slot);
         let addr = self.alloc_reg();
@@ -1006,12 +1021,10 @@ impl<'a> FunctionTranslator<'a> {
                         dst: reg,
                         src: init_reg,
                     });
+                    self.shadow_outer_binding(name);
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
-                    // Shadowing an outer variable of the same name: this binding
-                    // lives in a register, so drop the outer one's slot mapping.
-                    self.local_slots.remove(name);
                 } else if crate::copy_elision::is_value_aggregate(&ty)
                     && !self.elidable_lets.contains(&expr)
                 {
@@ -1021,6 +1034,7 @@ impl<'a> FunctionTranslator<'a> {
                     // `var`, which has always copied.
                     let size = self.vm_type_size(&ty);
                     let slot = self.alloc_local(size);
+                    self.shadow_outer_binding(name);
                     self.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
@@ -1039,13 +1053,13 @@ impl<'a> FunctionTranslator<'a> {
                         dst: reg,
                         src: init_reg,
                     });
+                    // This binding has no slot of its own. If it shadows one
+                    // that does, the outer slot mapping has to go: reads
+                    // re-emit LocalAddr for any slot the name still maps to,
+                    // which would clobber this binding's address register.
+                    self.shadow_outer_binding(name);
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
-                    // Shadowing an outer variable of the same name: this binding
-                    // has no slot of its own, so drop the outer one's slot
-                    // mapping — otherwise reads re-emit LocalAddr for the outer
-                    // slot and clobber this binding's address register.
-                    self.local_slots.remove(name);
                     return reg;
                 }
                 init_reg
@@ -1077,16 +1091,15 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         func.emit(Opcode::LoadImm { dst: reg, value: 0 });
                     }
+                    self.shadow_outer_binding(name);
                     self.variables.insert(*name, reg);
                     self.variable_types.insert(*name, ty);
                     self.reg_promoted.insert(*name);
-                    // Shadowing an outer variable of the same name: this binding
-                    // lives in a register, so drop the outer one's slot mapping.
-                    self.local_slots.remove(name);
                 } else {
                     // Pointer type: store to local slot.
                     let size = self.vm_type_size(&ty);
                     let slot = self.alloc_local(size);
+                    self.shadow_outer_binding(name);
                     self.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
@@ -1177,6 +1190,8 @@ impl<'a> FunctionTranslator<'a> {
                     let saved_types = self.variable_types.clone();
                     let saved_slots = self.local_slots.clone();
                     let saved_promoted = self.reg_promoted.clone();
+                    let saved_reference = self.reference_vars.clone();
+                    let saved_captured = self.captured_vars.clone();
                     let mut result = 0;
                     for expr_id in exprs {
                         result = self.translate_expr(*expr_id, func);
@@ -1185,6 +1200,8 @@ impl<'a> FunctionTranslator<'a> {
                     self.variable_types = saved_types;
                     self.local_slots = saved_slots;
                     self.reg_promoted = saved_promoted;
+                    self.reference_vars = saved_reference;
+                    self.captured_vars = saved_captured;
                     result
                 }
             }
