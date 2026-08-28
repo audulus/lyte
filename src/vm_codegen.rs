@@ -2196,7 +2196,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::ArrayIndex(arr_id, idx_id) => {
                 let arr_addr = self.translate_lvalue(*arr_id, func);
                 let idx = self.translate_expr(*idx_id, func);
-                let arr_ty = self.expr_type(*arr_id);
+                let arr_ty = self.representation_type(*arr_id);
 
                 // f32x4 lane store: the lane address is base + idx * 4.
                 // The lane index is in 0..4: the safety checker proves it.

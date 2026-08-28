@@ -61,15 +61,15 @@ main {
     // An f32x4 reached through a struct field...
     var q = V(v: f32x4(1.0, 2.0, 3.0, 4.0))
     q.v[j] = 8.0
-    print(q.v.x as i32)
-    print(q.v.z as i32)
-    print(q.v.w as i32)
+    print(q.v[0] as i32)
+    print(q.v[j] as i32)
+    print(q.v[3] as i32)
 
     // ...and through an array element.
     var vs = [f32x4(1.0, 2.0, 3.0, 4.0), f32x4(5.0, 6.0, 7.0, 8.0)]
     vs[1][j] = 9.0
-    print(vs[1].z as i32)
-    print(vs[0].z as i32)
+    print(vs[1][j] as i32)
+    print(vs[0][j] as i32)
 }
 
 struct V { v: f32x4 }
