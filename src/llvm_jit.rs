@@ -2308,8 +2308,16 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 body,
             } => {
                 let (var, start, end, body) = (*var, *start, *end, *body);
+                // Both bounds are outside the loop variable's scope, so they
+                // still see any outer binding of the same name.
                 let start_val = self.translate_expr(start, decl).into_int_value();
                 let end_val = self.translate_expr(end, decl).into_int_value();
+
+                // The loop variable is scoped to the loop: save the name-keyed
+                // state so an outer binding it shadows comes back at loop exit.
+                let saved_vars = self.variables.clone();
+                let saved_types = self.variable_types.clone();
+                let saved_lets = self.let_bindings.clone();
 
                 // Allocate loop counter in entry block.
                 let loop_alloca = self.entry_alloca(self.i32_ty().into(), &*var);
@@ -2373,6 +2381,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 self.loop_stack.pop();
                 self.builder().position_at_end(exit_bb);
+
+                self.variables = saved_vars;
+                self.variable_types = saved_types;
+                self.let_bindings = saved_lets;
+
                 self.zero_i32()
             }
             Expr::Assume(_) => {
