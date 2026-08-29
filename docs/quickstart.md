@@ -47,7 +47,7 @@ You do not create `frames`, `sampleRate`, or `storage` yourself. Audulus gives t
 | `storage` | `[f32]` | Persistent host storage supplied by Audulus. Use dedicated global arrays for large DSP buffers such as delay lines. |
 | `MAX_FRAMES` | `i32` | Maximum possible block size — use to declare stack arrays. |
 
-**`init {}`** runs once when the node loads. Use it for setup values.
+**`init {}`** runs once when the node loads. Use it for setup values. A script needs `init {}` present even if it's empty — leaving it out entirely produces a dead script with no error, not a script that just skips setup. This is an easy thing for an AI tool to drop by accident if nothing in the script seems to need initialization, so always double-check `init {}` is there.
 
 **`process { ... }`** runs once per block. Most audio work happens here inside `for i in 0 .. frames`.
 
@@ -76,11 +76,36 @@ This also avoids doing a division on every sample.
 
 ---
 
+## A Few Newer Syntax Notes
+
+**Semicolons are optional statement separators.** You can put more than one statement on a line with `;`, including a trailing one before a closing brace:
+
+```lyte
+var t = 0; t = t + a; t = t + b
+```
+
+This is rarely needed in normal DSP code — one statement per line stays the more readable default — but it's valid if you see it or want to write a short helper compactly.
+
+**Numeric literal suffixes.** A literal can carry an explicit type suffix: `1i32`, `1u32` (or `1u`), `1.0f32`, `1.0f64`. This mostly matters when you're mixing `f32` and `f64` in the same expression and need to pin down which one a literal is, or when a plain literal would otherwise infer the wrong type. In ordinary Audulus DSP code, which is almost always `f32`, you won't need these often.
+
+**Float `%` (modulo) is reliable.** `%` on `f32`/`f64` values is a truncated remainder — same convention as C `fmod` or Rust `%`, so the result takes the sign of the left operand (`-5.5 % 2.0` is `-1.5`, not `0.5`). This is useful for wrapping a phase or index into a range:
+
+```lyte
+wrap01(x_in: f32) -> f32 {
+    var x = x_in % 1.0
+    if x < 0.0 { x = x + 1.0 }
+    x
+}
+```
+
+---
+
 ## Do's and Don'ts
 
 These are good default habits for writing Lyte in Audulus.
 
 **Do:**
+- Always include `init {}`, even empty. A script missing `init {}` is dead and silent — no error, no output, no obvious clue why.
 - Prefer `f32` almost everywhere in DSP code.
 - Treat `sampleRate` like a normal float in math.
 - Start from the fresh-node block template and change one thing at a time when debugging.
@@ -98,7 +123,7 @@ These are good default habits for writing Lyte in Audulus.
 - Don't rely on helper functions to prove slice indices by context alone. Use inline guards, or add explicit `require` clauses to the helper.
 - Don't use `assume` in node code — it is only allowed in the standard library or prelude.
 - Don't assume examples from the standalone Lyte repo will drop into Audulus unchanged.
-- Don't rely on block-form inline `if` expressions in assignments such as `let x = if ...` or `output[i] = if ...`. In Lyte those can trigger confusing parser errors. Use a normal assignment first, then a plain `if` block.
+- Don't rely on block-form inline `if` expressions in a *plain assignment*, such as `x = if ... else ...` or `output[i] = if ... else ...` — these still trigger a confusing parser error cascade ("Expected expression", "Expected declaration, got ..."). This is narrower than it used to be: `let x = if cond { a } else { b }` and `var x = if cond { a } else { b }` (an `if`-`else` used as the initializer in a declaration) now compile and run correctly, and the checker properly rejects mismatched branch types with a clear error instead of silently producing a wrong answer. If you need to write into an existing variable or a port index conditionally, use a normal assignment first, then a plain `if` block — that pattern still works everywhere and is the safer default to reach for.
 
 ---
 
@@ -976,4 +1001,4 @@ The last four `if` lines are the mux part.
 
 *These examples are intended as starting points. DSP is iterative — adjust, listen, compare.*
 
-*For language reference, see the companion tutorial: Learning Lyte — A Beginner's Guide.*
+*For language reference, see the companion guide: `language-guide.md`.*

@@ -33,6 +33,11 @@ cargo run --bin lyte hello.lyte -r
 cargo test --workspace
 ```
 
+## Documentation
+
+- [Lyte DSP Quick Start](docs/quickstart.md) - practical Audulus DSP node examples and current DSP authoring notes.
+- [Learning Lyte](docs/language-guide.md) - beginner-friendly language guide for current Lyte syntax and behavior.
+
 ### LLVM JIT Backend (Optional)
 
 Lyte includes an optional LLVM JIT backend alongside the default Cranelift backend. To use it, you need LLVM 18 installed:
