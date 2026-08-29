@@ -1,0 +1,26 @@
+// Regression test for #54: a call inside a `for` body that writes a global
+// struct field must clobber the hoist candidate, so `g.x` is re-read each
+// iteration instead of being hoisted into a binding before the loop.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+
+struct P {
+    x: i32
+}
+
+var g: P
+
+bump() {
+    g.x = g.x + 1
+}
+
+main {
+    g.x = 0
+    for i in 0 .. 3 {
+        print(g.x)
+        bump()
+    }
+}

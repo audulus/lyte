@@ -1,0 +1,19 @@
+// A lambda stored in a struct literal is checked like any other lambda: the
+// struct literal is not a hiding place for an unguarded index.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_struct_lit_unproven.lyte:17:23: couldn't prove index is >= 0
+//         var s = S(f: (|i| arr[i]))
+//                           ^
+// ❌ ../tests/cases/lambdas/lambda_struct_lit_unproven.lyte:17:23: couldn't prove index is less than array length
+//         var s = S(f: (|i| arr[i]))
+//                           ^
+
+struct S { f: (i32) → i32 }
+
+main {
+    var arr: [i32; 4]
+    var s = S(f: (|i| arr[i]))
+    print(s.f(1000))
+}

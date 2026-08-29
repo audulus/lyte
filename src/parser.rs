@@ -739,33 +739,38 @@ fn skip_reserved(cx: &mut ParseContext) {
 fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
     match &cx.lex.tok {
         Token::Var => {
+            // Capture the location of the `var` keyword: cx.lex.loc has moved
+            // past the initializer by the time the expression is added, which
+            // would anchor diagnostics to the following line.
+            let loc = cx.lex.loc;
             cx.next();
             let name = expect_id(cx);
 
             if cx.lex.tok == Token::Assign {
                 cx.next();
                 let e = parse_lambda(arena, typevars, cx);
-                arena.add(Expr::Var(name, Some(e), None), cx.lex.loc)
+                arena.add(Expr::Var(name, Some(e), None), loc)
             } else if cx.lex.tok == Token::Colon {
                 cx.next();
                 let t = parse_type(typevars, cx);
-                arena.add(Expr::Var(name, None, Some(t)), cx.lex.loc)
+                arena.add(Expr::Var(name, None, Some(t)), loc)
             } else {
                 cx.err(String::from("expected assignment or type"));
-                arena.add(Expr::Var(name, None, None), cx.lex.loc)
+                arena.add(Expr::Var(name, None, None), loc)
             }
         }
         Token::Let => {
+            let loc = cx.lex.loc;
             cx.next();
             let name = expect_id(cx);
 
             if cx.lex.tok == Token::Assign {
                 cx.next();
                 let e = parse_lambda(arena, typevars, cx);
-                arena.add(Expr::Let(name, e, None), cx.lex.loc)
+                arena.add(Expr::Let(name, e, None), loc)
             } else {
                 cx.err(String::from("expected assignment or type"));
-                arena.add(Expr::Error, cx.lex.loc)
+                arena.add(Expr::Error, loc)
             }
         }
         Token::Arena => {
@@ -780,9 +785,10 @@ fn parse_stmt(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -
             arena.add(Expr::While(cond, body), cx.lex.loc)
         }
         Token::Return => {
+            let loc = cx.lex.loc;
             cx.next();
             let e = parse_expr(arena, typevars, cx);
-            arena.add(Expr::Return(e), cx.lex.loc)
+            arena.add(Expr::Return(e), loc)
         }
         Token::Break => {
             let loc = cx.lex.loc;
@@ -847,7 +853,9 @@ fn parse_block(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) 
 
         r.push(parse_stmt(arena, typevars, cx));
 
-        if cx.lex.tok != Token::Endl {
+        // Statements are separated by newlines or semicolons. Semicolons let
+        // multiple statements share a line.
+        if cx.lex.tok != Token::Endl && cx.lex.tok != Token::Semi {
             break;
         }
 
@@ -1455,6 +1463,12 @@ mod tests {
                 "{ x = y\n z = w }",
                 "{ f(x)\n g(y) }",
                 "{ var x = y\n var z = w }",
+                "{ x; y }",
+                "{ x; }",
+                "{ x;\n y }",
+                "{ x = y; z = w }",
+                "{ var x = y; var z = w; f(x) }",
+                "{ while x { y; z }; w }",
             ],
         );
     }

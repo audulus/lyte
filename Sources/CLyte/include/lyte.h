@@ -100,10 +100,17 @@ void lyte_program_set_print_callback(LyteProgram* program, lyte_print_fn callbac
 
 // ============ Entry point invocation ============
 
+/// Returns true if the entry point at the given index was defined in the
+/// compiled source. Entry points are optional: a requested name that the
+/// source doesn't define is simply not compiled, and it's up to the caller
+/// to decide whether that's an error.
+bool lyte_program_has_entry_point(const LyteProgram* program, size_t entry_point);
+
 /// Call an entry point by index with an external globals buffer.
 /// The index corresponds to the order of entry points passed to lyte_compiler_new.
 /// The buffer must be at least lyte_program_get_globals_size() bytes.
-/// Returns true on success, false if cancelled, error, or invalid index.
+/// Returns true on success, false if cancelled, error, invalid index, or if
+/// the entry point wasn't defined in the source.
 bool lyte_entry_point_call(LyteProgram* program, size_t entry_point, uint8_t* globals);
 
 // ============ Globals helpers ============

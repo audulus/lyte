@@ -1,0 +1,20 @@
+// A lambda runs at some unknown point after its definition, so a captured
+// variable the enclosing function assigns to can't be trusted inside the body
+// — even though it holds a safe value at the definition site.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/lambdas/lambda_capture_assigned.lyte:17:18: couldn't prove index is >= 0
+//         var g = (| | arr[i])
+//                      ^
+// ❌ ../tests/cases/lambdas/lambda_capture_assigned.lyte:17:18: couldn't prove index is less than array length
+//         var g = (| | arr[i])
+//                      ^
+
+main {
+    var arr: [i32; 4]
+    var i = 2
+    var g = (| | arr[i])
+    i = 1000
+    print(g())
+}

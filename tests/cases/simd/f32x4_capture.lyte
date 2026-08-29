@@ -1,0 +1,28 @@
+// A lambda captures by address, so an f32x4 a lambda mentions can't stay in a
+// SIMD register the way other f32x4 locals do: it has to live in memory, and
+// the closure body has to load and store through the captured pointer.
+// expected stdout:
+// compilation successful
+// 1
+// 9
+// 9
+// 5
+// 6
+
+apply(f: void -> f32) -> f32 { f() }
+
+main {
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+
+    // Read through the capture.
+    print(apply(| | v[0]) as i32)
+
+    // A lane written inside the lambda is visible outside it.
+    print(apply(| | v.x = 9.0) as i32)
+    print(v[0] as i32)
+
+    // So is a whole-vector assignment.
+    print(apply(| | { v = f32x4(5.0, 6.0, 7.0, 8.0)
+                      v[0] }) as i32)
+    print(v.y as i32)
+}

@@ -21,6 +21,8 @@ struct GlobalInfo {
 
 /// An entry point: backend-specific data.
 /// Index matches the order of entry points passed to lyte_compiler_new.
+/// Entry points are optional — a requested name that isn't defined in the
+/// source keeps its slot (as None) so the indices stay stable.
 struct EntryPointInfo {
     #[cfg(feature = "llvm")]
     fn_addr: usize,
@@ -233,7 +235,7 @@ pub struct LyteProgram {
     inner: crate::llvm_jit::LLVMCompiledProgram,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
-    entry_points: Vec<EntryPointInfo>,
+    entry_points: Vec<Option<EntryPointInfo>>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
     print_callback: Option<PrintCallbackFn>,
@@ -249,7 +251,7 @@ pub struct LyteProgram {
     vm: VM,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
-    entry_points: Vec<EntryPointInfo>,
+    entry_points: Vec<Option<EntryPointInfo>>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
     print_callback: Option<PrintCallbackFn>,
@@ -266,7 +268,7 @@ pub struct LyteProgram {
     backend: StackBackend,
     globals_size: usize,
     globals_info: Vec<GlobalInfo>,
-    entry_points: Vec<EntryPointInfo>,
+    entry_points: Vec<Option<EntryPointInfo>>,
     cancel_callback: Option<unsafe extern "C" fn(*mut u8) -> bool>,
     cancel_userdata: *mut u8,
     print_callback: Option<PrintCallbackFn>,
@@ -325,12 +327,15 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                         _ => unreachable!(),
                     };
 
-                    let mut entry_points = Vec::new();
-                    for ep_name in &entry_point_names {
-                        if let Some(&fn_addr) = inner.entry_points.get(ep_name) {
-                            entry_points.push(EntryPointInfo { fn_addr });
-                        }
-                    }
+                    let entry_points: Vec<Option<EntryPointInfo>> = entry_point_names
+                        .iter()
+                        .map(|ep_name| {
+                            inner
+                                .entry_points
+                                .get(ep_name)
+                                .map(|&fn_addr| EntryPointInfo { fn_addr })
+                        })
+                        .collect();
 
                     let program = Box::new(LyteProgram {
                         inner,
@@ -361,12 +366,15 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                     let linked = LinkedProgram::from_program(&vm_program);
                     let vm = VM::new();
 
-                    let mut entry_points = Vec::new();
-                    for ep_name in &entry_point_names {
-                        if let Some(&func_idx) = vm_program.entry_points.get(ep_name) {
-                            entry_points.push(EntryPointInfo { func_idx });
-                        }
-                    }
+                    let entry_points: Vec<Option<EntryPointInfo>> = entry_point_names
+                        .iter()
+                        .map(|ep_name| {
+                            vm_program
+                                .entry_points
+                                .get(ep_name)
+                                .map(|&func_idx| EntryPointInfo { func_idx })
+                        })
+                        .collect();
 
                     let program = Box::new(LyteProgram {
                         vm_program,
@@ -398,12 +406,15 @@ pub unsafe extern "C" fn lyte_compiler_compile(ptr: *mut LyteCompiler) -> *mut L
                     let globals_info =
                         make_globals_info(crate::cancel::CANCEL_FLAG_RESERVED as usize);
 
-                    let mut entry_points = Vec::new();
-                    for ep_name in &entry_point_names {
-                        if let Some(&func_idx) = stack_program.entry_points.get(ep_name) {
-                            entry_points.push(EntryPointInfo { func_idx });
-                        }
-                    }
+                    let entry_points: Vec<Option<EntryPointInfo>> = entry_point_names
+                        .iter()
+                        .map(|ep_name| {
+                            stack_program
+                                .entry_points
+                                .get(ep_name)
+                                .map(|&func_idx| EntryPointInfo { func_idx })
+                        })
+                        .collect();
 
                     let backend = StackBackend::new(&stack_program);
 
@@ -559,9 +570,26 @@ pub unsafe extern "C" fn lyte_globals_bind_extern(
     ptr::write_unaligned(globals.add(offset + 8) as *mut usize, context as usize);
 }
 
+/// Returns true if the entry point at the given index was defined in the
+/// compiled source. Entry points are optional: a requested name that isn't
+/// defined simply isn't compiled, and it's up to the caller to decide whether
+/// that's an error.
+#[no_mangle]
+pub unsafe extern "C" fn lyte_program_has_entry_point(
+    ptr: *const LyteProgram,
+    entry_point: usize,
+) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let program = &*ptr;
+    matches!(program.entry_points.get(entry_point), Some(Some(_)))
+}
+
 /// Call an entry point by index with an external globals buffer.
 /// The index corresponds to the order of entry points passed to lyte_compiler_new.
-/// Returns true on success, false if cancelled or invalid index.
+/// Returns true on success, false if cancelled, if the index is invalid, or if
+/// that entry point wasn't defined in the source.
 #[no_mangle]
 pub unsafe extern "C" fn lyte_entry_point_call(
     ptr: *mut LyteProgram,
@@ -573,8 +601,8 @@ pub unsafe extern "C" fn lyte_entry_point_call(
     }
     let program = &mut *ptr;
     let ep = match program.entry_points.get(entry_point) {
-        Some(ep) => ep,
-        None => return false,
+        Some(Some(ep)) => ep,
+        _ => return false,
     };
 
     // Install print callback for the duration of this call.

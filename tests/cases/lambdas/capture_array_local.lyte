@@ -1,0 +1,42 @@
+// A closure capturing an aggregate local sees the aggregate itself, not the
+// first word of it: the closure slot already holds the address of the
+// capture's storage, so it must not be dereferenced again.
+//
+// The capture is of a `let`-bound copy (see src/copy_elision.rs) — a lambda in
+// the live range keeps the copy from being elided.
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+const N = 4
+
+struct Pair { a: i32, b: i32 }
+
+var g: [[i32; N]; 2]
+var p: Pair
+
+apply(f: i32 → i32) → i32 { f(0) }
+
+capture_array(k: i32) → i32
+require k >= 0
+require k < 2
+{
+    let row = g[k]
+    apply((|i| row[0] + row[1]))
+}
+
+capture_struct() → i32 {
+    let q = p
+    apply((|i| q.a + q.b))
+}
+
+main {
+    g[0][0] = 1
+    g[0][1] = 2
+    p.a = 10
+    p.b = 20
+
+    assert(capture_array(0) == 3)
+    assert(capture_struct() == 30)
+}

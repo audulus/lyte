@@ -343,12 +343,16 @@ fn math_builtin_ptr(name: &Name) -> Option<usize> {
     None
 }
 
+/// True when a value of this type is carried around as a pointer to its
+/// storage rather than as a first-class LLVM value. Composite types (structs,
+/// tuples, arrays, slices, closures) are indirect; f32x4 is a vector value.
+fn is_indirect(ty: crate::TypeID) -> bool {
+    ty.is_ptr() && !is_llvm_value_type(ty)
+}
+
 /// Returns true if the type is returned via an output pointer.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
-    if is_llvm_value_type(ty) {
-        return false;
-    }
-    ty.is_ptr()
+    is_indirect(ty)
 }
 
 /// Types that are pointer-represented in the VM but first-class values in LLVM.
@@ -483,15 +487,11 @@ pub(crate) fn build_module<'ctx>(
 
     state.declare_globals(decls);
 
+    // Entry points that aren't defined are skipped — the client decides
+    // whether a missing entry point is an error.
     for &ep_name in entry_points {
-        let ep_decls = decls.find(ep_name);
-        if ep_decls.is_empty() {
-            return Err(format!("entry point function '{}' not found", ep_name));
-        }
-        let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
-            d
-        } else {
-            return Err(format!("'{}' is not a function", ep_name));
+        let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+            continue;
         };
         state.compile_function(decls, ep_decl)?;
     }
@@ -579,8 +579,17 @@ fn compile_and_run_with_context(
         }
     }
 
-    // Look up the first entry point for execution.
-    let run_name = &*entry_points[0];
+    // Look up the first entry point that exists for execution. Running does
+    // require one, so this is where a missing entry point becomes an error.
+    let run_ep = entry_points
+        .iter()
+        .copied()
+        .find(|n| decls.find_entry_point(*n).is_some())
+        .ok_or_else(|| match entry_points.first() {
+            Some(n) => format!("entry point function '{}' not found", n),
+            None => "no entry point to run".to_string(),
+        })?;
+    let run_name = &*run_ep;
     let fn_addr = ee
         .get_function_address(run_name)
         .map_err(|e| format!("function '{}' not found in JIT: {:?}", run_name, e))?;
@@ -678,9 +687,12 @@ impl LLVMJIT {
             }
         }
 
-        // Look up all entry point addresses.
+        // Look up the addresses of the entry points that were found.
         let mut ep_map = HashMap::new();
         for &ep_name in entry_points {
+            if decls.find_entry_point(ep_name).is_none() {
+                continue;
+            }
             let fn_addr = ee
                 .get_function_address(&*ep_name)
                 .map_err(|e| format!("function '{}' not found in JIT: {:?}", ep_name, e))?;
@@ -1077,6 +1089,7 @@ impl<'ctx> LLVMJITState<'ctx> {
             called_functions: HashSet::new(),
             pending_lambdas: Vec::new(),
             loop_stack: Vec::new(),
+            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
         };
 
         // Call-depth check + cancel-check at function entry.
@@ -1159,6 +1172,9 @@ struct FunctionTranslator<'a, 'ctx> {
     pending_lambdas: Vec<FuncDecl>,
     /// Stack of (continue_bb, break_bb) for nested loops.
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<crate::ExprID>,
 }
 
 impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
@@ -1497,8 +1513,26 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         }
     }
 
+    /// Store one element of an aggregate literal at `offset` within `storage`.
+    /// A pointer-represented element carries the address of its storage, so
+    /// its bytes have to be copied into place rather than stored as-is.
+    fn store_element(
+        &mut self,
+        elem_ty: crate::TypeID,
+        storage: PointerValue<'ctx>,
+        offset: u64,
+        val: BasicValueEnum<'ctx>,
+    ) {
+        let ptr = self.ptr_at_offset(storage, offset);
+        if is_indirect(elem_ty) {
+            self.gen_copy(elem_ty, ptr, val);
+        } else {
+            self.builder().build_store(ptr, val).unwrap();
+        }
+    }
+
     fn gen_copy(&mut self, ty: crate::TypeID, dst: PointerValue<'ctx>, src: BasicValueEnum<'ctx>) {
-        if ty.is_ptr() {
+        if is_indirect(ty) {
             let size = ty.size(self.decls) as u64;
             self.emit_memcpy(dst, src.into_pointer_value(), size);
         } else {
@@ -1745,6 +1779,55 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         }
     }
 
+    /// Address of the storage backing an `f32x4` lvalue: the variable's own
+    /// alloca, the pointer a captured variable's alloca holds, a global's
+    /// address, or a place inside an aggregate. `None` when the expression
+    /// isn't a place at all.
+    fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl) -> Option<PointerValue<'ctx>> {
+        match &decl.arena[expr] {
+            Expr::Id(name) => {
+                if let Some(&alloca) = self.variables.get(&**name) {
+                    if self.let_bindings.contains(&**name) {
+                        // The alloca holds the vector itself.
+                        return Some(alloca);
+                    }
+                    // A captured variable's alloca holds the address of the
+                    // vector in the enclosing frame.
+                    return Some(
+                        self.builder()
+                            .build_load(self.ptr_ty(), alloca, "vec_ptr")
+                            .unwrap()
+                            .into_pointer_value(),
+                    );
+                }
+                let offset = *self.state.globals.get(name)?;
+                Some(self.ptr_at_offset(self.globals_base, offset as u64))
+            }
+            Expr::Field(_, _) | Expr::ArrayIndex(_, _) => Some(self.translate_lvalue(expr, decl)),
+            _ => None,
+        }
+    }
+
+    /// Read-modify-write of one lane of the `f32x4` stored at `ptr`.
+    fn store_f32x4_lane(
+        &mut self,
+        ptr: PointerValue<'ctx>,
+        lane: inkwell::values::IntValue<'ctx>,
+        value: BasicValueEnum<'ctx>,
+    ) {
+        let vec_ty: inkwell::types::BasicTypeEnum = self.ctx().f32_type().vec_type(4).into();
+        let vec_val = self
+            .builder()
+            .build_load(vec_ty, ptr, "vec")
+            .unwrap()
+            .into_vector_value();
+        let new_vec = self
+            .builder()
+            .build_insert_element(vec_val, value.into_float_value(), lane, "ins")
+            .unwrap();
+        self.builder().build_store(ptr, new_vec).unwrap();
+    }
+
     fn compute_field_ptr(
         &mut self,
         base: PointerValue<'ctx>,
@@ -1831,8 +1914,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::Id(name) => {
                 let ty = decl.types[expr];
                 if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) || ty.is_ptr() || is_llvm_value_type(ty)
-                    {
+                    if self.let_bindings.contains(&**name) || is_indirect(ty) {
                         // let binding or pointer type: load the value from the alloca.
                         self.builder()
                             .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
@@ -1843,7 +1925,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             .build_load(self.ptr_ty(), alloca, "var_ptr")
                             .unwrap();
                         if let Some(var_ty) = self.variable_types.get(name.as_str()).copied() {
-                            if var_ty.is_ptr() {
+                            if is_indirect(var_ty) {
                                 stored
                             } else {
                                 self.builder()
@@ -1868,7 +1950,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let addr = self.ptr_at_offset(self.globals_base, offset as u64);
                     // Composite types (arrays, structs) are pointer-represented:
                     // return the address, don't load.
-                    if ty.is_ptr() && !is_llvm_value_type(ty) {
+                    if is_indirect(ty) {
                         addr.into()
                     } else {
                         self.builder()
@@ -1897,6 +1979,32 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let ty = decl.types[expr];
                 let init_val = self.translate_expr(init_id, decl);
                 let init_val = self.wrap_for_expected_slice(init_val, ty, init_id, decl);
+
+                // `let` binds aggregates by value, so the initializer's storage
+                // has to be copied — otherwise a slice coerced from the binding
+                // writes back into the source. Same shape as `var`, which has
+                // always copied.
+                let sz = ty.size(self.decls) as usize;
+                if crate::copy_elision::is_value_aggregate(&ty)
+                    && !self.elidable_lets.contains(&expr)
+                    && sz > 0
+                {
+                    let storage = self.entry_array_alloca(
+                        self.i8_ty(),
+                        sz as u64,
+                        &format!("{}_storage", name),
+                    );
+                    let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
+                    self.builder().build_store(alloca, storage).unwrap();
+                    self.variables.insert(name.to_string(), alloca);
+                    self.variable_types.insert(name.to_string(), ty);
+                    // The binding owns storage now, exactly like a `var`, so it
+                    // must not be treated as holding a value directly.
+                    self.let_bindings.remove(&name.to_string());
+                    self.gen_copy(ty, storage, init_val);
+                    return storage.into();
+                }
+
                 let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
                 self.builder().build_store(alloca, init_val).unwrap();
                 self.variables.insert(name.to_string(), alloca);
@@ -1988,7 +2096,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let lhs_val = self.translate_expr(lhs_id, decl).into_pointer_value();
                 let field_ty = decl.types[expr];
                 let field_ptr = self.compute_field_ptr(lhs_val, lhs_ty, &field_name, decl);
-                if field_ty.is_ptr() {
+                if is_indirect(field_ty) {
                     field_ptr.into()
                 } else {
                     self.builder()
@@ -2016,7 +2124,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let rhs_val = self.translate_expr(rhs_id, decl).into_int_value();
                 let elem_ptr = self.compute_array_elem_ptr(lhs_val, lhs_ty, rhs_val);
                 let result_ty = decl.types[expr];
-                if result_ty.is_ptr() {
+                if is_indirect(result_ty) {
                     elem_ptr.into()
                 } else {
                     self.builder()
@@ -2036,9 +2144,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let total_size = elem_size * elements.len() as u64;
                     let storage = self.entry_array_alloca(self.i8_ty(), total_size, "arr_lit");
                     for (i, val) in elem_values.iter().enumerate() {
-                        let off = self.i64_ty().const_int(i as u64 * elem_size, false);
-                        let ptr = self.ptr_add_i64(storage, off);
-                        self.builder().build_store(ptr, *val).unwrap();
+                        self.store_element(*elem_ty, storage, i as u64 * elem_size, *val);
                     }
                     storage.into()
                 } else {
@@ -2202,8 +2308,16 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 body,
             } => {
                 let (var, start, end, body) = (*var, *start, *end, *body);
+                // Both bounds are outside the loop variable's scope, so they
+                // still see any outer binding of the same name.
                 let start_val = self.translate_expr(start, decl).into_int_value();
                 let end_val = self.translate_expr(end, decl).into_int_value();
+
+                // The loop variable is scoped to the loop: save the name-keyed
+                // state so an outer binding it shadows comes back at loop exit.
+                let saved_vars = self.variables.clone();
+                let saved_types = self.variable_types.clone();
+                let saved_lets = self.let_bindings.clone();
 
                 // Allocate loop counter in entry block.
                 let loop_alloca = self.entry_alloca(self.i32_ty().into(), &*var);
@@ -2267,6 +2381,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 self.loop_stack.pop();
                 self.builder().position_at_end(exit_bb);
+
+                self.variables = saved_vars;
+                self.variable_types = saved_types;
+                self.let_bindings = saved_lets;
+
                 self.zero_i32()
             }
             Expr::Assume(_) => {
@@ -2312,8 +2431,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let storage = self.entry_array_alloca(self.i8_ty(), total_size, "tuple");
                     let mut off = 0u64;
                     for (i, val) in elem_vals.iter().enumerate() {
-                        let ptr = self.ptr_at_offset(storage, off);
-                        self.builder().build_store(ptr, *val).unwrap();
+                        self.store_element(elem_types[i], storage, off, *val);
                         off += elem_types[i].size(self.decls) as u64;
                     }
                     storage.into()
@@ -2413,8 +2531,8 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         for (fname, fval) in &fields {
                             let val = self.translate_expr(*fval, decl);
                             let off = s.field_offset(fname, self.decls, &inst);
-                            let field_ptr = self.ptr_at_offset(storage, off as u64);
-                            self.builder().build_store(field_ptr, val).unwrap();
+                            let field_ty = decl.types[*fval];
+                            self.store_element(field_ty, storage, off as u64, val);
                         }
                     }
                 }
@@ -2431,9 +2549,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let total_size = elem_size * count as u64;
                     let storage = self.entry_array_alloca(self.i8_ty(), total_size, "arr_fill");
                     for i in 0..count {
-                        let off = self.i64_ty().const_int(i as u64 * elem_size, false);
-                        let ptr = self.ptr_add_i64(storage, off);
-                        self.builder().build_store(ptr, fill_value).unwrap();
+                        self.store_element(*elem_ty, storage, i as u64 * elem_size, fill_value);
                     }
                     storage.into()
                 } else {
@@ -2642,6 +2758,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
+                    // Float `%` is lowered to a call to the stdlib's `__mod`
+                    // before codegen, so only integer operands reach here.
+                    crate::Type::Float32 | crate::Type::Float64 | crate::Type::Float32x4 => {
+                        unreachable!("type {:?} not supported for modulo", t)
+                    }
                     crate::Type::Int32 | crate::Type::Int8 => self
                         .builder()
                         .build_int_signed_rem(lhs.into_int_value(), rhs.into_int_value(), "srem")
@@ -2657,51 +2778,54 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Binop::Assign => {
                 // f32x4 field assignment: v.x = val → insert_element + store
                 if let Expr::Field(vec_id, field_name) = &decl.arena.exprs[lhs_id] {
-                    let vec_ty = decl.types[*vec_id];
+                    let (vec_id, field_name) = (*vec_id, *field_name);
+                    let vec_ty = decl.types[vec_id];
                     if matches!(*vec_ty, crate::Type::Float32x4) {
-                        let lane: u64 = match &***field_name {
+                        let lane: u64 = match &**field_name {
                             "x" | "r" => 0,
                             "y" | "g" => 1,
                             "z" | "b" => 2,
                             "w" | "a" => 3,
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
+                        let storage = self.f32x4_storage(vec_id, decl);
                         let rhs_val = self.translate_expr(rhs_id, decl);
-                        if let Expr::Id(name) = &decl.arena.exprs[*vec_id] {
-                            if let Some(&alloca) = self.variables.get(&**name) {
-                                let vec_ty: inkwell::types::BasicTypeEnum =
-                                    self.ctx().f32_type().vec_type(4).into();
-                                let vec_val = self
-                                    .builder()
-                                    .build_load(vec_ty, alloca, "vec")
-                                    .unwrap()
-                                    .into_vector_value();
-                                let idx = self.i32_ty().const_int(lane, false);
-                                let new_vec = self
-                                    .builder()
-                                    .build_insert_element(
-                                        vec_val,
-                                        rhs_val.into_float_value(),
-                                        idx,
-                                        "ins",
-                                    )
-                                    .unwrap();
-                                self.builder().build_store(alloca, new_vec).unwrap();
-                                return rhs_val;
-                            }
-                        }
-                    }
-                }
-                // f32x4 full assignment: v = expr → store vector to alloca
-                let t = self.representation_type(lhs_id, decl);
-                if matches!(*t, crate::Type::Float32x4) {
-                    if let Expr::Id(name) = &decl.arena.exprs[lhs_id] {
-                        if let Some(&alloca) = self.variables.get(&**name) {
-                            let rhs_val = self.translate_expr(rhs_id, decl);
-                            self.builder().build_store(alloca, rhs_val).unwrap();
+                        if let Some(ptr) = storage {
+                            let idx = self.i32_ty().const_int(lane, false);
+                            self.store_f32x4_lane(ptr, idx, rhs_val);
                             return rhs_val;
                         }
                     }
+                }
+                // f32x4 element assignment: v[i] = val → insert_element + store
+                if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena.exprs[lhs_id] {
+                    let (vec_id, idx_id) = (*vec_id, *idx_id);
+                    let vec_ty = decl.types[vec_id];
+                    if matches!(*vec_ty, crate::Type::Float32x4) {
+                        // The lane index is in 0..4: the safety checker proves it,
+                        // and no backend checks it at runtime.
+                        let storage = self.f32x4_storage(vec_id, decl);
+                        let idx = self.translate_expr(idx_id, decl).into_int_value();
+                        let rhs_val = self.translate_expr(rhs_id, decl);
+                        if let Some(ptr) = storage {
+                            self.store_f32x4_lane(ptr, idx, rhs_val);
+                            return rhs_val;
+                        }
+                    }
+                }
+                // f32x4 full assignment: v = expr → store the vector to its storage
+                let t = self.representation_type(lhs_id, decl);
+                if matches!(*t, crate::Type::Float32x4) {
+                    let storage = self.f32x4_storage(lhs_id, decl);
+                    let rhs_val = self.translate_expr(rhs_id, decl);
+                    if let Some(ptr) = storage {
+                        self.builder().build_store(ptr, rhs_val).unwrap();
+                        return rhs_val;
+                    }
+                    panic!(
+                        "LLVM: unsupported f32x4 assignment target: {:?}",
+                        decl.arena[lhs_id]
+                    );
                 }
                 let lhs_addr = self.translate_lvalue(lhs_id, decl);
                 let rhs_val = self.translate_expr(rhs_id, decl);

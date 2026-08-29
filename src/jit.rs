@@ -166,12 +166,15 @@ impl JIT {
         let code_ptr = map
             .get(&main_name)
             .copied()
-            .ok_or_else(|| "main function not found".to_string())?;
+            .ok_or_else(|| "entry point function 'main' not found".to_string())?;
         Ok((code_ptr, globals_size))
     }
 
     /// Compile multiple entry points into native code.
     /// Returns (name→code_ptr map, globals_size).
+    ///
+    /// Entry points that aren't defined are skipped, so the returned map only
+    /// contains the ones that were found.
     pub fn compile_multi(
         &mut self,
         decls: &DeclTable,
@@ -181,14 +184,8 @@ impl JIT {
 
         let mut func_ids = Vec::new();
         for &ep_name in entry_points {
-            let ep_decls = decls.find(ep_name);
-            if ep_decls.is_empty() {
-                return Err(format!("entry point function '{}' not found", ep_name));
-            }
-            let ep_decl = if let Decl::Func(d) = &ep_decls[0] {
-                d
-            } else {
-                return Err(format!("'{}' is not a function", ep_name));
+            let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+                continue;
             };
             let id = self.compile_function(decls, ep_decl)?;
             func_ids.push((ep_name, id));
@@ -489,12 +486,28 @@ impl crate::Type {
     }
 }
 
+/// True when a value of this type is carried around as a pointer to its
+/// storage rather than in a register. Composite types (structs, tuples,
+/// arrays, slices, closures) are indirect; f32x4 lives in a SIMD register.
+fn is_indirect(ty: crate::TypeID) -> bool {
+    ty.is_ptr() && !matches!(*ty, crate::Type::Float32x4)
+}
+
+/// A constant `f32x4` lane index, which the safety checker has already proved
+/// lies in `0..4`. Narrowing it with `as` would silently wrap an out-of-range
+/// index onto a valid lane, so the conversion is checked.
+fn lane_index(n: i64) -> u8 {
+    assert!(
+        (0..4).contains(&n),
+        "f32x4 lane index {} out of range — safety checker should have rejected it",
+        n
+    );
+    n as u8
+}
+
 /// Returns true if this type is returned via an output pointer parameter.
 fn returns_via_pointer(ty: crate::TypeID) -> bool {
-    if matches!(*ty, crate::Type::Float32x4) {
-        return false;
-    }
-    ty.is_ptr()
+    is_indirect(ty)
 }
 
 /// Returns true if the type is a slice.
@@ -563,6 +576,15 @@ struct FunctionTranslator<'a> {
 
     /// When true, skip emission of call-depth prologue/epilogue.
     no_recursion: bool,
+
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<ExprID>,
+
+    /// Names referenced from inside a lambda body in the function being
+    /// translated. Such a variable is captured by address, so it has to live in
+    /// memory even when its type would otherwise be kept in a register.
+    lambda_referenced: HashSet<String>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -591,10 +613,15 @@ impl<'a> FunctionTranslator<'a> {
             lambda_counter,
             loop_stack: Vec::new(),
             no_recursion,
+            elidable_lets: HashSet::new(),
+            lambda_referenced: HashSet::new(),
         }
     }
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
+        self.elidable_lets = crate::copy_elision::elidable_let_copies(decl);
+        self.lambda_referenced = names_referenced_in_lambdas(decl);
+
         // With --no-recursion the safety checker has proved the call graph
         // is a DAG, so the counter traffic is unnecessary.
         if !self.no_recursion {
@@ -720,6 +747,34 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.seal_block(continue_block);
     }
 
+    /// Check that a value about to be passed to an if-else merge block matches
+    /// the type the merge block param was declared with.
+    ///
+    /// The two are derived independently: the param from `decl.types`, the
+    /// value from codegen. They disagree when an expression kind is typed
+    /// non-void by the checker but returns a placeholder here (see issue #22,
+    /// where a `var` declaration was typed f32 but yielded `iconst(I32, 0)`).
+    /// Failing at the mismatch names the branch and both types instead of
+    /// leaving an opaque Cranelift verifier failure.
+    ///
+    /// This only catches disagreements that differ in Cranelift type. When the
+    /// placeholder happens to have the right type — the i32 half of issue #22,
+    /// where `var count = 0` silently yielded 0 — well-formed IR computing the
+    /// wrong answer sails right through. What rules that class out is the
+    /// checker unifying the two branch types, so a branch that evaluates to
+    /// something other than the if-else's type is a type error and never
+    /// reaches codegen.
+    fn check_merge_arg(&self, val: Value, expected: Type, branch: &str) {
+        let actual = self.builder.func.dfg.value_type(val);
+        assert_eq!(
+            actual, expected,
+            "JIT internal error: {} branch of if-else produced a {} value, \
+             but the merge block expects {}. The checker and codegen disagree \
+             about what this branch evaluates to.",
+            branch, actual, expected
+        );
+    }
+
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
             Expr::Id(name) => {
@@ -813,8 +868,10 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = &decl.types[expr];
                 if let Some(variable) = self.variables.get(&**name) {
                     let val = self.builder.use_var(*variable);
-                    // Let bindings hold values directly; var bindings hold pointers
-                    if self.let_bindings.contains(&**name) || ty.is_ptr() {
+                    // Let bindings hold values directly; var bindings hold pointers.
+                    // f32x4 is pointer-typed but lives in a register, so a var
+                    // binding holding one still has to be loaded.
+                    if self.let_bindings.contains(&**name) || is_indirect(*ty) {
                         val
                     } else {
                         self.builder
@@ -827,7 +884,7 @@ impl<'a> FunctionTranslator<'a> {
                     let addr = self.builder.ins().iadd_imm(base, offset as i64);
                     // Composite types (arrays, structs) are pointer-represented:
                     // return the address, don't load. f32x4 is a value type — load it.
-                    if ty.is_ptr() && !matches!(**ty, crate::types::Type::Float32x4) {
+                    if is_indirect(*ty) {
                         addr
                     } else {
                         self.builder
@@ -1119,6 +1176,33 @@ impl<'a> FunctionTranslator<'a> {
                 let ty = &decl.types[expr];
                 let init_val = self.translate_expr(*init, decl, decls);
                 let init_val = self.wrap_for_expected_slice(init_val, *ty, *init, decl, decls);
+
+                // `let` binds aggregates by value, so the initializer's storage
+                // has to be copied — otherwise a slice coerced from the binding
+                // writes back into the source. Skip the copy when the elision
+                // analysis proved nothing in scope can observe it.
+                let sz = ty.size(decls) as u32;
+                if crate::copy_elision::is_value_aggregate(ty)
+                    && !self.elidable_lets.contains(&expr)
+                    && sz > 0
+                {
+                    let var = self.declare_variable(name, I64);
+                    let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size: sz,
+                        align_shift: 0,
+                        key: None,
+                    });
+                    let addr = self.builder.ins().stack_addr(I64, slot, 0);
+                    self.builder.def_var(var, addr);
+                    self.gen_copy(*ty, addr, init_val, decls);
+                    self.variable_types.insert(name.to_string(), *ty);
+                    // The binding owns a stack slot now, exactly like a `var`,
+                    // so it must not be treated as holding a value directly.
+                    self.let_bindings.remove(&name.to_string());
+                    return addr;
+                }
+
                 let var = self.declare_variable(name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
                 self.variable_types.insert(name.to_string(), *ty);
@@ -1133,7 +1217,11 @@ impl<'a> FunctionTranslator<'a> {
 
                 // f32x4: treat as value type (like a let binding) so it lives in
                 // a Cranelift variable (F32X4) rather than a pointer to a stack slot.
-                if matches!(**ty, crate::types::Type::Float32x4) {
+                // A variable a lambda captures is shared by address, so it has to
+                // stay in memory for writes on either side to be visible.
+                if matches!(**ty, crate::types::Type::Float32x4)
+                    && !self.lambda_referenced.contains(&name.to_string())
+                {
                     let var = self.declare_variable(name, F32X4);
                     let init_val = if let Some(init_id) = init {
                         self.translate_expr(*init_id, decl, decls)
@@ -1207,7 +1295,7 @@ impl<'a> FunctionTranslator<'a> {
                             let off = s.field_offset(fname, decls, &inst);
                             let field_ty = &decl.types[*fval];
                             let field_addr = self.builder.ins().iadd_imm(addr, off as i64);
-                            if field_ty.is_ptr() {
+                            if is_indirect(*field_ty) {
                                 self.gen_copy(*field_ty, field_addr, val, decls);
                             } else {
                                 self.builder
@@ -1260,7 +1348,7 @@ impl<'a> FunctionTranslator<'a> {
                         let off = s.field_offset(name, decls, &inst);
                         let field_ty = &decl.types[expr];
                         // Arrays are stored inline, so return the address of the field
-                        if field_ty.is_ptr() {
+                        if is_indirect(*field_ty) {
                             let off_val = self.builder.ins().iconst(I64, off as i64);
                             self.builder.ins().iadd(lhs_val, off_val)
                         } else {
@@ -1283,7 +1371,7 @@ impl<'a> FunctionTranslator<'a> {
                         off += elem_types[i].size(decls) as i32;
                     }
                     let field_ty = &decl.types[expr];
-                    if field_ty.is_ptr() {
+                    if is_indirect(*field_ty) {
                         let off_val = self.builder.ins().iconst(I64, off as i64);
                         self.builder.ins().iadd(lhs_val, off_val)
                     } else {
@@ -1320,6 +1408,7 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.ins().store(MemFlags::new(), vec, addr, 0);
                     let idx = self.translate_expr(*rhs, decl, decls);
                     let byte_offset = self.builder.ins().imul_imm(idx, 4);
+                    let byte_offset = self.builder.ins().uextend(I64, byte_offset);
                     let elem_addr = self.builder.ins().iadd(addr, byte_offset);
                     return self.builder.ins().load(F32, MemFlags::new(), elem_addr, 0);
                 }
@@ -1346,7 +1435,7 @@ impl<'a> FunctionTranslator<'a> {
                 let off = self.builder.ins().uextend(I64, off);
                 let p = self.builder.ins().iadd(data_ptr, off);
                 let result_ty = decl.types[expr];
-                if result_ty.is_ptr() {
+                if is_indirect(result_ty) {
                     // Composite types (arrays, structs, tuples) are represented
                     // as pointers — return the address directly.
                     p
@@ -1381,7 +1470,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Store each element in the stack slot.
                     for (i, value) in element_values.iter().enumerate() {
                         let offset = i as i32 * element_size as i32;
-                        self.builder.ins().stack_store(*value, slot, offset);
+                        self.store_element(*elem_ty, addr, slot, offset, *value, decls);
                     }
 
                     addr
@@ -1413,7 +1502,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     for i in 0..count {
                         let offset = i * element_size as i32;
-                        self.builder.ins().stack_store(fill_value, slot, offset);
+                        self.store_element(*elem_ty, addr, slot, offset, fill_value, decls);
                     }
 
                     addr
@@ -1456,21 +1545,27 @@ impl<'a> FunctionTranslator<'a> {
 
                 // Determine if this if-else produces a value. Both branches must
                 // have the same concrete (non-void) type for the result to be usable.
+                // `merge_ty` is Some exactly when it does, so it doubles as the
+                // "produces a value" flag — keeping a separate boolean around
+                // risks the two drifting apart.
                 let result_ty = decl.types[expr];
-                let is_value = if let Some(else_expr_id) = else_id {
-                    let else_ty = decl.types[*else_expr_id];
-                    !matches!(
-                        &*result_ty,
-                        crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
-                    ) && result_ty == else_ty
-                } else {
-                    false
+                let produces_value = match else_id {
+                    Some(else_expr_id) => {
+                        !matches!(
+                            &*result_ty,
+                            crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
+                        ) && result_ty == decl.types[*else_expr_id]
+                    }
+                    None => false,
                 };
 
-                if is_value {
+                let merge_ty = if produces_value {
                     let cl_ty = result_ty.cranelift_type();
                     self.builder.append_block_param(merge_block, cl_ty);
-                }
+                    Some(cl_ty)
+                } else {
+                    None
+                };
 
                 // Branch based on condition.
                 self.builder
@@ -1482,7 +1577,8 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.seal_block(then_block);
                 let then_val = self.translate_expr(*then_id, decl, decls);
                 if !self.builder.is_unreachable() {
-                    if is_value {
+                    if let Some(merge_ty) = merge_ty {
+                        self.check_merge_arg(then_val, merge_ty, "then");
                         self.builder
                             .ins()
                             .jump(merge_block, &[codegen::ir::BlockArg::Value(then_val)]);
@@ -1500,7 +1596,8 @@ impl<'a> FunctionTranslator<'a> {
                     self.builder.ins().iconst(I32, 0)
                 };
                 if !self.builder.is_unreachable() {
-                    if is_value {
+                    if let Some(merge_ty) = merge_ty {
+                        self.check_merge_arg(else_val, merge_ty, "else");
                         self.builder
                             .ins()
                             .jump(merge_block, &[codegen::ir::BlockArg::Value(else_val)]);
@@ -1513,7 +1610,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.switch_to_block(merge_block);
                 self.builder.seal_block(merge_block);
 
-                if is_value {
+                if merge_ty.is_some() {
                     self.builder.block_params(merge_block)[0]
                 } else {
                     self.builder.ins().iconst(I32, 0)
@@ -1525,9 +1622,17 @@ impl<'a> FunctionTranslator<'a> {
                 end,
                 body,
             } => {
-                // Evaluate start and end values.
+                // Evaluate start and end values. Both are outside the loop
+                // variable's scope, so they still see any outer binding of the
+                // same name.
                 let start_val = self.translate_expr(*start, decl, decls);
                 let end_val = self.translate_expr(*end, decl, decls);
+
+                // The loop variable is scoped to the loop: save the name-keyed
+                // state so an outer binding it shadows comes back at loop exit.
+                let saved_vars = self.variables.clone();
+                let saved_types = self.variable_types.clone();
+                let saved_lets = self.let_bindings.clone();
 
                 // Create a variable for the loop counter.
                 let loop_var = self.declare_variable(var, I32);
@@ -1590,6 +1695,10 @@ impl<'a> FunctionTranslator<'a> {
                 // Exit block.
                 self.builder.switch_to_block(exit_block);
                 self.builder.seal_block(exit_block);
+
+                self.variables = saved_vars;
+                self.variable_types = saved_types;
+                self.let_bindings = saved_lets;
 
                 self.builder.ins().iconst(I32, 0)
             }
@@ -1722,7 +1831,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Store each element at its offset.
                     let mut offset = 0i32;
                     for (i, value) in element_values.iter().enumerate() {
-                        self.builder.ins().stack_store(*value, slot, offset);
+                        self.store_element(elem_types[i], addr, slot, offset, *value, decls);
                         offset += elem_types[i].size(decls) as i32;
                     }
 
@@ -2014,8 +2123,28 @@ impl<'a> FunctionTranslator<'a> {
         std::cmp::min(natural, max_align as u8)
     }
 
+    /// Store one element of an aggregate literal at `offset` within `slot`.
+    /// An indirect element is represented by the address of its storage, so
+    /// its bytes have to be copied into place rather than stored as-is.
+    fn store_element(
+        &mut self,
+        elem_ty: crate::TypeID,
+        addr: Value,
+        slot: cranelift::codegen::ir::StackSlot,
+        offset: i32,
+        value: Value,
+        decls: &crate::DeclTable,
+    ) {
+        if is_indirect(elem_ty) {
+            let dst = self.builder.ins().iadd_imm(addr, offset as i64);
+            self.gen_copy(elem_ty, dst, value, decls);
+        } else {
+            self.builder.ins().stack_store(value, slot, offset);
+        }
+    }
+
     fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &crate::DeclTable) {
-        if t.is_ptr() {
+        if is_indirect(t) {
             let size = t.size(decls) as u64;
             let align = Self::type_align(&t, decls);
             self.builder.emit_small_memory_copy(
@@ -2191,35 +2320,63 @@ impl<'a> FunctionTranslator<'a> {
                 let t = self.representation_type(lhs_id, decl, decls);
                 // f32x4 field assignment: v.x = val → insertlane
                 if let Expr::Field(vec_id, field_name) = &decl.arena[lhs_id] {
-                    let vec_ty = decl.types[*vec_id];
+                    let (vec_id, field_name) = (*vec_id, *field_name);
+                    let vec_ty = decl.types[vec_id];
                     if matches!(*vec_ty, crate::types::Type::Float32x4) {
-                        let lane: u8 = match &***field_name {
+                        let lane: u8 = match &**field_name {
                             "x" | "r" => 0,
                             "y" | "g" => 1,
                             "z" | "b" => 2,
                             "w" | "a" => 3,
                             _ => panic!("invalid f32x4 field: {}", field_name),
                         };
+                        let storage = self.f32x4_storage(vec_id, decl, decls);
                         let rhs = self.translate_expr(rhs_id, decl, decls);
-                        if let Expr::Id(name) = &decl.arena[*vec_id] {
-                            if let Some(&var) = self.variables.get(&**name) {
-                                let vec = self.builder.use_var(var);
-                                let new_vec = self.builder.ins().insertlane(vec, rhs, lane);
-                                self.builder.def_var(var, new_vec);
-                                return rhs;
-                            }
-                        }
+                        self.store_f32x4_lane(vec_id, storage, lane, rhs, decl);
+                        return rhs;
                     }
                 }
-                // f32x4: full value-type assignment via def_var
+                // f32x4 element assignment: v[i] = val → insertlane
+                if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena[lhs_id] {
+                    let (vec_id, idx_id) = (*vec_id, *idx_id);
+                    let vec_ty = decl.types[vec_id];
+                    if matches!(*vec_ty, crate::types::Type::Float32x4) {
+                        // The lane index is in 0..4: the safety checker proves it,
+                        // and no backend checks it at runtime.
+                        if let Expr::Int(n, _) = &decl.arena.exprs[idx_id] {
+                            let lane = lane_index(*n);
+                            let storage = self.f32x4_storage(vec_id, decl, decls);
+                            let rhs = self.translate_expr(rhs_id, decl, decls);
+                            self.store_f32x4_lane(vec_id, storage, lane, rhs, decl);
+                            return rhs;
+                        }
+                        let storage = self.f32x4_storage(vec_id, decl, decls);
+                        let idx = self.translate_expr(idx_id, decl, decls);
+                        let rhs = self.translate_expr(rhs_id, decl, decls);
+                        self.store_f32x4_dynamic_lane(vec_id, storage, idx, rhs, decl);
+                        return rhs;
+                    }
+                }
+                // f32x4 is a register value, so a whole-vector assignment is a
+                // def_var when the destination is a variable and a store when it
+                // lives in memory.
                 if matches!(*t, crate::types::Type::Float32x4) {
+                    let storage = self.f32x4_storage(lhs_id, decl, decls);
+                    let rhs = self.translate_expr(rhs_id, decl, decls);
+                    if let Some(ptr) = storage {
+                        self.builder.ins().store(MemFlags::new(), rhs, ptr, 0);
+                        return rhs;
+                    }
                     if let Expr::Id(name) = &decl.arena[lhs_id] {
                         if let Some(&var) = self.variables.get(&**name) {
-                            let rhs = self.translate_expr(rhs_id, decl, decls);
                             self.builder.def_var(var, rhs);
                             return rhs;
                         }
                     }
+                    panic!(
+                        "JIT: unsupported f32x4 assignment target: {:?}",
+                        decl.arena[lhs_id]
+                    );
                 }
                 let lhs = self.translate_lvalue(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
@@ -2428,6 +2585,103 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Address of an `f32x4` lvalue that lives in memory rather than directly in
+    /// a Cranelift variable: a `var` binding captured by a lambda (its closure
+    /// slot holds a pointer to the variable's storage), a global, or a place
+    /// inside an aggregate. Returns `None` when the vector is held by value in
+    /// a variable, or when the expression isn't a place at all.
+    fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<Value> {
+        match &decl.arena[expr] {
+            Expr::Id(name) => {
+                if let Some(&var) = self.variables.get(&**name) {
+                    if self.let_bindings.contains(&**name) {
+                        return None;
+                    }
+                    return Some(self.builder.use_var(var));
+                }
+                let offset = *self.globals.get(name)?;
+                let base = self.globals_base.expect("globals_base not set");
+                Some(self.builder.ins().iadd_imm(base, offset as i64))
+            }
+            Expr::Field(_, _) | Expr::ArrayIndex(_, _) => {
+                Some(self.translate_lvalue(expr, decl, decls))
+            }
+            _ => None,
+        }
+    }
+
+    /// Writes `value` into lane `lane` of the `f32x4` lvalue `vec_id`, given the
+    /// `storage` [`Self::f32x4_storage`] found for it: a read-modify-write when
+    /// the vector lives in memory, an insertlane when it lives in a variable.
+    fn store_f32x4_lane(
+        &mut self,
+        vec_id: ExprID,
+        storage: Option<Value>,
+        lane: u8,
+        value: Value,
+        decl: &FuncDecl,
+    ) {
+        if let Some(ptr) = storage {
+            let vec = self.builder.ins().load(F32X4, MemFlags::new(), ptr, 0);
+            let new_vec = self.builder.ins().insertlane(vec, value, lane);
+            self.builder.ins().store(MemFlags::new(), new_vec, ptr, 0);
+            return;
+        }
+        if let Expr::Id(name) = &decl.arena[vec_id] {
+            if let Some(&var) = self.variables.get(&**name) {
+                let vec = self.builder.use_var(var);
+                let new_vec = self.builder.ins().insertlane(vec, value, lane);
+                self.builder.def_var(var, new_vec);
+                return;
+            }
+        }
+        panic!(
+            "JIT: unsupported f32x4 lane assignment target: {:?}",
+            decl.arena[vec_id]
+        );
+    }
+
+    /// Same as [`Self::store_f32x4_lane`] for a lane index that isn't a
+    /// constant: a value-resident vector is spilled, written, and reloaded.
+    fn store_f32x4_dynamic_lane(
+        &mut self,
+        vec_id: ExprID,
+        storage: Option<Value>,
+        idx: Value,
+        value: Value,
+        decl: &FuncDecl,
+    ) {
+        let byte_offset = self.builder.ins().imul_imm(idx, 4);
+        let byte_offset = self.builder.ins().uextend(I64, byte_offset);
+        if let Some(ptr) = storage {
+            let addr = self.builder.ins().iadd(ptr, byte_offset);
+            self.builder.ins().store(MemFlags::new(), value, addr, 0);
+            return;
+        }
+        if let Expr::Id(name) = &decl.arena[vec_id] {
+            if let Some(&var) = self.variables.get(&**name) {
+                let vec = self.builder.use_var(var);
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: 16,
+                    align_shift: 0,
+                    key: None,
+                });
+                let base = self.builder.ins().stack_addr(I64, slot, 0);
+                self.builder.ins().store(MemFlags::new(), vec, base, 0);
+                let addr = self.builder.ins().iadd(base, byte_offset);
+                self.builder.ins().store(MemFlags::new(), value, addr, 0);
+                let new_vec = self.builder.ins().load(F32X4, MemFlags::new(), base, 0);
+                self.builder.def_var(var, new_vec);
+                return;
+            }
+        }
+        panic!(
+            "JIT: unsupported f32x4 lane assignment target: {:?}",
+            decl.arena[vec_id]
+        );
+    }
+
     /// Returns the address of a variable's storage for use in a closure struct.
     /// For var bindings the variable already holds a pointer; for let bindings
     /// a fresh stack slot is allocated and the value is copied into it.
@@ -2554,6 +2808,17 @@ impl<'a> FunctionTranslator<'a> {
         self.next_index += 1;
         var
     }
+}
+
+/// Every name mentioned inside a lambda body anywhere in `decl`, including
+/// nested lambdas. An over-approximation of what the function's lambdas
+/// capture: a name shadowed by a lambda parameter is included too, which only
+/// costs the enclosing variable its register representation.
+fn names_referenced_in_lambdas(decl: &FuncDecl) -> HashSet<String> {
+    decl.names_referenced_in_lambdas()
+        .iter()
+        .map(|n| n.to_string())
+        .collect()
 }
 
 /// Collect the names (and their types) of free variables referenced in `body`

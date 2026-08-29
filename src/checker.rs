@@ -23,6 +23,11 @@ pub struct Checker {
     /// Overloads for arithmetic with built-in types.
     arith_overloads: Vec<TypeID>,
 
+    /// Overloads for `%` with built-in types. Integers only: float modulo is
+    /// provided by the `__mod` overloads in the stdlib, since no backend has a
+    /// primitive float remainder instruction.
+    mod_overloads: Vec<TypeID>,
+
     /// Overloads for casting.
     cast_overloads: Vec<TypeID>,
 
@@ -47,6 +52,15 @@ pub struct Checker {
     /// Expression types.
     pub types: Vec<TypeID>,
 
+    /// Which expressions `check_expr` actually visited in the current function.
+    /// Unvisited entries in `types` keep the fill value from `check_fn_decl`,
+    /// so post-check passes must skip them rather than trust their type.
+    visited: Vec<bool>,
+
+    /// Is an expression's value used, rather than discarded? See
+    /// `mark_value_positions`.
+    value_pos: Vec<bool>,
+
     /// Currently declared vars, as we're checking.
     vars: Vec<Var>,
 
@@ -55,6 +69,10 @@ pub struct Checker {
 
     /// Nesting depth of loops (>0 means we're inside a loop).
     loop_depth: usize,
+
+    /// Return types of the enclosing functions and lambdas, innermost last.
+    /// A `return` expression is constrained against the last entry.
+    ret_types: Vec<TypeID>,
 }
 
 /// Returns true if the type is or contains a borrowed type (`[T]` or `&T`).
@@ -141,14 +159,19 @@ impl Checker {
         let uint32: TypeID = mk_type(Type::UInt32);
         let types = [Type::Int32, Type::UInt32, Type::Float32, Type::Float64];
         let mut arith_overloads = vec![];
+        let mut mod_overloads = vec![];
         let mut rel_overloads = vec![];
         let mut neg_overloads = vec![];
         let b = mk_type(Type::Bool);
 
         for ty in types {
+            let is_int = matches!(ty, Type::Int32 | Type::UInt32);
             let t = mk_type(ty);
             let tt = tuple(vec![t, t]);
             arith_overloads.push(func(tt, t));
+            if is_int {
+                mod_overloads.push(func(tt, t));
+            }
             rel_overloads.push(func(tt, b));
             neg_overloads.push(func(t, t));
         }
@@ -176,17 +199,21 @@ impl Checker {
 
         Self {
             types: vec![],
+            visited: vec![],
+            value_pos: vec![],
             lvalue: vec![],
             inst: Instance::new(),
             next_anon: 0,
             vars: vec![],
             arith_overloads,
+            mod_overloads,
             rel_overloads,
             neg_overloads,
             cast_overloads,
             constraints: vec![],
             errors: vec![],
             loop_depth: 0,
+            ret_types: vec![],
         }
     }
 
@@ -336,7 +363,13 @@ impl Checker {
 
             let mut alts = vec![];
 
-            for ty in &self.arith_overloads {
+            let builtins = if op == Binop::Mod {
+                &self.mod_overloads
+            } else {
+                &self.arith_overloads
+            };
+
+            for ty in builtins {
                 alts.push(Alt {
                     ty: *ty,
                     interfaces: vec![],
@@ -420,6 +453,7 @@ impl Checker {
     }
 
     fn check_expr(&mut self, id: ExprID, arena: &ExprArena, decls: &DeclTable) -> TypeID {
+        self.visited[id] = true;
         let ty = match &arena[id] {
             Expr::True | Expr::False => mk_type(Type::Bool),
             Expr::Int(_, None) => {
@@ -685,7 +719,15 @@ impl Checker {
                     mutable: true,
                 });
 
-                ty
+                // A var declaration is a statement, not an expression: it does
+                // not produce a value. Record the variable's type for the
+                // backends (they read types[id] to size the slot), but report
+                // the declaration itself as Void so an enclosing block or
+                // if-else doesn't treat the declaration as its result. See
+                // issue #22: codegen emits a placeholder i32 0 here, which used
+                // to flow into a merge block typed from the declared type.
+                self.types[id] = ty;
+                return mk_type(Type::Void);
             }
             Expr::Let(name, init, ty) => {
                 let ty = if let Some(ty) = ty { *ty } else { self.fresh() };
@@ -705,10 +747,37 @@ impl Checker {
                     mutable: false,
                 });
 
-                ty
+                // A let declaration is a statement too — see the comment on
+                // Expr::Var above.
+                self.types[id] = ty;
+                return mk_type(Type::Void);
             }
             Expr::Arena(block) => self.check_expr(*block, arena, decls),
-            Expr::Return(expr) => self.check_expr(*expr, arena, decls),
+            Expr::Return(expr) => {
+                let ty = self.check_expr(*expr, arena, decls);
+
+                // Constrain against the enclosing function's return type.
+                // Without this, only a return in tail position is checked
+                // (via the body's type), so an early return with the wrong
+                // type reaches codegen and trips the backend's verifier.
+                match self.ret_types.last() {
+                    Some(&ret) => {
+                        self.eq(
+                            ty,
+                            ret,
+                            arena.locs[id],
+                            "return type must match function return type",
+                        );
+
+                        // Take on the enclosing return type rather than the
+                        // operand's, so a return in tail position doesn't
+                        // report the same mismatch twice (once here, once
+                        // from the body-level check below).
+                        ret
+                    }
+                    None => ty,
+                }
+            }
             Expr::Assume(cond) => {
                 self.check_expr(*cond, arena, decls);
                 mk_type(Type::Void)
@@ -884,8 +953,25 @@ impl Checker {
                 );
                 let then_t = self.check_expr(*then_expr, arena, decls);
                 if let Some(else_expr) = else_expr {
-                    self.check_expr(*else_expr, arena, decls);
-                    // The if-else expression has the type of its then-branch.
+                    let else_t = self.check_expr(*else_expr, arena, decls);
+                    // When the if-else is used as a value, both branches must
+                    // agree — it has a single type, and taking the then-branch's
+                    // type without checking the else branch left the
+                    // disagreement for codegen, which quietly substitutes a
+                    // placeholder 0 (issue #22).
+                    //
+                    // In statement position the value is discarded, so branches
+                    // are free to end in whatever their last statement happens
+                    // to evaluate to (an assignment is an expression in lyte,
+                    // so `if c { x = 1 } else { y = 2.0 }` is perfectly fine).
+                    if self.value_pos[id] {
+                        self.eq(
+                            then_t,
+                            else_t,
+                            arena.locs[*else_expr],
+                            "if-else branches must have the same type",
+                        );
+                    }
                     then_t
                 } else {
                     mk_type(Type::Void)
@@ -947,13 +1033,25 @@ impl Checker {
                     param_types.push(ty);
                 }
 
+                // The lambda's return type isn't known up front, so bind a
+                // fresh variable that both the body and any `return` inside
+                // it unify with.
+                let lambda_ret = self.fresh();
+                self.ret_types.push(lambda_ret);
                 let rt = self.check_expr(*body, arena, decls);
+                self.ret_types.pop();
+                self.eq(
+                    rt,
+                    lambda_ret,
+                    arena.locs[*body],
+                    "return type must match function return type",
+                );
 
                 while self.vars.len() > n {
                     self.vars.pop();
                 }
 
-                func(tuple(param_types), rt)
+                func(tuple(param_types), lambda_ret)
             }
             Expr::Error => self.fresh(),
         };
@@ -971,6 +1069,12 @@ impl Checker {
     }
 
     fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
+        // `self.errors` accumulates across every decl in the table, so the
+        // post-check passes below gate on errors from *this* function rather
+        // than on the accumulator — otherwise one bad function silently
+        // disables checking for every function after it.
+        let errors_before = self.errors.len();
+
         // Disallow borrowed types in return position.
         if type_contains_bad_borrow(func_decl.ret) {
             self.errors.push(TypeError {
@@ -985,10 +1089,22 @@ impl Checker {
 
         let n = func_decl.arena.exprs.len();
         self.types.resize(n, mk_type(Type::Void));
+        self.visited.clear();
+        self.visited.resize(n, false);
+        self.value_pos.clear();
+        self.value_pos.resize(n, false);
         self.lvalue.resize(n, false);
 
         if let Some(body) = func_decl.body {
             // println!("🟧 checking function {:?} 🟧", *func_decl.name);
+
+            // The body's value is the return value, unless the function
+            // returns void — see the `self.eq(ty, func_decl.ret, ..)` below.
+            let body_used = func_decl.ret != mk_type(Type::Void);
+            mark_value_positions(body, &func_decl.arena, body_used, &mut self.value_pos);
+            for &req in &func_decl.requires {
+                mark_value_positions(req, &func_decl.arena, true, &mut self.value_pos);
+            }
 
             self.inst.clear();
             self.constraints.clear();
@@ -1073,7 +1189,9 @@ impl Checker {
             }
 
             // Check the body of the function.
+            self.ret_types.push(func_decl.ret);
             let ty = self.check_expr(body, &func_decl.arena, decls);
+            self.ret_types.pop();
 
             if func_decl.ret != mk_type(Type::Void) {
                 self.eq(
@@ -1086,7 +1204,7 @@ impl Checker {
 
             self.vars.clear();
 
-            if self.errors.is_empty() {
+            if self.errors.len() == errors_before {
                 solve_constraints(
                     &mut self.constraints,
                     &mut self.inst,
@@ -1096,12 +1214,12 @@ impl Checker {
             }
 
             // Check lvalue validity now that types are solved.
-            if self.errors.is_empty() {
+            if self.errors.len() == errors_before {
                 self.check_lvalues(func_decl, decls);
             }
 
             // Check that no two borrowed parameters alias (Fortran-style no-alias rule).
-            if self.errors.is_empty() {
+            if self.errors.len() == errors_before {
                 self.check_slice_aliasing(func_decl, decls);
             }
         }
@@ -1139,23 +1257,49 @@ impl Checker {
         decls: &DeclTable,
         func_decl: &FuncDecl,
     ) -> Vec<usize> {
-        let Expr::Id(callee_name) = &func_decl.arena[callee] else {
-            return Vec::new();
-        };
-
         let mut positions = Vec::new();
-        for d in decls.find(*callee_name) {
-            if let Decl::Func(fd) = d {
-                for (i, param) in fd.params.iter().enumerate() {
-                    if let Some(ty) = param.ty {
-                        if matches!(*ty, Type::Reference(_)) && !positions.contains(&i) {
-                            positions.push(i);
+        let mut found_decl = false;
+
+        if let Expr::Id(callee_name) = &func_decl.arena[callee] {
+            for d in decls.find(*callee_name) {
+                if let Decl::Func(fd) = d {
+                    found_decl = true;
+                    for (i, param) in fd.params.iter().enumerate() {
+                        if let Some(ty) = param.ty {
+                            if matches!(*ty, Type::Reference(_)) && !positions.contains(&i) {
+                                positions.push(i);
+                            }
                         }
                     }
                 }
             }
         }
-        positions
+
+        if found_decl {
+            return positions;
+        }
+
+        // Indirect call through a fat pointer. There is no declaration to
+        // consult, so take the parameter types from the callee expression's
+        // solved type — the same source the backends use to decide which
+        // arguments to pass by address.
+        self.callee_param_types(callee)
+            .iter()
+            .enumerate()
+            .filter(|(_, ty)| matches!(***ty, Type::Reference(_)))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Parameter types of a callee expression, from its solved type. Used for
+    /// indirect calls, where there is no declaration to consult.
+    fn callee_param_types(&self, callee: ExprID) -> Vec<TypeID> {
+        if let Type::Func(from, _) = &*self.types[callee].subst(&self.inst) {
+            if let Type::Tuple(params) = &**from {
+                return params.clone();
+            }
+        }
+        Vec::new()
     }
 
     /// Enforce the no-alias rule: two borrowed parameters in the same call must not
@@ -1171,27 +1315,39 @@ impl Checker {
                 continue;
             };
 
-            // Only check direct named calls — indirect calls (lambdas) can't
-            // have slice parameters (slices can't appear in function types).
-            let Expr::Id(callee_name) = &func_decl.arena[*f] else {
-                continue;
-            };
-
             // Find which parameter positions are borrowed in the callee's declaration.
             // For overloaded functions, union all borrowed positions (conservative).
-            let callee_decls = decls.find(*callee_name);
             let mut borrow_positions: Vec<(usize, bool)> = Vec::new();
-            for d in callee_decls {
-                if let Decl::Func(fd) = d {
-                    for (i, param) in fd.params.iter().enumerate() {
-                        if let Some(ty) = param.ty {
-                            let is_slice = matches!(*ty, Type::Slice(_));
-                            if matches!(*ty, Type::Slice(_) | Type::Reference(_))
-                                && !borrow_positions.iter().any(|(pos, _)| *pos == i)
-                            {
-                                borrow_positions.push((i, is_slice));
+            let mut found_decl = false;
+            if let Expr::Id(callee_name) = &func_decl.arena[*f] {
+                for d in decls.find(*callee_name) {
+                    if let Decl::Func(fd) = d {
+                        found_decl = true;
+                        for (i, param) in fd.params.iter().enumerate() {
+                            if let Some(ty) = param.ty {
+                                let is_slice = matches!(*ty, Type::Slice(_));
+                                if matches!(*ty, Type::Slice(_) | Type::Reference(_))
+                                    && !borrow_positions.iter().any(|(pos, _)| *pos == i)
+                                {
+                                    borrow_positions.push((i, is_slice));
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            // Indirect call through a fat pointer: fall back to the callee
+            // expression's solved type. Slices can't appear in function types,
+            // but references can, so this catches aliased borrowed arguments
+            // that would otherwise slip through the closure call path.
+            if !found_decl {
+                for (i, ty) in self.callee_param_types(*f).iter().enumerate() {
+                    let is_slice = matches!(**ty, Type::Slice(_));
+                    if matches!(**ty, Type::Slice(_) | Type::Reference(_))
+                        && !borrow_positions.iter().any(|(pos, _)| *pos == i)
+                    {
+                        borrow_positions.push((i, is_slice));
                     }
                 }
             }
@@ -1334,30 +1490,65 @@ impl Checker {
 
     pub fn check(&mut self, decls: &DeclTable) {
         for decl in &decls.decls {
-            self._check_decl(decl, decls);
-            if let Decl::Func(fd) | Decl::Macro(fd) = decl {
-                check_escape_in_func(fd, &mut self.errors);
-                self.check_unsolved_types(fd);
-            }
+            self.check_decl(decl, decls);
         }
     }
 
     pub fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
+        let errors_before = self.errors.len();
         self._check_decl(decl, decls);
         if let Decl::Func(fd) | Decl::Macro(fd) = decl {
             check_escape_in_func(fd, &mut self.errors);
-            self.check_unsolved_types(fd);
+            // Both post-solve passes read the same substituted types, so
+            // compute them once.
+            let solved_types = self.solved_types();
+            self.check_void_declarations(fd, &solved_types);
+            if self.errors.len() == errors_before {
+                self.check_unsolved_types(fd, &solved_types);
+            }
+        }
+    }
+
+    /// Reject variables declared with type void.
+    ///
+    /// Void isn't a value type in lyte — there's nothing to store and nothing
+    /// you can later do with the binding — so a void-typed declaration is
+    /// always a mistake. Reporting it here points at the declaration rather
+    /// than at whatever first tried to use the variable.
+    ///
+    /// Skips expressions `check_expr` never visited: those keep the Void fill
+    /// value from `check_fn_decl` and would otherwise look like void
+    /// declarations. That guard is what lets this run regardless of earlier
+    /// errors — gating on `self.errors`, which accumulates across decls, meant
+    /// one error in the first function disabled the check for every later one.
+    ///
+    /// A function that reported its own error still won't produce this
+    /// diagnostic, since `check_fn_decl` skips constraint solving there and
+    /// the declaration's type is left an unsolved type variable.
+    fn check_void_declarations(&mut self, func_decl: &FuncDecl, solved_types: &[TypeID]) {
+        for (i, expr) in func_decl.arena.exprs.iter().enumerate() {
+            let name = match expr {
+                Expr::Let(name, _, _) | Expr::Var(name, _, _) => name,
+                _ => continue,
+            };
+            if !self.visited.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            if i < solved_types.len() && matches!(&*solved_types[i], Type::Void) {
+                self.errors.push(TypeError {
+                    location: func_decl.arena.locs[i],
+                    message: format!("variable '{}' cannot have type void", name),
+                });
+            }
         }
     }
 
     /// Detect unsolved type variables in non-generic functions.
-    /// Only runs if no other errors have been reported (unsolved vars
-    /// are usually a symptom of an earlier type error).
-    fn check_unsolved_types(&mut self, func_decl: &FuncDecl) {
-        if !self.errors.is_empty() {
-            return;
-        }
-        let solved_types = self.solved_types();
+    /// The caller skips this when the function itself reported an error:
+    /// unsolved vars are usually a symptom of an earlier type error, and a
+    /// function whose constraints never got solved has nothing but unsolved
+    /// vars.
+    fn check_unsolved_types(&mut self, func_decl: &FuncDecl, solved_types: &[TypeID]) {
         let is_generic = !func_decl.typevars.is_empty();
         for (i, solved) in solved_types.iter().enumerate() {
             // For generic functions, Type::Var is expected (they have named
@@ -1391,6 +1582,53 @@ impl Checker {
     pub fn print_errors(&self) {
         for err in &self.errors {
             print_error_with_context(err.location, &err.message);
+        }
+    }
+}
+
+/// Mark which expressions have their value used, as opposed to discarded.
+///
+/// Lyte blocks evaluate to their last expression, and an assignment is an
+/// expression, so plenty of statements produce values nobody looks at. The
+/// distinction matters for if-else: when the value is used both branches have
+/// to produce the same type, and when it's discarded they don't have to
+/// produce anything at all.
+///
+/// A value is discarded in a non-final element of a block and in a loop body.
+/// Everywhere else the parent uses it, and a block's or branch's last
+/// expression inherits the position of the construct it belongs to.
+fn mark_value_positions(id: ExprID, arena: &ExprArena, used: bool, value_pos: &mut [bool]) {
+    value_pos[id] = used;
+    match &arena[id] {
+        Expr::Block(exprs) => {
+            for (i, e) in exprs.iter().enumerate() {
+                let is_last = i + 1 == exprs.len();
+                mark_value_positions(*e, arena, used && is_last, value_pos);
+            }
+        }
+        Expr::If(cond, then_expr, else_expr) => {
+            mark_value_positions(*cond, arena, true, value_pos);
+            mark_value_positions(*then_expr, arena, used, value_pos);
+            if let Some(else_expr) = else_expr {
+                mark_value_positions(*else_expr, arena, used, value_pos);
+            }
+        }
+        Expr::While(cond, body) => {
+            mark_value_positions(*cond, arena, true, value_pos);
+            mark_value_positions(*body, arena, false, value_pos);
+        }
+        Expr::For {
+            start, end, body, ..
+        } => {
+            mark_value_positions(*start, arena, true, value_pos);
+            mark_value_positions(*end, arena, true, value_pos);
+            mark_value_positions(*body, arena, false, value_pos);
+        }
+        Expr::Arena(inner) => mark_value_positions(*inner, arena, used, value_pos),
+        other => {
+            for child in other.subexprs() {
+                mark_value_positions(child, arena, true, value_pos);
+            }
         }
     }
 }

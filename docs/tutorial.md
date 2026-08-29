@@ -1365,6 +1365,8 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 
 **Modulo (`%`)** gives you the remainder left over after a division. For example, `10 % 3` is `1`, because 10 divided by 3 is 3 with 1 left over. In DSP this is useful for things like wrapping a value around a range — keeping a phase counter cycling between 0 and some maximum, for instance.
 
+`%` works on floats too, and there it behaves like C's `fmod`: the result takes the sign of the left operand, so `-0.25 % 1.0` is `-0.25`. If you want the result to take the sign of the right operand instead (so that `mod(-0.25, 1.0)` is `0.75`), use the stdlib's `mod(x, y)`.
+
 **Power (`^`)** raises a number to an exponent. For example, `2 ^ 8` is 256 (2 multiplied by itself 8 times).
 
 ### Operator precedence
@@ -1536,7 +1538,7 @@ Here are some common math helpers from `stdlib.lyte`:
 | Function | What it does |
 |----------|--------------|
 | `fract(x)` | Fractional part of `x` |
-| `mod(x, y)` | Floating-point modulo |
+| `mod(x, y)` | Floating-point modulo, result takes the sign of `y` (`%` takes the sign of `x`) |
 | `clamp(x, lo, hi)` | Clamp `x` into a range |
 | `step(edge, x)` | `0` below the edge, `1` at or above it |
 | `smoothstep(edge0, edge1, x)` | Smooth curve between two edges |

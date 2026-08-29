@@ -1,0 +1,14 @@
+// Returning a value from a function with no declared return type is an
+// error. It used to type-check and then trip the Cranelift verifier.
+
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/return_value_from_void.lyte:11:5: return type must match function return type: i32 vs void
+//         return 0
+//         ^
+
+f() {
+    return 0
+}
+
+main() { f() }

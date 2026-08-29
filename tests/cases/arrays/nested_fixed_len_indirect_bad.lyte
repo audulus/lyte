@@ -1,0 +1,54 @@
+// Recovering a length through a struct field or a local must not weaken the
+// proof: guards that are off by one are still rejected. See issue #36.
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/nested_fixed_len_indirect_bad.lyte:42:13: couldn't prove require clause `idx < buf.len` for call to `wm`
+//                 wm(voices[k].buf, i, v)
+//                 ^
+// ❌ ../tests/cases/arrays/nested_fixed_len_indirect_bad.lyte:51:13: couldn't prove require clause `idx < buf.len` for call to `wm`
+//                 wm(row, i, v)
+//                 ^
+// ❌ ../tests/cases/arrays/nested_fixed_len_indirect_bad.lyte:34:13: couldn't prove require clause `idx < buf.len` for call to `wm`
+//                 wm(bank.rows[o], i, v)
+//                 ^
+
+const OUTER_LEN = 4
+const INNER_LEN = 8
+
+struct Bank { rows: [[f32; INNER_LEN]; OUTER_LEN] }
+struct Voice { buf: [f32; INNER_LEN] }
+
+var bank: Bank
+var voices: [Voice; OUTER_LEN]
+
+wm(buf: [f32], idx: i32, value: f32)
+require idx >= 0
+require idx < buf.len
+{
+    buf[idx] = value
+}
+
+bad_struct(o: i32, i: i32, v: f32) {
+    if o >= 0 && o < OUTER_LEN {
+        if i >= 0 && i <= INNER_LEN {
+            wm(bank.rows[o], i, v)
+        }
+    }
+}
+
+bad_array_of_structs(k: i32, i: i32, v: f32) {
+    if k >= 0 && k < OUTER_LEN {
+        if i >= 0 && i < voices[k].buf.len + 1 {
+            wm(voices[k].buf, i, v)
+        }
+    }
+}
+
+bad_local(k: i32, i: i32, v: f32) {
+    if k >= 0 && k < OUTER_LEN {
+        if i >= 0 {
+            let row = bank.rows[k]
+            wm(row, i, v)
+        }
+    }
+}

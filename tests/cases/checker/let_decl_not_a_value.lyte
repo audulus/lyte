@@ -1,0 +1,15 @@
+// A `let` declaration is a statement, just like `var` — it doesn't produce a
+// value, so it can't supply the function's return value. `var` was already
+// handled; `let` used to leak the binding's type and make this compile.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/let_decl_not_a_value.lyte:11:12: return type must match function return type: void vs f32
+//     f() -> f32 { let u = 1.0 }
+//                ^
+
+f() -> f32 { let u = 1.0 }
+
+main {
+    print(f() as i32)
+}

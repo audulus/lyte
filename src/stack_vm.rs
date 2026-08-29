@@ -126,6 +126,12 @@ impl StackVM {
         self.globals.resize(program.globals_size, 0);
         self.cancelled = false;
 
+        // Nothing to run: no entry point was resolved at compile time, so
+        // program.entry is a meaningless default.
+        if !program.has_entry() {
+            return 0;
+        }
+
         let mut func_idx = program.entry;
         let (mut locals, mut lm_base) = self.enter_function(program, func_idx, &[]);
         let mut ip: usize = 0;

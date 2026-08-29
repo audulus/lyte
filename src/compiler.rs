@@ -302,6 +302,9 @@ fn rewrite_qualified_enums(arena: &mut ExprArena, decls: &DeclTable) {
 /// `Call(__add/__sub/__mul/__div, [lhs, rhs])` when the operand type is a
 /// named (struct) type. The checker resolves the overload through its Or
 /// constraint, but the JIT/VM only handle primitive types in binop codegen.
+///
+/// Float `%` is rewritten the same way: no backend has a primitive float
+/// remainder instruction, so it lowers to the stdlib's `__mod` overloads.
 fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
     let n = fdecl.arena.exprs.len();
     for i in 0..n {
@@ -310,7 +313,8 @@ fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
                 continue;
             }
             let lhs_ty = fdecl.types[lhs];
-            if matches!(*lhs_ty, Type::Name(_, _)) {
+            let is_float_mod = op == Binop::Mod && matches!(*lhs_ty, Type::Float32 | Type::Float64);
+            if matches!(*lhs_ty, Type::Name(_, _)) || is_float_mod {
                 let result_ty = fdecl.types[i];
                 let rhs_ty = fdecl.types[rhs];
                 // Build the function type: (lhs_ty, rhs_ty) -> result_ty
@@ -467,12 +471,48 @@ impl Compiler {
     }
 
     /// Returns the effective entry points (defaults to ["main"] if none set).
+    ///
+    /// These are the *requested* entry points. Entry points are optional: the
+    /// backends skip any that aren't defined, so it's up to the client to
+    /// decide whether a missing one is an error (see `missing_entry_points`).
     pub fn effective_entry_points(&self) -> Vec<Name> {
         if self.entry_points.is_empty() {
             vec![Name::new("main".into())]
         } else {
             self.entry_points.clone()
         }
+    }
+
+    /// True if `name` is declared as a top level function in the parsed source.
+    ///
+    /// Answered from the AST rather than the decl table so it is valid as soon
+    /// as the source is parsed. `check()` copies every tree decl into
+    /// `self.decls`, so the two agree once it has run; before that `self.decls`
+    /// is empty and every entry point would look missing.
+    fn entry_point_is_defined(&self, name: Name) -> bool {
+        self.ast.iter().any(|tree| {
+            tree.decls
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.name == name))
+        })
+    }
+
+    /// The effective entry points that are defined as functions.
+    pub fn found_entry_points(&self) -> Vec<Name> {
+        self.effective_entry_points()
+            .into_iter()
+            .filter(|name| self.entry_point_is_defined(*name))
+            .collect()
+    }
+
+    /// The effective entry points that are *not* defined as functions.
+    /// Clients that require an entry point should check this and report an
+    /// error; compilation itself just skips them.
+    pub fn missing_entry_points(&self) -> Vec<Name> {
+        self.effective_entry_points()
+            .into_iter()
+            .filter(|name| !self.entry_point_is_defined(*name))
+            .collect()
     }
 
     pub fn parse_file(&mut self, path: &str) {
@@ -683,10 +723,10 @@ impl Compiler {
         // Hoist loop-invariant struct field reads (after monomorphization
         // so we operate on concrete types, and after safety checking).
         {
-            let decls_snapshot = self.decls.clone();
+            let effects = crate::hoist::SideEffects::analyze(&self.decls);
             for decl in &mut self.decls.decls {
                 if let Decl::Func(ref mut fdecl) = decl {
-                    hoist_loop_invariant_fields(fdecl, &decls_snapshot);
+                    hoist_loop_invariant_fields(fdecl, &effects);
                 }
             }
         }
@@ -820,7 +860,8 @@ impl Compiler {
         }
     }
 
-    /// Compile to native code via Cranelift JIT.
+    /// Compile to native code via Cranelift JIT. Returns the code pointer of
+    /// the first entry point that's defined.
     #[cfg(feature = "cranelift")]
     pub fn jit(&self) -> Result<(*const u8, usize, JIT), String> {
         let mut jit = JIT::default();
@@ -829,7 +870,15 @@ impl Compiler {
         if self.decls.decls.is_empty() {
             return Err(String::from("No declarations to compile"));
         }
-        let (code_ptr, globals_size) = jit.compile(&self.decls)?;
+        let entry_points = self.effective_entry_points();
+        let (map, globals_size) = jit.compile_multi(&self.decls, &entry_points)?;
+        let code_ptr = entry_points
+            .iter()
+            .find_map(|name| map.get(name).copied())
+            .ok_or_else(|| match entry_points.first() {
+                Some(name) => format!("entry point function '{}' not found", name),
+                None => "no entry point to run".to_string(),
+            })?;
         Ok((code_ptr, globals_size, jit))
     }
 
@@ -934,6 +983,9 @@ impl Compiler {
     /// Run the code using the stack VM interpreter.
     pub fn run_stack(&mut self) -> Result<i64, String> {
         let program = self.compile_stack()?;
+        if program.entry_points.is_empty() {
+            return Err(self.no_entry_point_error());
+        }
         let mut vm = crate::stack_vm::StackVM::new();
         Ok(vm.run(&program))
     }
@@ -941,8 +993,19 @@ impl Compiler {
     /// Run the code using the VM interpreter.
     pub fn run_vm(&mut self) -> Result<i64, String> {
         let program = self.compile_vm()?;
+        if program.entry_points.is_empty() {
+            return Err(self.no_entry_point_error());
+        }
         let mut vm = VM::new();
         Ok(vm.run(&program))
+    }
+
+    /// Running requires an entry point, even though compiling doesn't.
+    fn no_entry_point_error(&self) -> String {
+        match self.effective_entry_points().first() {
+            Some(name) => format!("entry point function '{}' not found", name),
+            None => "no entry point to run".to_string(),
+        }
     }
 
     /// Compile to a backend-agnostic CompiledProgram.
@@ -1500,6 +1563,106 @@ mod tests {
         assert!(globals_size > 0);
 
         jit.free_memory();
+    }
+
+    #[test]
+    fn test_missing_entry_point_is_skipped_vm() {
+        // Only "init" is defined. The missing "process" entry point is not an
+        // error — it's just absent from the compiled program.
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+
+        assert_eq!(compiler.found_entry_points(), vec![Name::str("init")]);
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("process")]);
+
+        compiler.specialize().unwrap();
+        let program = compiler.compile_vm().unwrap();
+
+        assert!(program.entry_points.contains_key(&Name::str("init")));
+        assert!(!program.entry_points.contains_key(&Name::str("process")));
+
+        let mut vm = crate::vm::VM::new();
+        vm.call(&program, Name::str("init"), &[]).unwrap();
+        assert!(vm.call(&program, Name::str("process"), &[]).is_err());
+    }
+
+    #[cfg(feature = "cranelift")]
+    #[test]
+    fn test_missing_entry_point_is_skipped_jit() {
+        let code = r#"
+            var counter: i32
+
+            init {
+                counter = 10
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+        assert!(compiler.check());
+        compiler.specialize().unwrap();
+
+        let (map, _globals_size, jit) = compiler.jit_multi().unwrap();
+        assert!(map.contains_key(&Name::str("init")));
+        assert!(!map.contains_key(&Name::str("process")));
+        jit.free_memory();
+    }
+
+    #[test]
+    fn test_entry_points_reported_before_check() {
+        // found/missing_entry_points read the AST, so an embedder that asks
+        // before check() gets the real answer rather than "everything missing".
+        let code = r#"
+            init {
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        compiler.set_entry_points(&["init", "process"]);
+
+        assert_eq!(compiler.found_entry_points(), vec![Name::str("init")]);
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("process")]);
+
+        // And the answer doesn't change once check() has populated decls.
+        assert!(compiler.check());
+        assert_eq!(compiler.found_entry_points(), vec![Name::str("init")]);
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("process")]);
+    }
+
+    #[test]
+    fn test_no_entry_points_found_compiles_but_does_not_run() {
+        // A library with no entry point at all still compiles cleanly; only
+        // running requires one.
+        let code = r#"
+            helper(x: i32) -> i32 {
+                x * 2
+            }
+        "#;
+
+        let mut compiler = Compiler::new();
+        compiler.parse(code, ".");
+        assert!(compiler.check());
+        assert!(compiler.found_entry_points().is_empty());
+        assert_eq!(compiler.missing_entry_points(), vec![Name::str("main")]);
+
+        compiler.specialize().unwrap();
+        let program = compiler.compile_vm().unwrap();
+        assert!(program.entry_points.is_empty());
+
+        let err = compiler.run_vm().unwrap_err();
+        assert!(err.contains("not found"), "{}", err);
     }
 
     #[test]

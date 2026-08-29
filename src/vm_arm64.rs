@@ -230,6 +230,12 @@ impl VM {
         self.cancelled = false;
         self.trap = None;
 
+        // Nothing to run: no entry point was resolved at compile time, so
+        // program.entry is a meaningless default.
+        if !program.has_entry() {
+            return 0;
+        }
+
         // Pre-allocate call stack
         let mut call_stack = Vec::with_capacity(MAX_CALL_DEPTH);
         call_stack.resize(

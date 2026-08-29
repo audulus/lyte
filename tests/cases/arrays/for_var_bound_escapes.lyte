@@ -1,0 +1,21 @@
+// The safety checker gave the `for` variable an interval and then never took it
+// away: the snapshot restored after the loop body was taken *after* the loop
+// variable was bound, so its `0 <= i < 3` outlived the loop. Shadowing an outer
+// variable of the same name, that proved a bound for the outer one, and this
+// out-of-bounds write was accepted and executed on every backend. Same
+// unscoped-`for`-variable bug as issue #65, one pass over.
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arrays/for_var_bound_escapes.lyte:20:5: couldn't prove index is less than array length
+//         a[i] = 7
+//         ^
+
+main {
+    var a: [i32; 4]
+    var i = 100
+    for i in 0 .. 3 {
+        a[i] = i
+    }
+    // i is the outer variable again, and nothing is known about it.
+    a[i] = 7
+}

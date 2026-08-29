@@ -1,0 +1,49 @@
+// A binding that shadows a name captured from an enclosing scope must rebind
+// the name outright. `captured_vars` is consulted before the local variable
+// map on every read, so a leftover entry for the outer name sends reads of the
+// inner binding through the closure's double indirection — reading the
+// captured variable instead. Related to issue #56, which was the same stale
+// name-keyed state for local slots.
+// expected stdout:
+// compilation successful
+// 7
+// 106
+// 99
+
+struct P {
+    x: i32
+}
+
+mk(k: i32) → P {
+    var p: P
+    p.x = k
+    return p
+}
+
+apply(f: i32 → i32) → i32 {
+    f(0)
+}
+
+main {
+    var q: P
+    q.x = 99
+    var a = 0
+
+    let r = apply(|i| {
+        // Reads before the shadowing block still see the captured q.
+        a = q.x
+        var j = 0
+        while j < 1 {
+            let q = mk(7)
+            print(q.x)
+            a = a + q.x
+            j = j + 1
+        }
+        // ...and so do reads after it: the shadow ends with the block.
+        a = a + q.x - q.x
+        a
+    })
+
+    print(r)
+    print(q.x)
+}

@@ -1,0 +1,36 @@
+// Regression test for #54: a function-typed parameter shadowing a function
+// name makes the enclosing function opaque, not an edge to the same-named
+// function. `apply` calls whatever it's handed — here `inc`, which writes a
+// global — so a loop calling `apply` can't hoist that global's field.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+
+struct P {
+    x: i32
+}
+
+var g: P
+
+bump(v: i32) -> i32 {
+    v
+}
+
+inc(v: i32) -> i32 {
+    g.x = g.x + 1
+    v
+}
+
+apply(bump: i32 -> i32) -> i32 {
+    bump(0)
+}
+
+main {
+    g.x = 0
+    for i in 0 .. 3 {
+        print(g.x)
+        apply(inc)
+    }
+}

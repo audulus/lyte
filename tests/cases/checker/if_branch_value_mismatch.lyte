@@ -1,0 +1,18 @@
+// Branches of an if-else used as a value must agree. Previously the if-else
+// simply took its then-branch type and the else branch went unchecked, so this
+// type-checked as i32 and evaluated to 0 at runtime.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/if_branch_value_mismatch.lyte:12:29: if-else branches must have the same type: i32 vs f32
+//         var y = if c { 1 } else { 2.0 }
+//                                 ^
+
+g(c: bool) -> i32 {
+    var y = if c { 1 } else { 2.0 }
+    y
+}
+
+main {
+    print(g(true))
+}

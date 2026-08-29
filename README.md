@@ -415,17 +415,40 @@ Entry point handles are resolved once at compile time and called with zero overh
 
 ## Releasing
 
-Creating a release builds and publishes the xcframework automatically:
+Run the **Release xcframework** workflow from the Actions tab (or with `gh`),
+passing the version number:
 
 ```bash
-gh release create v0.12
+gh workflow run release.yml -f version=0.36
 ```
 
-This triggers the `release.yml` CI workflow which:
+Do **not** create the release or the tag by hand — the workflow creates both,
+and creating them yourself produces a release with no xcframework attached.
 
-1. Builds `CLyte.xcframework` for macOS (ARM64 + x86_64) and iOS
-2. Uploads `CLyte.xcframework.zip` as a release asset
-3. Computes the checksum and updates `Package.swift` on main
+The `release.yml` CI workflow:
+
+1. Fails fast if the version is malformed or the tag/release already exists
+2. Builds `CLyte.xcframework` for macOS (ARM64 + x86_64) and iOS
+3. Builds the Swift package against that xcframework, before publishing anything
+4. Commits the new URL + checksum to `Package.swift` on a `release/<version>` branch
+5. Creates the release and tag **at that commit**, uploading `CLyte.xcframework.zip`
+6. Clones the fresh tag and runs `swift build` against it
+7. Fast-forwards `main` onto the released commit, and deletes the staging branch
+
+The tag comes last because `Package.swift`'s `binaryTarget` has to name the URL
+and checksum of the artifact for the release being cut, so the commit updating
+it must exist before the tag does. Tagging first leaves the tag pointing at the
+previous release's xcframework, which breaks consumers who pin a version as soon
+as the Swift wrapper starts calling a newly added FFI symbol (see issue #37).
+
+`main` comes last for the mirror-image reason: a `Package.swift` on `main` naming
+an artifact that does not exist yet breaks everyone resolving by branch. Hence
+the staging branch — nothing reaches `main` until the release is published and
+verified. If a release fails or the version is wrong, the release and tag are
+deleted so the version can be re-run, and `main` was never touched.
+
+If `main` moves while the xcframework is building, the workflow aborts before
+publishing rather than tagging sources the binary was not built from. Re-run it.
 
 The xcframework is self-contained — LLVM dependencies (zstd, ffi) are statically linked into the ARM64 macOS library. Swift consumers only need system libraries (libc++, libz, libcurses).
 

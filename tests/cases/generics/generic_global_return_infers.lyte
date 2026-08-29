@@ -1,0 +1,25 @@
+// A `return` constrains its operand against the enclosing function's return
+// type, which is enough to infer T for a generic global used without ⟨T⟩ —
+// including for an early return inside a branch.
+// expected stdout:
+// compilation successful
+// 42
+// assert(true)
+// 0
+
+var pool<T>: [T; 4]
+
+get<T>(idx: i32) -> T {
+    if idx >= 0 && idx < 4 {
+        return pool[idx]
+    }
+    return pool[0]
+}
+
+main() {
+    pool⟨i32⟩[2] = 42
+    pool⟨f32⟩[2] = 1.5
+    print(get⟨i32⟩(2))
+    assert(get⟨f32⟩(2) == 1.5)
+    print(get⟨i32⟩(99))
+}

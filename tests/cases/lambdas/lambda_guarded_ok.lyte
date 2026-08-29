@@ -1,0 +1,23 @@
+// A lambda that guards its own parameter is provably safe, so the checker
+// accepts it, and the guards hold at run time on every backend.
+//
+// expected stdout:
+// compilation successful
+// -1
+// 0
+// 11
+
+main {
+    var arr: [i32; 4]
+    arr[2] = 11
+
+    // Guarded index and guarded divisor.
+    var g = (|i| if i >= 0 && i < arr.len { arr[i] } else { -1 })
+    var h = (|d| if d != 0 { 100 / d } else { 0 })
+    print(g(1000))
+    print(h(0))
+
+    // Immediately invoked: checked against the actual argument, which is
+    // known to be in bounds.
+    print((|i| arr[i])(2))
+}

@@ -1,0 +1,39 @@
+// Regression test for #54: a global of function type shadows a same-named
+// function at every call site, so the summary keyed by that name describes a
+// callee the call never reaches. Here `bump` holds `inc`, which writes `g.x`,
+// while the `bump` function writes nothing — and the call is one level down,
+// so the wrong summary would also poison `caller`'s call graph entry.
+// expected stdout:
+// compilation successful
+// 0
+// 1
+// 2
+
+struct P {
+    x: i32
+}
+
+var g: P
+var bump: i32 -> i32
+
+bump(v: i32) -> i32 {
+    v
+}
+
+inc(v: i32) -> i32 {
+    g.x = g.x + 1
+    v
+}
+
+caller() {
+    bump(0)
+}
+
+main {
+    g.x = 0
+    bump = inc
+    for i in 0 .. 3 {
+        print(g.x)
+        caller()
+    }
+}

@@ -1,0 +1,35 @@
+// Regression test for issue #22: a branch of an if-else ending in a `var`
+// declaration used to make the if-else look like it produced a value of the
+// variable's type, while codegen handed the merge block a placeholder i32 0.
+// With f32 branches that failed Cranelift verification:
+//   jump block7(v16): arg v16 has type i32, expected f32
+// A var declaration is a statement, so this if-else produces no value and
+// both branches simply fall through to the merge block.
+//
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+main {
+    var acc = 0.0
+    if acc < 1.0 {
+        acc = 2.0
+        var unused = 1.0
+    } else {
+        acc = 3.0
+        var unused = 4.0
+    }
+    assert(acc == 2.0)
+
+    // Same shape with integer branches, which used to silently yield 0.
+    var count = 0
+    if count == 0 {
+        count = 5
+        var ignored = 1
+    } else {
+        count = 6
+        var ignored = 2
+    }
+    assert(count == 5)
+}

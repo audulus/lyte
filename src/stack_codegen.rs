@@ -34,6 +34,15 @@ struct PendingCall {
     callee: Name,
 }
 
+/// A snapshot of a translator's name-keyed binding state. See
+/// `FunctionTranslator::save_bindings`.
+struct SavedBindings {
+    variables: HashMap<Name, LocalKind>,
+    variable_types: HashMap<Name, TypeID>,
+    captured_vars: HashSet<Name>,
+    captured_slots: HashMap<Name, u16>,
+}
+
 /// How a local variable is stored.
 #[derive(Clone, Copy, Debug)]
 enum LocalKind {
@@ -130,6 +139,9 @@ impl StackCodegen {
     }
 
     /// Compile multiple entry points into a StackProgram.
+    ///
+    /// Entry points that aren't defined are skipped: only the ones that were
+    /// found show up in `program.entry_points`.
     pub fn compile_multi(
         &mut self,
         decls: &DeclTable,
@@ -141,13 +153,8 @@ impl StackCodegen {
             if self.compiled_functions.contains(&ep_name) {
                 continue;
             }
-            let ep_decls = decls.find(ep_name);
-            if ep_decls.is_empty() {
-                return Err(format!("entry point function '{}' not found", ep_name));
-            }
-            let ep_decl = match &ep_decls[0] {
-                Decl::Func(d) => d,
-                _ => return Err(format!("'{}' is not a function", ep_name)),
+            let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+                continue;
             };
             self.compile_function(ep_decl, decls)?;
 
@@ -165,16 +172,17 @@ impl StackCodegen {
             }
         }
 
-        // Set entry point.
-        self.program.entry = *self
-            .func_indices
-            .get(&entry_points[0])
-            .ok_or_else(|| format!("entry point '{}' not found", entry_points[0]))?;
-
-        // Populate entry_points map.
+        // Populate entry_points map, and set program.entry to the first entry
+        // point that was actually found. If none were found, program.entry
+        // stays at its default and the map is empty.
+        let mut entry_set = false;
         for &ep_name in entry_points {
             if let Some(&idx) = self.func_indices.get(&ep_name) {
                 self.program.entry_points.insert(ep_name, idx);
+                if !entry_set {
+                    self.program.entry = idx;
+                    entry_set = true;
+                }
             }
         }
 
@@ -346,11 +354,19 @@ struct FunctionTranslator<'a> {
     /// Variables captured from an enclosing scope (double indirection).
     captured_vars: HashSet<Name>,
 
+    /// Names a lambda in this function mentions. Shared with the closure by
+    /// address, so they must be memory-backed from the start.
+    lambda_referenced: HashSet<Name>,
+
     /// Memory slot indices for captured variables (stores pointer-to-storage).
     captured_slots: HashMap<Name, u16>,
 
     /// True when the current expression's result will be discarded.
     void_ctx: bool,
+
+    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
+    /// alias the initializer's storage instead. See `crate::copy_elision`.
+    elidable_lets: HashSet<ExprID>,
 }
 
 impl<'a> FunctionTranslator<'a> {
@@ -379,8 +395,10 @@ impl<'a> FunctionTranslator<'a> {
             has_returned: false,
             loop_stack: Vec::new(),
             captured_vars: HashSet::new(),
+            lambda_referenced: decl.names_referenced_in_lambdas(),
             captured_slots: HashMap::new(),
             void_ctx: false,
+            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
         }
     }
 
@@ -538,7 +556,20 @@ impl<'a> FunctionTranslator<'a> {
         // the last expression's value is left on the stack for Return.
         let returns_void_no_sret = !has_sret && matches!(&*self.decl.ret, Type::Void);
         if let Some(body) = self.decl.body {
-            if returns_void_no_sret {
+            // A body that is itself an f32x4 computation — a lambda's
+            // expression body, say — writes into the sret buffer directly,
+            // with no result temp and no 16-byte copy.
+            let sret_vector_body = match self.output_ptr_slot {
+                Some(slot) => self.f32x4_store_op(body).map(|op| (slot, op)),
+                None => None,
+            };
+            if let Some((sret_slot, store_op)) = sret_vector_body {
+                self.emit_f32x4_operands(body, func);
+                func.emit(StackOp::LocalGet(sret_slot));
+                func.emit(store_op);
+                func.emit(StackOp::ReturnVoid);
+                self.has_returned = true;
+            } else if returns_void_no_sret {
                 self.translate_void(body, func);
             } else {
                 self.translate_expr(body, func);
@@ -608,8 +639,15 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Drop);
                 }
             }
-            // Assignment lowering already consults void_ctx and suppresses
-            // result materialization when the assigned value is dead.
+            // An f32x4 assignment in statement position: void context is
+            // what lets translate_assign send the vector ops straight at
+            // the destination instead of computing into a temp and copying
+            // 16 bytes over. Nothing is left on the stack to drop.
+            Expr::Binop(Binop::Assign, lhs_id, _)
+                if matches!(&*self.expr_type(*lhs_id), Type::Float32x4) =>
+            {
+                self.translate_expr_inner(expr, func, true);
+            }
             // Block: recurse with void context for every expression,
             // including the last. Using translate_void for the last
             // expression lets value-producing constructs (If, For, While,
@@ -794,7 +832,22 @@ impl<'a> FunctionTranslator<'a> {
                 let init = *init;
                 let ty = self.expr_type(expr);
 
-                if !self.is_ptr_type(&ty) {
+                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(&name) {
+                    // Captured by a lambda: memory-backed from the start.
+                    self.translate_expr(init, func);
+                    let tmp = self.alloc_scalar();
+                    self.emit_local_set(&ty, tmp, func);
+                    let mem_slot = self.alloc_memory(self.vm_type_size(&ty));
+                    func.emit(StackOp::LocalAddr(mem_slot));
+                    self.emit_local_get(&ty, tmp, func);
+                    self.emit_store_op(&ty, func);
+                    self.shadow_outer_binding(&name);
+                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
+                    if !self.void_ctx {
+                        self.emit_local_get(&ty, tmp, func);
+                    }
+                } else if !self.is_ptr_type(&ty) {
                     // Scalar: translate init, store in local.
                     self.translate_expr(init, func);
                     let local = self.alloc_scalar();
@@ -803,8 +856,31 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         self.emit_local_tee(&ty, local, func);
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
+                } else if crate::copy_elision::is_value_aggregate(&ty)
+                    && !self.elidable_lets.contains(&expr)
+                {
+                    // `let` binds aggregates by value, so the initializer's
+                    // storage has to be copied — otherwise a slice coerced from
+                    // the binding writes back into the source. Same shape as
+                    // `var`, which has always copied.
+                    self.translate_expr(init, func);
+                    self.emit_wrap_for_expected_slice(ty, init, func);
+                    let size = self.vm_type_size(&ty);
+                    let mem_slot = self.alloc_memory(size);
+                    let tmp = self.alloc_scalar();
+                    func.emit(StackOp::LocalSet(tmp));
+                    func.emit(StackOp::LocalAddr(mem_slot));
+                    func.emit(StackOp::LocalGet(tmp));
+                    func.emit(StackOp::MemCopy(size));
+                    self.shadow_outer_binding(&name);
+                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
+                    if !self.void_ctx {
+                        func.emit(StackOp::LocalAddr(mem_slot));
+                    }
                 } else {
                     // Pointer-represented let bindings carry the address value.
                     self.translate_expr(init, func);
@@ -815,6 +891,7 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         func.emit(StackOp::LocalTee(local));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
                 }
@@ -825,7 +902,25 @@ impl<'a> FunctionTranslator<'a> {
                 let init = *init;
                 let ty = self.expr_type(expr);
 
-                if !self.is_ptr_type(&ty) {
+                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(&name) {
+                    // Captured by a lambda: memory-backed from the start.
+                    let size = self.vm_type_size(&ty);
+                    let mem_slot = self.alloc_memory(size);
+                    if let Some(init_id) = init {
+                        self.translate_expr(init_id, func);
+                        let tmp = self.alloc_scalar();
+                        self.emit_local_set(&ty, tmp, func);
+                        func.emit(StackOp::LocalAddr(mem_slot));
+                        self.emit_local_get(&ty, tmp, func);
+                        self.emit_store_op(&ty, func);
+                    } else {
+                        func.emit(StackOp::LocalAddr(mem_slot));
+                        func.emit(StackOp::MemZero(size));
+                    }
+                    self.shadow_outer_binding(&name);
+                    self.variables.insert(name, LocalKind::Memory(mem_slot));
+                    self.variable_types.insert(name, ty);
+                } else if !self.is_ptr_type(&ty) {
                     let local = self.alloc_scalar();
                     if let Some(init_id) = init {
                         if !self.try_emit_binop_set(local, init_id, func) {
@@ -839,12 +934,37 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::I64Const(0));
                         func.emit(StackOp::LocalSet(local));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Scalar(local));
                     self.variable_types.insert(name, ty);
                 } else {
                     let size = self.vm_type_size(&ty);
                     let mem_slot = self.alloc_memory(size);
                     if let Some(init_id) = init {
+                        // An f32x4 initializer computes into the variable's
+                        // own storage — no temp, no 16-byte copy.
+                        if matches!(&*ty, Type::Float32x4) && self.f32x4_slot_form(init_id) {
+                            self.emit_f32x4_into_slot(init_id, mem_slot, func);
+                            self.shadow_outer_binding(&name);
+                            self.variables.insert(name, LocalKind::Memory(mem_slot));
+                            self.variable_types.insert(name, ty);
+                            if !self.void_ctx {
+                                func.emit(StackOp::I64Const(0));
+                            }
+                            return;
+                        }
+                        if let Some(store_op) = self.f32x4_store_op(init_id) {
+                            self.emit_f32x4_operands(init_id, func);
+                            func.emit(StackOp::LocalAddr(mem_slot));
+                            func.emit(store_op);
+                            self.shadow_outer_binding(&name);
+                            self.variables.insert(name, LocalKind::Memory(mem_slot));
+                            self.variable_types.insert(name, ty);
+                            if !self.void_ctx {
+                                func.emit(StackOp::I64Const(0));
+                            }
+                            return;
+                        }
                         self.translate_expr(init_id, func);
                         self.emit_wrap_for_expected_slice(ty, init_id, func);
                         let tmp = self.alloc_scalar();
@@ -856,6 +976,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalAddr(mem_slot));
                         func.emit(StackOp::MemZero(size));
                     }
+                    self.shadow_outer_binding(&name);
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
                     self.variable_types.insert(name, ty);
                 }
@@ -872,8 +993,7 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::I64Const(0));
                     }
                 } else {
-                    let saved_vars = self.variables.clone();
-                    let saved_types = self.variable_types.clone();
+                    let saved = self.save_bindings();
                     for (i, &expr_id) in exprs.iter().enumerate() {
                         if i < exprs.len() - 1 {
                             // Intermediate expressions: void context.
@@ -886,8 +1006,7 @@ impl<'a> FunctionTranslator<'a> {
                             self.translate_expr(expr_id, func);
                         }
                     }
-                    self.variables = saved_vars;
-                    self.variable_types = saved_types;
+                    self.restore_bindings(saved);
                 }
             }
 
@@ -918,6 +1037,19 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Return(expr_id) => {
                 let expr_id = *expr_id;
                 let ret_ty = self.expr_type(expr_id);
+
+                // An f32x4 result computes straight into the sret buffer.
+                if let Some(sret_slot) = self.output_ptr_slot {
+                    if let Some(store_op) = self.f32x4_store_op(expr_id) {
+                        self.emit_f32x4_operands(expr_id, func);
+                        func.emit(StackOp::LocalGet(sret_slot));
+                        func.emit(store_op);
+                        func.emit(StackOp::ReturnVoid);
+                        self.has_returned = true;
+                        return;
+                    }
+                }
+
                 self.translate_expr(expr_id, func);
 
                 if returns_via_pointer(ret_ty) {
@@ -1002,7 +1134,7 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalSet(val_local));
                     for i in 0..count {
                         let offset = i * elem_size;
-                        func.emit(StackOp::LocalAddr(mem_slot));
+                        self.emit_dest_addr(mem_slot, &elem_ty, offset, func);
                         func.emit(StackOp::LocalGet(val_local));
                         self.emit_store_offset(&elem_ty, offset, func);
                     }
@@ -1047,6 +1179,37 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Forget everything known about an outer binding of `name`, so a new
+    /// binding that shadows it is a clean rebinding. Reads consult
+    /// `captured_vars` before `variables`, so a leftover entry sends them
+    /// through the enclosing scope's indirection instead of to this binding.
+    /// Block scope saves and restores these, so the outer binding's state
+    /// comes back at block exit.
+    fn shadow_outer_binding(&mut self, name: &Name) {
+        self.captured_vars.remove(name);
+        self.captured_slots.remove(name);
+    }
+
+    /// Snapshot every name-keyed binding fact, to be restored when the scope
+    /// that shadowed it ends. Blocks and `for` loops both need this: a binding
+    /// made inside one must stop being visible when it ends, and an outer
+    /// binding of the same name must come back.
+    fn save_bindings(&self) -> SavedBindings {
+        SavedBindings {
+            variables: self.variables.clone(),
+            variable_types: self.variable_types.clone(),
+            captured_vars: self.captured_vars.clone(),
+            captured_slots: self.captured_slots.clone(),
+        }
+    }
+
+    fn restore_bindings(&mut self, saved: SavedBindings) {
+        self.variables = saved.variables;
+        self.variable_types = saved.variable_types;
+        self.captured_vars = saved.captured_vars;
+        self.captured_slots = saved.captured_slots;
+    }
+
     /// Translate an identifier reference.
     fn translate_id(&mut self, name: Name, expr: ExprID, func: &mut StackFunction) {
         let ty = self.expr_type(expr);
@@ -1056,8 +1219,13 @@ impl<'a> FunctionTranslator<'a> {
             let addr_local = *self.captured_slots.get(&name).unwrap();
             // Load the pointer to the captured variable's storage.
             func.emit(StackOp::LocalGet(addr_local));
-            // Load the value through the pointer.
-            self.emit_load(&ty, func);
+            // Aggregates and slices are represented by their address, and the
+            // captured pointer already is that address — dereferencing it would
+            // yield the first word of the value.
+            if !self.is_ptr_type(&ty) {
+                // Load the value through the pointer.
+                self.emit_load(&ty, func);
+            }
             return;
         }
 
@@ -1122,6 +1290,188 @@ impl<'a> FunctionTranslator<'a> {
         func.emit(StackOp::I64Const(0));
     }
 
+    /// The store-form vector op for an f32x4-producing expression, or
+    /// `None` if this isn't an expression the f32x4 ops can compute
+    /// straight into a caller-supplied destination.
+    ///
+    /// Callers pair this with [`Self::emit_f32x4_operands`]: emit the
+    /// operands, push the destination address, then emit this op. That
+    /// writes the result into the destination directly, skipping the
+    /// temporary frame slot and the 16-byte copy the generic
+    /// pointer-represented path would otherwise need.
+    fn f32x4_store_op(&self, expr: ExprID) -> Option<StackOp> {
+        if !matches!(&*self.expr_type(expr), Type::Float32x4) {
+            return None;
+        }
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(op, lhs_id, _) => {
+                if !matches!(&*self.expr_type(*lhs_id), Type::Float32x4) {
+                    return None;
+                }
+                match op {
+                    Binop::Plus => Some(StackOp::F32x4AddStore),
+                    Binop::Minus => Some(StackOp::F32x4SubStore),
+                    Binop::Mult => Some(StackOp::F32x4MulStore),
+                    Binop::Div => Some(StackOp::F32x4DivStore),
+                    _ => None,
+                }
+            }
+            Expr::Unop(Unop::Neg, arg_id) => {
+                if matches!(&*self.expr_type(*arg_id), Type::Float32x4) {
+                    Some(StackOp::F32x4NegStore)
+                } else {
+                    None
+                }
+            }
+            Expr::Call(fn_id, arg_ids) => {
+                if self.holds_fat_pointer(*fn_id) {
+                    return None;
+                }
+                let Expr::Id(name) = &self.decl.arena.exprs[*fn_id] else {
+                    return None;
+                };
+                match (name.as_str(), arg_ids.len()) {
+                    ("f32x4", 4) => Some(StackOp::F32x4BuildStore),
+                    ("f32x4_splat", 1) => Some(StackOp::F32x4SplatStore),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// True if `expr` is an f32x4 computation the three-address vector ops
+    /// can evaluate entirely between frame slots: a memory-backed local, or
+    /// an arithmetic node whose operands are themselves in that shape.
+    ///
+    /// Everything admitted here is a pure read of a frame slot, so the
+    /// operands can be evaluated in any order and a destination that
+    /// aliases an operand is safe — the final op is the only write.
+    fn f32x4_slot_form(&self, expr: ExprID) -> bool {
+        if !matches!(&*self.expr_type(expr), Type::Float32x4) {
+            return false;
+        }
+        if self.get_memory_slot(expr).is_some() {
+            return true;
+        }
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(op, lhs_id, rhs_id) => {
+                matches!(op, Binop::Plus | Binop::Minus | Binop::Mult | Binop::Div)
+                    && self.f32x4_slot_form(*lhs_id)
+                    && self.f32x4_slot_form(*rhs_id)
+            }
+            Expr::Unop(Unop::Neg, arg_id) => self.f32x4_slot_form(*arg_id),
+            _ => false,
+        }
+    }
+
+    /// The operands of `expr` if it is an f32x4 multiplication.
+    fn f32x4_mul_operands(&self, expr: ExprID) -> Option<(ExprID, ExprID)> {
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(Binop::Mult, lhs_id, rhs_id)
+                if matches!(&*self.expr_type(expr), Type::Float32x4) =>
+            {
+                Some((*lhs_id, *rhs_id))
+            }
+            _ => None,
+        }
+    }
+
+    /// The frame slot holding `expr`, computing it into a fresh temp slot
+    /// first when it isn't already a memory-backed local. Only valid when
+    /// [`Self::f32x4_slot_form`] holds.
+    fn f32x4_operand_slot(&mut self, expr: ExprID, func: &mut StackFunction) -> u16 {
+        if let Some(slot) = self.get_memory_slot(expr) {
+            return slot;
+        }
+        let tmp = self.alloc_memory(16);
+        self.emit_f32x4_into_slot(expr, tmp, func);
+        tmp
+    }
+
+    /// Emit `expr` computed into 16-byte frame slot `dst` using the
+    /// three-address vector ops. Only valid when [`Self::f32x4_slot_form`]
+    /// holds for `expr`.
+    fn emit_f32x4_into_slot(&mut self, expr: ExprID, dst: u16, func: &mut StackFunction) {
+        // A bare local: the caller wanted the value in `dst`, so copy it.
+        if let Some(src) = self.get_memory_slot(expr) {
+            if src != dst {
+                func.emit(StackOp::LocalAddr(dst));
+                func.emit(StackOp::LocalAddr(src));
+                func.emit(StackOp::MemCopy(16));
+            }
+            return;
+        }
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(op, lhs_id, rhs_id) => {
+                let (op, lhs_id, rhs_id) = (*op, *lhs_id, *rhs_id);
+                // `a * b + c`, `c + a * b` and `a * b - c` each collapse to
+                // one multiply-accumulate.
+                let mul_add = match op {
+                    Binop::Plus => self
+                        .f32x4_mul_operands(lhs_id)
+                        .map(|(a, b)| (a, b, rhs_id, false))
+                        .or_else(|| {
+                            self.f32x4_mul_operands(rhs_id)
+                                .map(|(a, b)| (a, b, lhs_id, false))
+                        }),
+                    Binop::Minus => self
+                        .f32x4_mul_operands(lhs_id)
+                        .map(|(a, b)| (a, b, rhs_id, true)),
+                    _ => None,
+                };
+                if let Some((a_id, b_id, c_id, is_sub)) = mul_add {
+                    let a = self.f32x4_operand_slot(a_id, func);
+                    let b = self.f32x4_operand_slot(b_id, func);
+                    let c = self.f32x4_operand_slot(c_id, func);
+                    func.emit(if is_sub {
+                        StackOp::F32x4MulSubSet(a, b, c, dst)
+                    } else {
+                        StackOp::F32x4MulAddSet(a, b, c, dst)
+                    });
+                    return;
+                }
+                let a = self.f32x4_operand_slot(lhs_id, func);
+                let b = self.f32x4_operand_slot(rhs_id, func);
+                func.emit(match op {
+                    Binop::Plus => StackOp::F32x4Add3(a, b, dst),
+                    Binop::Minus => StackOp::F32x4Sub3(a, b, dst),
+                    Binop::Mult => StackOp::F32x4Mul3(a, b, dst),
+                    Binop::Div => StackOp::F32x4Div3(a, b, dst),
+                    _ => unreachable!("f32x4_slot_form admitted a non-arithmetic binop"),
+                });
+            }
+            Expr::Unop(Unop::Neg, arg_id) => {
+                let arg_id = *arg_id;
+                let a = self.f32x4_operand_slot(arg_id, func);
+                func.emit(StackOp::F32x4Neg2(a, dst));
+            }
+            _ => unreachable!("emit_f32x4_into_slot on a non-slot-form expression"),
+        }
+    }
+
+    /// Push the operands of an expression [`Self::f32x4_store_op`]
+    /// accepted, leaving the destination address to the caller.
+    fn emit_f32x4_operands(&mut self, expr: ExprID, func: &mut StackFunction) {
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(_, lhs_id, rhs_id) => {
+                let (lhs_id, rhs_id) = (*lhs_id, *rhs_id);
+                self.translate_expr(lhs_id, func);
+                self.translate_expr(rhs_id, func);
+            }
+            Expr::Unop(_, arg_id) => {
+                let arg_id = *arg_id;
+                self.translate_expr(arg_id, func);
+            }
+            Expr::Call(_, arg_ids) => {
+                for arg_id in arg_ids.clone() {
+                    self.translate_expr(arg_id, func);
+                }
+            }
+            _ => unreachable!("emit_f32x4_operands on a non-vector expression"),
+        }
+    }
+
     /// Translate a binary operation.
     fn translate_binop(
         &mut self,
@@ -1139,43 +1489,19 @@ impl<'a> FunctionTranslator<'a> {
 
         let ty = self.expr_type(lhs_id);
 
-        // f32x4 SIMD ops — emit element-wise using the F-window.
+        // f32x4 SIMD ops — one vector instruction, result in a fresh
+        // 16-byte frame slot whose address is left on the stack.
         if matches!(&*ty, Type::Float32x4) {
             self.translate_expr(lhs_id, func);
             self.translate_expr(rhs_id, func);
             let mem_slot = self.alloc_memory(16);
-            let lhs_local = self.alloc_scalar();
-            let rhs_local = self.alloc_scalar();
-            func.emit(StackOp::LocalSet(rhs_local));
-            func.emit(StackOp::LocalSet(lhs_local));
-            let fop = match op {
-                Binop::Plus => StackOp::FAddF,
-                Binop::Minus => StackOp::FSubF,
-                Binop::Mult => StackOp::FMulF,
-                Binop::Div => StackOp::FDivF,
+            func.emit(match op {
+                Binop::Plus => StackOp::F32x4Add(mem_slot),
+                Binop::Minus => StackOp::F32x4Sub(mem_slot),
+                Binop::Mult => StackOp::F32x4Mul(mem_slot),
+                Binop::Div => StackOp::F32x4Div(mem_slot),
                 _ => panic!("unsupported f32x4 binop: {:?}", op),
-            };
-            for lane in 0..4i32 {
-                let off = lane * 4;
-                func.emit(StackOp::LocalGet(lhs_local));
-                func.emit(StackOp::LoadF32OffF(off));
-                func.emit(StackOp::LocalGet(rhs_local));
-                func.emit(StackOp::LoadF32OffF(off));
-                func.emit(fop.clone());
-                // Store the f32 result through the F-window to
-                // locals[mem_slot + off] — the StoreF32OffF handler
-                // pops an address from the int TOS and a float from
-                // the F TOS, so push the address first.
-                func.emit(StackOp::LocalAddr(mem_slot));
-                // We need the address BELOW the value for StoreF32OffF.
-                // The F-window value is on top of f-window; we pushed
-                // the address AFTER the arithmetic, which means the
-                // order is (int addr, f-window value). StoreF32OffF
-                // pops both independently from their windows, so
-                // order doesn't matter across windows.
-                func.emit(StackOp::StoreF32OffF(off));
-            }
-            func.emit(StackOp::LocalAddr(mem_slot));
+            });
             return;
         }
 
@@ -1205,7 +1531,14 @@ impl<'a> FunctionTranslator<'a> {
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::UDiv),
                 _ => func.emit(StackOp::IDiv),
             },
-            Binop::Mod => func.emit(StackOp::IRem),
+            // Float `%` is lowered to a call to the stdlib's `__mod` before
+            // codegen, so only integer operands reach here.
+            Binop::Mod => match &*ty {
+                Type::Float32 | Type::Float64 | Type::Float32x4 => {
+                    unreachable!("type {:?} not supported for modulo", ty)
+                }
+                _ => func.emit(StackOp::IRem),
+            },
             Binop::Pow => match &*ty {
                 Type::Float32 => func.emit(StackOp::FPowF),
                 Type::Float64 => func.emit(StackOp::DPowD),
@@ -1397,6 +1730,26 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
+        // f32x4 assignment: compute the vector straight into the
+        // destination, skipping the temp slot and the 16-byte copy the
+        // generic path below would emit.
+        if self.void_ctx {
+            // Destination and operands all in frame slots: the three-address
+            // ops compute between slots with nothing on the operand stack.
+            if let Some(dst) = self.get_memory_slot(lhs_id) {
+                if self.f32x4_slot_form(rhs_id) {
+                    self.emit_f32x4_into_slot(rhs_id, dst, func);
+                    return;
+                }
+            }
+            if let Some(store_op) = self.f32x4_store_op(rhs_id) {
+                self.emit_f32x4_operands(rhs_id, func);
+                self.translate_lvalue(lhs_id, func);
+                func.emit(store_op);
+                return;
+            }
+        }
+
         // General assignment: compute rhs, compute lvalue address, store.
         // Optimization: if RHS is a simple local variable, reuse it directly
         // instead of creating a temp (avoids get_set + get pattern).
@@ -1572,6 +1925,16 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_lvalue(arr_id, func);
                 let arr_ty = self.representation_type(arr_id);
 
+                // f32x4 lane store: the lane address is base + idx * 4.
+                // The lane index is in 0..4: the safety checker proves it.
+                if matches!(&*arr_ty, Type::Float32x4) {
+                    self.translate_expr(idx_id, func);
+                    func.emit(StackOp::I64Const(4));
+                    func.emit(StackOp::IMul);
+                    func.emit(StackOp::IAdd);
+                    return;
+                }
+
                 let (elem_ty, is_slice) = match &*arr_ty {
                     Type::Array(elem_ty, _) => (*elem_ty, false),
                     Type::Slice(elem_ty) => (*elem_ty, true),
@@ -1602,21 +1965,11 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_unop(&mut self, op: Unop, arg_id: ExprID, func: &mut StackFunction) {
         let ty = self.expr_type(arg_id);
 
-        // f32x4 negation — element-wise via the F-window.
+        // f32x4 negation — one vector instruction.
         if op == Unop::Neg && matches!(&*ty, Type::Float32x4) {
             self.translate_expr(arg_id, func);
-            let src_local = self.alloc_scalar();
-            func.emit(StackOp::LocalSet(src_local));
             let mem_slot = self.alloc_memory(16);
-            for lane in 0..4i32 {
-                let off = lane * 4;
-                func.emit(StackOp::LocalGet(src_local));
-                func.emit(StackOp::LoadF32OffF(off));
-                func.emit(StackOp::FNegF);
-                func.emit(StackOp::LocalAddr(mem_slot));
-                func.emit(StackOp::StoreF32OffF(off));
-            }
-            func.emit(StackOp::LocalAddr(mem_slot));
+            func.emit(StackOp::F32x4Neg(mem_slot));
             return;
         }
 
@@ -1645,28 +1998,8 @@ impl<'a> FunctionTranslator<'a> {
         call_expr: ExprID,
         func: &mut StackFunction,
     ) {
-        // Check if it's a local variable (lambda/function pointer) — use CallClosure.
-        let is_local_var = if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
-            self.variables.contains_key(name)
-        } else {
-            false
-        };
-
-        if is_local_var {
-            // Push arguments first, then the fat pointer address.
-            for arg_id in arg_ids {
-                self.translate_expr(*arg_id, func);
-            }
-            self.translate_expr(fn_id, func); // pushes fat_ptr_addr
-            func.emit(StackOp::CallClosure {
-                args: arg_ids.len() as u8,
-            });
-            // Closure over a void function leaves no return value on the
-            // stack; push a placeholder so translate_call's +1 invariant
-            // holds.
-            if matches!(&*self.expr_type(call_expr), Type::Void) {
-                func.emit(StackOp::I64Const(0));
-            }
+        if self.holds_fat_pointer(fn_id) {
+            self.translate_closure_call(fn_id, arg_ids, call_expr, func);
             return;
         }
 
@@ -1706,30 +2039,22 @@ impl<'a> FunctionTranslator<'a> {
                 return;
             }
 
-            // f32x4 constructor. Each arg is an f32 in the float window.
+            // f32x4 constructor. The four lanes are pushed onto the float
+            // window in order, and one op packs them into a frame slot.
             if *name == "f32x4" && arg_ids.len() == 4 {
-                let mem_slot = self.alloc_memory(16);
-                for (i, arg_id) in arg_ids.iter().enumerate() {
-                    func.emit(StackOp::LocalAddr(mem_slot));
+                for arg_id in arg_ids.iter() {
                     self.translate_expr(*arg_id, func);
-                    func.emit(StackOp::StoreF32OffF((i * 4) as i32));
                 }
-                func.emit(StackOp::LocalAddr(mem_slot));
+                let mem_slot = self.alloc_memory(16);
+                func.emit(StackOp::F32x4Build(mem_slot));
                 return;
             }
 
             // f32x4_splat. Arg is an f32 in the float window.
             if *name == "f32x4_splat" && arg_ids.len() == 1 {
                 self.translate_expr(arg_ids[0], func);
-                let val_local = self.alloc_scalar();
-                func.emit(StackOp::LocalSetF(val_local));
                 let mem_slot = self.alloc_memory(16);
-                for i in 0..4 {
-                    func.emit(StackOp::LocalAddr(mem_slot));
-                    func.emit(StackOp::LocalGetF(val_local));
-                    func.emit(StackOp::StoreF32OffF((i * 4) as i32));
-                }
-                func.emit(StackOp::LocalAddr(mem_slot));
+                func.emit(StackOp::F32x4Splat(mem_slot));
                 return;
             }
 
@@ -2050,15 +2375,115 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Indirect call via expression.
-        for arg_id in arg_ids {
-            self.translate_expr(*arg_id, func);
+        self.translate_closure_call(fn_id, arg_ids, call_expr, func);
+    }
+
+    /// Translate a call through a fat pointer (lambda, closure or function
+    /// pointer). Mirrors the direct-call ABI: an sret output pointer is passed
+    /// as the first argument, `Reference` params are passed by address, and
+    /// sized arrays are wrapped as slices where the callee expects one.
+    fn translate_closure_call(
+        &mut self,
+        fn_id: ExprID,
+        arg_ids: &[ExprID],
+        call_expr: ExprID,
+        func: &mut StackFunction,
+    ) {
+        let ret_ty = self.expr_type(call_expr);
+        let output_slot = if returns_via_pointer(ret_ty) {
+            let size = ret_ty.size(self.decls) as u32;
+            Some(self.alloc_memory(size))
+        } else {
+            None
+        };
+
+        // Push the output pointer as the first argument if sret.
+        if let Some(slot) = output_slot {
+            func.emit(StackOp::LocalAddr(slot));
         }
+
+        // Push arguments, then the fat pointer address.
+        self.push_closure_args(fn_id, arg_ids, func);
         self.translate_expr(fn_id, func); // pushes fat_ptr_addr
-        func.emit(StackOp::CallClosure {
-            args: arg_ids.len() as u8,
-        });
-        if matches!(&*self.expr_type(call_expr), Type::Void) {
-            func.emit(StackOp::I64Const(0));
+
+        let args = arg_ids.len() as u8 + u8::from(output_slot.is_some());
+        func.emit(StackOp::CallClosure { args });
+
+        if let Some(slot) = output_slot {
+            // sret callees return void; the result is the output storage.
+            func.emit(StackOp::LocalAddr(slot));
+        } else {
+            self.bridge_call_result(call_expr, func);
+        }
+    }
+
+    /// True when the callee expression names storage holding a fat pointer
+    /// {func_idx, closure_ptr} — a local variable or a function-typed global —
+    /// rather than naming a function declaration. Such calls go through
+    /// `translate_closure_call` instead of the direct-call path.
+    fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
+        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
+            return false;
+        };
+        if self.variables.contains_key(name) {
+            return true;
+        }
+        // Extern functions live in globals memory too, but they are called
+        // through the direct-call path.
+        self.globals.contains_key(name)
+            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
+            && !self
+                .decls
+                .find(*name)
+                .iter()
+                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
+    }
+
+    /// Parameter types of a callee reached through a fat pointer, taken from
+    /// the function expression's solved type.
+    fn closure_param_types(&self, fn_id: ExprID) -> Vec<TypeID> {
+        if let Type::Func(from, _) = &*self.expr_type(fn_id) {
+            if let Type::Tuple(param_types) = &**from {
+                return param_types.clone();
+            }
+        }
+        vec![]
+    }
+
+    /// Push the arguments for a `CallClosure`. Like `op_call`, `op_call_closure`
+    /// copies args out of the int TOS window, so f32/f64 args that rode through
+    /// the float window have to be bridged back to their bit pattern.
+    fn push_closure_args(&mut self, fn_id: ExprID, arg_ids: &[ExprID], func: &mut StackFunction) {
+        let param_types = self.closure_param_types(fn_id);
+        for (i, arg_id) in arg_ids.iter().enumerate() {
+            let param_ty = param_types.get(i).copied();
+            if param_ty.is_some_and(|t| matches!(&*t, Type::Reference(_))) {
+                self.translate_lvalue(*arg_id, func);
+            } else {
+                self.translate_expr(*arg_id, func);
+                match &*self.expr_type(*arg_id) {
+                    Type::Float32 => func.emit(StackOp::FToBitsF),
+                    Type::Float64 => func.emit(StackOp::DToBitsD),
+                    _ => {}
+                }
+            }
+            if param_ty.is_some_and(|t| matches!(&*t, Type::Slice(_))) {
+                let actual_ty = self.representation_type(*arg_id);
+                self.emit_wrap_as_slice(actual_ty, func);
+            }
+        }
+    }
+
+    /// Fix up the result of a `CallClosure`. Void calls leave nothing on the
+    /// operand stack, so push a placeholder to keep translate_call's +1
+    /// invariant. Float returns come back through t0 (the int window) and must
+    /// be bridged into the float/double window.
+    fn bridge_call_result(&mut self, call_expr: ExprID, func: &mut StackFunction) {
+        match &*self.expr_type(call_expr) {
+            Type::Void => func.emit(StackOp::I64Const(0)),
+            Type::Float32 => func.emit(StackOp::BitsToFF),
+            Type::Float64 => func.emit(StackOp::BitsToDD),
+            _ => {}
         }
     }
 
@@ -2188,12 +2613,36 @@ impl<'a> FunctionTranslator<'a> {
         self.translate_expr(start_id, func);
         let loop_var = self.alloc_scalar();
         func.emit(StackOp::LocalSet(loop_var));
-        self.variables.insert(var, LocalKind::Scalar(loop_var));
 
-        // Translate end expression and save it.
+        // Translate end expression and save it. Both bounds are outside the
+        // loop variable's scope, so they still see any outer binding of the
+        // same name.
         self.translate_expr(end_id, func);
         let end_local = self.alloc_scalar();
         func.emit(StackOp::LocalSet(end_local));
+
+        // The counter is a scalar bound to `var` for the duration of the loop.
+        // Shadowing an outer binding has to forget the outer binding's
+        // name-keyed state, and the snapshot brings it back at loop exit, where
+        // the loop variable is out of scope again.
+        let saved = self.save_bindings();
+        let int_ty = mk_type(Type::Int32);
+        self.shadow_outer_binding(&var);
+        let counter_mem = if self.lambda_referenced.contains(&var) {
+            // A lambda shares the counter by address, so it needs memory of
+            // its own, allocated up front the way `let` and `var` do it.
+            // Letting `emit_var_address` spill it lazily instead would put the
+            // store at the capture site, which can sit on a conditionally-
+            // executed path — iterations that don't reach it would then read
+            // unwritten memory.
+            let mem_slot = self.alloc_memory(self.vm_type_size(&int_ty));
+            self.variables.insert(var, LocalKind::Memory(mem_slot));
+            Some(mem_slot)
+        } else {
+            self.variables.insert(var, LocalKind::Scalar(loop_var));
+            None
+        };
+        self.variable_types.insert(var, int_ty);
 
         let loop_start = func.pos();
 
@@ -2212,8 +2661,18 @@ impl<'a> FunctionTranslator<'a> {
             break_patches: Vec::new(),
         });
 
+        // A counter that lives in memory is refreshed from the scalar local at
+        // the top of every iteration. The loop variable is immutable, so
+        // nothing ever writes back the other way.
+        if let Some(mem_slot) = counter_mem {
+            func.emit(StackOp::LocalAddr(mem_slot));
+            self.emit_local_get(&int_ty, loop_var, func);
+            self.emit_store_op(&int_ty, func);
+        }
+
         // Execute body in void context.
         self.translate_void(body_id, func);
+        self.restore_bindings(saved);
 
         // Increment position (continue target).
         let increment_pos = func.pos();
@@ -2437,10 +2896,10 @@ impl<'a> FunctionTranslator<'a> {
             let elem_size = elem_ty.size(self.decls);
             let elem_ty = *elem_ty;
             for (i, &elem_id) in elements.iter().enumerate() {
-                func.emit(StackOp::LocalAddr(mem_slot));
+                let offset = (i as i32) * elem_size;
+                self.emit_dest_addr(mem_slot, &elem_ty, offset, func);
                 self.translate_expr(elem_id, func);
                 self.emit_wrap_for_expected_slice(elem_ty, elem_id, func);
-                let offset = (i as i32) * elem_size;
                 self.emit_store_offset(&elem_ty, offset, func);
             }
         }
@@ -2476,7 +2935,7 @@ impl<'a> FunctionTranslator<'a> {
                 for (fname, fval) in fields {
                     let offset = s.field_offset(fname, self.decls, &inst);
                     let field_ty = self.expr_type(*fval);
-                    func.emit(StackOp::LocalAddr(mem_slot));
+                    self.emit_dest_addr(mem_slot, &field_ty, offset, func);
                     self.translate_expr(*fval, func);
                     self.emit_store_offset(&field_ty, offset, func);
                 }
@@ -2496,7 +2955,7 @@ impl<'a> FunctionTranslator<'a> {
             let mut offset = 0;
             for (i, &elem_id) in elements.iter().enumerate() {
                 let elem_ty = &elem_types[i];
-                func.emit(StackOp::LocalAddr(mem_slot));
+                self.emit_dest_addr(mem_slot, elem_ty, offset, func);
                 self.translate_expr(elem_id, func);
                 self.emit_store_offset(elem_ty, offset, func);
                 offset += elem_ty.size(self.decls);
@@ -2745,82 +3204,26 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// Push the destination address for storing a value of type `ty` at
+    /// `offset` within `slot`, ready for a following `emit_store_offset`.
+    /// Composite types are stored with MemCopy, which has no offset operand,
+    /// so the offset is folded into the address here.
+    fn emit_dest_addr(&self, slot: u16, ty: &TypeID, offset: i32, func: &mut StackFunction) {
+        func.emit(StackOp::LocalAddr(slot));
+        if self.is_ptr_type(ty) && offset != 0 {
+            func.emit(StackOp::IAddImm(offset));
+        }
+    }
+
     /// Emit a store with offset. Stack: [base, value] -> [].
+    /// For composite types the base must already include the offset — see
+    /// `emit_dest_addr`, which the aggregate-literal callers use.
     fn emit_store_offset(&self, ty: &TypeID, offset: i32, func: &mut StackFunction) {
         if self.is_ptr_type(ty) {
-            // For pointer types: source is an address, do MemCopy.
-            // Stack: [base, src_addr]
-            // We need: dst = base + offset, src = src_addr.
-            let size = self.vm_type_size(ty);
-            // Save src_addr, compute dst, push src, memcopy.
-            // But we can't easily manipulate the stack without locals here.
-            // For store_offset of pointer types in struct/array literals,
-            // we handle it inline. MemCopy wants [dst, src].
-            // Stack is [base, src_addr]. We need [base+offset, src_addr].
-            // Use a different approach: swap, add offset, swap, memcopy.
-            // Actually in our callers, we can just emit IAddImm first.
-            // For now, use the simple approach with an intermediate save.
-
-            // This is called with stack: [base, value_addr].
-            // Actually the convention for Store8Off etc is "pop value, pop base".
-            // For MemCopy it's "pop src, pop dst".
-            // So [base, value_addr] with MemCopy pops value_addr as src, base as dst.
-            // But we need base+offset as dst.
-            // So: push base, push value_addr -> need to add offset to base.
-
-            // We handle this by having callers push LocalAddr(slot) which gives base.
-            // Let's just add the offset to base before pushing value:
-            // Actually in the callers, they do:
-            //   LocalAddr(slot) -> push base
-            //   translate_expr  -> push value
-            //   emit_store_offset
-            // So stack is [base, value]. We need [base+offset, value] for MemCopy.
-            // We can't easily swap on a stack machine without locals.
-            // Let's use the simple approach: this path is only for composite types
-            // in struct/array construction, which is not performance-critical.
-
-            // For simplicity, if offset != 0, handle via explicit addr computation.
-            if offset == 0 {
-                func.emit(StackOp::MemCopy(size));
-            } else {
-                // Stack: [base, value_addr]
-                // We need: dst = base + offset, src = value_addr
-                // Approach: store value_addr to temp, add offset to base, load temp, memcopy
-                // But we don't have easy access to temp scalars from here.
-                // Alternative: emit as Store32Off/Store64Off for small types,
-                // or use MemCopy with address computation.
-                // Since this is a pointer type with offset, load each word.
-                // Actually, let's just do byte-level copy as a last resort.
-                // OR: we can note that the callers should handle this differently.
-                // For now, do the simple thing: emit a sequence.
-
-                // Since we need to use locals and this fn takes &self, we'll just
-                // compute addr + offset and then memcopy.
-                // Actually we can emit IAddImm on the second-to-top element
-                // by saving top, adding, then restoring.
-                // But that requires locals... and we take &self not &mut self.
-
-                // Let's accept the limitation: for ptr-type store_offset with
-                // nonzero offset, we need the caller to handle it. But our callers
-                // already push [base, value]. Let's just do:
-                //   base is underneath value on the stack.
-                //   We can't easily add offset to base.
-                // For now, just emit store of each component.
-                // This is a correctness issue for nested structs/arrays. We'll document
-                // that callers should adjust the base before calling for ptr types.
-
-                // HACK: For now, emit element-wise copy. This is suboptimal but correct.
-                // Actually we have Store32Off and Store64Off which take [base, value].
-                // But for composite types the value is an address. We need MemCopy.
-                // The simplest correct approach: the caller adjusts the base pointer.
-                // Since our callers (struct_lit, tuple, array_literal) always do
-                // LocalAddr(slot) before this, they should add offset before pushing value.
-
-                // For now, fall through to MemCopy assuming caller adjusts base.
-                // This won't work for nonzero offset with ptr types through this path.
-                // TODO: Fix callers to push (base+offset) instead of base.
-                func.emit(StackOp::MemCopy(size));
-            }
+            // Composite values are represented by the address of their storage,
+            // so copy the bytes into place. Stack is [dst_addr, src_addr] and
+            // MemCopy takes no offset operand, hence the emit_dest_addr contract.
+            func.emit(StackOp::MemCopy(self.vm_type_size(ty)));
         } else {
             match &**ty {
                 Type::Bool | Type::Int8 | Type::UInt8 => {

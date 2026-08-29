@@ -1,0 +1,32 @@
+// Arrays of closures. The fat pointer {func, env} is a composite value, so
+// array construction has to copy it into the element slot rather than store
+// the address of the temporary holding it. Indexing the array also reaches
+// the indirect-expression CallClosure site, which a plain local variable
+// never does.
+
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    var x = 1.5
+    var fs = [(|i: i32| x + 1.0), (|i: i32| x * 3.0)]
+    assert(fs[0](0) == 2.5)
+    assert(fs[1](0) == 4.5)
+
+    // Float parameters go through the same indirect call site.
+    var v = 2.0
+    var gs = [(|a: f32| a + 1.0), (|a: f32| a * 3.0)]
+    assert(gs[0](v) == 3.0)
+    assert(gs[1](v) == 6.0)
+
+    // Fill-arrays build every element from one closure value.
+    var hs = [(|i: i32| x * 2.0); 3]
+    assert(hs[0](0) == 3.0)
+    assert(hs[2](0) == 3.0)
+}

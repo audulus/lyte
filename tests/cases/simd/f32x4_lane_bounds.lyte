@@ -1,0 +1,25 @@
+// An f32x4 lane index has to be provably in 0..4. There's no `.len` to bound it
+// against and no backend checks it at runtime, so an out-of-range lane would
+// otherwise index off the end of the vector.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/simd/f32x4_lane_bounds.lyte:19:5: couldn't prove index is less than 4
+//         v[4] = 9.0
+//         ^
+// ❌ ../tests/cases/simd/f32x4_lane_bounds.lyte:20:11: couldn't prove index is less than 4
+//         print(v[4] as i32)
+//               ^
+// ❌ ../tests/cases/simd/f32x4_lane_bounds.lyte:24:5: couldn't prove index is less than 4
+//         v[i] = 9.0
+//         ^
+
+main {
+    var v = f32x4(1.0, 2.0, 3.0, 4.0)
+    v[4] = 9.0
+    print(v[4] as i32)
+
+    var i = 0
+    i = 7
+    v[i] = 9.0
+}

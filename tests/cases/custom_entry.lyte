@@ -1,0 +1,13 @@
+// Entry points are optional and need not be named "main": the client picks
+// them, and here we ask for "init".
+// args: --entry init
+// expected stdout:
+// compilation successful
+// assert(true)
+
+var counter: i32
+
+init {
+    counter = 10
+    assert(counter == 10)
+}

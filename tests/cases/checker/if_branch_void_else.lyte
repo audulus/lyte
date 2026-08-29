@@ -1,0 +1,23 @@
+// An if-else used as a value must have branches of the same type. The else
+// branch here ends in a `var` declaration, which is a statement and produces
+// nothing, so the if-else has no value to bind.
+//
+// This used to type-check as i32 (the then-branch type) and silently compile
+// to a placeholder 0 in the JIT and LLVM backends, while the VM backend
+// returned the then-branch value — a wrong answer and a backend divergence
+// rather than an error.
+//
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/if_branch_void_else.lyte:17:29: if-else branches must have the same type: i32 vs void
+//         var y = if c { 1 } else { var z = 2 }
+//                                 ^
+
+g(c: bool) -> i32 {
+    var y = if c { 1 } else { var z = 2 }
+    y
+}
+
+main {
+    print(g(true))
+}
