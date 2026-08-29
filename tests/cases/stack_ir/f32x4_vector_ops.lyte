@@ -1,0 +1,32 @@
+// Stack-IR check that f32x4 lowers to whole-vector ops rather than four
+// per-lane trips through the float window, and that an assignment computes
+// into its destination instead of a temp slot plus a 16-byte copy.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 0, memory: 64 bytes):
+//      0: fw.f32.const 1
+//      1: fw.f32.const 2
+//      2: fw.f32.const 3
+//      3: fw.f32.const 4
+//      4: local.addr 0
+//      5: f32x4.build_store
+//      6: fw.f32.const 0.5
+//      7: local.addr 2
+//      8: f32x4.splat_store
+//      9: local.addr 0
+//     10: local.addr 4
+//     11: f32x4.neg_store
+//     12: local.addr 0
+//     13: local.addr 2
+//     14: f32x4.mul 6
+//     15: local.addr 4
+//     16: local.addr 0
+//     17: f32x4.add_store
+//     18: return_void
+
+main {
+    var a = f32x4(1.0, 2.0, 3.0, 4.0)
+    var k = f32x4_splat(0.5)
+    var b = -a
+    a = a * k + b
+}

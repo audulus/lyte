@@ -556,7 +556,20 @@ impl<'a> FunctionTranslator<'a> {
         // the last expression's value is left on the stack for Return.
         let returns_void_no_sret = !has_sret && matches!(&*self.decl.ret, Type::Void);
         if let Some(body) = self.decl.body {
-            if returns_void_no_sret {
+            // A body that is itself an f32x4 computation — a lambda's
+            // expression body, say — writes into the sret buffer directly,
+            // with no result temp and no 16-byte copy.
+            let sret_vector_body = match self.output_ptr_slot {
+                Some(slot) => self.f32x4_store_op(body).map(|op| (slot, op)),
+                None => None,
+            };
+            if let Some((sret_slot, store_op)) = sret_vector_body {
+                self.emit_f32x4_operands(body, func);
+                func.emit(StackOp::LocalGet(sret_slot));
+                func.emit(store_op);
+                func.emit(StackOp::ReturnVoid);
+                self.has_returned = true;
+            } else if returns_void_no_sret {
                 self.translate_void(body, func);
             } else {
                 self.translate_expr(body, func);
@@ -626,8 +639,15 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::Drop);
                 }
             }
-            // Assignment lowering already consults void_ctx and suppresses
-            // result materialization when the assigned value is dead.
+            // An f32x4 assignment in statement position: void context is
+            // what lets translate_assign send the vector ops straight at
+            // the destination instead of computing into a temp and copying
+            // 16 bytes over. Nothing is left on the stack to drop.
+            Expr::Binop(Binop::Assign, lhs_id, _)
+                if matches!(&*self.expr_type(*lhs_id), Type::Float32x4) =>
+            {
+                self.translate_expr_inner(expr, func, true);
+            }
             // Block: recurse with void context for every expression,
             // including the last. Using translate_void for the last
             // expression lets value-producing constructs (If, For, While,
@@ -921,6 +941,20 @@ impl<'a> FunctionTranslator<'a> {
                     let size = self.vm_type_size(&ty);
                     let mem_slot = self.alloc_memory(size);
                     if let Some(init_id) = init {
+                        // An f32x4 initializer computes into the variable's
+                        // own storage — no temp, no 16-byte copy.
+                        if let Some(store_op) = self.f32x4_store_op(init_id) {
+                            self.emit_f32x4_operands(init_id, func);
+                            func.emit(StackOp::LocalAddr(mem_slot));
+                            func.emit(store_op);
+                            self.shadow_outer_binding(&name);
+                            self.variables.insert(name, LocalKind::Memory(mem_slot));
+                            self.variable_types.insert(name, ty);
+                            if !self.void_ctx {
+                                func.emit(StackOp::I64Const(0));
+                            }
+                            return;
+                        }
                         self.translate_expr(init_id, func);
                         self.emit_wrap_for_expected_slice(ty, init_id, func);
                         let tmp = self.alloc_scalar();
@@ -993,6 +1027,19 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Return(expr_id) => {
                 let expr_id = *expr_id;
                 let ret_ty = self.expr_type(expr_id);
+
+                // An f32x4 result computes straight into the sret buffer.
+                if let Some(sret_slot) = self.output_ptr_slot {
+                    if let Some(store_op) = self.f32x4_store_op(expr_id) {
+                        self.emit_f32x4_operands(expr_id, func);
+                        func.emit(StackOp::LocalGet(sret_slot));
+                        func.emit(store_op);
+                        func.emit(StackOp::ReturnVoid);
+                        self.has_returned = true;
+                        return;
+                    }
+                }
+
                 self.translate_expr(expr_id, func);
 
                 if returns_via_pointer(ret_ty) {
@@ -1233,6 +1280,78 @@ impl<'a> FunctionTranslator<'a> {
         func.emit(StackOp::I64Const(0));
     }
 
+    /// The store-form vector op for an f32x4-producing expression, or
+    /// `None` if this isn't an expression the f32x4 ops can compute
+    /// straight into a caller-supplied destination.
+    ///
+    /// Callers pair this with [`Self::emit_f32x4_operands`]: emit the
+    /// operands, push the destination address, then emit this op. That
+    /// writes the result into the destination directly, skipping the
+    /// temporary frame slot and the 16-byte copy the generic
+    /// pointer-represented path would otherwise need.
+    fn f32x4_store_op(&self, expr: ExprID) -> Option<StackOp> {
+        if !matches!(&*self.expr_type(expr), Type::Float32x4) {
+            return None;
+        }
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(op, lhs_id, _) => {
+                if !matches!(&*self.expr_type(*lhs_id), Type::Float32x4) {
+                    return None;
+                }
+                match op {
+                    Binop::Plus => Some(StackOp::F32x4AddStore),
+                    Binop::Minus => Some(StackOp::F32x4SubStore),
+                    Binop::Mult => Some(StackOp::F32x4MulStore),
+                    Binop::Div => Some(StackOp::F32x4DivStore),
+                    _ => None,
+                }
+            }
+            Expr::Unop(Unop::Neg, arg_id) => {
+                if matches!(&*self.expr_type(*arg_id), Type::Float32x4) {
+                    Some(StackOp::F32x4NegStore)
+                } else {
+                    None
+                }
+            }
+            Expr::Call(fn_id, arg_ids) => {
+                if self.holds_fat_pointer(*fn_id) {
+                    return None;
+                }
+                let Expr::Id(name) = &self.decl.arena.exprs[*fn_id] else {
+                    return None;
+                };
+                match (name.as_str(), arg_ids.len()) {
+                    ("f32x4", 4) => Some(StackOp::F32x4BuildStore),
+                    ("f32x4_splat", 1) => Some(StackOp::F32x4SplatStore),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Push the operands of an expression [`Self::f32x4_store_op`]
+    /// accepted, leaving the destination address to the caller.
+    fn emit_f32x4_operands(&mut self, expr: ExprID, func: &mut StackFunction) {
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(_, lhs_id, rhs_id) => {
+                let (lhs_id, rhs_id) = (*lhs_id, *rhs_id);
+                self.translate_expr(lhs_id, func);
+                self.translate_expr(rhs_id, func);
+            }
+            Expr::Unop(_, arg_id) => {
+                let arg_id = *arg_id;
+                self.translate_expr(arg_id, func);
+            }
+            Expr::Call(_, arg_ids) => {
+                for arg_id in arg_ids.clone() {
+                    self.translate_expr(arg_id, func);
+                }
+            }
+            _ => unreachable!("emit_f32x4_operands on a non-vector expression"),
+        }
+    }
+
     /// Translate a binary operation.
     fn translate_binop(
         &mut self,
@@ -1250,43 +1369,19 @@ impl<'a> FunctionTranslator<'a> {
 
         let ty = self.expr_type(lhs_id);
 
-        // f32x4 SIMD ops — emit element-wise using the F-window.
+        // f32x4 SIMD ops — one vector instruction, result in a fresh
+        // 16-byte frame slot whose address is left on the stack.
         if matches!(&*ty, Type::Float32x4) {
             self.translate_expr(lhs_id, func);
             self.translate_expr(rhs_id, func);
             let mem_slot = self.alloc_memory(16);
-            let lhs_local = self.alloc_scalar();
-            let rhs_local = self.alloc_scalar();
-            func.emit(StackOp::LocalSet(rhs_local));
-            func.emit(StackOp::LocalSet(lhs_local));
-            let fop = match op {
-                Binop::Plus => StackOp::FAddF,
-                Binop::Minus => StackOp::FSubF,
-                Binop::Mult => StackOp::FMulF,
-                Binop::Div => StackOp::FDivF,
+            func.emit(match op {
+                Binop::Plus => StackOp::F32x4Add(mem_slot),
+                Binop::Minus => StackOp::F32x4Sub(mem_slot),
+                Binop::Mult => StackOp::F32x4Mul(mem_slot),
+                Binop::Div => StackOp::F32x4Div(mem_slot),
                 _ => panic!("unsupported f32x4 binop: {:?}", op),
-            };
-            for lane in 0..4i32 {
-                let off = lane * 4;
-                func.emit(StackOp::LocalGet(lhs_local));
-                func.emit(StackOp::LoadF32OffF(off));
-                func.emit(StackOp::LocalGet(rhs_local));
-                func.emit(StackOp::LoadF32OffF(off));
-                func.emit(fop.clone());
-                // Store the f32 result through the F-window to
-                // locals[mem_slot + off] — the StoreF32OffF handler
-                // pops an address from the int TOS and a float from
-                // the F TOS, so push the address first.
-                func.emit(StackOp::LocalAddr(mem_slot));
-                // We need the address BELOW the value for StoreF32OffF.
-                // The F-window value is on top of f-window; we pushed
-                // the address AFTER the arithmetic, which means the
-                // order is (int addr, f-window value). StoreF32OffF
-                // pops both independently from their windows, so
-                // order doesn't matter across windows.
-                func.emit(StackOp::StoreF32OffF(off));
-            }
-            func.emit(StackOp::LocalAddr(mem_slot));
+            });
             return;
         }
 
@@ -1515,6 +1610,18 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
 
+        // f32x4 assignment: compute the vector straight into the
+        // destination, skipping the temp slot and the 16-byte copy the
+        // generic path below would emit.
+        if self.void_ctx {
+            if let Some(store_op) = self.f32x4_store_op(rhs_id) {
+                self.emit_f32x4_operands(rhs_id, func);
+                self.translate_lvalue(lhs_id, func);
+                func.emit(store_op);
+                return;
+            }
+        }
+
         // General assignment: compute rhs, compute lvalue address, store.
         // Optimization: if RHS is a simple local variable, reuse it directly
         // instead of creating a temp (avoids get_set + get pattern).
@@ -1730,21 +1837,11 @@ impl<'a> FunctionTranslator<'a> {
     fn translate_unop(&mut self, op: Unop, arg_id: ExprID, func: &mut StackFunction) {
         let ty = self.expr_type(arg_id);
 
-        // f32x4 negation — element-wise via the F-window.
+        // f32x4 negation — one vector instruction.
         if op == Unop::Neg && matches!(&*ty, Type::Float32x4) {
             self.translate_expr(arg_id, func);
-            let src_local = self.alloc_scalar();
-            func.emit(StackOp::LocalSet(src_local));
             let mem_slot = self.alloc_memory(16);
-            for lane in 0..4i32 {
-                let off = lane * 4;
-                func.emit(StackOp::LocalGet(src_local));
-                func.emit(StackOp::LoadF32OffF(off));
-                func.emit(StackOp::FNegF);
-                func.emit(StackOp::LocalAddr(mem_slot));
-                func.emit(StackOp::StoreF32OffF(off));
-            }
-            func.emit(StackOp::LocalAddr(mem_slot));
+            func.emit(StackOp::F32x4Neg(mem_slot));
             return;
         }
 
@@ -1814,30 +1911,22 @@ impl<'a> FunctionTranslator<'a> {
                 return;
             }
 
-            // f32x4 constructor. Each arg is an f32 in the float window.
+            // f32x4 constructor. The four lanes are pushed onto the float
+            // window in order, and one op packs them into a frame slot.
             if *name == "f32x4" && arg_ids.len() == 4 {
-                let mem_slot = self.alloc_memory(16);
-                for (i, arg_id) in arg_ids.iter().enumerate() {
-                    func.emit(StackOp::LocalAddr(mem_slot));
+                for arg_id in arg_ids.iter() {
                     self.translate_expr(*arg_id, func);
-                    func.emit(StackOp::StoreF32OffF((i * 4) as i32));
                 }
-                func.emit(StackOp::LocalAddr(mem_slot));
+                let mem_slot = self.alloc_memory(16);
+                func.emit(StackOp::F32x4Build(mem_slot));
                 return;
             }
 
             // f32x4_splat. Arg is an f32 in the float window.
             if *name == "f32x4_splat" && arg_ids.len() == 1 {
                 self.translate_expr(arg_ids[0], func);
-                let val_local = self.alloc_scalar();
-                func.emit(StackOp::LocalSetF(val_local));
                 let mem_slot = self.alloc_memory(16);
-                for i in 0..4 {
-                    func.emit(StackOp::LocalAddr(mem_slot));
-                    func.emit(StackOp::LocalGetF(val_local));
-                    func.emit(StackOp::StoreF32OffF((i * 4) as i32));
-                }
-                func.emit(StackOp::LocalAddr(mem_slot));
+                func.emit(StackOp::F32x4Splat(mem_slot));
                 return;
             }
 

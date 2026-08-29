@@ -68,6 +68,15 @@ pub fn rebase(func: &mut StackFunction) {
             StackOp::FusedLocalArrayStore32F(s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFAddF(_, s, _) => *s += lc,
             StackOp::FusedGetAddrFMulFSubF(_, s, _) => *s += lc,
+
+            // f32x4 ops name their destination frame slot in the immediate.
+            StackOp::F32x4Add(s)
+            | StackOp::F32x4Sub(s)
+            | StackOp::F32x4Mul(s)
+            | StackOp::F32x4Div(s)
+            | StackOp::F32x4Neg(s)
+            | StackOp::F32x4Build(s)
+            | StackOp::F32x4Splat(s) => *s += lc,
             _ => {}
         }
     }
