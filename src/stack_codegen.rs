@@ -943,6 +943,16 @@ impl<'a> FunctionTranslator<'a> {
                     if let Some(init_id) = init {
                         // An f32x4 initializer computes into the variable's
                         // own storage — no temp, no 16-byte copy.
+                        if matches!(&*ty, Type::Float32x4) && self.f32x4_slot_form(init_id) {
+                            self.emit_f32x4_into_slot(init_id, mem_slot, func);
+                            self.shadow_outer_binding(&name);
+                            self.variables.insert(name, LocalKind::Memory(mem_slot));
+                            self.variable_types.insert(name, ty);
+                            if !self.void_ctx {
+                                func.emit(StackOp::I64Const(0));
+                            }
+                            return;
+                        }
                         if let Some(store_op) = self.f32x4_store_op(init_id) {
                             self.emit_f32x4_operands(init_id, func);
                             func.emit(StackOp::LocalAddr(mem_slot));
@@ -1330,6 +1340,116 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    /// True if `expr` is an f32x4 computation the three-address vector ops
+    /// can evaluate entirely between frame slots: a memory-backed local, or
+    /// an arithmetic node whose operands are themselves in that shape.
+    ///
+    /// Everything admitted here is a pure read of a frame slot, so the
+    /// operands can be evaluated in any order and a destination that
+    /// aliases an operand is safe — the final op is the only write.
+    fn f32x4_slot_form(&self, expr: ExprID) -> bool {
+        if !matches!(&*self.expr_type(expr), Type::Float32x4) {
+            return false;
+        }
+        if self.get_memory_slot(expr).is_some() {
+            return true;
+        }
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(op, lhs_id, rhs_id) => {
+                matches!(op, Binop::Plus | Binop::Minus | Binop::Mult | Binop::Div)
+                    && self.f32x4_slot_form(*lhs_id)
+                    && self.f32x4_slot_form(*rhs_id)
+            }
+            Expr::Unop(Unop::Neg, arg_id) => self.f32x4_slot_form(*arg_id),
+            _ => false,
+        }
+    }
+
+    /// The operands of `expr` if it is an f32x4 multiplication.
+    fn f32x4_mul_operands(&self, expr: ExprID) -> Option<(ExprID, ExprID)> {
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(Binop::Mult, lhs_id, rhs_id)
+                if matches!(&*self.expr_type(expr), Type::Float32x4) =>
+            {
+                Some((*lhs_id, *rhs_id))
+            }
+            _ => None,
+        }
+    }
+
+    /// The frame slot holding `expr`, computing it into a fresh temp slot
+    /// first when it isn't already a memory-backed local. Only valid when
+    /// [`Self::f32x4_slot_form`] holds.
+    fn f32x4_operand_slot(&mut self, expr: ExprID, func: &mut StackFunction) -> u16 {
+        if let Some(slot) = self.get_memory_slot(expr) {
+            return slot;
+        }
+        let tmp = self.alloc_memory(16);
+        self.emit_f32x4_into_slot(expr, tmp, func);
+        tmp
+    }
+
+    /// Emit `expr` computed into 16-byte frame slot `dst` using the
+    /// three-address vector ops. Only valid when [`Self::f32x4_slot_form`]
+    /// holds for `expr`.
+    fn emit_f32x4_into_slot(&mut self, expr: ExprID, dst: u16, func: &mut StackFunction) {
+        // A bare local: the caller wanted the value in `dst`, so copy it.
+        if let Some(src) = self.get_memory_slot(expr) {
+            if src != dst {
+                func.emit(StackOp::LocalAddr(dst));
+                func.emit(StackOp::LocalAddr(src));
+                func.emit(StackOp::MemCopy(16));
+            }
+            return;
+        }
+        match &self.decl.arena.exprs[expr] {
+            Expr::Binop(op, lhs_id, rhs_id) => {
+                let (op, lhs_id, rhs_id) = (*op, *lhs_id, *rhs_id);
+                // `a * b + c`, `c + a * b` and `a * b - c` each collapse to
+                // one multiply-accumulate.
+                let mul_add = match op {
+                    Binop::Plus => self
+                        .f32x4_mul_operands(lhs_id)
+                        .map(|(a, b)| (a, b, rhs_id, false))
+                        .or_else(|| {
+                            self.f32x4_mul_operands(rhs_id)
+                                .map(|(a, b)| (a, b, lhs_id, false))
+                        }),
+                    Binop::Minus => self
+                        .f32x4_mul_operands(lhs_id)
+                        .map(|(a, b)| (a, b, rhs_id, true)),
+                    _ => None,
+                };
+                if let Some((a_id, b_id, c_id, is_sub)) = mul_add {
+                    let a = self.f32x4_operand_slot(a_id, func);
+                    let b = self.f32x4_operand_slot(b_id, func);
+                    let c = self.f32x4_operand_slot(c_id, func);
+                    func.emit(if is_sub {
+                        StackOp::F32x4MulSubSet(a, b, c, dst)
+                    } else {
+                        StackOp::F32x4MulAddSet(a, b, c, dst)
+                    });
+                    return;
+                }
+                let a = self.f32x4_operand_slot(lhs_id, func);
+                let b = self.f32x4_operand_slot(rhs_id, func);
+                func.emit(match op {
+                    Binop::Plus => StackOp::F32x4Add3(a, b, dst),
+                    Binop::Minus => StackOp::F32x4Sub3(a, b, dst),
+                    Binop::Mult => StackOp::F32x4Mul3(a, b, dst),
+                    Binop::Div => StackOp::F32x4Div3(a, b, dst),
+                    _ => unreachable!("f32x4_slot_form admitted a non-arithmetic binop"),
+                });
+            }
+            Expr::Unop(Unop::Neg, arg_id) => {
+                let arg_id = *arg_id;
+                let a = self.f32x4_operand_slot(arg_id, func);
+                func.emit(StackOp::F32x4Neg2(a, dst));
+            }
+            _ => unreachable!("emit_f32x4_into_slot on a non-slot-form expression"),
+        }
+    }
+
     /// Push the operands of an expression [`Self::f32x4_store_op`]
     /// accepted, leaving the destination address to the caller.
     fn emit_f32x4_operands(&mut self, expr: ExprID, func: &mut StackFunction) {
@@ -1614,6 +1734,14 @@ impl<'a> FunctionTranslator<'a> {
         // destination, skipping the temp slot and the 16-byte copy the
         // generic path below would emit.
         if self.void_ctx {
+            // Destination and operands all in frame slots: the three-address
+            // ops compute between slots with nothing on the operand stack.
+            if let Some(dst) = self.get_memory_slot(lhs_id) {
+                if self.f32x4_slot_form(rhs_id) {
+                    self.emit_f32x4_into_slot(rhs_id, dst, func);
+                    return;
+                }
+            }
             if let Some(store_op) = self.f32x4_store_op(rhs_id) {
                 self.emit_f32x4_operands(rhs_id, func);
                 self.translate_lvalue(lhs_id, func);

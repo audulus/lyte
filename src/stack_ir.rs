@@ -637,6 +637,23 @@ pub enum StackOp {
     /// Pop dst from the int window and one lane from the float window.
     F32x4SplatStore,
 
+    // Three-address forms. When every operand and the destination is a
+    // 16-byte frame slot, the whole computation needs no addresses on the
+    // stack at all: these read and write `locals` directly and are the
+    // f32x4 analogue of FusedGetGetFMulSet and friends. Pop 0, push 0.
+    /// locals[dst] = locals[a] <op> locals[b].
+    F32x4Add3(u16, u16, u16),
+    F32x4Sub3(u16, u16, u16),
+    F32x4Mul3(u16, u16, u16),
+    F32x4Div3(u16, u16, u16),
+    /// locals[dst] = -locals[a].
+    F32x4Neg2(u16, u16),
+    /// locals[dst] = locals[a] * locals[b] + locals[c] — the DSP workhorse,
+    /// and one instruction (`fmla.4s`) once the C compiler contracts it.
+    F32x4MulAddSet(u16, u16, u16, u16),
+    /// locals[dst] = locals[a] * locals[b] - locals[c].
+    F32x4MulSubSet(u16, u16, u16, u16),
+
     Halt,
     Nop,
 }
@@ -1349,6 +1366,17 @@ impl fmt::Display for StackOp {
             StackOp::F32x4NegStore => write!(f, "f32x4.neg_store"),
             StackOp::F32x4BuildStore => write!(f, "f32x4.build_store"),
             StackOp::F32x4SplatStore => write!(f, "f32x4.splat_store"),
+            StackOp::F32x4Add3(a, b, d) => write!(f, "f32x4.add3 {} {} {}", a, b, d),
+            StackOp::F32x4Sub3(a, b, d) => write!(f, "f32x4.sub3 {} {} {}", a, b, d),
+            StackOp::F32x4Mul3(a, b, d) => write!(f, "f32x4.mul3 {} {} {}", a, b, d),
+            StackOp::F32x4Div3(a, b, d) => write!(f, "f32x4.div3 {} {} {}", a, b, d),
+            StackOp::F32x4Neg2(a, d) => write!(f, "f32x4.neg2 {} {}", a, d),
+            StackOp::F32x4MulAddSet(a, b, c, d) => {
+                write!(f, "f32x4.muladd_set {} {} {} {}", a, b, c, d)
+            }
+            StackOp::F32x4MulSubSet(a, b, c, d) => {
+                write!(f, "f32x4.mulsub_set {} {} {} {}", a, b, c, d)
+            }
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
         }

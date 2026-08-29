@@ -378,6 +378,13 @@ extern "C" {
     fn op_f32x4_neg_store();
     fn op_f32x4_build_store();
     fn op_f32x4_splat_store();
+    fn op_f32x4_add3();
+    fn op_f32x4_sub3();
+    fn op_f32x4_mul3();
+    fn op_f32x4_div3();
+    fn op_f32x4_neg2();
+    fn op_f32x4_muladd_set();
+    fn op_f32x4_mulsub_set();
 }
 
 /// Get the C handler function pointer for a StackOp.
@@ -708,6 +715,13 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::F32x4NegStore => op_f32x4_neg_store as *const (),
         StackOp::F32x4BuildStore => op_f32x4_build_store as *const (),
         StackOp::F32x4SplatStore => op_f32x4_splat_store as *const (),
+        StackOp::F32x4Add3(_, _, _) => op_f32x4_add3 as *const (),
+        StackOp::F32x4Sub3(_, _, _) => op_f32x4_sub3 as *const (),
+        StackOp::F32x4Mul3(_, _, _) => op_f32x4_mul3 as *const (),
+        StackOp::F32x4Div3(_, _, _) => op_f32x4_div3 as *const (),
+        StackOp::F32x4Neg2(_, _) => op_f32x4_neg2 as *const (),
+        StackOp::F32x4MulAddSet(_, _, _, _) => op_f32x4_muladd_set as *const (),
+        StackOp::F32x4MulSubSet(_, _, _, _) => op_f32x4_mulsub_set as *const (),
     }
 }
 
@@ -949,6 +963,15 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         | StackOp::F32x4Neg(d)
         | StackOp::F32x4Build(d)
         | StackOp::F32x4Splat(d) => [*d as u64, 0, 0],
+        StackOp::F32x4Add3(a, b, d)
+        | StackOp::F32x4Sub3(a, b, d)
+        | StackOp::F32x4Mul3(a, b, d)
+        | StackOp::F32x4Div3(a, b, d) => [*a as u64, *b as u64, *d as u64],
+        StackOp::F32x4Neg2(a, d) => [*a as u64, *d as u64, 0],
+        // imm[2] packs c in the low half, dst in the high half.
+        StackOp::F32x4MulAddSet(a, b, c, d) | StackOp::F32x4MulSubSet(a, b, c, d) => {
+            [*a as u64, *b as u64, (*c as u64) | ((*d as u64) << 16)]
+        }
 
         _ => [0, 0, 0],
     }

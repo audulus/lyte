@@ -43,6 +43,19 @@ fn main() {
             // with a clang that doesn't understand preserve_none, the
             // build fails loudly instead of producing a subtly broken
             // interpreter.
+            // Round the multiply before the add, the way Cranelift and
+            // LLVM do. Left to clang's default, the fused arithmetic
+            // handlers (op_f32x4_muladd_set, op_fused_get_get_fmul_fadd_f,
+            // ...) contract into fmla/fmadd, which rounds once instead of
+            // twice — so the stack VM returns different numbers than the
+            // JIT for the same source, and the stack VM is the shipped iOS
+            // backend (see src/ffi.rs). Worse, whether it happens at all
+            // depends on the host compiler's default, so the same source
+            // can behave differently depending on who built it. Backend
+            // agreement is worth more here than the last ulp; the cost is
+            // ~6% on f32x4 multiply-accumulate and nothing measurable
+            // elsewhere. tests/cases/simd/f32x4_fma_rounding.lyte guards it.
+            .flag("-ffp-contract=off")
             .flag("-Werror=unknown-attributes")
             .compile("stack_interp");
         println!("cargo:rustc-cfg=has_stack_interp");

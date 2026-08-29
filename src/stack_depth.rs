@@ -417,6 +417,15 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::F32x4DivStore => -3,
         StackOp::F32x4NegStore => -2,
         StackOp::F32x4BuildStore | StackOp::F32x4SplatStore => -1,
+
+        // Three-address forms read and write frame slots only.
+        StackOp::F32x4Add3(_, _, _)
+        | StackOp::F32x4Sub3(_, _, _)
+        | StackOp::F32x4Mul3(_, _, _)
+        | StackOp::F32x4Div3(_, _, _)
+        | StackOp::F32x4Neg2(_, _)
+        | StackOp::F32x4MulAddSet(_, _, _, _)
+        | StackOp::F32x4MulSubSet(_, _, _, _) => 0,
     }
 }
 

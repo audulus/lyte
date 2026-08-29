@@ -77,6 +77,24 @@ pub fn rebase(func: &mut StackFunction) {
             | StackOp::F32x4Neg(s)
             | StackOp::F32x4Build(s)
             | StackOp::F32x4Splat(s) => *s += lc,
+            StackOp::F32x4Add3(a, b, d)
+            | StackOp::F32x4Sub3(a, b, d)
+            | StackOp::F32x4Mul3(a, b, d)
+            | StackOp::F32x4Div3(a, b, d) => {
+                *a += lc;
+                *b += lc;
+                *d += lc;
+            }
+            StackOp::F32x4Neg2(a, d) => {
+                *a += lc;
+                *d += lc;
+            }
+            StackOp::F32x4MulAddSet(a, b, c, d) | StackOp::F32x4MulSubSet(a, b, c, d) => {
+                *a += lc;
+                *b += lc;
+                *c += lc;
+                *d += lc;
+            }
             _ => {}
         }
     }

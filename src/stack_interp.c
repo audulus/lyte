@@ -2481,6 +2481,64 @@ HANDLER(op_f32x4_splat_store) {
     NEXT();
 }
 
+// Three-address forms: every operand and the destination is a frame slot,
+// so nothing touches the operand stack. imm[2] of the multiply-accumulate
+// ops packs c in the low half and dst in the high half.
+//
+// `a * b + c` contracts to a single fmla.4s. That makes these ops round
+// once where a separate multiply and add would round twice — the same
+// trade the scalar op_fused_get_get_fmul_fadd_f already makes.
+
+HANDLER(op_f32x4_add3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a + b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_sub3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a - b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_mul3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a * b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_div3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a / b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_neg2) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    store_v4f(locals + pc->imm[1], -a);
+    NEXT();
+}
+
+HANDLER(op_f32x4_muladd_set) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    v4f c = load_v4f(locals + (pc->imm[2] & 0xFFFFu));
+    store_v4f(locals + (pc->imm[2] >> 16), a * b + c);
+    NEXT();
+}
+
+HANDLER(op_f32x4_mulsub_set) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    v4f c = load_v4f(locals + (pc->imm[2] & 0xFFFFu));
+    store_v4f(locals + (pc->imm[2] >> 16), a * b - c);
+    NEXT();
+}
+
 // ============================================================================
 // Entry point
 // ============================================================================
