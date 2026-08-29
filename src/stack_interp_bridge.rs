@@ -364,6 +364,27 @@ extern "C" {
     fn op_fused_get_set8_d();
     fn op_fused_f64const_dgt_jiz_d();
     fn op_fused_get_f64const_dgt_jiz_d();
+    fn op_f32x4_add();
+    fn op_f32x4_sub();
+    fn op_f32x4_mul();
+    fn op_f32x4_div();
+    fn op_f32x4_neg();
+    fn op_f32x4_build();
+    fn op_f32x4_splat();
+    fn op_f32x4_add_store();
+    fn op_f32x4_sub_store();
+    fn op_f32x4_mul_store();
+    fn op_f32x4_div_store();
+    fn op_f32x4_neg_store();
+    fn op_f32x4_build_store();
+    fn op_f32x4_splat_store();
+    fn op_f32x4_add3();
+    fn op_f32x4_sub3();
+    fn op_f32x4_mul3();
+    fn op_f32x4_div3();
+    fn op_f32x4_neg2();
+    fn op_f32x4_muladd_set();
+    fn op_f32x4_mulsub_set();
 }
 
 /// Get the C handler function pointer for a StackOp.
@@ -678,6 +699,29 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, _) => {
             op_fused_get_f64const_dgt_jiz_d as *const ()
         }
+
+        // === f32x4 SIMD ops ===
+        StackOp::F32x4Add(_) => op_f32x4_add as *const (),
+        StackOp::F32x4Sub(_) => op_f32x4_sub as *const (),
+        StackOp::F32x4Mul(_) => op_f32x4_mul as *const (),
+        StackOp::F32x4Div(_) => op_f32x4_div as *const (),
+        StackOp::F32x4Neg(_) => op_f32x4_neg as *const (),
+        StackOp::F32x4Build(_) => op_f32x4_build as *const (),
+        StackOp::F32x4Splat(_) => op_f32x4_splat as *const (),
+        StackOp::F32x4AddStore => op_f32x4_add_store as *const (),
+        StackOp::F32x4SubStore => op_f32x4_sub_store as *const (),
+        StackOp::F32x4MulStore => op_f32x4_mul_store as *const (),
+        StackOp::F32x4DivStore => op_f32x4_div_store as *const (),
+        StackOp::F32x4NegStore => op_f32x4_neg_store as *const (),
+        StackOp::F32x4BuildStore => op_f32x4_build_store as *const (),
+        StackOp::F32x4SplatStore => op_f32x4_splat_store as *const (),
+        StackOp::F32x4Add3(_, _, _) => op_f32x4_add3 as *const (),
+        StackOp::F32x4Sub3(_, _, _) => op_f32x4_sub3 as *const (),
+        StackOp::F32x4Mul3(_, _, _) => op_f32x4_mul3 as *const (),
+        StackOp::F32x4Div3(_, _, _) => op_f32x4_div3 as *const (),
+        StackOp::F32x4Neg2(_, _) => op_f32x4_neg2 as *const (),
+        StackOp::F32x4MulAddSet(_, _, _, _) => op_f32x4_muladd_set as *const (),
+        StackOp::F32x4MulSubSet(_, _, _, _) => op_f32x4_mulsub_set as *const (),
     }
 }
 
@@ -911,6 +955,24 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         StackOp::FusedGetF64ConstDGtJumpIfZeroD(n, v, off) => {
             [(*n as u64) * 8, f64::to_bits(*v), *off as i64 as u64]
         }
+        // f32x4 ops name their destination frame slot.
+        StackOp::F32x4Add(d)
+        | StackOp::F32x4Sub(d)
+        | StackOp::F32x4Mul(d)
+        | StackOp::F32x4Div(d)
+        | StackOp::F32x4Neg(d)
+        | StackOp::F32x4Build(d)
+        | StackOp::F32x4Splat(d) => [*d as u64, 0, 0],
+        StackOp::F32x4Add3(a, b, d)
+        | StackOp::F32x4Sub3(a, b, d)
+        | StackOp::F32x4Mul3(a, b, d)
+        | StackOp::F32x4Div3(a, b, d) => [*a as u64, *b as u64, *d as u64],
+        StackOp::F32x4Neg2(a, d) => [*a as u64, *d as u64, 0],
+        // imm[2] packs c in the low half, dst in the high half.
+        StackOp::F32x4MulAddSet(a, b, c, d) | StackOp::F32x4MulSubSet(a, b, c, d) => {
+            [*a as u64, *b as u64, (*c as u64) | ((*d as u64) << 16)]
+        }
+
         _ => [0, 0, 0],
     }
 }

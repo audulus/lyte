@@ -400,6 +400,32 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedGetSet8D(_)
         | StackOp::FusedF64ConstDGtJumpIfZeroD(_, _)
         | StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, _) => 0,
+
+        // f32x4: the plain forms pop their operand addresses and push the
+        // destination slot's address; the constructors take their lanes
+        // from the float window, so they only push. The `*Store` forms
+        // pop a destination address too and push nothing.
+        StackOp::F32x4Add(_)
+        | StackOp::F32x4Sub(_)
+        | StackOp::F32x4Mul(_)
+        | StackOp::F32x4Div(_) => -1,
+        StackOp::F32x4Neg(_) => 0,
+        StackOp::F32x4Build(_) | StackOp::F32x4Splat(_) => 1,
+        StackOp::F32x4AddStore
+        | StackOp::F32x4SubStore
+        | StackOp::F32x4MulStore
+        | StackOp::F32x4DivStore => -3,
+        StackOp::F32x4NegStore => -2,
+        StackOp::F32x4BuildStore | StackOp::F32x4SplatStore => -1,
+
+        // Three-address forms read and write frame slots only.
+        StackOp::F32x4Add3(_, _, _)
+        | StackOp::F32x4Sub3(_, _, _)
+        | StackOp::F32x4Mul3(_, _, _)
+        | StackOp::F32x4Div3(_, _, _)
+        | StackOp::F32x4Neg2(_, _)
+        | StackOp::F32x4MulAddSet(_, _, _, _)
+        | StackOp::F32x4MulSubSet(_, _, _, _) => 0,
     }
 }
 
@@ -621,6 +647,10 @@ pub fn float_stack_delta(op: &StackOp) -> i32 {
         StackOp::StoreF32F | StackOp::StoreF32OffF(_) => -1,
         // f-window loads push f0
         StackOp::LoadF32F | StackOp::LoadF32OffF(_) => 1,
+
+        // f32x4 constructors take their lanes off the float window.
+        StackOp::F32x4Build(_) | StackOp::F32x4BuildStore => -4,
+        StackOp::F32x4Splat(_) | StackOp::F32x4SplatStore => -1,
 
         _ => 0,
     }

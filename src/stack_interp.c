@@ -113,6 +113,22 @@ static inline void store_f64_unaligned(void* p, double v) {
     memcpy(p, &v, sizeof(v));
 }
 
+// f32x4 lives in 16 bytes of frame memory. alloc_memory rounds frame
+// allocations to 8-byte slots, so those 16 bytes are only 8-byte aligned:
+// go through memcpy so the compiler emits an unaligned vector load/store
+// (`ldur q` on aarch64, `movups` on x86-64) rather than assuming 16.
+typedef float v4f __attribute__((vector_size(16)));
+
+static inline v4f load_v4f(const void* p) {
+    v4f v;
+    memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static inline void store_v4f(void* p, v4f v) {
+    memcpy(p, &v, sizeof(v));
+}
+
 // ============================================================================
 // Integer power
 // ============================================================================
@@ -219,6 +235,13 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 } while(0)
 
 #define FDROP1() do { f0 = f1; f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
+
+// Drop 4 floats (the whole window) — the f32x4 constructors consume all
+// four lanes at once, so the window refills entirely from the spill area.
+#define FDROP4() do { \
+    f0 = *(fsp - 1); f1 = *(fsp - 2); f2 = *(fsp - 3); f3 = *(fsp - 4); \
+    fsp -= 4; \
+} while(0)
 #define FBINOP_SHIFT() do { f1 = f2; f2 = f3; f3 = *--fsp; } while(0)
 
 // f64 TOS window push/pop — exact mirror of the f32 window above, but
@@ -2315,6 +2338,204 @@ HANDLER(op_fused_get_f64const_dgt_jiz_d) {
         if (off < 0) POLL_CANCEL();
         DISPATCH();
     }
+    NEXT();
+}
+
+// ============================================================================
+// f32x4 SIMD
+// ============================================================================
+//
+// An f32x4 travels as an address in the int window, like every other
+// pointer-represented type. Each op loads whole 16-byte vectors, does the
+// arithmetic on a `v4f`, and stores the result — one SIMD instruction per
+// operation instead of the four per-lane load/op/store trips through the
+// float window that the scalarized path emitted.
+//
+// The plain forms name their destination frame slot in imm[0] and push its
+// address (expression position); the `*Store` forms take the destination
+// address off the top of the int window and push nothing, so an assignment
+// writes straight into its destination with no temp and no 16-byte copy.
+// The operands are read into registers before the store, so a destination
+// aliasing either operand (`v = v * k`) is fine.
+
+HANDLER(op_f32x4_add) {
+    v4f a = load_v4f((const void*)t1);
+    v4f b = load_v4f((const void*)t0);
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, a + b);
+    t0 = (uint64_t)dst;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+HANDLER(op_f32x4_sub) {
+    v4f a = load_v4f((const void*)t1);
+    v4f b = load_v4f((const void*)t0);
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, a - b);
+    t0 = (uint64_t)dst;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+HANDLER(op_f32x4_mul) {
+    v4f a = load_v4f((const void*)t1);
+    v4f b = load_v4f((const void*)t0);
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, a * b);
+    t0 = (uint64_t)dst;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+HANDLER(op_f32x4_div) {
+    v4f a = load_v4f((const void*)t1);
+    v4f b = load_v4f((const void*)t0);
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, a / b);
+    t0 = (uint64_t)dst;
+    BINOP_SHIFT();
+    NEXT();
+}
+
+HANDLER(op_f32x4_neg) {
+    v4f a = load_v4f((const void*)t0);
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, -a);
+    t0 = (uint64_t)dst;
+    NEXT();
+}
+
+// Lanes are pushed 0,1,2,3, so f0 holds lane 3 and f3 holds lane 0.
+HANDLER(op_f32x4_build) {
+    v4f v = { f3, f2, f1, f0 };
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, v);
+    FDROP4();
+    PUSH((uint64_t)dst);
+    NEXT();
+}
+
+HANDLER(op_f32x4_splat) {
+    v4f v = { f0, f0, f0, f0 };
+    void* dst = (void*)(locals + pc->imm[0]);
+    store_v4f(dst, v);
+    FDROP1();
+    PUSH((uint64_t)dst);
+    NEXT();
+}
+
+// Store forms: t0 = destination address, t1 = b, t2 = a.
+HANDLER(op_f32x4_add_store) {
+    v4f a = load_v4f((const void*)t2);
+    v4f b = load_v4f((const void*)t1);
+    store_v4f((void*)t0, a + b);
+    DROP3();
+    NEXT();
+}
+
+HANDLER(op_f32x4_sub_store) {
+    v4f a = load_v4f((const void*)t2);
+    v4f b = load_v4f((const void*)t1);
+    store_v4f((void*)t0, a - b);
+    DROP3();
+    NEXT();
+}
+
+HANDLER(op_f32x4_mul_store) {
+    v4f a = load_v4f((const void*)t2);
+    v4f b = load_v4f((const void*)t1);
+    store_v4f((void*)t0, a * b);
+    DROP3();
+    NEXT();
+}
+
+HANDLER(op_f32x4_div_store) {
+    v4f a = load_v4f((const void*)t2);
+    v4f b = load_v4f((const void*)t1);
+    store_v4f((void*)t0, a / b);
+    DROP3();
+    NEXT();
+}
+
+HANDLER(op_f32x4_neg_store) {
+    v4f a = load_v4f((const void*)t1);
+    store_v4f((void*)t0, -a);
+    DROP2();
+    NEXT();
+}
+
+HANDLER(op_f32x4_build_store) {
+    v4f v = { f3, f2, f1, f0 };
+    store_v4f((void*)t0, v);
+    FDROP4();
+    DROP1();
+    NEXT();
+}
+
+HANDLER(op_f32x4_splat_store) {
+    v4f v = { f0, f0, f0, f0 };
+    store_v4f((void*)t0, v);
+    FDROP1();
+    DROP1();
+    NEXT();
+}
+
+// Three-address forms: every operand and the destination is a frame slot,
+// so nothing touches the operand stack. imm[2] of the multiply-accumulate
+// ops packs c in the low half and dst in the high half.
+//
+// `a * b + c` contracts to a single fmla.4s. That makes these ops round
+// once where a separate multiply and add would round twice — the same
+// trade the scalar op_fused_get_get_fmul_fadd_f already makes.
+
+HANDLER(op_f32x4_add3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a + b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_sub3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a - b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_mul3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a * b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_div3) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    store_v4f(locals + pc->imm[2], a / b);
+    NEXT();
+}
+
+HANDLER(op_f32x4_neg2) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    store_v4f(locals + pc->imm[1], -a);
+    NEXT();
+}
+
+HANDLER(op_f32x4_muladd_set) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    v4f c = load_v4f(locals + (pc->imm[2] & 0xFFFFu));
+    store_v4f(locals + (pc->imm[2] >> 16), a * b + c);
+    NEXT();
+}
+
+HANDLER(op_f32x4_mulsub_set) {
+    v4f a = load_v4f(locals + pc->imm[0]);
+    v4f b = load_v4f(locals + pc->imm[1]);
+    v4f c = load_v4f(locals + (pc->imm[2] & 0xFFFFu));
+    store_v4f(locals + (pc->imm[2] >> 16), a * b - c);
     NEXT();
 }
 

@@ -1,0 +1,71 @@
+// The VM-family backends compute an f32x4 straight into its destination
+// rather than into a temp that is then copied over. That destination can
+// alias an operand, and the four constructor lanes are all live at once —
+// on the stack VM they fill the whole float window and spill.
+
+// expected stdout:
+// compilation successful
+// 9
+// 16
+// 25
+// 36
+// 4
+// 6
+// 1
+// 1
+// 6
+// 12
+// 18
+// 24
+// 5
+// 5
+// 2
+// 4
+// 25
+
+scale(v: f32x4, k: f32x4) -> f32x4 {
+    return v * k
+}
+
+apply(f: f32x4 -> f32x4, v: f32x4) -> f32x4 { f(v) }
+
+main {
+    // A destination that aliases both operands.
+    var v = f32x4(3.0, 4.0, 5.0, 6.0)
+    v = v * v
+    print(v[0] as i32)
+    print(v[1] as i32)
+    print(v[2] as i32)
+    print(v[3] as i32)
+
+    // Lanes built from expressions, not constants.
+    var x = 2.0
+    var w = f32x4(x + 2.0, x * 3.0, x - 1.0, x / 2.0)
+    print(w[0] as i32)
+    print(w[1] as i32)
+    print(w[2] as i32)
+    print(w[3] as i32)
+
+    // Division, and a result returned through the sret pointer.
+    var q = scale(f32x4(12.0, 24.0, 36.0, 48.0), f32x4_splat(2.0)) / f32x4_splat(4.0)
+    print(q[0] as i32)
+    print(q[1] as i32)
+    print(q[2] as i32)
+    print(q[3] as i32)
+
+    // Negation into a destination that aliases its operand.
+    var n = f32x4_splat(0.0 - 5.0)
+    n = -n
+    print(n[0] as i32)
+    print(n[3] as i32)
+
+    // Splat of a computed value.
+    var s = f32x4_splat(x)
+    print(s[2] as i32)
+
+    // A lambda body is the whole function body, so its vector result goes
+    // straight into the sret buffer with no fall-through copy.
+    var p = apply(| y | y * y, f32x4(2.0, 3.0, 4.0, 5.0))
+    print(p[0] as i32)
+    print(p[3] as i32)
+}

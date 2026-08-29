@@ -1,0 +1,40 @@
+// `a * b + c` must round the multiply before the add on every backend. If
+// the C interpreter is built without -ffp-contract=off, clang contracts
+// F32x4MulAddSet into a single fmla, which rounds once instead of twice —
+// and the stack VM is the backend shipped on iOS, so an Audulus node would
+// produce different audio there than on the desktop JIT.
+//
+// c cancels the *rounded* product exactly, so every lane is 0 only if the
+// multiply rounded before the add. Under contraction the first case reads
+// back the multiply's lost low bits instead. The second computes the same
+// value without the multiply-accumulate op, and the two must agree.
+//
+// Scalar f32 is deliberately not covered here: the LLVM and asm backends
+// both still contract op_fused_get_get_fmul_fadd_f's equivalent, which is
+// a pre-existing divergence tracked separately. Every backend agrees on
+// the f32x4 shapes below, so this test needs no skip directives.
+
+// expected stdout:
+// compilation successful
+// 0
+// 0
+// 0
+// 0
+
+main {
+    var a = f32x4_splat(12345.678)
+    var b = f32x4_splat(98765.43)
+    var p = a * b
+    var c = f32x4_splat(0.0) - p
+
+    // Contracted, this is exact(a*b) - round(a*b) rather than 0.
+    var fused = a * b + c
+    print(fused[0] as i32)
+    print(fused[3] as i32)
+
+    // The same value computed without the multiply-accumulate op.
+    var t = a * b
+    var split = t + c
+    print(split[0] as i32)
+    print(split[3] as i32)
+}

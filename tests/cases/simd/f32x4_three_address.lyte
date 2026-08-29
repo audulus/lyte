@@ -1,0 +1,99 @@
+// When an f32x4 computation's operands and destination are all frame slots,
+// the VM-family backends evaluate it between those slots with nothing on the
+// operand stack, and contract `a * b + c` into one multiply-accumulate. The
+// destination is free to alias any operand, and nested subtrees land in
+// temporaries first.
+
+// expected stdout:
+// compilation successful
+// 15
+// 45
+// 95
+// 165
+// 15
+// 45
+// 95
+// 165
+// 5
+// 35
+// 85
+// 155
+// 10
+// 20
+// 30
+// 40
+// 6
+// 6
+// 6
+// 6
+// 9
+// 18
+// 27
+// 36
+// 10
+// 10
+// 10
+// 10
+// -1
+// -2
+// -3
+// -4
+// 30
+// 105
+// 200
+// 315
+// 30
+// 105
+// 200
+// 315
+
+main {
+    var a = f32x4(1.0, 2.0, 3.0, 4.0)
+    var b = f32x4(10.0, 20.0, 30.0, 40.0)
+    var c = f32x4(5.0, 5.0, 5.0, 5.0)
+
+    // Multiply-accumulate, with the product on either side of the `+`.
+    var d = a * b + c
+    show(d)
+    var e = c + a * b
+    show(e)
+
+    // Multiply-subtract.
+    var f = a * b - c
+    show(f)
+
+    // A destination aliasing the accumulator, run twice.
+    var acc = f32x4_splat(0.0)
+    acc = a * c + acc
+    acc = a * c + acc
+    show(acc)
+
+    // Destinations aliasing a multiplicand.
+    var g = f32x4(2.0, 2.0, 2.0, 2.0)
+    g = g * g + g
+    show(g)
+
+    // Plain three-address forms: sub, div, neg.
+    var h = b - a
+    show(h)
+    var i = b / a
+    show(i)
+    var j = -a
+    show(j)
+
+    // Nested subtrees on both sides need temporaries.
+    var k = (a + c) * (b - c)
+    show(k)
+
+    // A whole-vector copy between locals.
+    var m = f32x4_splat(0.0)
+    m = k
+    show(m)
+}
+
+show(v: f32x4) {
+    print(v[0] as i32)
+    print(v[1] as i32)
+    print(v[2] as i32)
+    print(v[3] as i32)
+}

@@ -1,0 +1,26 @@
+// Stack-IR check that f32x4 lowers to whole-vector ops rather than four
+// per-lane trips through the float window. Operands that are all frame
+// slots use the three-address forms, so nothing reaches the operand
+// stack, and `a * k + b` contracts to a single multiply-accumulate.
+// args: --stack-ir
+// expected stdout:
+// fn main (params: 0, locals: 0, memory: 48 bytes):
+//      0: fw.f32.const 1
+//      1: fw.f32.const 2
+//      2: fw.f32.const 3
+//      3: fw.f32.const 4
+//      4: local.addr 0
+//      5: f32x4.build_store
+//      6: fw.f32.const 0.5
+//      7: local.addr 2
+//      8: f32x4.splat_store
+//      9: f32x4.neg2 0 4
+//     10: f32x4.muladd_set 0 2 4 0
+//     11: return_void
+
+main {
+    var a = f32x4(1.0, 2.0, 3.0, 4.0)
+    var k = f32x4_splat(0.5)
+    var b = -a
+    a = a * k + b
+}

@@ -598,6 +598,62 @@ pub enum StackOp {
     /// if !(locals[n] > const) jump. Pop 0, conditionally jump.
     FusedGetF64ConstDGtJumpIfZeroD(u16, f64, i32),
 
+    // === f32x4 SIMD ops ===
+    //
+    // An f32x4 value is 16 bytes of frame memory referenced by its address
+    // in the int window, the same as any other pointer-represented type.
+    // These ops load whole vectors, do the arithmetic with a C vector type
+    // (one SIMD instruction), and store the result — replacing the four
+    // per-lane load/op/store sequences the F-window path emitted.
+    //
+    // The plain forms name a destination frame slot in the immediate and
+    // push its address, for use in expression position. The `*Store` forms
+    // pop the destination address off the int window and push nothing, so
+    // an assignment lands in its destination without a temp + 16-byte copy.
+    /// locals[dst] = a <op> b, where b and a are addresses popped from the
+    /// int window. Pushes the address of `dst`. Pop 2, push 1.
+    F32x4Add(u16),
+    F32x4Sub(u16),
+    F32x4Mul(u16),
+    F32x4Div(u16),
+    /// locals[dst] = -a. Pop 1, push 1.
+    F32x4Neg(u16),
+    /// locals[dst] = the four lanes on the float window (lane 0 pushed
+    /// first, so f0 holds lane 3). Pops 4 from the float window, pushes
+    /// the destination address.
+    F32x4Build(u16),
+    /// locals[dst] = splat(f0). Pops 1 from the float window, pushes the
+    /// destination address.
+    F32x4Splat(u16),
+    /// Pop dst, b, a (dst on top); *dst = a <op> b. Pop 3, push 0.
+    F32x4AddStore,
+    F32x4SubStore,
+    F32x4MulStore,
+    F32x4DivStore,
+    /// Pop dst, a; *dst = -a. Pop 2, push 0.
+    F32x4NegStore,
+    /// Pop dst from the int window and four lanes from the float window.
+    F32x4BuildStore,
+    /// Pop dst from the int window and one lane from the float window.
+    F32x4SplatStore,
+
+    // Three-address forms. When every operand and the destination is a
+    // 16-byte frame slot, the whole computation needs no addresses on the
+    // stack at all: these read and write `locals` directly and are the
+    // f32x4 analogue of FusedGetGetFMulSet and friends. Pop 0, push 0.
+    /// locals[dst] = locals[a] <op> locals[b].
+    F32x4Add3(u16, u16, u16),
+    F32x4Sub3(u16, u16, u16),
+    F32x4Mul3(u16, u16, u16),
+    F32x4Div3(u16, u16, u16),
+    /// locals[dst] = -locals[a].
+    F32x4Neg2(u16, u16),
+    /// locals[dst] = locals[a] * locals[b] + locals[c] — the DSP workhorse,
+    /// and one instruction (`fmla.4s`) once the C compiler contracts it.
+    F32x4MulAddSet(u16, u16, u16, u16),
+    /// locals[dst] = locals[a] * locals[b] - locals[c].
+    F32x4MulSubSet(u16, u16, u16, u16),
+
     Halt,
     Nop,
 }
@@ -1295,6 +1351,31 @@ impl fmt::Display for StackOp {
             }
             StackOp::FusedGetF64ConstDGtJumpIfZeroD(n, v, o) => {
                 write!(f, "dw.fused.get_f64const_dgt_jiz {} {} {}", n, v, o)
+            }
+            StackOp::F32x4Add(d) => write!(f, "f32x4.add {}", d),
+            StackOp::F32x4Sub(d) => write!(f, "f32x4.sub {}", d),
+            StackOp::F32x4Mul(d) => write!(f, "f32x4.mul {}", d),
+            StackOp::F32x4Div(d) => write!(f, "f32x4.div {}", d),
+            StackOp::F32x4Neg(d) => write!(f, "f32x4.neg {}", d),
+            StackOp::F32x4Build(d) => write!(f, "f32x4.build {}", d),
+            StackOp::F32x4Splat(d) => write!(f, "f32x4.splat {}", d),
+            StackOp::F32x4AddStore => write!(f, "f32x4.add_store"),
+            StackOp::F32x4SubStore => write!(f, "f32x4.sub_store"),
+            StackOp::F32x4MulStore => write!(f, "f32x4.mul_store"),
+            StackOp::F32x4DivStore => write!(f, "f32x4.div_store"),
+            StackOp::F32x4NegStore => write!(f, "f32x4.neg_store"),
+            StackOp::F32x4BuildStore => write!(f, "f32x4.build_store"),
+            StackOp::F32x4SplatStore => write!(f, "f32x4.splat_store"),
+            StackOp::F32x4Add3(a, b, d) => write!(f, "f32x4.add3 {} {} {}", a, b, d),
+            StackOp::F32x4Sub3(a, b, d) => write!(f, "f32x4.sub3 {} {} {}", a, b, d),
+            StackOp::F32x4Mul3(a, b, d) => write!(f, "f32x4.mul3 {} {} {}", a, b, d),
+            StackOp::F32x4Div3(a, b, d) => write!(f, "f32x4.div3 {} {} {}", a, b, d),
+            StackOp::F32x4Neg2(a, d) => write!(f, "f32x4.neg2 {} {}", a, d),
+            StackOp::F32x4MulAddSet(a, b, c, d) => {
+                write!(f, "f32x4.muladd_set {} {} {} {}", a, b, c, d)
+            }
+            StackOp::F32x4MulSubSet(a, b, c, d) => {
+                write!(f, "f32x4.mulsub_set {} {} {} {}", a, b, c, d)
             }
             StackOp::Halt => write!(f, "halt"),
             StackOp::Nop => write!(f, "nop"),
