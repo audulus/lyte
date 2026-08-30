@@ -72,12 +72,12 @@ Note for Lua users: Lua lets one variable hold different kinds of values over ti
 
 | Type | What it is | Example values |
 |------|------------|----------------|
-| `i32` | A whole number (integer) | `42`, `-7`, `0`, `42i32` |
-| `f32` | A decimal number (float) | `3.14`, `-0.5`, `1.0`, `1.0f32` |
+| `i32` | A whole number (integer) | `42`, `-7`, `0` |
+| `f32` | A decimal number (float) | `3.14`, `-0.5`, `1.0` |
 | `bool` | True or false | `true`, `false` |
 | `str` | Text (a string in quotes) | `"hello"` |
 | `i8` | A very small whole number, used for individual characters | `65` (the letter `A`) |
-| `u32` | A whole number that cannot be negative (unsigned) | `42u32`, `42u`, `0u32` |
+| `u32` | A whole number that cannot be negative (unsigned) | `42`, `0` |
 
 Single characters can also be written with single quotes: `'a'`, `'Z'`, `'\n'` (newline). This is called a character literal.
 
@@ -103,24 +103,6 @@ In audio and DSP work, you will use `f32` constantly. Audio signals, frequencies
 
 **A note on `f64`:** The language grammar also defines an `f64` type, which is a higher-precision decimal number. In Audulus DSP work, `f32` is the type you'll usually use.
 
-By default, whole-number literals are `i32`, and decimal literals are `f32`.
-
-### Numeric literal suffixes
-
-Numeric literals can include a type suffix when you need the literal itself to have a specific type:
-
-```lyte
-main {
-    var count = 1i32
-    var mask = 1u32
-    var also_unsigned = 1u
-    var gain = 1.0f32
-    var precise = 1.0f64
-}
-```
-
-Use `as` when converting an existing value or expression from one type to another, such as `x as i32` or `(len - 2) as f32`.
-
 ### Why does static typing matter?
 
 In audio DSP, you are doing a lot of math very quickly. If the language has to keep figuring out what kind of value something is while it runs, that adds overhead. By knowing the types up front, Lyte can build faster code. Here, **compile** just means “turn your code into something the computer can run.”
@@ -137,6 +119,19 @@ f {
 ```
 
 The phrase "no solution for X == Y" is Lyte's general way of saying "I couldn't make these two types agree." You'll see this same phrasing for other type mismatches too — mismatched array sizes, wrong argument types, and so on. If you ever see it, it means something on the left side of an operation doesn't match the type on the right.
+
+### Numeric literal suffixes
+
+A numeric literal can carry an explicit type suffix instead of relying on inference: `1i32`, `1u32` (or `1u` as a shorthand), `1.0f32`, `1.0f64`. This is mainly useful when mixing `f32` and `f64` in the same expression, or when you want to pin down a literal's type without introducing an extra variable:
+
+```lyte
+main {
+    assert(1.0f64 + 2.0f64 == 3.0f64)
+    assert(5i32 == 5)
+}
+```
+
+An invalid suffix (like `1.0i32`, a float literal with an integer suffix) is a lexer error. In everyday Audulus DSP code, which is almost always plain `f32`, you won't need these often.
 
 ---
 
@@ -331,6 +326,19 @@ main {
 ```
 
 `while` keeps looping as long as the condition is true. Unlike `for`, you manage the loop variable yourself.
+
+### Semicolons as statement separators
+
+Lyte normally expects one statement per line, but you can also separate statements with `;` on the same line, including a trailing one right before a closing brace:
+
+```lyte
+main {
+    var x = 1; var y = 2; var z = x + y
+    assert(z == 3)
+}
+```
+
+This is rarely necessary — one statement per line is the more readable default for DSP code — but it's valid Lyte if you write or encounter it.
 
 ---
 
@@ -1293,7 +1301,7 @@ So this section is best read as the language idea behind a biquad. For practical
 
 > *Aside — why this runs efficiently: the multiply-add chains in the biquad formula (like `b0*x + b1*x1`) map directly to a hardware instruction called FMA, or fused multiply-add, which performs a multiplication and an addition in a single step rather than two. Lyte's compiler targets these instructions automatically when generating code for this kind of expression, which is one reason DSP code in Lyte can run efficiently.*
 
-This example brings together structs, `f32` math, tuples, and functions — all of the major concepts covered in this tutorial.
+This example brings together structs, `f32` math, tuples, and functions — all of the major concepts covered in this guide.
 
 > *Performance note: Lyte's repository includes a benchmark that runs this exact filter — 10 million samples of a 440 Hz sine wave through a 1 kHz lowpass biquad — and compares the results against C, Lua 5.5, and LuaJIT. It's designed to measure how close Lyte's performance gets to C for a representative DSP workload.*
 
@@ -1308,6 +1316,7 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 | `var x = 42` | Mutable variable, type inferred |
 | `let y = 3.14` | Immutable (fixed) variable, type inferred |
 | `var x: f32` | Mutable variable, explicit type, no value yet |
+| `1i32`, `1u32`, `1.0f32`, `1.0f64` | Numeric literal with an explicit type suffix |
 
 ### Basic types
 
@@ -1364,8 +1373,6 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 | `as` | Convert a value from one type to another |
 
 **Modulo (`%`)** gives you the remainder left over after a division. For example, `10 % 3` is `1`, because 10 divided by 3 is 3 with 1 left over. In DSP this is useful for things like wrapping a value around a range — keeping a phase counter cycling between 0 and some maximum, for instance.
-
-`%` works on floats too, and there it behaves like C's `fmod`: the result takes the sign of the left operand, so `-0.25 % 1.0` is `-0.25`. If you want the result to take the sign of the right operand instead (so that `mod(-0.25, 1.0)` is `0.75`), use the stdlib's `mod(x, y)`.
 
 **Power (`^`)** raises a number to an exponent. For example, `2 ^ 8` is 256 (2 multiplied by itself 8 times).
 
@@ -1538,7 +1545,7 @@ Here are some common math helpers from `stdlib.lyte`:
 | Function | What it does |
 |----------|--------------|
 | `fract(x)` | Fractional part of `x` |
-| `mod(x, y)` | Floating-point modulo, result takes the sign of `y` (`%` takes the sign of `x`) |
+| `mod(x, y)` | Floating-point modulo |
 | `clamp(x, lo, hi)` | Clamp `x` into a range |
 | `step(edge, x)` | `0` below the edge, `1` at or above it |
 | `smoothstep(edge0, edge1, x)` | Smooth curve between two edges |
@@ -1770,9 +1777,9 @@ Any type mismatch on assignment — not just `i32`/`f32` — produces the same e
 
 The left side of `==` in the message is always the *expected* type (the variable's declared type); the right side is the *actual* type of the value you tried to assign.
 
-### Inline `if` expressions can cause misleading parser errors
+### Inline `if` as a plain assignment can cause misleading parser errors
 
-In Lyte, block-form inline `if` expressions are not reliable in every context. Patterns like these can cause a long chain of parser errors:
+An `if`-`else` used as a value works fine as the initializer in a fresh `let` or `var` declaration:
 
 ```lyte
 let x = if cond {
@@ -1782,6 +1789,24 @@ let x = if cond {
 }
 ```
 
+The checker requires both branches to produce the same type when the value is actually used, and reports a clear error if they don't:
+
+```
+❌ if-else branches must have the same type: i32 vs f32
+    let y = if c { 1 } else { 2.0 }
+                              ^
+```
+
+A branch that ends in a `var`/`let` declaration produces no value at all (declarations are statements, not expressions), so using it as a branch's value is also a clear checker error rather than a silent wrong answer:
+
+```
+❌ if-else branches must have the same type: i32 vs void
+    let y = if c { 1 } else { var z = 2 }
+                              ^
+```
+
+What still doesn't work is an `if`-`else` used as a *plain assignment* to something that already exists — an existing variable or a port index — rather than as a declaration's initializer:
+
 ```lyte
 output[i] = if cond {
     a
@@ -1790,16 +1815,25 @@ output[i] = if cond {
 }
 ```
 
-You may see messages like:
+```lyte
+x = if cond {
+    a
+} else {
+    b
+}
+```
+
+Both of these still produce a long chain of parser errors, since the parser doesn't accept `if` as the right-hand side of a plain (non-declaring) assignment:
 
 ```
 Expected expression
-Expected declaration, got Let
-Expected declaration, got Assign
-Expected declaration, got Lbracket
+Expected declaration, got Lbrace
+Expected declaration, got Integer(1, None)
+Expected declaration, got Rbrace
+Expected declaration, got Else
 ```
 
-The safer pattern is:
+The safer pattern for those cases is still to assign a default first, then override with a plain `if` block:
 
 ```lyte
 var x = b
@@ -1817,7 +1851,7 @@ if cond {
 }
 ```
 
-This is a little more verbose, but it is much more dependable in current Lyte.
+This is a little more verbose, but it works in every position, including inside the per-sample loop, where it's the more common case anyway.
 
 ### Calling an undefined macro
 
@@ -1883,7 +1917,7 @@ If you want a generic struct, declare the type parameter in the struct name: `st
 
 ## 20. Features in the Grammar Not Yet Covered
 
-The official Lyte grammar file reveals a few features that exist in the language but aren't documented in the README and aren't yet covered in this tutorial. They're listed here so you're aware they exist, without going into detail that could become outdated as Lyte develops.
+The official Lyte grammar file reveals a few features that exist in the language but aren't documented in the README and aren't yet covered in this guide. They're listed here so you're aware they exist, without going into detail that could become outdated as Lyte develops.
 
 **`arena`** — reserved for future use in the current Lyte repo. If you try to use it today, the compiler reports `arena is reserved for future use`.
 
@@ -1898,5 +1932,5 @@ These are cosmetic alternatives — the standard ASCII versions work just as wel
 
 ---
 
-*This tutorial was written as a companion to the official Lyte README and grammar.*
+*This guide was written as a companion to the official Lyte README and grammar.*
 *Source: https://github.com/audulus/lyte*

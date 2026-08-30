@@ -200,7 +200,7 @@ directive if the flag ever gets tested in CI.
 3. Update `build-xcframework.sh` to pass `--no-recursion`, recovering
    the reverb regression without touching any user code or tests.
 4. Optionally: expose the flag in the Audulus host's compile call and
-   document it in `docs/lyte-dsp-quickstart.md` for DSP authors.
+   document it in `docs/quickstart.md` for DSP authors.
 
 **Naming note:** `--no-recursion` is precise but narrow. A broader name
 like `--realtime` could eventually gate other realtime-hostile features
