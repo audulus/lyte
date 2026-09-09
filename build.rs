@@ -1,7 +1,29 @@
 use std::io::Write;
 use std::process::Command;
 
+#[allow(dead_code)]
+#[path = "src/loop_recipe.rs"]
+mod loop_recipe;
+#[allow(dead_code)]
+#[path = "src/pointwise.rs"]
+mod pointwise;
+#[path = "build/pointwise.rs"]
+mod pointwise_build;
+#[allow(dead_code)]
+#[path = "src/recurrence.rs"]
+mod recurrence;
+#[path = "build/recurrence.rs"]
+mod recurrence_build;
+
 fn main() {
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    pointwise_build::generate(std::path::Path::new(&out_dir));
+    recurrence_build::generate(std::path::Path::new(&out_dir));
+    println!("cargo:rerun-if-changed=src/loop_recipe.rs");
+    println!("cargo:rerun-if-changed=src/pointwise.rs");
+    println!("cargo:rerun-if-changed=build/pointwise.rs");
+    println!("cargo:rerun-if-changed=src/recurrence.rs");
+    println!("cargo:rerun-if-changed=build/recurrence.rs");
     // Compile the C stack interpreter with preserve_none + musttail.
     // Clang-only feature (skip on GCC). The handler signature keeps
     // the TOS window (t0..t3), the int stack pointer, the float
@@ -17,6 +39,7 @@ fn main() {
         cc::Build::new()
             .file("src/stack_interp.c")
             .include("src")
+            .include(&out_dir)
             .opt_level(3)
             .flag("-std=c11")
             .flag("-Wno-unused-parameter")
@@ -63,7 +86,6 @@ fn main() {
     println!("cargo:rerun-if-changed=src/stack_interp.c");
     println!("cargo:rerun-if-changed=src/stack_interp.h");
     // Determine sizeof(jmp_buf) on this platform by compiling and running a C snippet.
-    let out_dir = std::env::var("OUT_DIR").unwrap();
     let c_path = format!("{}/jmpbuf_size.c", out_dir);
     let bin_path = format!("{}/jmpbuf_size", out_dir);
 

@@ -3,7 +3,7 @@
 //! Converts StackOp instructions into the C Instruction format
 //! (handler pointer + 3 immediates) and calls stack_interp_run.
 
-use crate::stack_ir::{StackOp, StackProgram};
+use crate::stack_ir::{NativeLoopKernel, NativeScalar, NativeStreamBody, StackOp, StackProgram};
 
 // C types matching stack_interp.h
 #[repr(C)]
@@ -185,6 +185,11 @@ extern "C" {
     fn op_fused_get_get_ilt();
     fn op_fused_addr_load32off();
     fn op_fused_get_addimm_set();
+    fn stack_pointwise_handler(recipe: u32, double: bool) -> *const ();
+    fn op_one_pole_f32();
+    fn op_one_pole_f64();
+    fn op_biquad_f32();
+    fn op_biquad_f64();
     fn op_fused_get_get_ilt_jiz();
     fn op_fused_bounds_check1_jiz();
     fn op_fused_bounds_check2_jiz();
@@ -514,6 +519,24 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::FusedGetGetILt(_, _) => op_fused_get_get_ilt as *const (),
         StackOp::FusedAddrLoad32Off(_, _) => op_fused_addr_load32off as *const (),
         StackOp::FusedGetAddImmSet(_, _, _) => op_fused_get_addimm_set as *const (),
+        StackOp::NativeLoop(kernel) => match (&kernel.body, kernel.scalar) {
+            (NativeStreamBody::Pointwise { recipe, .. }, scalar) => {
+                // Resolve once while encoding. Execution dispatches directly
+                // to the generated, statically specialized native handler.
+                let handler = unsafe {
+                    stack_pointwise_handler(recipe.index() as u32, scalar == NativeScalar::F64)
+                };
+                assert!(
+                    !handler.is_null(),
+                    "pointwise handler missing from generated catalog"
+                );
+                handler
+            }
+            (NativeStreamBody::OnePole { .. }, NativeScalar::F32) => op_one_pole_f32 as *const (),
+            (NativeStreamBody::OnePole { .. }, NativeScalar::F64) => op_one_pole_f64 as *const (),
+            (NativeStreamBody::Biquad { .. }, NativeScalar::F32) => op_biquad_f32 as *const (),
+            (NativeStreamBody::Biquad { .. }, NativeScalar::F64) => op_biquad_f64 as *const (),
+        },
         StackOp::FusedGetGetILtJumpIfZero(_, _, _) => op_fused_get_get_ilt_jiz as *const (),
         StackOp::FusedBoundsCheck1JumpIfZero(_, _) => op_fused_bounds_check1_jiz as *const (),
         StackOp::FusedBoundsCheck2JumpIfZero(_, _) => op_fused_bounds_check2_jiz as *const (),
@@ -805,6 +828,7 @@ fn encode_imm(op: &StackOp, func_idx: u32) -> [u64; 3] {
         }
         StackOp::FusedTeeSliceStore32(n, s, idx) => [*n as u64, *s as u64, *idx as u64],
         StackOp::FusedGetAddImmSet(s, v, d) => [*s as u64, *v as i64 as u64, *d as u64],
+        StackOp::NativeLoop(kernel) => encode_native_loop(kernel),
         StackOp::FusedGetGetILtJumpIfZero(a, b, off) => [*a as u64, *b as u64, *off as i64 as u64],
         StackOp::FusedBoundsCheck1JumpIfZero(p, off) => {
             let mut out = pack_u8_imms(p);
@@ -996,13 +1020,17 @@ pub fn run(program: &StackProgram) -> i64 {
 /// repeatedly without re-allocating. Globals are passed per-call so a
 /// single backend can drive multiple independent globals buffers.
 ///
-/// Pin-in-place semantics: once built, the struct must not move — `ctx`
-/// holds raw pointers into the backend's own vectors. The FFI layer boxes
-/// it (via `Box<LyteProgram>`) which keeps the address stable.
+/// The encoded instructions and `ctx` hold raw pointers into owned backing
+/// allocations. Those allocations must not resize after construction; moving
+/// the backend itself is safe because it does not move the allocations.
 pub struct StackBackend {
     // Owned program data. The inner Vec<Instruction> never resizes after
     // construction, so the raw pointers stored in `func_metas` stay valid.
     _c_instructions: Vec<Vec<Instruction>>,
+    // Large native kernels name scalar slots through immutable descriptors.
+    // Freeze the arena before encoding pointers; neither calls nor moving the
+    // backend can invalidate its allocation. Small gateways stay inline.
+    _native_kernel_operands: Box<[u16]>,
     func_metas: Vec<FuncMeta>,
     call_stack: Vec<CallFrame>,
     operand_stack: Vec<u64>,
@@ -1012,15 +1040,96 @@ pub struct StackBackend {
     ctx: Ctx,
 }
 
+#[cfg(test)]
+mod native_loop_tests;
+
+fn encode_native_loop(kernel: &NativeLoopKernel) -> [u64; 3] {
+    let spans = &kernel.spans;
+    let body = &kernel.body;
+    let domain = u64::from(kernel.counter)
+        | (u64::from(kernel.end) << 16)
+        | (u64::from(spans.input) << 32)
+        | (u64::from(spans.output) << 48);
+    let lengths = (u64::from(spans.input_len) << 32) | (u64::from(spans.output_len) << 48);
+    match body {
+        NativeStreamBody::Pointwise { coefficients, .. } => [
+            domain,
+            u64::from(coefficients[0]) | (u64::from(coefficients[1]) << 16) | lengths,
+            u64::from(kernel.done as u32)
+                | (u64::from(coefficients[2]) << 32)
+                | (u64::from(coefficients[3]) << 48),
+        ],
+        NativeStreamBody::OnePole {
+            feed,
+            feedback,
+            state,
+        } => [
+            domain,
+            u64::from(*feed) | (u64::from(*feedback) << 16) | lengths,
+            u64::from(kernel.done as u32) | (u64::from(*state) << 32),
+        ],
+        // imm0 is filled from the frozen operand arena during backend construction.
+        NativeStreamBody::Biquad { .. } => [0, 0, kernel.done as i64 as u64],
+    }
+}
+
+// Slot order is the native Biquad descriptor ABI; C reads six domain slots,
+// five coefficients (b0, b1, b2, a1, a2), then four states (x1, x2, y1, y2).
+fn native_kernel_operands(op: &StackOp) -> Option<[u16; 15]> {
+    match op {
+        StackOp::NativeLoop(NativeLoopKernel {
+            counter,
+            end,
+            spans,
+            body:
+                NativeStreamBody::Biquad {
+                    coefficients,
+                    states,
+                },
+            ..
+        }) => Some([
+            *counter,
+            *end,
+            spans.input,
+            spans.output,
+            spans.input_len,
+            spans.output_len,
+            coefficients[0],
+            coefficients[1],
+            coefficients[2],
+            coefficients[3],
+            coefficients[4],
+            states[0],
+            states[1],
+            states[2],
+            states[3],
+        ]),
+        _ => None,
+    }
+}
+
 impl StackBackend {
     pub fn new(program: &StackProgram) -> Self {
+        let native_kernel_operands: Box<[u16]> = program
+            .functions
+            .iter()
+            .flat_map(|function| &function.ops)
+            .filter_map(native_kernel_operands)
+            .flatten()
+            .collect();
+        let mut operand_offset = 0;
         let mut c_instructions: Vec<Vec<Instruction>> = Vec::with_capacity(program.functions.len());
         for (fi, func) in program.functions.iter().enumerate() {
             let mut instrs: Vec<Instruction> = Vec::with_capacity(func.ops.len() + 1);
             for op in func.ops.iter() {
+                let mut imm = encode_imm(op, fi as u32);
+                if let Some(operands) = self::native_kernel_operands(op) {
+                    imm[0] = native_kernel_operands[operand_offset..].as_ptr() as u64;
+                    operand_offset += operands.len();
+                }
                 instrs.push(Instruction {
                     handler: handler_for(op),
-                    imm: encode_imm(op, fi as u32),
+                    imm,
                 });
             }
             instrs.push(Instruction {
@@ -1084,6 +1193,7 @@ impl StackBackend {
 
         Self {
             _c_instructions: c_instructions,
+            _native_kernel_operands: native_kernel_operands,
             func_metas,
             call_stack,
             operand_stack,
@@ -1192,10 +1302,7 @@ mod tests {
         let mut globals: Vec<u8> = vec![0u8; program.globals_size.max(1)];
         backend.call_entry(program.entry, globals.as_mut_ptr());
 
-        assert!(
-            !backend.cancelled(),
-            "assertion trap is not a cancellation"
-        );
+        assert!(!backend.cancelled(), "assertion trap is not a cancellation");
         assert_eq!(
             backend.trap_reason(),
             crate::cancel::TRAP_ASSERTION_FAILED,

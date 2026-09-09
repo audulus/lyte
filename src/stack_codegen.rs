@@ -11,6 +11,14 @@ use crate::expr::Expr;
 use crate::stack_ir::*;
 use crate::types::*;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
+
+/// A checked private input or exact literal awaiting native operand storage.
+#[derive(Clone, Copy)]
+enum LoopScalar {
+    Local(u16),
+    Constant(u64),
+}
 
 /// Loop context for break/continue support.
 struct LoopContext {
@@ -47,6 +55,9 @@ enum LocalKind {
 
 /// Code generator for the stack-based VM.
 pub struct StackCodegen {
+    /// Opt in to the shared precompiled native-loop consumer.
+    pub(crate) native_loops: bool,
+
     /// The program being built.
     program: StackProgram,
 
@@ -81,6 +92,7 @@ impl Default for StackCodegen {
 impl StackCodegen {
     pub fn new() -> Self {
         Self {
+            native_loops: false,
             program: StackProgram::new(),
             func_indices: HashMap::new(),
             compiled_functions: HashSet::new(),
@@ -207,14 +219,35 @@ impl StackCodegen {
         let mut func = StackFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
 
+        let pending_function_count = self.pending_functions.len();
+        let lambda_counter = self.lambda_counter;
+
         let mut translator = FunctionTranslator::new(
             decl,
             decls,
             &mut self.pending_functions,
             &mut self.lambda_counter,
             &self.globals,
+            self.native_loops && instance.is_some(),
         );
-        translator.translate(&mut func);
+        if !translator.translate(&mut func)? {
+            // Native setup is optional. Discard the complete unpublished draft
+            // and retry ordinary lowering if its extra slots exceed the encoding.
+            drop(translator);
+            self.pending_functions.truncate(pending_function_count);
+            self.lambda_counter = lambda_counter;
+            func = StackFunction::new(&*decl.name);
+            func.param_count = decl.params.len() as u8;
+            translator = FunctionTranslator::new(
+                decl,
+                decls,
+                &mut self.pending_functions,
+                &mut self.lambda_counter,
+                &self.globals,
+                false,
+            );
+            translator.translate(&mut func)?;
+        }
 
         let idx = self.program.add_function(func);
         if let Some(instance) = instance {
@@ -305,10 +338,17 @@ struct FunctionTranslator<'a> {
     variables: HashMap<LocalId, LocalKind>,
 
     /// Next available scalar local slot.
-    next_scalar: u16,
+    next_scalar: u32,
 
     /// Next available memory slot (in 8-byte units).
-    next_memory_slot: u16,
+    next_memory_slot: u32,
+
+    /// Highest allocated memory start, including zero-sized objects.
+    max_memory_slot: Option<u32>,
+
+    /// Analysis belongs to precisely this immutable checked body, after hoisting.
+    loops: HashMap<ExprID, crate::value_loops::LoopRegion>,
+    native_loop_count: usize,
 
     /// Functions that are called and need to be compiled.
     pending_functions: &'a mut Vec<InstanceId>,
@@ -365,6 +405,7 @@ impl<'a> FunctionTranslator<'a> {
         pending_functions: &'a mut Vec<InstanceId>,
         lambda_counter: &'a mut usize,
         globals: &'a HashMap<InstanceId, i32>,
+        native_loops: bool,
     ) -> Self {
         Self {
             decl,
@@ -373,6 +414,13 @@ impl<'a> FunctionTranslator<'a> {
 
             next_scalar: 0,
             next_memory_slot: 0,
+            max_memory_slot: None,
+            loops: if native_loops {
+                crate::value_loops::analyze_function(decl)
+            } else {
+                HashMap::new()
+            },
+            native_loop_count: 0,
             pending_functions,
             lambda_counter,
             calls_to_patch: Vec::new(),
@@ -394,17 +442,20 @@ impl<'a> FunctionTranslator<'a> {
     /// Allocate a scalar local slot.
     fn alloc_scalar(&mut self) -> u16 {
         let slot = self.next_scalar;
-        self.next_scalar += 1;
-        slot
+        self.next_scalar = self.next_scalar.saturating_add(1);
+        // Draft operands are narrow, but a complete wide frame check runs before
+        // any function is published. Overflowing drafts are discarded.
+        slot as u16
     }
 
     /// Allocate a memory-backed local slot. Returns the memory slot index.
     /// size is in bytes; we round up to 8-byte units.
     fn alloc_memory(&mut self, size: u32) -> u16 {
         let slot = self.next_memory_slot;
-        let slots_needed = ((size + 7) / 8) as u16;
-        self.next_memory_slot += slots_needed;
-        slot
+        self.max_memory_slot = Some(self.max_memory_slot.map_or(slot, |last| last.max(slot)));
+        let slots_needed = size / 8 + u32::from(size % 8 != 0);
+        self.next_memory_slot = self.next_memory_slot.saturating_add(slots_needed);
+        slot as u16
     }
 
     /// Get the type of an expression.
@@ -461,7 +512,7 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate the function body.
-    fn translate(&mut self, func: &mut StackFunction) {
+    fn translate(&mut self, func: &mut StackFunction) -> Result<bool, String> {
         // If return type is a pointer type, first parameter is output pointer.
         let has_sret = returns_via_pointer(self.decl.ret);
         if has_sret {
@@ -479,7 +530,7 @@ impl<'a> FunctionTranslator<'a> {
             let ty = self.decl.arena.local(param.local).ty;
 
             if let Type::Reference(_) = &*ty {
-                while self.next_scalar <= param_slot {
+                while self.next_scalar <= u32::from(param_slot) {
                     self.alloc_scalar();
                 }
                 self.variables
@@ -487,7 +538,7 @@ impl<'a> FunctionTranslator<'a> {
             } else if !self.is_ptr_type(&ty) {
                 // Scalar parameter: already in local slot param_slot by calling convention.
                 // Just make sure our allocator accounts for it.
-                while self.next_scalar <= param_slot {
+                while self.next_scalar <= u32::from(param_slot) {
                     self.alloc_scalar();
                 }
                 self.variables
@@ -495,7 +546,7 @@ impl<'a> FunctionTranslator<'a> {
             } else {
                 // Pointer-represented parameters are passed as addresses.
                 // Keep the address value directly, matching the JIT/LLVM ABI.
-                while self.next_scalar <= param_slot {
+                while self.next_scalar <= u32::from(param_slot) {
                     self.alloc_scalar();
                 }
                 self.variables
@@ -602,9 +653,25 @@ impl<'a> FunctionTranslator<'a> {
             func.emit(StackOp::ReturnVoid);
         }
 
-        func.local_count = self.next_scalar;
-        func.local_memory = self.next_memory_slot as u32 * 8;
+        let memory_starts_fit = self
+            .max_memory_slot
+            .is_none_or(|slot| slot.saturating_add(self.next_scalar) <= u32::from(u16::MAX));
+        if self.next_scalar > u32::from(u16::MAX)
+            || !memory_starts_fit
+            || self.next_memory_slot.checked_mul(8).is_none()
+        {
+            if self.native_loop_count != 0 {
+                return Ok(false);
+            }
+            return Err(format!(
+                "stack function {} exceeds frame slot limits ({} scalar slots, {} memory slots)",
+                self.decl.name, self.next_scalar, self.next_memory_slot,
+            ));
+        }
+        func.local_count = self.next_scalar as u16;
+        func.local_memory = self.next_memory_slot * 8;
         func.has_return_value = !matches!(&*self.decl.ret, Type::Void) && !has_sret;
+        Ok(true)
     }
 
     /// Translate an expression. Pushes exactly one value onto the stack
@@ -1002,7 +1069,7 @@ impl<'a> FunctionTranslator<'a> {
                 start, end, body, ..
             } => {
                 let var = self.decl.arena.binder(expr);
-                self.translate_for(var, *start, *end, *body, func);
+                self.translate_for(expr, var, *start, *end, *body, func);
                 if !self.void_ctx {
                     func.emit(StackOp::I64Const(0));
                 }
@@ -2514,6 +2581,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate a for loop.
     fn translate_for(
         &mut self,
+        expr: ExprID,
         var: LocalId,
         start_id: ExprID,
         end_id: ExprID,
@@ -2531,6 +2599,10 @@ impl<'a> FunctionTranslator<'a> {
         self.translate_expr(end_id, func);
         let end_local = self.alloc_scalar();
         func.emit(StackOp::LocalSet(end_local));
+
+        // Bounds are evaluated once. The native path and scalar continuation
+        // share the same counter/end slots and publication boundary.
+        let kernel = self.try_emit_loop(expr, loop_var, end_local, func);
 
         // The checked loop binding has its own local identity.
 
@@ -2594,6 +2666,12 @@ impl<'a> FunctionTranslator<'a> {
 
         // Patch jumps.
         func.patch_jump(jump_to_end);
+        if let Some(index) = kernel {
+            let done = func.pos() as i32 - index as i32 - 1;
+            if let StackOp::NativeLoop(kernel) = &mut func.ops[index] {
+                kernel.done = done;
+            }
+        }
         let ctx = self.loop_stack.pop().unwrap();
         for bp in ctx.break_patches {
             func.patch_jump(bp);
@@ -2606,6 +2684,184 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Caller handles result push if needed.
+    }
+
+    /// Select a precompiled implementation from a loop's checked value graph.
+    /// Unsupported value/effect shapes keep the existing loop lowering.
+    fn try_emit_loop(
+        &mut self,
+        expr: ExprID,
+        counter: u16,
+        end: u16,
+        func: &mut StackFunction,
+    ) -> Option<usize> {
+        use crate::value_loops::Scalar;
+        let plan = self.loops.get(&expr)?.clone();
+        // Contracts supply typed coefficient/state roles. Resolve every
+        // scalar and span before emitting any native setup, then lower the
+        // common stream domain independently of its arithmetic body.
+        let (input, output, pending) = if let Some(map) = plan.pointwise() {
+            // Only the recipe's active prefix is materialized. Padding names
+            // slot zero but is never read by the generated implementation.
+            let mut coefficients = std::array::from_fn(|_| LoopScalar::Local(0));
+            for (slot, value) in coefficients.iter_mut().zip(map.coefficients) {
+                *slot = self.loop_scalar(&plan, value)?;
+            }
+            (
+                map.input,
+                map.output,
+                NativeStreamBody::Pointwise {
+                    recipe: map.recipe,
+                    coefficients,
+                },
+            )
+        } else if let Some(pole) = plan.one_pole() {
+            (
+                pole.input,
+                pole.output,
+                NativeStreamBody::OnePole {
+                    state: self.loop_scalar_local(plan.carries[pole.carry].binding)?,
+                    feed: self.loop_scalar(&plan, pole.feed)?,
+                    feedback: self.loop_scalar(&plan, pole.feedback)?,
+                },
+            )
+        } else if let Some(biquad) = plan.biquad() {
+            let [x1, x2, y1, y2] = biquad
+                .carries
+                .map(|carry| self.loop_scalar_local(plan.carries[carry].binding));
+            let [b0, b1, b2, a1, a2] = biquad
+                .coefficients
+                .map(|value| self.loop_scalar(&plan, value));
+            (
+                biquad.input,
+                biquad.output,
+                NativeStreamBody::Biquad {
+                    states: [x1?, x2?, y1?, y2?],
+                    coefficients: [b0?, b1?, b2?, a1?, a2?],
+                },
+            )
+        } else {
+            return None;
+        };
+        let input_expr = plan.streams[input].expression;
+        let output_expr = plan.streams[output].expression;
+        let input_length = self.loop_span_length(input_expr)?;
+        let output_length = self.loop_span_length(output_expr)?;
+        let body = pending.map_coefficients(|value| self.materialize_loop_scalar(value, func));
+        let (input_slot, input_len) = self.materialize_loop_span(input_expr, input_length, func);
+        let (output_slot, output_len) = if input == output {
+            (input_slot, input_len)
+        } else {
+            self.materialize_loop_span(output_expr, output_length, func)
+        };
+        let op = StackOp::NativeLoop(NativeLoopKernel {
+            scalar: match plan.ty {
+                Scalar::F32 => NativeScalar::F32,
+                Scalar::F64 => NativeScalar::F64,
+            },
+            counter,
+            end,
+            done: 0,
+            spans: NativeStreamSlots {
+                input: input_slot,
+                output: output_slot,
+                input_len,
+                output_len,
+            },
+            body,
+        });
+        let index = func.pos();
+        func.emit(op);
+        self.native_loop_count += 1;
+        Some(index)
+    }
+
+    /// Only an owned numeric scalar slot can be a private native port. Captured
+    /// storage and reference/pointer slots keep ordinary lowering.
+    fn loop_scalar_local(&self, binding: LocalId) -> Option<u16> {
+        if self.captured_vars.contains(&binding)
+            || self.lambda_referenced.contains(&binding)
+            || !matches!(
+                &*self.decl.arena.local(binding).ty,
+                Type::Float32 | Type::Float64
+            )
+        {
+            return None;
+        }
+        match self.variables.get(&binding) {
+            Some(LocalKind::Scalar(slot)) => Some(*slot),
+            _ => None,
+        }
+    }
+
+    /// Resolve invariant scalar ports while the outer lexical environment is live.
+    fn loop_scalar(
+        &self,
+        plan: &crate::value_loops::LoopRegion,
+        value: crate::value_loops::ValueId,
+    ) -> Option<LoopScalar> {
+        use crate::value_loops::{Operation, Scalar};
+        match &plan.values.get(value.0)?.operation {
+            Operation::Input(binding) => Some(LoopScalar::Local(self.loop_scalar_local(*binding)?)),
+            Operation::Constant(text) => Some(LoopScalar::Constant(match plan.ty {
+                Scalar::F32 => u64::from(text.parse::<f32>().unwrap_or(0.0).to_bits()),
+                Scalar::F64 => text.parse::<f64>().unwrap_or(0.0).to_bits(),
+            })),
+            _ => None,
+        }
+    }
+
+    fn materialize_loop_scalar(&mut self, value: LoopScalar, func: &mut StackFunction) -> u16 {
+        match value {
+            LoopScalar::Local(slot) => slot,
+            LoopScalar::Constant(bits) => {
+                let slot = self.alloc_scalar();
+                func.emit(StackOp::FusedConstSet(bits as i64, slot));
+                slot
+            }
+        }
+    }
+
+    /// Solved array-to-slice coercions do not change the original storage ABI.
+    fn loop_span_length(&self, expression: ExprID) -> Option<crate::value_loops::SpanLength> {
+        use crate::value_loops::SpanLength;
+        match &*self.representation_type(expression) {
+            Type::Array(_, ArraySize::Known(length)) => {
+                Some(SpanLength::Fixed(u32::try_from(*length).ok()?))
+            }
+            Type::Slice(_) => Some(SpanLength::Slice),
+            _ => None,
+        }
+    }
+
+    fn materialize_loop_span(
+        &mut self,
+        expression: ExprID,
+        length: crate::value_loops::SpanLength,
+        func: &mut StackFunction,
+    ) -> (u16, u16) {
+        use crate::value_loops::SpanLength;
+        self.translate_expr(expression, func);
+        let pointer = self.alloc_scalar();
+        let length_slot = self.alloc_scalar();
+        func.emit(StackOp::LocalSet(pointer));
+        match length {
+            SpanLength::Fixed(length) => {
+                func.emit(StackOp::FusedConstSet(i64::from(length), length_slot));
+            }
+            SpanLength::Slice => {
+                // First retain the header's length, then replace its address with
+                // the raw element pointer. Both are refreshed by ordinary lowering
+                // if an actual callback makes the kernel resume bytecode.
+                func.emit(StackOp::LocalGet(pointer));
+                func.emit(StackOp::Load32Off(8));
+                func.emit(StackOp::LocalSet(length_slot));
+                func.emit(StackOp::LocalGet(pointer));
+                func.emit(StackOp::Load64);
+                func.emit(StackOp::LocalSet(pointer));
+            }
+        }
+        (pointer, length_slot)
     }
 
     /// Translate a field access.

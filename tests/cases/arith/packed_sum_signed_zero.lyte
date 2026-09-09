@@ -1,0 +1,31 @@
+// A sum of negative-zero products starts with its first product. Adding an
+// artificial initial +0 changes its sign. atan2 exposes the sign without
+// division by zero; the inline forms select Stack's packed sum handlers.
+// expected stdout:
+// compilation successful
+// -3
+// -3
+// -3
+// -3
+
+inline32(a: f32, b: f32, c: f32, d: f32) -> f32 { a * b + c * d }
+split32(a: f32, b: f32, c: f32, d: f32) -> f32 {
+    let p = a * b
+    let q = c * d
+    p + q
+}
+inline64(a: f64, b: f64, c: f64, d: f64) -> f64 { a * b + c * d }
+split64(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    let p = a * b
+    let q = c * d
+    p + q
+}
+
+main {
+    var z = -0.0
+    print(atan2(inline32(z, 1.0, z, 1.0), -1.0) as i32)
+    print(atan2(split32(z, 1.0, z, 1.0), -1.0) as i32)
+    var z64 = -0.0f64
+    print(atan2(inline64(z64, 1.0f64, z64, 1.0f64), -1.0f64) as i32)
+    print(atan2(split64(z64, 1.0f64, z64, 1.0f64), -1.0f64) as i32)
+}

@@ -87,6 +87,14 @@ pub mod stack_ir;
 
 pub mod stack_codegen;
 
+pub mod loop_recipe;
+pub mod pointwise;
+pub mod recurrence;
+pub mod value_loops;
+
+#[cfg(all(test, has_stack_interp))]
+mod native_loop_tests;
+
 pub mod stack_optimize;
 
 pub mod stack_depth;

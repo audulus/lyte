@@ -30,6 +30,7 @@ pub fn compute_depths(func: &StackFunction) -> Vec<u8> {
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
             StackOp::FusedF64ConstDGtJumpIfZeroD(_, off) => Some(*off),
             StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => Some(*off),
+            StackOp::NativeLoop(kernel) => Some(kernel.done),
             _ => None,
         };
         if let Some(off) = off {
@@ -205,6 +206,7 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::FusedConstSet(_, _)
         | StackOp::FusedF32ConstSet(_, _)
         | StackOp::FusedGetAddImmSet(_, _, _)
+        | StackOp::NativeLoop(_)
         | StackOp::FusedGetGetILtJumpIfZero(_, _, _)
         | StackOp::FusedBoundsCheck1JumpIfZero(_, _)
         | StackOp::FusedBoundsCheck2JumpIfZero(_, _)

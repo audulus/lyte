@@ -41,6 +41,7 @@ fn compute_jump_targets(ops: &[StackOp]) -> Vec<bool> {
             StackOp::FusedGetF32ConstFGtJumpIfZeroF(_, _, off) => Some(*off),
             StackOp::FusedF64ConstDGtJumpIfZeroD(_, off) => Some(*off),
             StackOp::FusedGetF64ConstDGtJumpIfZeroD(_, _, off) => Some(*off),
+            StackOp::NativeLoop(kernel) => Some(kernel.done),
             _ => None,
         };
         if let Some(off) = off {
@@ -376,10 +377,17 @@ fn packed_fmul_sum_fused_chain(
 fn fuse(func: &mut StackFunction) {
     let ops = &mut func.ops;
     let len = ops.len();
-    let is_target = compute_jump_targets(ops);
+    let mut is_target = compute_jump_targets(ops);
+    // A native gateway is also a fusion boundary. The opcode itself carries
+    // that fact; no separate instruction-ownership metadata is needed.
+    for (index, op) in ops.iter().enumerate() {
+        if matches!(op, StackOp::NativeLoop(_)) {
+            is_target[index] = true;
+        }
+    }
     let mut i = 0;
 
-    // Helper: check if any instruction in range (i+1..i+n) is a jump target.
+    // A fusion may start at a jump target, but must not cross any boundary.
     let spans_target = |start: usize, count: usize| -> bool {
         for j in 1..count {
             if start + j < len && is_target[start + j] {
@@ -390,6 +398,10 @@ fn fuse(func: &mut StackFunction) {
     };
 
     while i < len {
+        if matches!(ops[i], StackOp::NativeLoop(_)) {
+            i += 1;
+            continue;
+        }
         // === Dead code elimination ===
 
         // i64.const + drop → nop (dead Var initialization result)
@@ -1428,6 +1440,17 @@ fn strip_nops(func: &mut StackFunction) {
                 let target_new = new_idx[target_old];
                 let new_off = target_new as i32 - new_idx[old] as i32 - 1;
                 StackOp::FusedGetF64ConstDGtJumpIfZeroD(*n, *v, new_off)
+            }
+            StackOp::NativeLoop(kernel) => {
+                let mut relocated = kernel.clone();
+                let target_old = (old as i64 + 1 + kernel.done as i64) as usize;
+                let target_new = if target_old == len {
+                    new_len
+                } else {
+                    new_idx[target_old]
+                };
+                relocated.done = target_new as i32 - new_idx[old] as i32 - 1;
+                StackOp::NativeLoop(relocated)
             }
             other => other.clone(),
         };

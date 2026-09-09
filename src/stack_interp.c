@@ -206,18 +206,20 @@ static int64_t ipow(int64_t base, uint32_t exp) {
 // Decrement the cancel counter; on expiry invoke the callback and, if it
 // returns true, mark cancelled and break the tail-call chain. Use this
 // after applying any backward `pc = pc + 1 + off` (off < 0).
-#define POLL_CANCEL() \
-    do { \
-        if (--ctx->cancel_counter <= 0) { \
-            ctx->cancel_counter = CANCEL_CHECK_INTERVAL; \
-            if (ctx->cancel_callback && ctx->cancel_callback(ctx->cancel_userdata)) { \
-                ctx->cancelled = true; \
-                ctx->trap_reason = STACK_TRAP_CANCELLED; \
-                ctx->done = 1; \
-                return; \
-            } \
-        } \
-    } while(0)
+static inline bool poll_cancel(Ctx* ctx) {
+    if (--ctx->cancel_counter <= 0) {
+        ctx->cancel_counter = CANCEL_CHECK_INTERVAL;
+        if (ctx->cancel_callback && ctx->cancel_callback(ctx->cancel_userdata)) {
+            ctx->cancelled = true;
+            ctx->trap_reason = STACK_TRAP_CANCELLED;
+            ctx->done = 1;
+            return true;
+        }
+    }
+    return false;
+}
+
+#define POLL_CANCEL() do { if (poll_cancel(ctx)) return; } while (0)
 
 // Float TOS window push/pop. Spills/refills through `fsp`, a handler
 // argument pinned to a GPR by preserve_none — analogous to the integer
@@ -1315,6 +1317,229 @@ HANDLER(op_fused_get_addimm_set) {
     NEXT();
 }
 
+// Whole-loop gateways retain the ordinary loop immediately after this op.
+// Decode the compact and descriptor encodings into the same execution contract:
+// two equally indexed spans, private coefficients/state, and a success edge.
+typedef enum {
+#define RECURRENCE_RECIPE(id, kind, name, coefficients, carried) NATIVE_##kind,
+#include "recurrence_catalog.inc"
+#undef RECURRENCE_RECIPE
+#define POINTWISE_RECIPE(id, kind, name, coefficients) NATIVE_POINTWISE_##kind,
+#include "pointwise_catalog.inc"
+#undef POINTWISE_RECIPE
+} NativeKernelKind;
+
+typedef struct {
+    int coefficients, carried;
+} NativeKernelShape;
+
+static inline NativeKernelShape native_kernel_shape(NativeKernelKind kind) {
+    switch (kind) {
+#define RECURRENCE_RECIPE(id, kind, name, coefficients, carried) \
+        case NATIVE_##kind: return (NativeKernelShape) { coefficients, carried };
+#include "recurrence_catalog.inc"
+#undef RECURRENCE_RECIPE
+#define POINTWISE_RECIPE(id, kind, name, coefficients) \
+        case NATIVE_POINTWISE_##kind: return (NativeKernelShape) { coefficients, 0 };
+#include "pointwise_catalog.inc"
+#undef POINTWISE_RECIPE
+    }
+    __builtin_unreachable();
+}
+
+typedef struct {
+    uint16_t counter, end, left, right;
+    int64_t left_length, right_length, done;
+    uint16_t coefficients[5];
+    uint16_t states[4];
+} NativeLoopOperands;
+
+static inline NativeLoopOperands native_stream_operands(
+    const Instruction* pc, const uint64_t* locals
+) {
+    uint64_t slots = pc->imm[0], parameters = pc->imm[1];
+    return (NativeLoopOperands) {
+        .counter = (uint16_t)slots, .end = (uint16_t)(slots >> 16),
+        .left = (uint16_t)(slots >> 32), .right = (uint16_t)(slots >> 48),
+        .left_length = (int64_t)locals[(uint16_t)(parameters >> 32)],
+        .right_length = (int64_t)locals[(uint16_t)(parameters >> 48)],
+        .coefficients = { (uint16_t)parameters, (uint16_t)(parameters >> 16) },
+        .states = { (uint16_t)(pc->imm[2] >> 32) }, .done = (int32_t)pc->imm[2],
+    };
+}
+
+// Pointwise recipes use the stream encoding's spare high 32 bits of imm2
+// for coefficients two and three. Shape metadata keeps unused slots unread.
+static inline NativeLoopOperands native_pointwise_operands(
+    const Instruction* pc, const uint64_t* locals
+) {
+    NativeLoopOperands operands = native_stream_operands(pc, locals);
+    operands.coefficients[2] = (uint16_t)(pc->imm[2] >> 32);
+    operands.coefficients[3] = (uint16_t)(pc->imm[2] >> 48);
+    return operands;
+}
+
+// Biquad's immutable uint16_t descriptor is owned by StackBackend:
+// counter/end/input/output/input_len/output_len, b0/b1/b2/a1/a2, x1/x2/y1/y2.
+static inline NativeLoopOperands native_biquad_operands(
+    const Instruction* pc, const uint64_t* locals
+) {
+    const uint16_t* slots = (const uint16_t*)(uintptr_t)pc->imm[0];
+    return (NativeLoopOperands) {
+        .counter = slots[0], .end = slots[1], .left = slots[2], .right = slots[3],
+        .left_length = (int64_t)locals[slots[4]],
+        .right_length = (int64_t)locals[slots[5]],
+        .coefficients = { slots[6], slots[7], slots[8], slots[9], slots[10] },
+        .states = { slots[11], slots[12], slots[13], slots[14] },
+        .done = (int32_t)pc->imm[2],
+    };
+}
+
+typedef struct {
+    int64_t index, end;
+    const uint8_t* left;
+    uint8_t* right;
+} NativeLoop;
+
+typedef enum { NATIVE_CONTINUE, NATIVE_FALLBACK, NATIVE_CANCELLED } NativeLoopResult;
+
+// Empty/reversed ranges succeed without accessing either span. For writes,
+// exact in-place and disjoint ranges are valid; partial overlap retains the
+// original loop's ordered forward semantics by falling back before any work.
+static inline bool native_loop_prepare(
+    NativeLoop* loop, const NativeLoopOperands* operands, const uint64_t* locals,
+    size_t width
+) {
+    loop->index = (int64_t)locals[operands->counter];
+    loop->end = (int64_t)locals[operands->end];
+    if (loop->index >= loop->end) return true;
+    if (loop->index < 0 || loop->end > operands->left_length
+        || loop->end > operands->right_length
+        || (uint64_t)loop->end > SIZE_MAX / width) return false;
+    uintptr_t left = (uintptr_t)locals[operands->left];
+    uintptr_t right = (uintptr_t)locals[operands->right];
+    uintptr_t distance = left > right ? left - right : right - left;
+    uint64_t count_bytes = (uint64_t)(loop->end - loop->index) * width;
+    if (distance != 0 && distance < count_bytes) return false;
+    loop->left = (const uint8_t*)left;
+    loop->right = (uint8_t*)right;
+    return true;
+}
+
+static inline int64_t native_loop_count(const NativeLoop* loop, const Ctx* ctx) {
+    int64_t count = loop->end - loop->index;
+    int32_t budget = ctx->cancel_counter > 0 ? ctx->cancel_counter : 1;
+    return count > budget ? budget : count;
+}
+
+// Called after publishing every carried state and output in this chunk. Count
+// the final iteration's backedge too. An actual callback ends native execution
+// even when it does not cancel: the ordinary guard must reload anything that
+// callback may have changed, including coefficients, pointers, bounds and state.
+static inline NativeLoopResult native_loop_commit(
+    NativeLoop* loop, const NativeLoopOperands* operands,
+    Ctx* ctx, uint64_t* locals, int64_t count
+) {
+    loop->index += count;
+    locals[operands->counter] = (uint64_t)loop->index;
+    ctx->cancel_counter -= (int32_t)count;
+    if (ctx->cancel_counter <= 0) {
+        bool called = ctx->cancel_callback != NULL;
+        ctx->cancel_counter = 1;
+        if (poll_cancel(ctx)) return NATIVE_CANCELLED;
+        if (called) return NATIVE_FALLBACK;
+    }
+    return NATIVE_CONTINUE;
+}
+
+// This macro only instantiates typed arithmetic for f32 and f64. Kernel kind is
+// a constant at each handler; forced inlining removes selection and unused state
+// before native code generation. There is no per-sample operation dispatch.
+// __builtin_memcpy preserves checked unaligned stores through vectorization;
+// Darwin's fortified memcpy wrapper can otherwise survive until after that pass.
+#include "pointwise_chunks.inc"
+#include "recurrence_chunks.inc"
+
+#define DEFINE_NATIVE_KERNEL_TYPE(suffix, scalar, load) \
+typedef struct { scalar coefficients[5], carried[4]; } NativeState_##suffix; \
+static inline __attribute__((always_inline)) NativeState_##suffix native_state_##suffix( \
+    NativeKernelKind kind, const NativeLoopOperands* operands, const uint64_t* locals \
+) { \
+    NativeState_##suffix state = {0}; \
+    NativeKernelShape shape = native_kernel_shape(kind); \
+    for (int i = 0; i < shape.coefficients; ++i) state.coefficients[i] = load(locals + operands->coefficients[i]); \
+    for (int i = 0; i < shape.carried; ++i) state.carried[i] = load(locals + operands->states[i]); \
+    return state; \
+} \
+static inline __attribute__((always_inline)) void native_chunk_##suffix( \
+    NativeKernelKind kind, const NativeLoop* loop, int64_t count, NativeState_##suffix* state \
+) { \
+    const uint8_t* input = loop->left + (size_t)loop->index * sizeof(scalar); \
+    uint8_t* output = loop->right + (size_t)loop->index * sizeof(scalar); \
+    if (native_kernel_shape(kind).carried != 0) { \
+        native_recurrence_##suffix(kind, input, output, count, state->coefficients, state->carried); \
+    } else { \
+        native_pointwise_##suffix(kind, input, output, count, state->coefficients); \
+    } \
+} \
+static inline __attribute__((always_inline)) void native_publish_##suffix( \
+    NativeKernelKind kind, const NativeLoopOperands* operands, uint64_t* locals, const NativeState_##suffix* state \
+) { \
+    NativeKernelShape shape = native_kernel_shape(kind); \
+    for (int i = 0; i < shape.carried; ++i) \
+        __builtin_memcpy(locals + operands->states[i], &state->carried[i], sizeof(scalar)); \
+}
+
+DEFINE_NATIVE_KERNEL_TYPE(f32, float, load_f32_unaligned)
+DEFINE_NATIVE_KERNEL_TYPE(f64, double, load_f64_unaligned)
+#undef DEFINE_NATIVE_KERNEL_TYPE
+
+// One execution boundary for every precompiled kernel. Arithmetic and state
+// publication are statically specialized above; all three operand windows pass
+// through unchanged on success, guard rejection, cancellation and resumption.
+#define NATIVE_LOOP_HANDLER(name, suffix, scalar, kind, decode) \
+HANDLER(name) { \
+    NativeLoopOperands operands = decode(pc, locals); \
+    NativeLoop loop; \
+    if (!native_loop_prepare(&loop, &operands, locals, sizeof(scalar))) { NEXT(); } \
+    if (loop.index < loop.end) { \
+        NativeState_##suffix state = native_state_##suffix(kind, &operands, locals); \
+        while (loop.index < loop.end) { \
+            int64_t count = native_loop_count(&loop, ctx); \
+            native_chunk_##suffix(kind, &loop, count, &state); \
+            native_publish_##suffix(kind, &operands, locals, &state); \
+            NativeLoopResult result = native_loop_commit(&loop, &operands, ctx, locals, count); \
+            if (result == NATIVE_CANCELLED) return; \
+            if (result == NATIVE_FALLBACK) { NEXT(); } \
+        } \
+    } \
+    pc = pc + 1 + operands.done; \
+    DISPATCH(); \
+}
+
+#define POINTWISE_RECIPE(id, kind, name, coefficients) \
+NATIVE_LOOP_HANDLER(op_##name##_f32, f32, float, NATIVE_POINTWISE_##kind, native_pointwise_operands) \
+NATIVE_LOOP_HANDLER(op_##name##_f64, f64, double, NATIVE_POINTWISE_##kind, native_pointwise_operands)
+#include "pointwise_catalog.inc"
+#undef POINTWISE_RECIPE
+NATIVE_LOOP_HANDLER(op_one_pole_f32, f32, float, NATIVE_ONE_POLE, native_stream_operands)
+NATIVE_LOOP_HANDLER(op_one_pole_f64, f64, double, NATIVE_ONE_POLE, native_stream_operands)
+NATIVE_LOOP_HANDLER(op_biquad_f32, f32, float, NATIVE_BIQUAD, native_biquad_operands)
+NATIVE_LOOP_HANDLER(op_biquad_f64, f64, double, NATIVE_BIQUAD, native_biquad_operands)
+#undef NATIVE_LOOP_HANDLER
+
+// Backend construction resolves the recipe once. Executed instructions contain
+// the specialized handler pointer; there is no recipe lookup in a sample loop.
+void* stack_pointwise_handler(uint32_t recipe, bool double_precision) {
+    switch (recipe) {
+#define POINTWISE_RECIPE(id, kind, name, coefficients) \
+        case id: return double_precision ? (void*)op_##name##_f64 : (void*)op_##name##_f32;
+#include "pointwise_catalog.inc"
+#undef POINTWISE_RECIPE
+        default: return NULL;
+    }
+}
+
 // if !(locals[a] < locals[b]) jump -- no stack change
 HANDLER(op_fused_get_get_ilt_jiz) {
     if ((int64_t)locals[pc->imm[0]] >= (int64_t)locals[pc->imm[1]]) {
@@ -2114,11 +2339,17 @@ HANDLER(op_fused_get_get_fmul_fsub_f) {
     f0 = f0 - a * b;
     NEXT();
 }
+// The source chain starts with its first product, not +0 plus that product:
+// the latter would erase a negative zero. Codegen never sets mask bit 0;
+// if present, it denotes unary negation of the initial rounded product.
 #define FMUL_SUM_HANDLER(name, TERMS) \
 HANDLER(name) { \
     uint8_t sub_mask = (uint8_t)pc->imm[2]; \
-    float acc = 0.0f; \
-    for (int i = 0; i < (TERMS); i++) { \
+    float a0 = *(float*)((uint8_t*)locals + (size_t)imm_u8(pc, 0) * 8); \
+    float b0 = *(float*)((uint8_t*)locals + (size_t)imm_u8(pc, 1) * 8); \
+    float acc = a0 * b0; \
+    if (sub_mask & 1u) acc = -acc; \
+    for (int i = 1; i < (TERMS); i++) { \
         uint8_t a_idx = imm_u8(pc, i * 2); \
         uint8_t b_idx = imm_u8(pc, i * 2 + 1); \
         float a = *(float*)((uint8_t*)locals + (size_t)a_idx * 8); \
@@ -2252,11 +2483,15 @@ HANDLER(op_fused_get_get_dmul_dsub_d) {
     NEXT();
 }
 
+// Same first-product and optional unary-negation semantics as the F handler.
 #define DMUL_SUM_HANDLER(name, TERMS) \
 HANDLER(name) { \
     uint8_t sub_mask = (uint8_t)pc->imm[2]; \
-    double acc = 0.0; \
-    for (int i = 0; i < (TERMS); i++) { \
+    double a0 = *(double*)((uint8_t*)locals + (size_t)imm_u8(pc, 0) * 8); \
+    double b0 = *(double*)((uint8_t*)locals + (size_t)imm_u8(pc, 1) * 8); \
+    double acc = a0 * b0; \
+    if (sub_mask & 1u) acc = -acc; \
+    for (int i = 1; i < (TERMS); i++) { \
         uint8_t a_idx = imm_u8(pc, i * 2); \
         uint8_t b_idx = imm_u8(pc, i * 2 + 1); \
         double a = *(double*)((uint8_t*)locals + (size_t)a_idx * 8); \

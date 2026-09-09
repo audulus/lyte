@@ -1097,7 +1097,21 @@ impl Compiler {
 
     /// Compile to stack-based IR (for Silverfir-nano-style interpreters).
     pub fn compile_stack(&self) -> Result<crate::stack_ir::StackProgram, String> {
+        self.compile_stack_with_native_loops(false)
+    }
+
+    /// Experimental consumer of concrete checked loops. Unmatched loops and
+    /// native runtime guard failures retain ordinary Stack execution.
+    pub fn compile_stack_native_loops(&self) -> Result<crate::stack_ir::StackProgram, String> {
+        self.compile_stack_with_native_loops(true)
+    }
+
+    fn compile_stack_with_native_loops(
+        &self,
+        native_loops: bool,
+    ) -> Result<crate::stack_ir::StackProgram, String> {
         let mut codegen = crate::stack_codegen::StackCodegen::new();
+        codegen.native_loops = native_loops;
         let entry_points = self.effective_entry_points();
         let mut program = codegen.compile_multi(self.specialized_program()?, &entry_points)?;
         // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
