@@ -153,6 +153,7 @@ fn pointwise_recipes_match_ordered_reuse_and_coefficient_roles() {
 fn pointwise_recipes_reject_changed_identity_order_and_effects() {
     for body in [
         // Repeated indexed reads are not reuse of one sampled value.
+        "output[i] = input[i]*input[i]",
         "output[i] = input[i] - a * ((input[i]*input[i])*input[i])",
         // The read is shared, but changing association or operand order
         // changes the recipe's separately rounded arithmetic.

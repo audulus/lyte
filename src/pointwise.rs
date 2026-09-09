@@ -89,6 +89,45 @@ const CATALOG: &[Recipe] = &[
         result: 10,
         next_carries: &[],
     },
+    Recipe {
+        name: "smootherstep",
+        // ((x*x)*x) * (x*(x*a-b)+c); a=6, b=15, c=10 gives
+        // quintic smootherstep for normalized x, without clamping.
+        nodes: &[
+            Read,
+            Binary(Mul, 0, 0),
+            Binary(Mul, 1, 0),
+            Parameter(0),
+            Binary(Mul, 0, 3),
+            Parameter(1),
+            Binary(Sub, 4, 5),
+            Binary(Mul, 0, 6),
+            Parameter(2),
+            Binary(Add, 7, 8),
+            Binary(Mul, 2, 9),
+        ],
+        result: 10,
+        next_carries: &[],
+    },
+    Recipe {
+        name: "gain",
+        nodes: &[Read, Parameter(0), Binary(Mul, 0, 1)],
+        result: 2,
+        next_carries: &[],
+    },
+    Recipe {
+        name: "offset",
+        nodes: &[Read, Parameter(0), Binary(Add, 0, 1)],
+        result: 2,
+        next_carries: &[],
+    },
+    Recipe {
+        name: "square",
+        // Both operands reuse the same sampled input value.
+        nodes: &[Read, Binary(Mul, 0, 0)],
+        result: 1,
+        next_carries: &[],
+    },
 ];
 
 pub fn recipes() -> impl Iterator<Item = (RecipeId, &'static Recipe)> {

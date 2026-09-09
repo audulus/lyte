@@ -84,6 +84,81 @@ fn execute_native(mut program: StackProgram, entries: &[&str]) -> Vec<(i64, Vec<
 }
 
 #[test]
+fn pointwise_extensions_execute_natively_in_both_widths() {
+    let inputs = [-0.0_f64, 0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0];
+    for scalar in ["f32", "f64"] {
+        let cases: [(String, fn(f32) -> f32, fn(f64) -> f64); 4] = [
+            ("let y = x*gain".into(), |x| x * -1.25, |x| x * -1.25),
+            ("let y = x+bias".into(), |x| x + 0.3, |x| x + 0.3),
+            ("let y = x*x".into(), |x| x * x, |x| x * x),
+            (
+                format!(
+                    "let cube = (x*x)*x
+                     let curve = x*(x*6.0{scalar}-15.0{scalar})+10.0{scalar}
+                     let y = cube*curve"
+                ),
+                |x| ((x * x) * x) * (x * (x * 6.0 - 15.0) + 10.0),
+                |x| ((x * x) * x) * (x * (x * 6.0 - 15.0) + 10.0),
+            ),
+        ];
+        let values = inputs
+            .iter()
+            .map(|x| format!("{x:?}{scalar}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for (body, reference_f32, reference_f64) in cases {
+            // Independent scalar arithmetic, including separate rounding at each step.
+            let expected: Vec<u8> = inputs
+                .iter()
+                .flat_map(|&x| {
+                    if scalar == "f32" {
+                        reference_f32(x as f32).to_le_bytes().to_vec()
+                    } else {
+                        reference_f64(x).to_le_bytes().to_vec()
+                    }
+                })
+                .collect();
+            for destination in ["output", "input"] {
+                let compiler = checked(
+                    &format!(
+                        r#"
+                    var input: [{scalar}; 8]
+                    var output: [{scalar}; 8]
+                    main() -> i32 {{
+                        input = [{values}]
+                        let gain = -1.25{scalar}
+                        let bias = 0.3{scalar}
+                        for i in 0 .. 8 {{
+                            let x = input[i]
+                            {body}
+                            {destination}[i] = y
+                        }}
+                        0
+                    }}
+                    "#
+                    ),
+                    &["main"],
+                );
+                let (ordinary, native) = variants(&compiler);
+                let results = execute(&ordinary, &["main"]);
+                let offset = compiler
+                    .globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize)
+                    .into_iter()
+                    .find(|entry| entry.0 == destination)
+                    .unwrap()
+                    .1;
+                assert_eq!(&results[0].1[offset..offset + expected.len()], &expected);
+                assert_eq!(
+                    execute_native(native, &["main"]),
+                    results,
+                    "{scalar}, {destination}, {body}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn affine_slices_publish_output_and_reload_headers_after_callback() {
     struct Redirect {
         headers: [*mut u8; 2],
