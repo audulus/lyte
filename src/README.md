@@ -1,6 +1,10 @@
 
 # Notes
 
+The [checked-program boundary](../docs/CHECKED_PROGRAM.md) specifies the distinct
+template and specialized-program guarantees, validation, lifecycle/editor behavior,
+and consumer responsibilities.
+
 ✅ = implemented feature
 ❌ = not planned
 

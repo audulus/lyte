@@ -1,5 +1,131 @@
+use crate::checked::{CheckedBody as ExprArena, CheckedFunction as FuncDecl};
 use crate::interval::{enclose, IndexInterval};
 use crate::*;
+
+/// The safety analysis sees the phase's authoritative call references. Type
+/// layout still comes from the phase's declaration inventory.
+pub trait SafetyProgram: std::ops::Deref<Target = CheckedDeclarations> {
+    fn call_target<'a>(
+        &'a self,
+        reference: &Reference,
+        body: &CheckedBody,
+        signature: TypeID,
+        arity: usize,
+    ) -> Option<&'a CheckedFunction>;
+}
+impl SafetyProgram for CheckedProgram {
+    fn call_target<'a>(
+        &'a self,
+        reference: &Reference,
+        body: &CheckedBody,
+        signature: TypeID,
+        arity: usize,
+    ) -> Option<&'a CheckedFunction> {
+        let ids: &[DefId] = match reference {
+            Reference::Functions(ids) => ids,
+            Reference::InterfaceMember {
+                requirement,
+                member,
+            } => {
+                let requirement = body.requirements.get(requirement.index())?;
+                let member = requirement
+                    .members
+                    .iter()
+                    .find(|candidate| candidate.definition == *member)?;
+                &member.candidates
+            }
+            _ => return None,
+        };
+        // Templates retain the existing first exact candidate policy. This is
+        // source diagnostic coverage, not concrete overload selection.
+        ids.iter()
+            .filter_map(|id| self.function(*id))
+            .find(|function| function.params.len() == arity && function.ty() == signature)
+    }
+}
+impl SafetyProgram for SpecializedProgram {
+    fn call_target<'a>(
+        &'a self,
+        reference: &Reference,
+        _body: &CheckedBody,
+        _signature: TypeID,
+        arity: usize,
+    ) -> Option<&'a CheckedFunction> {
+        let Reference::Instance(id) = reference else {
+            return None;
+        };
+        // The selected function is authoritative. Checking and specialization
+        // establish coercion-aware compatibility; structural validation checks
+        // arity before safety runs. A function-valued global is still indirect.
+        self.function_instance(*id)
+            .filter(|function| function.params.len() == arity)
+    }
+}
+
+/// Expression analysis needs its owning body and symbolic size binders only.
+/// Function signatures and contracts stay at the function/call boundary.
+#[derive(Clone, Copy)]
+struct SafetyBody<'a> {
+    arena: &'a CheckedBody,
+    size_vars: &'a [SizeParameter],
+}
+
+impl<'a> From<&'a FuncDecl> for SafetyBody<'a> {
+    fn from(function: &'a FuncDecl) -> Self {
+        Self {
+            arena: &function.arena,
+            size_vars: &function.size_vars,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum PlaceRoot {
+    Local(LocalId),
+    Global(DefId),
+    Instance(InstanceId),
+}
+
+/// Field paths are structural projections of an identified storage root.
+/// Diagnostic binding spellings never participate in equality.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+struct Place {
+    root: PlaceRoot,
+    fields: Option<Name>,
+}
+impl Place {
+    fn local(local: LocalId) -> Self {
+        Self {
+            root: PlaceRoot::Local(local),
+            fields: None,
+        }
+    }
+    fn field(self, field: Name) -> Self {
+        let fields = match self.fields {
+            Some(path) => Name::new(format!("{}.{}", path, field)),
+            None => field,
+        };
+        Self {
+            fields: Some(fields),
+            ..self
+        }
+    }
+}
+fn reference_place(reference: &Reference) -> Option<Place> {
+    let root = match reference {
+        Reference::Local(local) | Reference::SizeParameter(local) => PlaceRoot::Local(*local),
+        Reference::Global(definition) => PlaceRoot::Global(*definition),
+        Reference::Instance(instance) => PlaceRoot::Instance(*instance),
+        _ => return None,
+    };
+    Some(Place { root, fields: None })
+}
+fn id_place(id: ExprID, arena: &ExprArena) -> Option<Place> {
+    match &arena[id] {
+        Expr::Id(_) => arena.reference(id).and_then(reference_place),
+        _ => None,
+    }
+}
 
 /// Lanes in an `f32x4`. A lane index has to be provably in `0..4` for the same
 /// reason an array index has to be in range: no backend checks it at runtime.
@@ -32,18 +158,11 @@ fn collect_size_subst(param_ty: TypeID, arg_ty: TypeID, out: &mut Vec<(Name, i64
     }
 }
 
-/// Extract a trackable name from an expression for constraint tracking.
-/// Returns the variable name for `Expr::Id(name)`, or a synthetic compound
-/// name for `Expr::Field(base, field)` (e.g., `h.index` becomes a single
-/// interned name). This lets the safety checker track bounds on struct fields.
-fn expr_constraint_name(id: ExprID, arena: &ExprArena) -> Option<Name> {
+/// A trackable storage place, including direct field projections.
+fn expr_place(id: ExprID, arena: &ExprArena) -> Option<Place> {
     match &arena[id] {
-        Expr::Id(name) => Some(*name),
-        Expr::Field(base, field) => {
-            let base_name = expr_constraint_name(*base, arena)?;
-            // Intern a compound name "base.field" so it works as a constraint key.
-            Some(Name::new(format!("{}.{}", *base_name, **field).into()))
-        }
+        Expr::Id(_) => arena.reference(id).and_then(reference_place),
+        Expr::Field(base, field) => Some(expr_place(*base, arena)?.field(*field)),
         _ => None,
     }
 }
@@ -56,25 +175,25 @@ fn expr_constraint_name(id: ExprID, arena: &ExprArena) -> Option<Name> {
 /// the two by element type alone, so the length is not part of the match.
 /// The base of an index or field expression is never itself the argument, so
 /// walking down from it recovers the array type the coercion hid.
-fn array_type(expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<TypeID> {
-    if expr < decl.types.len() {
-        let ty = decl.types[expr];
+fn array_type(expr: ExprID, context: SafetyBody<'_>, decls: &impl SafetyProgram) -> Option<TypeID> {
+    if expr < context.arena.len() {
+        let ty = context.arena.ty(expr);
         if let Type::Array(_, ArraySize::Known(_)) = *ty {
             return Some(ty);
         }
     }
-    match &decl.arena[expr] {
+    match &context.arena[expr] {
         // An element of `[[T; N]; M]` is a `[T; N]`; anything else has no
         // length to recover.
-        Expr::ArrayIndex(base, _) => match &*array_type(*base, decl, decls)? {
+        Expr::ArrayIndex(base, _) => match &*array_type(*base, context, decls)? {
             Type::Array(elem, _) if matches!(**elem, Type::Array(_, ArraySize::Known(_))) => {
                 Some(*elem)
             }
             _ => None,
         },
         Expr::Field(base, field) => {
-            let base_ty = if *base < decl.types.len() {
-                decl.types[*base]
+            let base_ty = if *base < context.arena.len() {
+                context.arena.ty(*base)
             } else {
                 return None;
             };
@@ -95,8 +214,8 @@ fn array_type(expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<TypeID
 }
 
 /// Static length of an array-typed expression, when it has one.
-fn static_len(expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<i64> {
-    match &*array_type(expr, decl, decls)? {
+fn static_len(expr: ExprID, context: SafetyBody<'_>, decls: &impl SafetyProgram) -> Option<i64> {
+    match &*array_type(expr, context, decls)? {
         Type::Array(_, ArraySize::Known(n)) => Some(*n as i64),
         _ => None,
     }
@@ -110,7 +229,7 @@ pub struct SafetyError {
 
 #[derive(Clone, Debug)]
 struct IndexConstraint {
-    pub name: Name,
+    pub name: Place,
     pub min: Option<i64>,
     pub max: Option<i64>,
     pub non_zero: bool,
@@ -119,29 +238,22 @@ struct IndexConstraint {
 /// Records that variable `index` has been proven < `array.len`.
 #[derive(Clone, Debug)]
 struct LenBound {
-    pub index: Name,
-    pub array: Name,
+    pub index: Place,
+    pub array: Place,
 }
 
 /// Records that `array.len >= min_len` (the array has at least `min_len` elements).
 #[derive(Clone, Debug)]
 struct MinLenBound {
-    pub array: Name,
+    pub array: Place,
     pub min_len: i64,
 }
 
 /// Records that variable `lo` is proven < variable `hi`.
 #[derive(Clone, Debug)]
 struct VarBound {
-    pub lo: Name,
-    pub hi: Name,
-}
-
-/// Local variable declaration.
-#[derive(Copy, Clone, Debug)]
-struct Var {
-    name: Name,
-    ty: TypeID,
+    pub lo: Place,
+    pub hi: Place,
 }
 
 /// Static safety checker using abstract interpretation.
@@ -179,9 +291,6 @@ struct Var {
 ///   body, so the body has to guard it too. A directly-called lambda is
 ///   exempt: its definition site is its call site.
 pub struct SafetyChecker {
-    /// Currently declared vars, as we're checking.
-    vars: Vec<Var>,
-
     /// Constraints we know about each var.
     constraints: Vec<IndexConstraint>,
 
@@ -201,7 +310,12 @@ pub struct SafetyChecker {
     /// checked. A lambda body can run at any point after its definition, so
     /// anything in here is unconstrained inside a lambda that isn't called
     /// immediately.
-    fn_assigned: Vec<Name>,
+    fn_assigned: Vec<Place>,
+
+    /// Whole-body specialization preserves source locations. The same source
+    /// call/requirement can fail in several instances whose emitted names
+    /// differ. Keep distinct concretized clauses (e.g. different array sizes).
+    failed_requirements: std::collections::HashMap<(Loc, Loc, String), String>,
 
     pub errors: Vec<SafetyError>,
 }
@@ -209,13 +323,13 @@ pub struct SafetyChecker {
 impl SafetyChecker {
     pub fn new() -> Self {
         Self {
-            vars: vec![],
             constraints: vec![],
             len_bounds: vec![],
             leq_len_bounds: vec![],
             min_len_bounds: vec![],
             var_bounds: vec![],
             fn_assigned: vec![],
+            failed_requirements: std::collections::HashMap::new(),
             errors: vec![],
         }
     }
@@ -236,7 +350,7 @@ impl SafetyChecker {
         self.errors.push(err);
     }
 
-    fn add(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
+    fn add(&mut self, name: Place, min: Option<i64>, max: Option<i64>) {
         self.constraints.push(IndexConstraint {
             name,
             min,
@@ -245,12 +359,12 @@ impl SafetyChecker {
         })
     }
 
-    fn replace(&mut self, name: Name, min: Option<i64>, max: Option<i64>) {
+    fn replace(&mut self, name: Place, min: Option<i64>, max: Option<i64>) {
         self.constraints.retain(|c| c.name != name);
         self.add(name, min, max);
     }
 
-    fn add_non_zero(&mut self, name: Name) {
+    fn add_non_zero(&mut self, name: Place) {
         // If there's already a constraint, mark it non_zero.
         // Otherwise, add an unconstrained entry with non_zero set.
         if let Some(c) = self.constraints.iter_mut().find(|c| c.name == name) {
@@ -265,9 +379,8 @@ impl SafetyChecker {
         }
     }
 
-    /// Drop everything we know about `name`. Used when a lambda parameter
-    /// shadows a captured variable of the same name.
-    fn forget(&mut self, name: Name) {
+    /// Drop facts about a storage place before a new dynamic value is bound.
+    fn forget(&mut self, name: Place) {
         self.constraints.retain(|c| c.name != name);
         self.len_bounds
             .retain(|b| b.index != name && b.array != name);
@@ -277,35 +390,35 @@ impl SafetyChecker {
         self.var_bounds.retain(|b| b.lo != name && b.hi != name);
     }
 
-    fn find(&self, name: Name) -> Option<IndexConstraint> {
+    fn find(&self, name: Place) -> Option<IndexConstraint> {
         self.constraints.iter().find(|c| c.name == name).cloned()
     }
 
     /// Given expr evaluates to true, add constraints accordingly.
-    fn match_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) {
+    fn match_expr(&mut self, expr: ExprID, context: SafetyBody<'_>, decls: &impl SafetyProgram) {
         // Track bounds from comparisons. Handles both simple variables (Expr::Id)
-        // and struct field access (Expr::Field) via expr_constraint_name.
-        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                let ival = self.check_expr(*rhs, decl, decls);
+        // and struct field access (Expr::Field) via expr_place.
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*lhs, context.arena) {
+                let ival = self.check_expr(*rhs, context, decls);
                 if ival.max != i64::max_value() {
                     self.add(name, None, Some(ival.max - 1));
                 }
             }
         }
 
-        if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                let ival = self.check_expr(*rhs, decl, decls);
+        if let Expr::Binop(Binop::Leq, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*lhs, context.arena) {
+                let ival = self.check_expr(*rhs, context, decls);
                 if ival.max != i64::max_value() {
                     self.add(name, None, Some(ival.max));
                 }
             }
         }
 
-        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                let ival = self.check_expr(*rhs, decl, decls);
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*lhs, context.arena) {
+                let ival = self.check_expr(*rhs, context, decls);
                 if ival.min != i64::MIN {
                     self.add(name, Some(ival.min), None);
                 }
@@ -313,11 +426,11 @@ impl SafetyChecker {
         }
 
         // match `array.len >= N` — record min length bound
-        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &context.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*lhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
-                        let ival = self.check_expr(*rhs, decl, decls);
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
+                        let ival = self.check_expr(*rhs, context, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
@@ -330,18 +443,18 @@ impl SafetyChecker {
         }
 
         // match `n <= array.len` — record leq length bound and min length bound
-        if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+        if let Expr::Binop(Binop::Leq, lhs, rhs) = &context.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*rhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
                         // Record n <= array.len for transitive propagation
-                        if let Expr::Id(name) = &decl.arena[*lhs] {
+                        if let Some(ref name) = id_place(*lhs, context.arena) {
                             self.leq_len_bounds.push(LenBound {
                                 index: *name,
                                 array: *array_name,
                             });
                         }
-                        let ival = self.check_expr(*lhs, decl, decls);
+                        let ival = self.check_expr(*lhs, context, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
@@ -354,11 +467,11 @@ impl SafetyChecker {
         }
 
         // match `array.len >= n` — record leq length bound (same as n <= array.len)
-        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &context.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*lhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
-                        if let Expr::Id(name) = &decl.arena[*rhs] {
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
+                        if let Some(ref name) = id_place(*rhs, context.arena) {
                             self.leq_len_bounds.push(LenBound {
                                 index: *name,
                                 array: *array_name,
@@ -371,9 +484,9 @@ impl SafetyChecker {
 
         // match expressions of the form i < id, where id is another variable
         // with a constraint
-        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Id(name) = &decl.arena[*lhs] {
-                if let Expr::Id(max_name) = &decl.arena[*rhs] {
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &context.arena[expr] {
+            if let Some(ref name) = id_place(*lhs, context.arena) {
+                if let Some(ref max_name) = id_place(*rhs, context.arena) {
                     if let Some(c) = self.find(*max_name) {
                         if let Some(max) = c.max {
                             self.add(*name, None, Some(max));
@@ -387,9 +500,9 @@ impl SafetyChecker {
                     });
                 }
                 // match i < array.len — record symbolic length bound
-                if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+                if let Expr::Field(arr_expr, field_name) = &context.arena[*rhs] {
                     if field_name.as_str() == "len" {
-                        if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
                             self.len_bounds.push(LenBound {
                                 index: *name,
                                 array: *array_name,
@@ -401,39 +514,39 @@ impl SafetyChecker {
         }
 
         // match `x != 0` — mark x as non-zero
-        if let Expr::Binop(Binop::NotEqual, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                if let Expr::Int(0, _) = &decl.arena[*rhs] {
+        if let Expr::Binop(Binop::NotEqual, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*lhs, context.arena) {
+                if let Expr::Int(0, _) = &context.arena[*rhs] {
                     self.add_non_zero(name);
                 }
             }
-            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                if let Expr::Int(0, _) = &decl.arena[*lhs] {
+            if let Some(name) = expr_place(*rhs, context.arena) {
+                if let Expr::Int(0, _) = &context.arena[*lhs] {
                     self.add_non_zero(name);
                 }
             }
         }
 
         // match `x > n` — x.min = n + 1
-        if let Expr::Binop(Binop::Greater, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                let ival = self.check_expr(*rhs, decl, decls);
+        if let Expr::Binop(Binop::Greater, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*lhs, context.arena) {
+                let ival = self.check_expr(*rhs, context, decls);
                 if ival.min != i64::MAX {
                     self.add(name, Some(ival.min + 1), None);
                 }
             }
             // reversed: `n > i` means i < n
-            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                let ival = self.check_expr(*lhs, decl, decls);
+            if let Some(name) = expr_place(*rhs, context.arena) {
+                let ival = self.check_expr(*lhs, context, decls);
                 if ival.max != i64::MAX {
                     self.add(name, None, Some(ival.max - 1));
                 }
             }
             // match `array.len > N` — record min length bound
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*lhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
-                        let ival = self.check_expr(*rhs, decl, decls);
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
+                        let ival = self.check_expr(*rhs, context, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
@@ -446,11 +559,11 @@ impl SafetyChecker {
         }
 
         // match `N < array.len` — record min length bound
-        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &context.arena[expr] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*rhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
-                        let ival = self.check_expr(*lhs, decl, decls);
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
+                        let ival = self.check_expr(*lhs, context, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
@@ -463,9 +576,9 @@ impl SafetyChecker {
         }
 
         // reversed: `n < i` means i > n
-        if let Expr::Binop(Binop::Less, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                let ival = self.check_expr(*lhs, decl, decls);
+        if let Expr::Binop(Binop::Less, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*rhs, context.arena) {
+                let ival = self.check_expr(*lhs, context, decls);
                 if ival.min != i64::MIN {
                     self.add(name, Some(ival.min + 1), None);
                 }
@@ -473,9 +586,9 @@ impl SafetyChecker {
         }
 
         // reversed: `n >= i` means i <= n
-        if let Expr::Binop(Binop::Geq, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                let ival = self.check_expr(*lhs, decl, decls);
+        if let Expr::Binop(Binop::Geq, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*rhs, context.arena) {
+                let ival = self.check_expr(*lhs, context, decls);
                 if ival.max != i64::MAX {
                     self.add(name, None, Some(ival.max));
                 }
@@ -483,9 +596,9 @@ impl SafetyChecker {
         }
 
         // reversed: `n <= i` means i >= n
-        if let Expr::Binop(Binop::Leq, lhs, rhs) = &decl.arena[expr] {
-            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                let ival = self.check_expr(*lhs, decl, decls);
+        if let Expr::Binop(Binop::Leq, lhs, rhs) = &context.arena[expr] {
+            if let Some(name) = expr_place(*rhs, context.arena) {
+                let ival = self.check_expr(*lhs, context, decls);
                 if ival.min != i64::MIN {
                     self.add(name, Some(ival.min), None);
                 }
@@ -493,22 +606,22 @@ impl SafetyChecker {
         }
 
         // match `a == b` — treat as both `a <= b` and `a >= b`
-        if let Expr::Binop(Binop::Equal, lhs, rhs) = &decl.arena[expr] {
+        if let Expr::Binop(Binop::Equal, lhs, rhs) = &context.arena[expr] {
             // Constrain lhs from rhs value
-            if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
-                let ival = self.check_expr(*rhs, decl, decls);
+            if let Some(name) = expr_place(*lhs, context.arena) {
+                let ival = self.check_expr(*rhs, context, decls);
                 self.add(name, Some(ival.min), Some(ival.max));
             }
             // Constrain rhs from lhs value
-            if let Some(name) = expr_constraint_name(*rhs, &decl.arena) {
-                let ival = self.check_expr(*lhs, decl, decls);
+            if let Some(name) = expr_place(*rhs, context.arena) {
+                let ival = self.check_expr(*lhs, context, decls);
                 self.add(name, Some(ival.min), Some(ival.max));
             }
             // array.len == N → min_len_bound
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*lhs] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*lhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
-                        let ival = self.check_expr(*rhs, decl, decls);
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
+                        let ival = self.check_expr(*rhs, context, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
@@ -516,7 +629,7 @@ impl SafetyChecker {
                             });
                         }
                         // Also record leq bound: n <= array.len
-                        if let Expr::Id(name) = &decl.arena[*rhs] {
+                        if let Some(ref name) = id_place(*rhs, context.arena) {
                             self.leq_len_bounds.push(LenBound {
                                 index: *name,
                                 array: *array_name,
@@ -526,10 +639,10 @@ impl SafetyChecker {
                 }
             }
             // N == array.len → min_len_bound
-            if let Expr::Field(arr_expr, field_name) = &decl.arena[*rhs] {
+            if let Expr::Field(arr_expr, field_name) = &context.arena[*rhs] {
                 if field_name.as_str() == "len" {
-                    if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
-                        let ival = self.check_expr(*lhs, decl, decls);
+                    if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
+                        let ival = self.check_expr(*lhs, context, decls);
                         if ival.min != i64::MAX {
                             self.min_len_bounds.push(MinLenBound {
                                 array: *array_name,
@@ -537,7 +650,7 @@ impl SafetyChecker {
                             });
                         }
                         // Also record leq bound: n <= array.len
-                        if let Expr::Id(name) = &decl.arena[*lhs] {
+                        if let Some(ref name) = id_place(*lhs, context.arena) {
                             self.leq_len_bounds.push(LenBound {
                                 index: *name,
                                 array: *array_name,
@@ -548,9 +661,9 @@ impl SafetyChecker {
             }
         }
 
-        if let Expr::Binop(Binop::And, lhs, rhs) = &decl.arena[expr] {
-            self.match_expr(*lhs, decl, decls);
-            self.match_expr(*rhs, decl, decls);
+        if let Expr::Binop(Binop::And, lhs, rhs) = &context.arena[expr] {
+            self.match_expr(*lhs, context, decls);
+            self.match_expr(*rhs, context, decls);
             self.propagate_len_bounds();
         }
     }
@@ -605,27 +718,29 @@ impl SafetyChecker {
         }
     }
 
-    fn check_expr(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> IndexInterval {
-        match &decl.arena[expr] {
+    fn check_expr(
+        &mut self,
+        expr: ExprID,
+        context: SafetyBody<'_>,
+        decls: &impl SafetyProgram,
+    ) -> IndexInterval {
+        match &context.arena[expr] {
             Expr::Int(x, _) => IndexInterval {
                 min: *x,
                 max: *x,
                 non_zero: *x != 0,
             },
             Expr::Block(exprs) => {
-                let n = self.vars.len();
                 for e in exprs {
-                    self.check_expr(*e, decl, decls);
-                }
-                while self.vars.len() > n {
-                    self.vars.pop();
+                    self.check_expr(*e, context, decls);
                 }
                 IndexInterval::default()
             }
-            Expr::Let(name, init, _) => {
-                let init_r = self.check_expr(*init, decl, decls);
-                let ty = decl.types[expr];
-                self.vars.push(Var { name: *name, ty });
+            Expr::Let(_, init, _) => {
+                let local = context.arena.binder(expr);
+                let name = &Place::local(local);
+                let init_r = self.check_expr(*init, context, decls);
+                let ty = context.arena.local(local).ty;
 
                 // Track the interval from the initializer.
                 let mut min = if init_r.min != i64::MIN {
@@ -647,7 +762,7 @@ impl SafetyChecker {
                 }
 
                 // Propagate LenBounds: let x = y inherits y's LenBounds.
-                if let Expr::Id(src_name) = &decl.arena[*init] {
+                if let Some(ref src_name) = id_place(*init, context.arena) {
                     let inherited: Vec<_> = self
                         .len_bounds
                         .iter()
@@ -664,13 +779,15 @@ impl SafetyChecker {
 
                 IndexInterval::default()
             }
-            Expr::Var(name, init, _) => {
+            Expr::Var(_, init, _) => {
+                let local = context.arena.binder(expr);
+                let name = &Place::local(local);
                 let init_r = if let Some(init) = init {
-                    self.check_expr(*init, decl, decls)
+                    self.check_expr(*init, context, decls)
                 } else {
                     IndexInterval::default()
                 };
-                let ty = decl.types[expr];
+                let ty = context.arena.local(local).ty;
 
                 let mut min = if init_r.min != i64::MIN {
                     Some(init_r.min)
@@ -692,7 +809,7 @@ impl SafetyChecker {
 
                 // Propagate LenBounds: var x = y inherits y's LenBounds.
                 if let Some(init) = init {
-                    if let Expr::Id(src_name) = &decl.arena[*init] {
+                    if let Some(ref src_name) = id_place(*init, context.arena) {
                         let inherited: Vec<_> = self
                             .len_bounds
                             .iter()
@@ -710,7 +827,11 @@ impl SafetyChecker {
 
                 IndexInterval::default()
             }
-            Expr::Id(name) => {
+            Expr::Id(_) => {
+                let Some(place) = context.arena.reference(expr).and_then(reference_place) else {
+                    return IndexInterval::default();
+                };
+                let name = &place;
                 let mut min = i64::min_value();
                 let mut max = i64::max_value();
                 let mut non_zero = false;
@@ -735,10 +856,10 @@ impl SafetyChecker {
                 let initial_min_len_bound_count = self.min_len_bounds.len();
                 let initial_var_bound_count = self.var_bounds.len();
 
-                self.match_expr(*cond, decl, decls);
+                self.match_expr(*cond, context, decls);
                 self.propagate_len_bounds();
 
-                let mut r = self.check_expr(*then_expr, decl, decls);
+                let mut r = self.check_expr(*then_expr, context, decls);
 
                 // Pop condition constraints before checking else branch —
                 // the else branch executes when the condition is false,
@@ -751,28 +872,28 @@ impl SafetyChecker {
                 self.var_bounds.truncate(initial_var_bound_count);
 
                 if let Some(else_expr) = else_expr {
-                    let else_r = self.check_expr(*else_expr, decl, decls);
+                    let else_r = self.check_expr(*else_expr, context, decls);
                     r = enclose(r, else_r);
                 }
 
                 r
             }
             Expr::ArrayIndex(array_expr, index_expr) => {
-                if *array_expr >= decl.types.len() {
+                if *array_expr >= context.arena.len() {
                     print_error_with_context(
-                        decl.arena.locs[expr],
+                        context.arena.loc(expr),
                         "internal compiler error: no type found for array index expression",
                     );
                     return IndexInterval::default();
                 }
 
-                self.check_expr(*array_expr, decl, decls);
-                let lhs_ty = decl.types[*array_expr];
-                let rhs_r = self.check_expr(*index_expr, decl, decls);
+                self.check_expr(*array_expr, context, decls);
+                let lhs_ty = context.arena.ty(*array_expr);
+                let rhs_r = self.check_expr(*index_expr, context, decls);
 
                 if rhs_r.min < 0 {
                     self.push_error(SafetyError {
-                        location: decl.arena.locs[expr],
+                        location: context.arena.loc(expr),
                         message: format!("couldn't prove index is >= 0"),
                     });
                 }
@@ -783,16 +904,18 @@ impl SafetyChecker {
                         // Also accept a `len_bound { idx, arr }` from a require
                         // clause or `for`/`while` loop condition: this proves
                         // `idx < arr.len`, and arr.len == n for a Known array.
-                        let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
-                            Some(*name)
-                        } else {
-                            None
-                        };
-                        let index_name = if let Expr::Id(name) = &decl.arena[*index_expr] {
-                            Some(*name)
-                        } else {
-                            None
-                        };
+                        let array_name =
+                            if let Some(ref name) = id_place(*array_expr, context.arena) {
+                                Some(*name)
+                            } else {
+                                None
+                            };
+                        let index_name =
+                            if let Some(ref name) = id_place(*index_expr, context.arena) {
+                                Some(*name)
+                            } else {
+                                None
+                            };
                         let len_bound_ok = match (index_name, array_name) {
                             (Some(idx), Some(arr)) => self
                                 .len_bounds
@@ -802,7 +925,7 @@ impl SafetyChecker {
                         };
                         if !interval_ok && !len_bound_ok {
                             self.push_error(SafetyError {
-                                location: decl.arena.locs[expr],
+                                location: context.arena.loc(expr),
                                 message: format!("couldn't prove index is less than array length"),
                             });
                         }
@@ -812,16 +935,18 @@ impl SafetyChecker {
                         //       or a require clause `idx < arr.len`, or
                         //   (b) a `var_bound` from `for i in 0 .. N` or a
                         //       require clause `idx < N`.
-                        let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
-                            Some(*name)
-                        } else {
-                            None
-                        };
-                        let index_name = if let Expr::Id(name) = &decl.arena[*index_expr] {
-                            Some(*name)
-                        } else {
-                            None
-                        };
+                        let array_name =
+                            if let Some(ref name) = id_place(*array_expr, context.arena) {
+                                Some(*name)
+                            } else {
+                                None
+                            };
+                        let index_name =
+                            if let Some(ref name) = id_place(*index_expr, context.arena) {
+                                Some(*name)
+                            } else {
+                                None
+                            };
                         let has_len_bound = match (index_name, array_name) {
                             (Some(idx), Some(arr)) => self
                                 .len_bounds
@@ -830,27 +955,31 @@ impl SafetyChecker {
                             _ => false,
                         };
                         let has_var_bound = if let Some(idx) = index_name {
-                            self.var_bounds
-                                .iter()
-                                .any(|b| b.lo == idx && b.hi == *size_name)
+                            self.var_bounds.iter().any(|b| {
+                                b.lo == idx
+                                    && context.size_vars.iter().any(|parameter| {
+                                        parameter.symbol == *size_name
+                                            && b.hi == Place::local(parameter.local)
+                                    })
+                            })
                         } else {
                             false
                         };
                         if !has_len_bound && !has_var_bound {
                             self.push_error(SafetyError {
-                                location: decl.arena.locs[expr],
+                                location: context.arena.loc(expr),
                                 message: format!("couldn't prove index is less than array length"),
                             });
                         }
                     }
                 } else if let Type::Slice(_) = *lhs_ty {
                     // For slices, check if the index has been proven < slice.len.
-                    let array_name = if let Expr::Id(name) = &decl.arena[*array_expr] {
+                    let array_name = if let Some(ref name) = id_place(*array_expr, context.arena) {
                         Some(*name)
                     } else {
                         None
                     };
-                    let index_name = if let Expr::Id(name) = &decl.arena[*index_expr] {
+                    let index_name = if let Some(ref name) = id_place(*index_expr, context.arena) {
                         Some(*name)
                     } else {
                         None
@@ -874,7 +1003,7 @@ impl SafetyChecker {
                     };
                     if !has_len_bound && !has_min_len_bound {
                         self.push_error(SafetyError {
-                            location: decl.arena.locs[expr],
+                            location: context.arena.loc(expr),
                             message: format!("couldn't prove index is less than slice length"),
                         });
                     }
@@ -883,7 +1012,7 @@ impl SafetyChecker {
                     // index against, so the interval has to prove it on its own.
                     if rhs_r.max >= F32X4_LANES {
                         self.push_error(SafetyError {
-                            location: decl.arena.locs[expr],
+                            location: context.arena.loc(expr),
                             message: format!("couldn't prove index is less than 4"),
                         });
                     }
@@ -897,9 +1026,9 @@ impl SafetyChecker {
                 let saved_leq_len_bounds = self.leq_len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
                 let saved_var_bounds = self.var_bounds.clone();
-                self.match_expr(*cond, decl, decls);
+                self.match_expr(*cond, context, decls);
 
-                self.check_expr(*body, decl, decls);
+                self.check_expr(*body, context, decls);
                 self.constraints = saved_constraints;
                 self.len_bounds = saved_len_bounds;
                 self.leq_len_bounds = saved_leq_len_bounds;
@@ -909,41 +1038,41 @@ impl SafetyChecker {
                 // Invalidate constraints for variables assigned inside the loop.
                 // The restore gives us pre-loop state, but mutations in the body
                 // mean those constraints may not hold at loop exit.
-                self.invalidate_assigned(*body, &decl.arena);
+                self.invalidate_assigned(*body, context.arena);
 
                 IndexInterval::default()
             }
             Expr::Binop(op, lhs, rhs) => {
                 if *op == Binop::Plus {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    let lhs_range = self.check_expr(*lhs, context, decls);
+                    let rhs_range = self.check_expr(*rhs, context, decls);
                     return lhs_range + rhs_range;
                 }
 
                 if *op == Binop::Minus {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    let lhs_range = self.check_expr(*lhs, context, decls);
+                    let rhs_range = self.check_expr(*rhs, context, decls);
                     return lhs_range - rhs_range;
                 }
 
                 if *op == Binop::Mult {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    let lhs_range = self.check_expr(*lhs, context, decls);
+                    let rhs_range = self.check_expr(*rhs, context, decls);
                     return lhs_range * rhs_range;
                 }
 
                 if *op == Binop::Div || *op == Binop::Mod {
-                    let lhs_range = self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    let lhs_range = self.check_expr(*lhs, context, decls);
+                    let rhs_range = self.check_expr(*rhs, context, decls);
 
                     // Only check integer division — float div-by-zero produces Inf/NaN per IEEE 754.
-                    if *rhs < decl.types.len() {
-                        let ty = decl.types[*rhs];
+                    if *rhs < context.arena.len() {
+                        let ty = context.arena.ty(*rhs);
                         let is_int =
                             matches!(*ty, Type::Int32 | Type::UInt32 | Type::Int8 | Type::UInt8);
                         if is_int && !rhs_range.excludes_zero() {
                             self.push_error(SafetyError {
-                                location: decl.arena.locs[expr],
+                                location: context.arena.loc(expr),
                                 message: format!("couldn't prove divisor is non-zero"),
                             });
                         }
@@ -981,10 +1110,10 @@ impl SafetyChecker {
                 }
 
                 if *op == Binop::Assign {
-                    self.check_expr(*lhs, decl, decls);
-                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    self.check_expr(*lhs, context, decls);
+                    let rhs_range = self.check_expr(*rhs, context, decls);
 
-                    if let Some(name) = expr_constraint_name(*lhs, &decl.arena) {
+                    if let Some(name) = expr_place(*lhs, context.arena) {
                         if rhs_range != IndexInterval::default() {
                             self.replace(name, Some(rhs_range.min), Some(rhs_range.max));
                         } else {
@@ -997,33 +1126,26 @@ impl SafetyChecker {
 
                 // For other binops (==, !=, <, >, etc.), still recurse
                 // into sub-expressions to check array accesses.
-                self.check_expr(*lhs, decl, decls);
-                self.check_expr(*rhs, decl, decls);
+                self.check_expr(*lhs, context, decls);
+                self.check_expr(*rhs, context, decls);
                 IndexInterval::default()
             }
             Expr::Call(callee_expr, args) => {
                 let arg_ivals: Vec<_> = args
                     .iter()
-                    .map(|arg| self.check_expr(*arg, decl, decls))
+                    .map(|arg| self.check_expr(*arg, context, decls))
                     .collect();
                 // An immediately-invoked lambda has known arguments, so check
                 // its body against them rather than unconstrained.
-                if let Expr::Lambda { params, body } = &decl.arena[*callee_expr] {
-                    let (params, body) = (params.clone(), *body);
-                    self.check_lambda_body(
-                        *callee_expr,
-                        &params,
-                        body,
-                        Some((args, &arg_ivals)),
-                        decl,
-                        decls,
-                    );
+                if let Expr::Lambda { body, .. } = &context.arena[*callee_expr] {
+                    let params = context.arena.binders(*callee_expr);
+                    self.check_lambda_body(params, *body, Some((args, &arg_ivals)), context, decls);
                 }
-                self.check_call_requires(*callee_expr, args, expr, decl, decls);
+                self.check_call_requires(*callee_expr, args, expr, context, decls);
                 IndexInterval::default()
             }
             Expr::Unop(op, expr) => {
-                let r = self.check_expr(*expr, decl, decls);
+                let r = self.check_expr(*expr, context, decls);
                 match op {
                     Unop::Neg => {
                         // -[a, b] = [-b, -a]
@@ -1039,13 +1161,13 @@ impl SafetyChecker {
                 }
             }
             Expr::Return(expr) => {
-                self.check_expr(*expr, decl, decls);
+                self.check_expr(*expr, context, decls);
                 IndexInterval::default()
             }
             Expr::Assume(cond) => {
                 // Inject constraints from the condition without scoping —
                 // they persist for the rest of the function.
-                self.match_expr(*cond, decl, decls);
+                self.match_expr(*cond, context, decls);
                 self.propagate_len_bounds();
                 IndexInterval::default()
             }
@@ -1056,7 +1178,7 @@ impl SafetyChecker {
                 // of sized-array type, including an element of a nested array
                 // such as `buffers[outer]`.
                 if field.as_str() == "len" {
-                    if let Some(n) = static_len(*base, decl, decls) {
+                    if let Some(n) = static_len(*base, context, decls) {
                         return IndexInterval {
                             min: n,
                             max: n,
@@ -1065,8 +1187,8 @@ impl SafetyChecker {
                     }
                 }
 
-                // Look up constraints using the compound name (e.g., "h.index").
-                if let Some(name) = expr_constraint_name(expr, &decl.arena) {
+                // Look up facts by the field's identified root and projection.
+                if let Some(name) = expr_place(expr, context.arena) {
                     let mut min = i64::min_value();
                     let mut max = i64::max_value();
                     let mut non_zero = false;
@@ -1089,37 +1211,25 @@ impl SafetyChecker {
                 }
             }
             Expr::For {
-                var,
-                start,
-                end,
-                body,
+                start, end, body, ..
             } => {
-                let start_r = self.check_expr(*start, decl, decls);
-                let end_r = self.check_expr(*end, decl, decls);
+                let var = &Place::local(context.arena.binder(expr));
+                let start_r = self.check_expr(*start, context, decls);
+                let end_r = self.check_expr(*end, context, decls);
 
-                // Everything below binds the loop variable, which is scoped to
-                // the loop: snapshot first, so the restore after the body drops
-                // the loop variable's interval and bounds instead of keeping
-                // them alive — and brings back those of an outer variable of
-                // the same name, which the binding shadows. Without this,
-                // `var i = 100; for i in 0 .. 3 {}; a[i]` proved `i < 3` for
-                // the *outer* i and accepted an out-of-bounds write.
+                // Keep the existing loop transfer rule: restore entry facts
+                // after visiting the body, then invalidate its assigned roots.
+                // The loop binding has its own LocalId throughout.
                 let saved_constraints = self.constraints.clone();
                 let saved_len_bounds = self.len_bounds.clone();
                 let saved_leq_len_bounds = self.leq_len_bounds.clone();
                 let saved_min_len_bounds = self.min_len_bounds.clone();
                 let saved_var_bounds = self.var_bounds.clone();
-                let saved_var_count = self.vars.len();
-
-                self.vars.push(Var {
-                    name: *var,
-                    ty: mk_type(Type::Int32),
-                });
                 self.add(*var, Some(start_r.min), Some(end_r.max.saturating_sub(1)));
                 // for i in 0 .. arr.len — record that i < arr.len
-                if let Expr::Field(arr_expr, field_name) = &decl.arena[*end] {
+                if let Expr::Field(arr_expr, field_name) = &context.arena[*end] {
                     if field_name.as_str() == "len" {
-                        if let Expr::Id(array_name) = &decl.arena[*arr_expr] {
+                        if let Some(ref array_name) = id_place(*arr_expr, context.arena) {
                             self.len_bounds.push(LenBound {
                                 index: *var,
                                 array: *array_name,
@@ -1128,7 +1238,7 @@ impl SafetyChecker {
                     }
                 }
                 // for i in lo .. hi where hi has a LenBound — transitive bound
-                if let Expr::Id(end_name) = &decl.arena[*end] {
+                if let Some(ref end_name) = id_place(*end, context.arena) {
                     self.var_bounds.push(VarBound {
                         lo: *var,
                         hi: *end_name,
@@ -1138,16 +1248,15 @@ impl SafetyChecker {
                 // Restoring the snapshot after the body also undoes mutations
                 // inside the loop (e.g. `i = i + 1`), so they don't clobber the
                 // constraints of outer variables after the loop exits.
-                self.check_expr(*body, decl, decls);
+                self.check_expr(*body, context, decls);
                 self.constraints = saved_constraints.clone();
                 self.len_bounds = saved_len_bounds.clone();
                 self.leq_len_bounds = saved_leq_len_bounds;
                 self.min_len_bounds = saved_min_len_bounds;
                 self.var_bounds = saved_var_bounds;
-                self.vars.truncate(saved_var_count);
 
                 // Invalidate constraints for variables assigned inside the loop.
-                self.invalidate_assigned(*body, &decl.arena);
+                self.invalidate_assigned(*body, context.arena);
 
                 // Recover bounds for monotonically incrementing variables.
                 // If a variable is only modified by `var = var + 1`, then:
@@ -1159,15 +1268,15 @@ impl SafetyChecker {
                 // To verify initial <= start, find the var's Var declaration
                 // in the AST and check if its initializer is the same identifier
                 // as the loop start (e.g., `var i = lo` with `for j in lo .. hi`).
-                let start_name = if let Expr::Id(n) = &decl.arena[*start] {
+                let start_name = if let Some(ref n) = id_place(*start, context.arena) {
                     Some(*n)
                 } else {
                     None
                 };
                 let mut assigned = Vec::new();
-                Self::collect_assigned_vars(*body, &decl.arena, &mut assigned);
+                Self::collect_assigned_vars(*body, context.arena, &mut assigned);
                 for name in assigned {
-                    if !Self::is_monotonic_increment(name, *body, &decl.arena) {
+                    if !Self::is_monotonic_increment(name, *body, context.arena) {
                         continue;
                     }
                     // Restore the pre-loop min bound (monotonic increase preserves it).
@@ -1180,16 +1289,17 @@ impl SafetyChecker {
                     // Scan the AST for `Var(name, Some(init), _)` where init
                     // is `Expr::Id(start_name)`.
                     let initialized_from_start = start_name.is_some_and(|sn| {
-                        decl.arena.exprs.iter().any(|e| {
-                            if let Expr::Var(vn, Some(init), _) = e {
-                                *vn == name && matches!(&decl.arena[*init], Expr::Id(n) if *n == sn)
+                        context.arena.ids().any(|id| {
+                            if let Expr::Var(_, Some(init), _) = &context.arena[id] {
+                                Place::local(context.arena.binder(id)) == name
+                                    && id_place(*init, context.arena) == Some(sn)
                             } else {
                                 false
                             }
                         })
                     });
                     if initialized_from_start {
-                        if let Expr::Id(end_name) = &decl.arena[*end] {
+                        if let Some(ref end_name) = id_place(*end, context.arena) {
                             for b in &saved_len_bounds {
                                 if b.index == *end_name {
                                     self.len_bounds.push(LenBound {
@@ -1206,72 +1316,55 @@ impl SafetyChecker {
             }
             Expr::ArrayLiteral(exprs) => {
                 for e in exprs {
-                    self.check_expr(*e, decl, decls);
+                    self.check_expr(*e, context, decls);
                 }
                 IndexInterval::default()
             }
-            Expr::Lambda { params, body } => {
+            Expr::Lambda { body, .. } => {
                 // Nothing is known about the arguments at the definition site,
                 // so the body is checked with its parameters unconstrained.
                 // (A directly-called lambda is handled by the `Call` arm, which
                 // knows the arguments.)
-                self.check_lambda_body(expr, &params.clone(), *body, None, decl, decls);
+                let params = context.arena.binders(expr);
+                self.check_lambda_body(params, *body, None, context, decls);
                 IndexInterval::default()
             }
             Expr::Tuple(exprs) => {
                 for e in exprs {
-                    self.check_expr(*e, decl, decls);
+                    self.check_expr(*e, context, decls);
                 }
                 IndexInterval::default()
             }
             Expr::StructLit(_, fields) => {
                 for (_, e) in fields {
-                    self.check_expr(*e, decl, decls);
+                    self.check_expr(*e, context, decls);
                 }
                 IndexInterval::default()
             }
             Expr::AsTy(e, _) | Expr::Arena(e) => {
-                self.check_expr(*e, decl, decls);
+                self.check_expr(*e, context, decls);
                 IndexInterval::default()
             }
             _ => IndexInterval::default(),
         }
     }
 
-    /// Check a lambda body. Parameters shadow any captured variable of the
-    /// same name; `call_args` supplies the argument intervals (and the
-    /// argument expressions, for symbolic length bounds) when the lambda is
-    /// called directly at a known call site, and is `None` at the definition
-    /// site, where the arguments are unknown.
+    /// Check a lambda body with its identified parameters and captures.
+    /// Direct calls supply argument intervals and symbolic length bounds;
+    /// at the definition site parameter values are unknown.
     fn check_lambda_body(
         &mut self,
-        lambda_expr: ExprID,
-        params: &[Param],
+        params: &[LocalId],
         body: ExprID,
         call_args: Option<(&[ExprID], &[IndexInterval])>,
-        decl: &FuncDecl,
-        decls: &DeclTable,
+        context: SafetyBody<'_>,
+        decls: &impl SafetyProgram,
     ) {
-        let saved_vars = self.vars.clone();
         let saved_constraints = self.constraints.clone();
         let saved_len_bounds = self.len_bounds.clone();
         let saved_leq_len_bounds = self.leq_len_bounds.clone();
         let saved_min_len_bounds = self.min_len_bounds.clone();
         let saved_var_bounds = self.var_bounds.clone();
-
-        // Lambda params are usually unannotated, so recover their types from
-        // the solved function type of the lambda expression.
-        let solved_param_tys = if lambda_expr < decl.types.len() {
-            match &*decl.types[lambda_expr] {
-                Type::Func(dom, _) => match &**dom {
-                    Type::Tuple(tys) => tys.clone(),
-                    _ => vec![*dom],
-                },
-                _ => vec![],
-            }
-        } else {
-            vec![]
-        };
 
         // A lambda that isn't invoked right here runs at some unknown later
         // point, so any capture the enclosing function assigns to — before or
@@ -1285,16 +1378,12 @@ impl SafetyChecker {
             }
         }
 
-        for (i, param) in params.iter().enumerate() {
-            let ty = param.ty.or_else(|| solved_param_tys.get(i).copied());
-            let is_u32 = ty == Some(mk_type(Type::UInt32));
+        for (i, &param) in params.iter().enumerate() {
+            let ty = context.arena.local(param).ty;
+            let is_u32 = ty == mk_type(Type::UInt32);
 
-            // The param shadows any captured variable of the same name.
-            self.forget(param.name);
-            self.vars.push(Var {
-                name: param.name,
-                ty: ty.unwrap_or_else(|| mk_type(Type::Void)),
-            });
+            // A repeated analysis of this lambda starts with fresh parameter facts.
+            self.forget(Place::local(param));
 
             let arg = call_args.and_then(|(exprs, ivals)| Some((exprs.get(i)?, ivals.get(i)?)));
             match arg {
@@ -1304,16 +1393,14 @@ impl SafetyChecker {
                     if is_u32 {
                         min = Some(min.unwrap_or(0).max(0));
                     }
-                    self.add(param.name, min, max);
+                    self.add(Place::local(param), min, max);
                     if ival.non_zero {
-                        self.add_non_zero(param.name);
+                        self.add_non_zero(Place::local(param));
                     }
                     // The param inherits the argument's symbolic length bounds.
-                    // Read these from the live state, not the entry snapshot:
-                    // `forget` above has already stripped bounds naming an
-                    // array that this param shadows, and bounds pushed for an
-                    // earlier param should propagate.
-                    if let Expr::Id(arg_name) = &decl.arena[*arg_expr] {
+                    // Read the live state so bounds from earlier parameters
+                    // can propagate. Outer captured roots retain their IDs.
+                    if let Some(ref arg_name) = id_place(*arg_expr, context.arena) {
                         let inherited: Vec<_> = self
                             .len_bounds
                             .iter()
@@ -1322,20 +1409,19 @@ impl SafetyChecker {
                             .collect();
                         for array in inherited {
                             self.len_bounds.push(LenBound {
-                                index: param.name,
+                                index: Place::local(param),
                                 array,
                             });
                         }
                     }
                 }
-                None if is_u32 => self.add(param.name, Some(0), None),
-                None => self.add(param.name, None, None),
+                None if is_u32 => self.add(Place::local(param), Some(0), None),
+                None => self.add(Place::local(param), None, None),
             }
         }
 
-        self.check_expr(body, decl, decls);
+        self.check_expr(body, context, decls);
 
-        self.vars = saved_vars;
         self.constraints = saved_constraints;
         self.len_bounds = saved_len_bounds;
         self.leq_len_bounds = saved_leq_len_bounds;
@@ -1345,7 +1431,7 @@ impl SafetyChecker {
         // Assignments in the body take effect whenever the lambda is called,
         // which we can't pin down, so conservatively drop what we knew about
         // the variables it writes to.
-        self.invalidate_assigned(body, &decl.arena);
+        self.invalidate_assigned(body, context.arena);
     }
 
     /// Check if every assignment to `var_name` in the expression tree is of the
@@ -1356,13 +1442,13 @@ impl SafetyChecker {
     /// agree about where an assignment can hide, or the loop-exit min bound
     /// gets handed back on the strength of an increment that isn't the only
     /// write.
-    fn is_monotonic_increment(var_name: Name, expr: ExprID, arena: &ExprArena) -> bool {
+    fn is_monotonic_increment(var_name: Place, expr: ExprID, arena: &ExprArena) -> bool {
         if let Expr::Binop(Binop::Assign, lhs, rhs) = &arena[expr] {
-            if let Expr::Id(name) = &arena[*lhs] {
+            if let Some(ref name) = id_place(*lhs, arena) {
                 if *name == var_name {
                     // Check rhs is `var_name + 1`
                     if let Expr::Binop(Binop::Plus, plus_lhs, plus_rhs) = &arena[*rhs] {
-                        let lhs_is_var = matches!(&arena[*plus_lhs], Expr::Id(n) if *n == var_name);
+                        let lhs_is_var = id_place(*plus_lhs, arena) == Some(var_name);
                         let rhs_is_one = matches!(&arena[*plus_rhs], Expr::Int(1, _));
                         return lhs_is_var && rhs_is_one;
                     }
@@ -1376,15 +1462,15 @@ impl SafetyChecker {
             .all(|child| Self::is_monotonic_increment(var_name, *child, arena))
     }
 
-    /// Collect all variable names that are assigned (via `=`) inside an
+    /// Collect all direct storage roots assigned (via `=`) inside an
     /// expression tree.
     ///
     /// Walks every subexpression, including lambda bodies, initializers and
     /// call arguments — an assignment nested in any of those still happens, and
     /// missing one would leave a stale constraint in place.
-    fn collect_assigned_vars(expr: ExprID, arena: &ExprArena, out: &mut Vec<Name>) {
+    fn collect_assigned_vars(expr: ExprID, arena: &ExprArena, out: &mut Vec<Place>) {
         if let Expr::Binop(Binop::Assign, lhs, _) = &arena[expr] {
-            if let Expr::Id(name) = &arena[*lhs] {
+            if let Some(ref name) = id_place(*lhs, arena) {
                 out.push(*name);
             }
         }
@@ -1406,145 +1492,147 @@ impl SafetyChecker {
         }
     }
 
-    /// Inject constraints from top-level `assume` declarations.
-    /// Uses a temporary FuncDecl so `match_expr` can access the assume's arena.
-    fn inject_global_assumes(&mut self, decls: &DeclTable) {
+    /// Inject each assumption's facts with its own body-local coordinates.
+    fn inject_global_assumes(&mut self, decls: &impl SafetyProgram) {
         for decl in &decls.decls {
             if let Decl::Assume { arena, cond } = decl {
-                let tmp = FuncDecl {
-                    name: Name::str("__assume"),
-                    typevars: vec![],
-                    size_vars: vec![],
-                    params: vec![],
-                    body: None,
-                    ret: mk_type(Type::Void),
-                    constraints: vec![],
-                    requires: vec![],
-                    loc: test_loc(),
-                    arena: arena.clone(),
-                    types: vec![],
-                    closure_vars: vec![],
-                    is_extern: false,
-                };
-                self.match_expr(*cond, &tmp, decls);
+                self.match_expr(
+                    *cond,
+                    SafetyBody {
+                        arena,
+                        size_vars: &[],
+                    },
+                    decls,
+                );
                 self.propagate_len_bounds();
+                // Only nonlocal facts cross this body boundary. A local with the
+                // same numeric ID in another assumption or function is unrelated.
+                let nonlocal = |place: Place| !matches!(place.root, PlaceRoot::Local(_));
+                self.constraints.retain(|c| nonlocal(c.name));
+                self.len_bounds
+                    .retain(|b| nonlocal(b.index) && nonlocal(b.array));
+                self.leq_len_bounds
+                    .retain(|b| nonlocal(b.index) && nonlocal(b.array));
+                self.min_len_bounds.retain(|b| nonlocal(b.array));
+                self.var_bounds.retain(|b| nonlocal(b.lo) && nonlocal(b.hi));
             }
         }
     }
 
-    /// Check that all `require` clauses on the callee hold at this call site.
-    /// Reports a SafetyError for any clause that cannot be proved.
-    ///
-    /// Resolves the callee by name; if there are multiple overloads, picks the
-    /// one whose arity matches and whose param types match the caller's argument
-    /// types. Conservatively skips when the callee can't be uniquely resolved.
+    /// Check a direct call using the phase's target policy. Concrete instances
+    /// never undergo another signature-based selection; indirect calls remain
+    /// deferred. Explicit type applications become instance reads in specialization.
     fn check_call_requires(
         &mut self,
         callee_expr: ExprID,
         args: &[ExprID],
         call_expr: ExprID,
-        caller: &FuncDecl,
-        decls: &DeclTable,
+        caller: SafetyBody<'_>,
+        decls: &impl SafetyProgram,
     ) {
-        let Expr::Id(callee_name) = &caller.arena[callee_expr] else {
+        if !matches!(caller.arena[callee_expr], Expr::Id(_)) {
             return;
-        };
-
-        // Find the callee FuncDecl. Disambiguate overloads by matching the
-        // function type recorded by the type checker for the callee expression.
-        let callee_ty = if callee_expr < caller.types.len() {
-            Some(caller.types[callee_expr])
-        } else {
-            None
-        };
-
-        let candidates = decls.find(*callee_name);
-        let mut callee: Option<&FuncDecl> = None;
-        for d in candidates {
-            if let Decl::Func(f) = d {
-                if f.params.len() != args.len() {
-                    continue;
-                }
-                if let Some(cty) = callee_ty {
-                    if f.ty() != cty {
-                        continue;
-                    }
-                }
-                callee = Some(f);
-                break;
-            }
         }
-        let Some(callee) = callee else {
+        let Some(reference) = caller.arena.reference(callee_expr) else {
             return;
         };
-
+        let Some(callee) = decls.call_target(
+            reference,
+            caller.arena,
+            caller.arena.ty(callee_expr),
+            args.len(),
+        ) else {
+            return;
+        };
         if callee.requires.is_empty() {
             return;
         }
-
-        // Build name -> caller-arg-ExprID substitution.
-        let subst: Vec<(Name, ExprID)> = callee
+        let subst: Vec<(LocalId, ExprID)> = callee
             .params
             .iter()
             .zip(args)
-            .map(|(p, &a)| (p.name, a))
+            .map(|(parameter, &argument)| (parameter.local, argument))
             .collect();
-
-        // Build size-var -> concrete-i64 substitution by matching declared
-        // param types (which may contain `[T; N]` with a size variable N)
-        // against the caller's resolved types for each arg.
-        let mut size_subst: Vec<(Name, i64)> = vec![];
-        for (param, &arg) in callee.params.iter().zip(args) {
-            if let Some(pty) = param.ty {
-                if arg < caller.types.len() {
-                    let aty = caller.types[arg];
-                    collect_size_subst(pty, aty, &mut size_subst);
-                }
-            }
+        let mut size_subst = Vec::new();
+        for (parameter, &argument) in callee.params.iter().zip(args) {
+            collect_size_subst(
+                callee.arena.local(parameter.local).ty,
+                caller.arena.ty(argument),
+                &mut size_subst,
+            );
         }
-
-        for &req in &callee.requires {
-            if !self.prove_at_call(req, callee, caller, &subst, &size_subst, decls) {
-                let msg = format!(
+        for &requirement in &callee.requires {
+            if !self.prove_at_call(requirement, callee, caller, &subst, &size_subst, decls) {
+                let clause = callee.arena.pretty_print(requirement, 0);
+                let location = caller.arena.loc(call_expr);
+                let key = (location, callee.arena.loc(requirement), clause.clone());
+                if let Some(message) = self.failed_requirements.get(&key) {
+                    // The diagnostic list is public. Clearing it must allow a
+                    // reused checker to report the same requirement again.
+                    if self.errors.iter().any(|error| {
+                        error.location == location && error.message == *message
+                    }) {
+                        continue;
+                    }
+                }
+                let message = format!(
                     "couldn't prove require clause `{}` for call to `{}`",
-                    callee.arena.exprs[req].pretty_print(&callee.arena, 0),
-                    *callee.name
+                    clause, callee.name
                 );
+                self.failed_requirements.insert(key, message.clone());
                 self.push_error(SafetyError {
-                    location: caller.arena.locs[call_expr],
-                    message: msg,
+                    location,
+                    message,
                 });
             }
         }
     }
 
-    /// Try to prove that the require expression `req` (in callee's arena)
-    /// holds in the caller's current bound state, after substituting params
-    /// for the corresponding caller argument expressions.
-    ///
-    /// Handles a small grammar of forms structurally:
-    ///   - `idx < arr.len`  where arr is a slice param: consult `len_bounds`.
-    ///   - `idx < arr.len`  where arr is a `[T; N]` param: compare idx's
-    ///       interval against the concrete N derived from the caller's arg.
-    ///   - `idx < N` where N is a size variable: same, via size_subst.
-    ///   - `lhs >= rhs` for constants: interval check.
-    ///   - `lhs && rhs`: prove both.
-    ///   - `true`: trivially provable.
-    /// Anything else is conservatively unprovable.
+    /// Evaluate a callee-only expression with a fresh analysis state. Body-local
+    /// IDs have different owners in caller and callee; caller facts cannot be
+    /// applied to a coincidentally equal callee LocalId.
+    fn callee_interval(
+        expr: ExprID,
+        callee: &FuncDecl,
+        decls: &impl SafetyProgram,
+    ) -> IndexInterval {
+        Self::new().check_expr(expr, callee.into(), decls)
+    }
+
+    /// Preserve the small existing precondition proof grammar, translating
+    /// parameter references across the call boundary by LocalId.
     fn prove_at_call(
         &mut self,
         req: ExprID,
         callee: &FuncDecl,
-        caller: &FuncDecl,
-        subst: &[(Name, ExprID)],
+        caller: SafetyBody<'_>,
+        subst: &[(LocalId, ExprID)],
         size_subst: &[(Name, i64)],
-        decls: &DeclTable,
+        decls: &impl SafetyProgram,
     ) -> bool {
-        let lookup =
-            |n: &Name| -> Option<ExprID> { subst.iter().find(|(p, _)| p == n).map(|(_, a)| *a) };
-        let size_lookup =
-            |n: &Name| -> Option<i64> { size_subst.iter().find(|(s, _)| s == n).map(|(_, v)| *v) };
-
+        let lookup = |reference: &Reference| -> Option<ExprID> {
+            let Reference::Local(local) = reference else {
+                return None;
+            };
+            subst
+                .iter()
+                .find(|(parameter, _)| parameter == local)
+                .map(|(_, argument)| *argument)
+        };
+        let size_lookup = |reference: &Reference| -> Option<i64> {
+            let Reference::SizeParameter(local) = reference else {
+                return None;
+            };
+            let symbol = callee
+                .size_vars
+                .iter()
+                .find(|parameter| parameter.local == *local)?
+                .symbol;
+            size_subst
+                .iter()
+                .find(|(parameter, _)| *parameter == symbol)
+                .map(|(_, value)| *value)
+        };
         match &callee.arena[req] {
             Expr::True => true,
             Expr::Binop(Binop::And, lhs, rhs) => {
@@ -1552,33 +1640,33 @@ impl SafetyChecker {
                     && self.prove_at_call(*rhs, callee, caller, subst, size_subst, decls)
             }
             Expr::Binop(Binop::Less, lhs, rhs) => {
-                // Pattern: <param_idx> < <param_arr>.len
-                if let (Expr::Id(idx_param), Expr::Field(arr_e, fld)) =
+                if let (Expr::Id(_), Expr::Field(array, field)) =
                     (&callee.arena[*lhs], &callee.arena[*rhs])
                 {
-                    if fld.as_str() == "len" {
-                        if let Expr::Id(arr_param) = &callee.arena[*arr_e] {
-                            if let (Some(idx_arg), Some(arr_arg)) =
-                                (lookup(idx_param), lookup(arr_param))
+                    if field.as_str() == "len" {
+                        if let (Expr::Id(_), Some(index), Some(array)) = (
+                            &callee.arena[*array],
+                            callee.arena.reference(*lhs),
+                            callee.arena.reference(*array),
+                        ) {
+                            if let (Some(index_arg), Some(array_arg)) =
+                                (lookup(index), lookup(array))
                             {
-                                // Slice path: consult len_bounds when both sides
-                                // resolve to plain Ids in the caller.
-                                if let (Expr::Id(idx_name), Expr::Id(arr_name)) =
-                                    (&caller.arena[idx_arg], &caller.arena[arr_arg])
-                                {
+                                if let (Some(index), Some(array)) = (
+                                    id_place(index_arg, caller.arena),
+                                    id_place(array_arg, caller.arena),
+                                ) {
                                     if self
                                         .len_bounds
                                         .iter()
-                                        .any(|b| b.index == *idx_name && b.array == *arr_name)
+                                        .any(|bound| bound.index == index && bound.array == array)
                                     {
                                         return true;
                                     }
                                 }
-                                // Sized-array path: if the caller's arg is a
-                                // fixed-size array, prove via interval check.
-                                if let Some(k) = static_len(arr_arg, caller, decls) {
-                                    let li = self.check_expr(idx_arg, caller, decls);
-                                    if li.max != i64::MAX && li.max < k {
+                                if let Some(length) = static_len(array_arg, caller, decls) {
+                                    let interval = self.check_expr(index_arg, caller, decls);
+                                    if interval.max != i64::MAX && interval.max < length {
                                         return true;
                                     }
                                 }
@@ -1586,59 +1674,50 @@ impl SafetyChecker {
                         }
                     }
                 }
-                // Pattern: <param> < <size_var>
-                if let (Expr::Id(lhs_param), Expr::Id(rhs_id)) =
-                    (&callee.arena[*lhs], &callee.arena[*rhs])
-                {
-                    if let (Some(la), Some(n_val)) = (lookup(lhs_param), size_lookup(rhs_id)) {
-                        let li = self.check_expr(la, caller, decls);
-                        if li.max != i64::MAX && li.max < n_val {
+                if let (Expr::Id(_), Expr::Id(_)) = (&callee.arena[*lhs], &callee.arena[*rhs]) {
+                    if let (Some(argument), Some(size)) = (
+                        callee.arena.reference(*lhs).and_then(lookup),
+                        callee.arena.reference(*rhs).and_then(size_lookup),
+                    ) {
+                        let interval = self.check_expr(argument, caller, decls);
+                        if interval.max != i64::MAX && interval.max < size {
                             return true;
                         }
                     }
                 }
-                // Fallback: interval comparison `lhs.max < rhs.min`. Resolve
-                // each side's interval — params via the caller arg, other
-                // expressions (constants, arithmetic) via the callee arena.
-                let li = if let Expr::Id(lhs_param) = &callee.arena[*lhs] {
-                    if let Some(la) = lookup(lhs_param) {
-                        Some(self.check_expr(la, caller, decls))
-                    } else {
-                        None
-                    }
+                let left = if let Expr::Id(_) = &callee.arena[*lhs] {
+                    callee
+                        .arena
+                        .reference(*lhs)
+                        .and_then(lookup)
+                        .map(|argument| self.check_expr(argument, caller, decls))
                 } else {
-                    Some(self.check_expr(*lhs, callee, decls))
+                    Some(Self::callee_interval(*lhs, callee, decls))
                 };
-                let ri = if let Expr::Id(rhs_param) = &callee.arena[*rhs] {
-                    if let Some(ra) = lookup(rhs_param) {
-                        Some(self.check_expr(ra, caller, decls))
-                    } else {
-                        None
-                    }
+                let right = if let Expr::Id(_) = &callee.arena[*rhs] {
+                    callee
+                        .arena
+                        .reference(*rhs)
+                        .and_then(lookup)
+                        .map(|argument| self.check_expr(argument, caller, decls))
                 } else {
-                    Some(self.check_expr(*rhs, callee, decls))
+                    Some(Self::callee_interval(*rhs, callee, decls))
                 };
-                if let (Some(li), Some(ri)) = (li, ri) {
-                    if li.max != i64::MAX && ri.min != i64::MIN && li.max < ri.min {
-                        return true;
+                match (left, right) {
+                    (Some(left), Some(right)) => {
+                        left.max != i64::MAX && right.min != i64::MIN && left.max < right.min
                     }
+                    _ => false,
                 }
-                false
             }
             Expr::Binop(Binop::Geq, lhs, rhs) => {
-                // Pattern: <param> >= <const-or-expr>  →  check caller-arg.min >= rhs.min.
-                if let Expr::Id(lhs_param) = &callee.arena[*lhs] {
-                    if let Some(arg) = lookup(lhs_param) {
-                        let arg_iv = self.check_expr(arg, caller, decls);
-                        // Evaluate rhs in the callee's arena with no constraints —
-                        // works for constant expressions like `0`.
-                        let rhs_iv = self.check_expr(*rhs, callee, decls);
-                        if arg_iv.min != i64::MIN
-                            && rhs_iv.max != i64::MAX
-                            && arg_iv.min >= rhs_iv.max
-                        {
-                            return true;
-                        }
+                if let Expr::Id(_) = &callee.arena[*lhs] {
+                    if let Some(argument) = callee.arena.reference(*lhs).and_then(lookup) {
+                        let argument = self.check_expr(argument, caller, decls);
+                        let rhs = Self::callee_interval(*rhs, callee, decls);
+                        return argument.min != i64::MIN
+                            && rhs.max != i64::MAX
+                            && argument.min >= rhs.max;
                     }
                 }
                 false
@@ -1647,22 +1726,16 @@ impl SafetyChecker {
         }
     }
 
-    fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &DeclTable) {
+    fn check_fn_decl(&mut self, func_decl: &FuncDecl, decls: &impl SafetyProgram) {
         if let Some(body) = func_decl.body {
             // Inject top-level assume constraints before checking the function.
             self.inject_global_assumes(decls);
 
             for param in &func_decl.params {
-                if let Some(ty) = param.ty {
-                    self.vars.push(Var {
-                        name: param.name,
-                        ty,
-                    });
-                    if ty == mk_type(Type::UInt32) {
-                        self.add(param.name, Some(0), None);
-                    } else {
-                        self.add(param.name, None, None);
-                    }
+                if func_decl.arena.local(param.local).ty == mk_type(Type::UInt32) {
+                    self.add(Place::local(param.local), Some(0), None);
+                } else {
+                    self.add(Place::local(param.local), None, None);
                 }
             }
 
@@ -1671,18 +1744,14 @@ impl SafetyChecker {
             // checker can reason about `for i in 0 .. N` and `arr[idx]` for
             // `[T; N]` parameters. The body still has to prove `idx < N` via
             // a for-loop, require clause, or local check.
-            for &sv in &func_decl.size_vars {
-                self.vars.push(Var {
-                    name: sv,
-                    ty: mk_type(Type::Int32),
-                });
-                self.add(sv, Some(1), None);
+            for parameter in &func_decl.size_vars {
+                self.add(Place::local(parameter.local), Some(1), None);
             }
 
             // Inject require clauses as assumptions inside the function body.
-            // The clauses live in func_decl.arena and reference parameter names.
+            // The clauses live in this checked body and reference parameter IDs.
             for &req in &func_decl.requires {
-                self.match_expr(req, func_decl, decls);
+                self.match_expr(req, func_decl.into(), decls);
             }
             if !func_decl.requires.is_empty() {
                 self.propagate_len_bounds();
@@ -1693,9 +1762,8 @@ impl SafetyChecker {
             self.fn_assigned.clear();
             Self::collect_assigned_vars(body, &func_decl.arena, &mut self.fn_assigned);
 
-            self.check_expr(body, &func_decl, decls);
+            self.check_expr(body, func_decl.into(), decls);
 
-            self.vars.clear();
             self.constraints.clear();
             self.len_bounds.clear();
             self.leq_len_bounds.clear();
@@ -1705,7 +1773,7 @@ impl SafetyChecker {
         }
     }
 
-    pub fn check_decl(&mut self, decl: &Decl, decls: &DeclTable) {
+    pub fn check_decl(&mut self, decl: &CheckedDecl, decls: &impl SafetyProgram) {
         match decl {
             Decl::Func(func_decl) => {
                 // Skip generic functions with size variables — they'll be
@@ -1720,337 +1788,208 @@ impl SafetyChecker {
         }
     }
 
-    pub fn check(&mut self, decls: &DeclTable) {
+    pub fn check(&mut self, decls: &impl SafetyProgram) {
         for decl in &decls.decls {
             self.check_decl(decl, decls);
         }
     }
 
-    /// Reject recursion under `--no-recursion` by building a conservative
-    /// call graph that covers direct calls, inline lambda calls, and
-    /// indirect calls (through parameters, `var`/`let` bindings, struct
-    /// fields, etc.) and running Tarjan's SCC over it. Any cycle — whether
-    /// entirely between top-level functions, between lambdas, or spanning
-    /// both — is reported.
-    ///
-    /// The graph has one node per top-level function with a body and one
-    /// node per `Expr::Lambda` literal in the program. Edges:
-    ///   * Direct call to a top-level function (unshadowed `Expr::Id`) →
-    ///     edge to that function's node.
-    ///   * Direct call to an inline lambda literal → edge to that
-    ///     lambda's node.
-    ///   * Indirect call (anything else — call through a parameter, a
-    ///     var/let/field, a lambda-valued expression, etc.) → conservative
-    ///     edges to every function whose address has been "taken"
-    ///     anywhere in the program. The address-taken set is:
-    ///       (a) every top-level function whose name appears in a
-    ///           non-callee position (passed as an argument, stored in a
-    ///           binding, returned, etc.), plus
-    ///       (b) every lambda literal in the program (creating a lambda
-    ///           produces a first-class function value).
-    ///
-    /// Calls inside a lambda body are attributed to the lambda's node,
-    /// not the enclosing function — so a lambda that calls through a
-    /// captured fn-typed var forms a self-loop via the indirect edge,
-    /// while a lambda with no fn-typed captures simply has no outgoing
-    /// indirect edges.
-    pub fn check_recursion(&mut self, decls: &DeclTable) {
+    /// Reject cycles in checked direct calls, inline lambda calls and the
+    /// conservative graph of indirect calls to address-taken functions.
+    /// Lexical shadowing has already been resolved; graph construction never
+    /// reconstructs bindings from function or local spellings.
+    pub fn check_recursion(&mut self, program: &CheckedProgram) {
+        use crate::scc::{scc_is_cycle, strongly_connected_components};
         use std::collections::{HashMap, HashSet};
 
-        // --- Node representation ---
         #[derive(Clone, Copy)]
-        enum NodeKind {
-            TopLevel,
-            Lambda { arena_idx: ExprID },
+        struct Node {
+            definition: DefId,
+            lambda: Option<ExprID>,
         }
-        struct NodeInfo {
-            decl_idx: usize, // containing top-level decl
-            kind: NodeKind,
+        struct Graph {
+            nodes: Vec<Node>,
+            top: HashMap<DefId, usize>,
+            lambdas: HashMap<(DefId, ExprID), usize>,
+            calls: Vec<Vec<ExprID>>,
+            address_taken: HashSet<DefId>,
         }
-
-        // --- Step 1: create top-level nodes. ---
-        let mut nodes: Vec<NodeInfo> = Vec::new();
-        let mut top_node_of: HashMap<usize, usize> = HashMap::new();
-        for (i, decl) in decls.decls.iter().enumerate() {
-            if let Decl::Func(f) = decl {
-                if f.body.is_some() {
-                    top_node_of.insert(i, nodes.len());
-                    nodes.push(NodeInfo {
-                        decl_idx: i,
-                        kind: NodeKind::TopLevel,
-                    });
-                }
+        fn definitions(reference: &Reference, body: &CheckedBody) -> Vec<DefId> {
+            match reference {
+                Reference::Functions(ids) => ids.clone(),
+                Reference::InterfaceMember {
+                    requirement,
+                    member,
+                } => body
+                    .requirements
+                    .get(requirement.index())
+                    .and_then(|requirement| {
+                        requirement
+                            .members
+                            .iter()
+                            .find(|candidate| candidate.definition == *member)
+                    })
+                    .map(|member| member.candidates.clone())
+                    .unwrap_or_default(),
+                _ => vec![],
             }
         }
-
-        // --- Step 2: walk each top-level function recursively. ---
-        // Per-node call-site list and per-(decl,arena_idx) lambda node
-        // lookup for inline-lambda-call resolution.
-        let mut calls_at: Vec<Vec<ExprID>> = vec![Vec::new(); nodes.len()];
-        let mut lambda_node_of: HashMap<(usize, ExprID), usize> = HashMap::new();
-        let mut address_taken_names: HashSet<Name> = HashSet::new();
-
-        #[allow(clippy::too_many_arguments)]
         fn walk(
-            expr: ExprID,
-            arena: &ExprArena,
-            decl_idx: usize,
+            expression: ExprID,
+            body: &CheckedBody,
+            definition: DefId,
             current: usize,
-            in_callee_pos: bool,
-            nodes: &mut Vec<NodeInfo>,
-            calls_at: &mut Vec<Vec<ExprID>>,
-            lambda_node_of: &mut HashMap<(usize, ExprID), usize>,
-            address_taken: &mut HashSet<Name>,
+            in_callee: bool,
+            graph: &mut Graph,
         ) {
-            let e = &arena.exprs[expr];
-            match e {
-                Expr::Id(name) => {
-                    if !in_callee_pos {
-                        address_taken.insert(*name);
+            match &body[expression] {
+                Expr::Id(_) | Expr::TypeApp(_, _) => {
+                    if !in_callee {
+                        if let Some(reference) = body.reference(expression) {
+                            graph.address_taken.extend(definitions(reference, body));
+                        }
                     }
                 }
-                Expr::Lambda { body, .. } => {
-                    let new_node = nodes.len();
-                    nodes.push(NodeInfo {
-                        decl_idx,
-                        kind: NodeKind::Lambda { arena_idx: expr },
+                Expr::Lambda {
+                    body: lambda_body, ..
+                } => {
+                    let node = graph.nodes.len();
+                    graph.nodes.push(Node {
+                        definition,
+                        lambda: Some(expression),
                     });
-                    calls_at.push(Vec::new());
-                    lambda_node_of.insert((decl_idx, expr), new_node);
-                    walk(
-                        *body,
-                        arena,
-                        decl_idx,
-                        new_node,
-                        false,
-                        nodes,
-                        calls_at,
-                        lambda_node_of,
-                        address_taken,
-                    );
+                    graph.calls.push(Vec::new());
+                    graph.lambdas.insert((definition, expression), node);
+                    walk(*lambda_body, body, definition, node, false, graph);
                 }
-                Expr::Call(func_id, args) => {
-                    calls_at[current].push(expr);
-                    // Callee is walked in "callee position" so an `Expr::Id`
-                    // callee is not added to the address-taken set.
-                    walk(
-                        *func_id,
-                        arena,
-                        decl_idx,
-                        current,
-                        true,
-                        nodes,
-                        calls_at,
-                        lambda_node_of,
-                        address_taken,
-                    );
-                    for a in args {
-                        walk(
-                            *a,
-                            arena,
-                            decl_idx,
-                            current,
-                            false,
-                            nodes,
-                            calls_at,
-                            lambda_node_of,
-                            address_taken,
-                        );
+                Expr::Call(callee, arguments) => {
+                    graph.calls[current].push(expression);
+                    walk(*callee, body, definition, current, true, graph);
+                    for &argument in arguments {
+                        walk(argument, body, definition, current, false, graph);
                     }
                 }
-                _ => {
-                    for child in e.subexprs() {
-                        walk(
-                            child,
-                            arena,
-                            decl_idx,
-                            current,
-                            false,
-                            nodes,
-                            calls_at,
-                            lambda_node_of,
-                            address_taken,
-                        );
+                expression => {
+                    for child in expression.subexprs() {
+                        walk(child, body, definition, current, false, graph);
                     }
                 }
             }
         }
-
-        // Snapshot the top-level node list to iterate independently of
-        // the growing `nodes` vector (we push lambda nodes during walk).
-        let top_level_starts: Vec<(usize, usize)> = nodes
+        let mut graph = Graph {
+            nodes: Vec::new(),
+            top: HashMap::new(),
+            lambdas: HashMap::new(),
+            calls: Vec::new(),
+            address_taken: HashSet::new(),
+        };
+        for (coordinate, declaration) in program.decls.decls.iter().enumerate() {
+            if let Decl::Func(function) = declaration {
+                if function.body.is_some() {
+                    let definition = program.decls.id_at(coordinate);
+                    graph.top.insert(definition, graph.nodes.len());
+                    graph.nodes.push(Node {
+                        definition,
+                        lambda: None,
+                    });
+                    graph.calls.push(Vec::new());
+                }
+            }
+        }
+        let roots = graph.nodes.clone();
+        for (node, root) in roots.iter().enumerate() {
+            let function = program.function(root.definition).unwrap();
+            walk(
+                function.body.unwrap(),
+                &function.arena,
+                root.definition,
+                node,
+                false,
+                &mut graph,
+            );
+        }
+        let address_taken: Vec<_> = graph
+            .nodes
             .iter()
             .enumerate()
-            .filter_map(|(n, info)| match info.kind {
-                NodeKind::TopLevel => Some((n, info.decl_idx)),
-                _ => None,
+            .filter_map(|(index, node)| {
+                (node.lambda.is_some() || graph.address_taken.contains(&node.definition))
+                    .then_some(index)
             })
             .collect();
-
-        for &(top_node, decl_idx) in &top_level_starts {
-            if let Decl::Func(func) = &decls.decls[decl_idx] {
-                if let Some(body) = func.body {
-                    walk(
-                        body,
-                        &func.arena,
-                        decl_idx,
-                        top_node,
-                        false,
-                        &mut nodes,
-                        &mut calls_at,
-                        &mut lambda_node_of,
-                        &mut address_taken_names,
-                    );
-                }
-            }
-        }
-
-        // --- Step 3: compute the address-taken node set. ---
-        // Every lambda is implicitly address-taken (it's a first-class
-        // function value). Top-level functions join it only if their
-        // name appeared outside callee position.
-        let mut at_nodes: Vec<usize> = Vec::new();
-        for (n, info) in nodes.iter().enumerate() {
-            match info.kind {
-                NodeKind::Lambda { .. } => at_nodes.push(n),
-                NodeKind::TopLevel => {
-                    if let Decl::Func(f) = &decls.decls[info.decl_idx] {
-                        if address_taken_names.contains(&f.name) {
-                            at_nodes.push(n);
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- Step 4: compute per-top-level locals set (for shadowing
-        //     detection). Lambdas inside a top-level reuse this set.
-        let mut locals_by_decl: HashMap<usize, HashSet<Name>> = HashMap::new();
-        for &(_, decl_idx) in &top_level_starts {
-            let Decl::Func(func) = &decls.decls[decl_idx] else {
-                continue;
-            };
-            let mut local: HashSet<Name> = HashSet::new();
-            for p in &func.params {
-                local.insert(p.name);
-            }
-            for expr in &func.arena.exprs {
-                match expr {
-                    Expr::Let(name, _, _) => {
-                        local.insert(*name);
-                    }
-                    Expr::Var(name, _, _) => {
-                        local.insert(*name);
-                    }
-                    Expr::For { var, .. } => {
-                        local.insert(*var);
-                    }
-                    Expr::Lambda { params, .. } => {
-                        for p in params {
-                            local.insert(p.name);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            locals_by_decl.insert(decl_idx, local);
-        }
-
-        // --- Step 5: build adjacency. For each node, classify its calls. ---
-        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
-        for node_idx in 0..nodes.len() {
-            let decl_idx = nodes[node_idx].decl_idx;
-            let Decl::Func(func) = &decls.decls[decl_idx] else {
-                continue;
-            };
-            let empty = HashSet::new();
-            let locals = locals_by_decl.get(&decl_idx).unwrap_or(&empty);
-
-            let mut callees: HashSet<usize> = HashSet::new();
-            for &call_id in &calls_at[node_idx] {
-                let Expr::Call(callee_expr, _) = &func.arena.exprs[call_id] else {
-                    continue;
+        let mut adjacency = vec![Vec::new(); graph.nodes.len()];
+        for (index, node) in graph.nodes.iter().enumerate() {
+            let function = program.function(node.definition).unwrap();
+            let mut targets = HashSet::new();
+            for &call in &graph.calls[index] {
+                let Expr::Call(callee, _) = &function.arena[call] else {
+                    unreachable!();
                 };
-
-                let callee = &func.arena.exprs[*callee_expr];
-                let mut resolved_direct = false;
-                match callee {
-                    Expr::Id(name) if !locals.contains(name) => {
-                        let mut found_any = false;
-                        for (di, d) in decls.decls.iter().enumerate() {
-                            if let Decl::Func(df) = d {
-                                if df.name == *name {
-                                    found_any = true;
-                                    if df.body.is_some() {
-                                        if let Some(&cn) = top_node_of.get(&di) {
-                                            callees.insert(cn);
-                                        }
-                                    }
+                let direct = match &function.arena[*callee] {
+                    Expr::Id(_) | Expr::TypeApp(_, _) => {
+                        let definitions = function
+                            .arena
+                            .reference(*callee)
+                            .map(|reference| definitions(reference, &function.arena))
+                            .unwrap_or_default();
+                        let mut found = false;
+                        for definition in definitions {
+                            if program.function(definition).is_some() {
+                                found = true;
+                                if let Some(&target) = graph.top.get(&definition) {
+                                    targets.insert(target);
                                 }
                             }
                         }
-                        if found_any {
-                            resolved_direct = true;
-                        }
+                        found
                     }
                     Expr::Lambda { .. } => {
-                        if let Some(&cn) = lambda_node_of.get(&(decl_idx, *callee_expr)) {
-                            callees.insert(cn);
-                            resolved_direct = true;
+                        if let Some(&target) = graph.lambdas.get(&(node.definition, *callee)) {
+                            targets.insert(target);
+                            true
+                        } else {
+                            false
                         }
                     }
-                    _ => {}
-                }
-
-                if !resolved_direct {
-                    // Indirect call: add edges to every address-taken node.
-                    for &at in &at_nodes {
-                        callees.insert(at);
-                    }
+                    _ => false,
+                };
+                if !direct {
+                    targets.extend(address_taken.iter().copied());
                 }
             }
-            adj[node_idx] = callees.into_iter().collect();
+            adjacency[index] = targets.into_iter().collect();
         }
-
-        // 3. Run Tarjan's SCC on the adjacency list.
-        let sccs = strongly_connected_components(&adj);
-
-        // 4. Report cycles. SCC size > 1 is always a cycle; size 1 is a
-        //    cycle only if the single node has a self-edge.
-        let describe = |n: usize| -> (Loc, String) {
-            let info = &nodes[n];
-            let Decl::Func(f) = &decls.decls[info.decl_idx] else {
-                unreachable!("non-function decl appears as a call-graph node");
-            };
-            match info.kind {
-                NodeKind::TopLevel => (f.loc, format!("function `{}`", f.name)),
-                NodeKind::Lambda { arena_idx } => {
-                    (f.arena.locs[arena_idx], format!("lambda in `{}`", f.name))
-                }
+        let describe = |index: usize| {
+            let node = graph.nodes[index];
+            let function = program.function(node.definition).unwrap();
+            match node.lambda {
+                Some(expression) => (
+                    function.arena.loc(expression),
+                    format!("lambda in `{}`", function.name),
+                ),
+                None => (function.loc, format!("function `{}`", function.name)),
             }
         };
-
-        for scc in &sccs {
-            if !scc_is_cycle(scc, &adj) {
+        for component in strongly_connected_components(&adjacency) {
+            if !scc_is_cycle(&component, &adjacency) {
                 continue;
             }
-
-            if scc.len() == 1 {
-                let (loc, desc) = describe(scc[0]);
+            if component.len() == 1 {
+                let (location, description) = describe(component[0]);
                 self.push_error(SafetyError {
-                    location: loc,
-                    message: format!("--no-recursion: {} is recursive", desc),
+                    location,
+                    message: format!("--no-recursion: {} is recursive", description),
                 });
             } else {
-                let descs: Vec<String> = scc.iter().map(|&n| describe(n).1).collect();
-                let cycle_desc = descs.join(", ");
-                for &n in scc {
-                    let (loc, desc) = describe(n);
+                let descriptions: Vec<_> = component.iter().map(|&node| describe(node).1).collect();
+                let cycle = descriptions.join(", ");
+                for node in component {
+                    let (location, description) = describe(node);
                     self.push_error(SafetyError {
-                        location: loc,
+                        location,
                         message: format!(
                             "--no-recursion: {} participates in a recursive cycle [{}]",
-                            desc, cycle_desc
+                            description, cycle
                         ),
                     });
                 }
@@ -2069,34 +2008,139 @@ impl SafetyChecker {
 mod tests {
     use super::*;
 
-    pub fn check(s: &str) -> Vec<SafetyError> {
+    fn checked_source(s: &str) -> CheckedProgram {
         let mut errors = vec![];
         let decls = parse_program_str(&s, &mut errors);
         assert!(errors.is_empty());
-        assert_eq!(decls.len(), 1);
-        let mut table = DeclTable::new(decls);
-        let mut types = vec![];
-        for decl in &table.decls {
-            let mut type_checker = Checker::new();
-            type_checker.check_decl(decl, &table);
-            assert!(type_checker.errors.is_empty());
-            types.push(type_checker.solved_types());
-        }
+        let table = DeclTable::new(decls);
+        let check_function = |function: crate::FuncDecl| {
+            let mut checker = Checker::new();
+            checker.check_decl(&Decl::Func(function.clone()), &table);
+            assert!(checker.errors.is_empty());
+            checker.checked_function(&function)
+        };
+        CheckedProgram::new(table.map_bodies(
+            |_, function| check_function(function),
+            |arena, cond| {
+                let mut checker = Checker::new();
+                checker.check_decl(
+                    &Decl::Assume {
+                        arena: arena.clone(),
+                        cond,
+                    },
+                    &table,
+                );
+                assert!(checker.errors.is_empty(), "{:?}", checker.errors);
+                checker.checked_body(&arena)
+            },
+        ))
+    }
 
-        for i in 0..table.decls.len() {
-            if let Decl::Func(ref mut fdecl) = &mut table.decls[i] {
-                fdecl.types = types[i].clone();
-            }
-        }
-
+    pub fn check(s: &str) -> Vec<SafetyError> {
+        let checked = checked_source(s);
         let mut array_checker = SafetyChecker::new();
-        array_checker.check(&table);
+        array_checker.check(&checked);
 
         array_checker.print_errors();
 
         array_checker.errors
     }
 
+    #[test]
+    fn concrete_requirements_use_the_instance_despite_coercing_node_signatures() {
+        for (definition, main, recorded_parameter) in [
+            (
+                "bounded(x: i32, values: [i32]) require x >= 0 {}",
+                "bounded(-1, [1, 2])",
+                "array",
+            ),
+            (
+                "bounded(x: &i32) require x >= 0 {}",
+                "var x = -1; bounded(x)",
+                "value",
+            ),
+        ] {
+            let templates = checked_source(&format!("{} main {{ {} }}", definition, main));
+            let mut program = MonomorphPass::new()
+                .monomorphize(&templates, Name::str("main"))
+                .unwrap();
+            let main = program.instance_for_entry(Name::str("main")).unwrap();
+            let declaration = program.instances[main.index()].declaration;
+            let Decl::Func(caller) = &mut program.decls.decls[declaration] else {
+                unreachable!()
+            };
+            let callee = caller
+                .arena
+                .exprs()
+                .iter()
+                .find_map(|expr| {
+                    if let Expr::Call(callee, _) = expr {
+                        Some(*callee)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let Some(&Reference::Instance(target)) = caller.arena.reference(callee) else {
+                unreachable!()
+            };
+            let integer = mk_type(Type::Int32);
+            let parameters = if recorded_parameter == "array" {
+                vec![integer, mk_type(Type::Array(integer, ArraySize::Known(2)))]
+            } else {
+                vec![integer]
+            };
+            let recorded = mk_type(Type::Func(
+                mk_type(Type::Tuple(parameters)),
+                mk_type(Type::Void),
+            ));
+            caller.arena.set_ty(callee, recorded);
+            let actual = program.function_instance(target).unwrap().ty();
+            assert_ne!(actual, recorded);
+            assert!(unify(actual, recorded, &mut Instance::new()));
+            program.validate().unwrap();
+
+            let mut safety = SafetyChecker::new();
+            for _ in 0..2 {
+                safety.errors.clear();
+                safety.check(&program);
+                assert_eq!(safety.errors.len(), 1);
+                assert!(safety.errors[0].message.contains("`x >= 0`"));
+            }
+        }
+    }
+
+    #[test]
+    fn shadowed_field_constraints_do_not_escape_to_the_outer_binding() {
+        let errors = check("struct P { x: i32 } f { var a: [i32; 3]; var p: P; p.x = 100; if true { var p: P; p.x = 0; a[p.x] }; a[p.x] }");
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("less than array length"));
+    }
+
+    #[test]
+    fn local_callee_does_not_inherit_a_same_named_function_requirement() {
+        let errors =
+            check("bounded(x: i32) require x >= 0 {} f { let bounded = |x: i32| {}; bounded(-1) }");
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn callee_local_ids_cannot_observe_caller_constraint_slots() {
+        let errors = check("bounded(x: i32, y: i32) require x >= (y + 1) {} f { let value = 0; let unrelated = -100; bounded(0, 100) }");
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("couldn't prove require clause"));
+    }
+
+    #[test]
+    fn recursion_graph_uses_direct_bindings_even_when_a_sibling_scope_shadows_the_name() {
+        let checked = checked_source("f { if true { let f = |x: i32| {} }; f() }");
+        let mut safety = SafetyChecker::new();
+        safety.check_recursion(&checked);
+        assert_eq!(safety.errors.len(), 1);
+        assert!(safety.errors[0]
+            .message
+            .contains("function `f` is recursive"));
+    }
     #[test]
     pub fn test_array_if() {
         let s = "

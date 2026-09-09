@@ -1,7 +1,7 @@
 use crate::analysis::{self, AnalysisState};
 use crate::hover::find_expr_at;
 use lsp_types::*;
-use lyte::{Decl, Expr, Loc, Name, Type};
+use lyte::{BodyAnalysis, Decl, DeclTable, Expr, Loc, Name, Reference, Type, TypeID};
 
 pub fn handle_goto_definition(
     state: &AnalysisState,
@@ -16,68 +16,76 @@ pub fn handle_goto_definition(
     let line = pos.line + 1;
     let col = pos.character + 1;
 
-    let decls = compiler.decls();
+    let analysis = compiler.source_analysis()?;
+    let decls = analysis.declarations();
 
-    for decl in &decls.decls {
-        if let Decl::Func(func) = decl {
-            if func.loc.file != file_name {
+    for (index, decl) in decls.decls.iter().enumerate() {
+        let Decl::Func(func) = decl else { continue };
+        if func.loc.file != file_name {
+            continue;
+        }
+        let Some(body) = analysis.body(decls.id_at(index)) else {
+            continue;
+        };
+        let Some((id, _)) = find_expr_at(func, file_name, line, col) else {
+            continue;
+        };
+        let target = match &func.arena[id] {
+            Expr::Call(callee, _) => *callee,
+            Expr::Field(base, field_name) => {
+                if let Some(Type::Name(struct_name, _)) =
+                    body.expression(*base).and_then(|facts| facts.ty).as_deref()
+                {
+                    for decl in decls.find(*struct_name) {
+                        if let Some(field) = decl.find_field(field_name) {
+                            return Some(loc_to_response(&field.loc));
+                        }
+                    }
+                }
                 continue;
             }
-            if let Some((id, _)) = find_expr_at(func, file_name, line, col) {
-                match &func.arena.exprs[id] {
-                    Expr::Id(name) => {
-                        if let Some(loc) = find_decl_loc(decls, *name) {
-                            return Some(loc_to_response(&loc));
-                        }
-                    }
-                    Expr::Call(callee, _) => {
-                        if let Expr::Id(name) = &func.arena.exprs[*callee] {
-                            if let Some(loc) = find_decl_loc(decls, *name) {
-                                return Some(loc_to_response(&loc));
-                            }
-                        }
-                    }
-                    Expr::Field(base_id, field_name) => {
-                        // Try to resolve the base type and find the field declaration.
-                        if let Some(&base_ty) = func.types.get(*base_id) {
-                            if let Type::Name(struct_name, _) = &*base_ty {
-                                let found = decls.find(*struct_name);
-                                for d in found {
-                                    if let Some(field) = d.find_field(field_name) {
-                                        return Some(loc_to_response(&field.loc));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+            _ => id,
+        };
+        let Some(facts) = body.expression(target) else {
+            continue;
+        };
+        if let Some(reference) = &facts.reference {
+            if let Some(loc) = find_decl_loc(decls, body, reference, facts.ty) {
+                return Some(loc_to_response(&loc));
             }
         }
     }
-
     None
 }
 
-/// Find the source location of the first declaration with the given name.
-/// Skips stdlib declarations (those in files starting with '<').
-fn find_decl_loc(decls: &lyte::DeclTable, name: Name) -> Option<Loc> {
-    let found = decls.find(name);
-    for decl in found {
-        match decl {
-            Decl::Func(f) => {
-                // Skip stdlib functions.
-                if f.loc.file.starts_with('<') {
-                    continue;
-                }
-                return Some(f.loc);
-            }
-            _ => {
-                // Other decl types don't have loc yet; skip for now.
-            }
+/// Use recorded identities even when the expression has no established type.
+/// Exact-type/first-candidate navigation is a presentation heuristic, not call
+/// selection. Never fall back to spelling for an unresolved or shadowed use.
+fn find_decl_loc(
+    decls: &DeclTable,
+    body: &BodyAnalysis,
+    reference: &Reference,
+    ty: Option<TypeID>,
+) -> Option<Loc> {
+    match reference {
+        Reference::Local(local) | Reference::SizeParameter(local) => {
+            body.local(*local).map(|local| local.loc)
         }
+        Reference::Functions(candidates) => {
+            let functions: Vec<_> = candidates
+                .iter()
+                .filter_map(|id| decls.function(*id))
+                .filter(|f| !f.loc.file.starts_with('<'))
+                .collect();
+            functions
+                .iter()
+                .find(|f| ty.is_some() && f.annotated_ty() == ty)
+                .or_else(|| functions.first())
+                .map(|f| f.loc)
+        }
+        Reference::InterfaceMember { member, .. } => decls.function(*member).map(|f| f.loc),
+        _ => None,
     }
-    None
 }
 
 fn loc_to_response(loc: &Loc) -> GotoDefinitionResponse {

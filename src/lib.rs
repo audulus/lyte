@@ -1,5 +1,13 @@
 #![allow(dead_code)]
 
+mod checked;
+pub use checked::*;
+mod free_locals;
+mod source_analysis;
+pub use source_analysis::*;
+mod interface_resolution;
+pub use interface_resolution::*;
+
 mod defs;
 pub use defs::*;
 mod types;

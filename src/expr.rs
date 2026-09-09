@@ -168,6 +168,70 @@ impl Expr {
         }
     }
 
+    /// Rewrite immediate edges without interpreting names, types, or bindings.
+    pub fn map_children(&mut self, mut map: impl FnMut(ExprID) -> ExprID) {
+        match self {
+            Self::Call(function, args) => {
+                *function = map(*function);
+                for arg in args {
+                    *arg = map(*arg);
+                }
+            }
+            Self::Macro(_, args)
+            | Self::ArrayLiteral(args)
+            | Self::Block(args)
+            | Self::Tuple(args) => {
+                for arg in args {
+                    *arg = map(*arg);
+                }
+            }
+            Self::Binop(_, lhs, rhs)
+            | Self::Array(lhs, rhs)
+            | Self::ArrayIndex(lhs, rhs)
+            | Self::While(lhs, rhs) => {
+                *lhs = map(*lhs);
+                *rhs = map(*rhs);
+            }
+            Self::Unop(_, child)
+            | Self::Field(child, _)
+            | Self::AsTy(child, _)
+            | Self::Let(_, child, _)
+            | Self::Return(child)
+            | Self::Arena(child)
+            | Self::Assume(child)
+            | Self::Lambda { body: child, .. } => {
+                *child = map(*child);
+            }
+            Self::Var(_, child, _) => {
+                if let Some(child) = child {
+                    *child = map(*child);
+                }
+            }
+            Self::If(cond, yes, no) => {
+                *cond = map(*cond);
+                *yes = map(*yes);
+                if let Some(no) = no {
+                    *no = map(*no);
+                }
+            }
+            Self::For {
+                start, end, body, ..
+            } => {
+                *start = map(*start);
+                *end = map(*end);
+                *body = map(*body);
+            }
+            Self::StructLit(_, fields) => {
+                for (_, value) in fields {
+                    *value = map(*value);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Expr {
     /// Pretty-print an expression in lyte syntax.
     ///
     /// This method formats an expression as it would appear in lyte source code.
@@ -575,7 +639,7 @@ pub fn format_binop(op: Binop) -> &'static str {
     }
 }
 
-fn format_unop(op: Unop) -> &'static str {
+pub fn format_unop(op: Unop) -> &'static str {
     match op {
         Unop::Neg => "-",
         Unop::Not => "!",

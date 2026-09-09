@@ -18,10 +18,10 @@
 //! the source is observationally identical to copying it, and the backend is
 //! free to skip the copy. `elidable_let_copies` finds those bindings.
 
-use crate::decl::FuncDecl;
-use crate::defs::{Binop, ExprID, Name};
-use crate::expr::Expr;
+use crate::checked::{CheckedFunction, LocalId, Reference};
+use crate::defs::{Binop, ExprID};
 use crate::types::{Type, TypeID};
+use crate::Expr;
 use std::collections::HashSet;
 
 /// Types that `let` binds by value, and so must copy out of the initializer's
@@ -39,7 +39,7 @@ pub fn is_value_aggregate(ty: &TypeID) -> bool {
 ///
 /// A copy is elidable when nothing that runs while the binding is live can
 /// observe the difference — see [`live_range_is_read_only`].
-pub fn elidable_let_copies(decl: &FuncDecl) -> HashSet<ExprID> {
+pub fn elidable_let_copies(decl: &CheckedFunction) -> HashSet<ExprID> {
     let mut elidable = HashSet::new();
     if let Some(body) = decl.body {
         scan_blocks(body, decl, &mut elidable);
@@ -47,29 +47,26 @@ pub fn elidable_let_copies(decl: &FuncDecl) -> HashSet<ExprID> {
     elidable
 }
 
-fn scan_blocks(id: ExprID, decl: &FuncDecl, elidable: &mut HashSet<ExprID>) {
-    if let Expr::Block(stmts) = &decl.arena.exprs[id] {
+fn scan_blocks(id: ExprID, decl: &CheckedFunction, elidable: &mut HashSet<ExprID>) {
+    if let Expr::Block(stmts) = &decl.arena[id] {
         for (i, &stmt) in stmts.iter().enumerate() {
-            if !matches!(&decl.arena.exprs[stmt], Expr::Let(..)) {
+            if !matches!(decl.arena[stmt], Expr::Let(..)) {
                 continue;
             }
-            if !is_value_aggregate(&decl.types[stmt]) {
+            let local = decl.arena.binder(stmt);
+            if !is_value_aggregate(&decl.arena.local(local).ty) {
                 continue;
             }
-            // A `let` in tail position is the block's value, so the binding
-            // outlives the block. Never elide those.
+            // This analysis requires a following sequence and keeps tail
+            // declarations conservative.
             if i + 1 >= stmts.len() {
                 continue;
             }
             let rest = &stmts[i + 1..];
-            let name = match &decl.arena.exprs[stmt] {
-                Expr::Let(name, _, _) => *name,
-                _ => unreachable!(),
-            };
             // The block's value escapes it, so the binding must not reach the
             // final statement.
             let last = *stmts.last().unwrap();
-            if mentions(last, name, decl) {
+            if mentions(last, local, decl) {
                 continue;
             }
             if rest.iter().all(|&s| live_range_is_read_only(s, decl)) {
@@ -78,7 +75,7 @@ fn scan_blocks(id: ExprID, decl: &FuncDecl, elidable: &mut HashSet<ExprID>) {
         }
     }
 
-    for sub in decl.arena.exprs[id].subexprs() {
+    for sub in decl.arena[id].subexprs() {
         scan_blocks(sub, decl, elidable);
     }
 }
@@ -99,16 +96,16 @@ fn scan_blocks(id: ExprID, decl: &FuncDecl, elidable: &mut HashSet<ExprID>) {
 ///
 /// What's left — indexing, field reads, arithmetic, control flow, fresh
 /// `let`/`var` bindings — only reads.
-fn live_range_is_read_only(id: ExprID, decl: &FuncDecl) -> bool {
-    match &decl.arena.exprs[id] {
+fn live_range_is_read_only(id: ExprID, decl: &CheckedFunction) -> bool {
+    match &decl.arena[id] {
         Expr::Call(_, _)
         | Expr::Macro(_, _)
         | Expr::Lambda { .. }
         | Expr::Return(_)
         | Expr::Arena(_) => false,
         Expr::Binop(Binop::Assign, lhs, rhs) => {
-            matches!(&decl.arena.exprs[*lhs], Expr::Id(_))
-                && !decl.types[*lhs].is_ptr()
+            matches!(&decl.arena[*lhs], Expr::Id(_))
+                && !decl.arena.ty(*lhs).is_ptr()
                 && live_range_is_read_only(*rhs, decl)
         }
         expr => expr
@@ -119,13 +116,11 @@ fn live_range_is_read_only(id: ExprID, decl: &FuncDecl) -> bool {
 }
 
 /// True if `name` is referenced anywhere in this subtree.
-fn mentions(id: ExprID, name: Name, decl: &FuncDecl) -> bool {
-    if let Expr::Id(n) = &decl.arena.exprs[id] {
-        if *n == name {
-            return true;
-        }
+fn mentions(id: ExprID, name: LocalId, decl: &CheckedFunction) -> bool {
+    if decl.arena.reference(id) == Some(&Reference::Local(name)) {
+        return true;
     }
-    decl.arena.exprs[id]
+    decl.arena[id]
         .subexprs()
         .into_iter()
         .any(|sub| mentions(sub, name, decl))

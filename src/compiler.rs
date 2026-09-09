@@ -1,8 +1,9 @@
 use crate::vm::{LinkedProgram, VMProgram, VM};
 use crate::vm_codegen::VMCodegen;
 use crate::*;
+#[cfg(feature = "cranelift")]
 use core::mem;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 
 /// A compiled program ready for execution, abstracting over backends.
@@ -68,8 +69,6 @@ fn builtin_decls() -> Vec<Decl> {
             requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
-            types: vec![],
-            closure_vars: vec![],
             is_extern: false,
         }),
         // print(value: i32) → void
@@ -87,8 +86,6 @@ fn builtin_decls() -> Vec<Decl> {
             requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
-            types: vec![],
-            closure_vars: vec![],
             is_extern: false,
         }),
         // putc(c: i32) → void
@@ -106,8 +103,6 @@ fn builtin_decls() -> Vec<Decl> {
             requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
-            types: vec![],
-            closure_vars: vec![],
             is_extern: false,
         }),
     ];
@@ -136,8 +131,6 @@ fn builtin_decls() -> Vec<Decl> {
                 requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
-                types: vec![],
-                closure_vars: vec![],
                 is_extern: false,
             }));
         }
@@ -162,8 +155,6 @@ fn builtin_decls() -> Vec<Decl> {
                 requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
-                types: vec![],
-                closure_vars: vec![],
                 is_extern: false,
             }));
         }
@@ -196,8 +187,6 @@ fn builtin_decls() -> Vec<Decl> {
                 requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
-                types: vec![],
-                closure_vars: vec![],
                 is_extern: false,
             }));
         }
@@ -234,8 +223,7 @@ fn builtin_decls() -> Vec<Decl> {
         requires: vec![],
         loc: test_loc(),
         arena: ExprArena::new(),
-        types: vec![],
-        closure_vars: vec![],
+
         is_extern: false,
     }));
 
@@ -254,8 +242,7 @@ fn builtin_decls() -> Vec<Decl> {
         requires: vec![],
         loc: test_loc(),
         arena: ExprArena::new(),
-        types: vec![],
-        closure_vars: vec![],
+
         is_extern: false,
     }));
 
@@ -298,148 +285,82 @@ fn rewrite_qualified_enums(arena: &mut ExprArena, decls: &DeclTable) {
     }
 }
 
-/// After type-checking, rewrite `Binop(op, lhs, rhs)` into
-/// `Call(__add/__sub/__mul/__div, [lhs, rhs])` when the operand type is a
-/// named (struct) type. The checker resolves the overload through its Or
-/// constraint, but the JIT/VM only handle primitive types in binop codegen.
-///
-/// Float `%` is rewritten the same way: no backend has a primitive float
-/// remainder instruction, so it lowers to the stdlib's `__mod` overloads.
-fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
-    let n = fdecl.arena.exprs.len();
-    for i in 0..n {
-        if let Expr::Binop(op, lhs, rhs) = fdecl.arena.exprs[i].clone() {
-            if !op.arithmetic() {
-                continue;
-            }
-            let lhs_ty = fdecl.types[lhs];
-            let is_float_mod = op == Binop::Mod && matches!(*lhs_ty, Type::Float32 | Type::Float64);
-            if matches!(*lhs_ty, Type::Name(_, _)) || is_float_mod {
-                let result_ty = fdecl.types[i];
-                let rhs_ty = fdecl.types[rhs];
-                // Build the function type: (lhs_ty, rhs_ty) -> result_ty
-                let fn_ty = func(tuple(vec![lhs_ty, rhs_ty]), result_ty);
-
-                let overload = Name::new(op.overload_name().into());
-                let fn_id = fdecl.arena.add(Expr::Id(overload), fdecl.arena.locs[i]);
-                // Extend types array to cover the new expression
-                while fdecl.types.len() <= fn_id {
-                    fdecl.types.push(mk_type(Type::Void));
-                }
-                fdecl.types[fn_id] = fn_ty;
-                fdecl.arena.exprs[i] = Expr::Call(fn_id, vec![lhs, rhs]);
-            }
-        }
+/// Give each source occurrence its own expression node before checking.
+/// Macro substitution can share an argument under distinct lexical scopes;
+/// resolved references must describe each occurrence in its actual scope.
+fn normalize_source_body<'a>(
+    source: &mut ExprArena,
+    roots: impl IntoIterator<Item = &'a mut ExprID>,
+) {
+    fn copy(id: ExprID, source: &ExprArena, output: &mut ExprArena) -> ExprID {
+        let mut expression = source[id].clone();
+        expression.map_children(|child| copy(child, source, output));
+        output.add(expression, source.locs[id])
     }
+    let mut arena = ExprArena::new();
+    for root in roots {
+        *root = copy(*root, source, &mut arena);
+    }
+    *source = arena;
 }
 
-/// Rename non-generic overloaded functions (both declarations and call sites)
-/// so each overload gets a unique symbol. e.g. two `add` overloads with
-/// different param types become `add$i32$i32` and `add$f32$f32`.
-fn rename_overloaded_functions(decls: &mut DeclTable) {
-    // Count non-generic overloads per name.
-    let mut counts: HashMap<Name, usize> = HashMap::new();
-    for d in &decls.decls {
-        if let Decl::Func(f) = d {
-            if f.typevars.is_empty() {
-                *counts.entry(f.name).or_default() += 1;
-            }
-        }
-    }
+/// Options that affect source validation, rather than diagnostics or codegen.
+/// Add future validation-affecting options here so cached output cannot bypass
+/// their checks. Public option fields are compared at each executable boundary.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ValidationOptions {
+    no_recursion: bool,
+}
 
-    // Build a mapping from (original_name, param_types) -> mangled_name
-    // for overloaded functions.
-    let mut overload_map: HashMap<Name, Vec<(Vec<TypeID>, Name)>> = HashMap::new();
-    for d in &decls.decls {
-        if let Decl::Func(f) = d {
-            if f.typevars.is_empty() && counts.get(&f.name).copied().unwrap_or(0) > 1 {
-                let param_types: Vec<TypeID> = f.params.iter().filter_map(|p| p.ty).collect();
-                let mangled = mangle::mangle_overload(f.name, &param_types);
-                overload_map
-                    .entry(f.name)
-                    .or_default()
-                    .push((param_types, mangled));
-            }
-        }
-    }
+struct CheckedState {
+    templates: CheckedProgram,
+    specialization: Option<SpecializedProgram>,
+    options: ValidationOptions,
+    source_valid: bool,
+}
 
-    if overload_map.is_empty() {
-        return;
-    }
+/// Parsing/checking replaces the semantic owner. Specialization only borrows
+/// its immutable templates and publishes an independent concrete program.
+enum ProgramState {
+    Unchecked,
+    Checked(CheckedState),
+}
 
-    // Rename function declarations.
-    for d in &mut decls.decls {
-        if let Decl::Func(ref mut f) = d {
-            if let Some(overloads) = overload_map.get(&f.name) {
-                let param_types: Vec<TypeID> = f.params.iter().filter_map(|p| p.ty).collect();
-                for (pts, mangled) in overloads {
-                    if *pts == param_types {
-                        f.name = *mangled;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Rename call-site references in all function bodies.
-    // For each Expr::Id that matches an overloaded name, look at its resolved
-    // type to determine which overload it refers to.
-    for d in &mut decls.decls {
-        if let Decl::Func(ref mut f) = d {
-            for i in 0..f.arena.exprs.len() {
-                if let Expr::Id(name) = &f.arena.exprs[i] {
-                    if let Some(overloads) = overload_map.get(name) {
-                        if let Some(&call_ty) = f.types.get(i) {
-                            // The call-site type is the function type.
-                            // Extract param types from it.
-                            if let Type::Func(dom, _) = &*call_ty {
-                                let call_params = match &**dom {
-                                    Type::Tuple(ts) => ts.clone(),
-                                    _ => vec![*dom],
-                                };
-                                for (pts, mangled) in overloads {
-                                    if pts.len() == call_params.len()
-                                        && pts.iter().zip(call_params.iter()).all(|(a, b)| {
-                                            let mut inst = crate::Instance::new();
-                                            crate::types::unify(*a, *b, &mut inst)
-                                        })
-                                    {
-                                        f.arena.exprs[i] = Expr::Id(*mangled);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+#[derive(Default)]
+struct PhaseDiagnostics {
+    messages: Vec<String>,
+    safety_errors: Vec<SafetyError>,
 }
 
 pub struct Compiler {
     ast: Vec<Tree>,
-    decls: DeclTable,
+    program: ProgramState,
+    analysis: Option<SourceAnalysis>,
+    source_diagnostics: PhaseDiagnostics,
+    specialization_diagnostics: PhaseDiagnostics,
     pub print_ir: bool,
     /// Number of AST trees that belong to the stdlib (parsed in new()).
     stdlib_trees: usize,
     /// Entry point function names. If empty, defaults to ["main"].
     entry_points: Vec<Name>,
-    /// Formatted error messages from the last parse/check operation.
+    /// Formatted source-validation errors plus the current specialization errors.
+    /// Diagnostic lists are views; clearing them does not authorize compilation.
     pub last_errors: Vec<String>,
-    /// Structured parse errors from the last parse operation.
+    /// Structured parse errors from all accumulated input files.
     pub last_parse_errors: Vec<ParseError>,
     /// Structured type errors from the last check operation.
     pub last_type_errors: Vec<TypeError>,
-    /// Structured safety errors from the last check operation.
+    /// Structured source and current specialization safety errors.
     pub last_safety_errors: Vec<SafetyError>,
     /// When true, suppress all stdout output (for LSP usage).
     pub quiet: bool,
-    /// When true, continue checking all declarations even after errors (for LSP).
+    /// When true, continue type checking declarations after type errors (for LSP).
+    /// Parse errors still prevent checking with either setting.
     pub check_all: bool,
     /// When true, reject recursive functions (direct or mutual) in the safety
     /// checker and tell the native backends to skip call-depth runtime checks.
+    /// If this differs from the value used by check(), specialization and code
+    /// generation require another check(). Checked type facts remain available.
     pub no_recursion: bool,
 }
 
@@ -447,7 +368,10 @@ impl Compiler {
     pub fn new() -> Self {
         let mut c = Self {
             ast: Vec::new(),
-            decls: DeclTable::new(vec![]),
+            program: ProgramState::Unchecked,
+            analysis: None,
+            source_diagnostics: PhaseDiagnostics::default(),
+            specialization_diagnostics: PhaseDiagnostics::default(),
             print_ir: false,
             stdlib_trees: 0,
             entry_points: Vec::new(),
@@ -465,9 +389,80 @@ impl Compiler {
     }
 
     /// Set custom entry point functions. If not called (or called with empty slice),
-    /// defaults to ["main"].
+    /// defaults to ["main"]. Changing effective roots clears specialization and
+    /// its diagnostics, while retaining checked templates and source diagnostics.
     pub fn set_entry_points(&mut self, names: &[&str]) {
+        let previous = self.effective_entry_points();
         self.entry_points = names.iter().map(|n| Name::new((*n).into())).collect();
+        if self.effective_entry_points() != previous {
+            self.clear_specialization();
+        }
+    }
+
+    fn validation_options(&self) -> ValidationOptions {
+        ValidationOptions {
+            no_recursion: self.no_recursion,
+        }
+    }
+
+    fn require_current_validation(&self, checked: &CheckedState) -> Result<(), String> {
+        if checked.options != self.validation_options() {
+            return Err(
+                "validation options changed; call check() before specialization or code generation"
+                    .into(),
+            );
+        }
+        if !checked.source_valid {
+            return Err("cannot specialize a program with checking errors".into());
+        }
+        Ok(())
+    }
+
+    fn refresh_diagnostics(&mut self) {
+        self.last_errors = self.source_diagnostics.messages.clone();
+        self.last_errors
+            .extend(self.specialization_diagnostics.messages.iter().cloned());
+        self.last_safety_errors = self.source_diagnostics.safety_errors.clone();
+        self.last_safety_errors.extend(
+            self.specialization_diagnostics
+                .safety_errors
+                .iter()
+                .cloned(),
+        );
+    }
+
+    fn clear_specialization(&mut self) {
+        if let ProgramState::Checked(checked) = &mut self.program {
+            checked.specialization = None;
+        }
+        self.specialization_diagnostics = PhaseDiagnostics::default();
+        self.refresh_diagnostics();
+    }
+
+    /// Rebuild parse diagnostics from their source owners, including errors in
+    /// earlier inputs. All facts and diagnostics derived by checking are stale.
+    fn reset_analysis(&mut self) {
+        self.program = ProgramState::Unchecked;
+        self.analysis = None;
+        self.source_diagnostics = PhaseDiagnostics::default();
+        self.specialization_diagnostics = PhaseDiagnostics::default();
+        self.last_type_errors.clear();
+        self.last_parse_errors = self
+            .ast
+            .iter()
+            .flat_map(|tree| tree.errors.clone())
+            .collect();
+        self.source_diagnostics.messages = self
+            .last_parse_errors
+            .iter()
+            .map(|err| {
+                format!(
+                    "{}:{}: {}",
+                    err.location.file, err.location.line, err.message
+                )
+            })
+            .collect();
+        self.refresh_diagnostics();
     }
 
     /// Returns the effective entry points (defaults to ["main"] if none set).
@@ -486,9 +481,7 @@ impl Compiler {
     /// True if `name` is declared as a top level function in the parsed source.
     ///
     /// Answered from the AST rather than the decl table so it is valid as soon
-    /// as the source is parsed. `check()` copies every tree decl into
-    /// `self.decls`, so the two agree once it has run; before that `self.decls`
-    /// is empty and every entry point would look missing.
+    /// as the source is parsed, including before checked declarations exist.
     fn entry_point_is_defined(&self, name: Name) -> bool {
         self.ast.iter().any(|tree| {
             tree.decls
@@ -534,7 +527,10 @@ impl Compiler {
         }
     }
 
+    /// Append an input file and invalidate prior checking/specialization. The
+    /// return value describes this input; errors in earlier files remain active.
     pub fn parse(&mut self, contents: &str, path: &str) -> bool {
+        self.program = ProgramState::Unchecked;
         let mut lexer = Lexer::new(&contents, &path);
 
         let mut tree = Tree::default();
@@ -542,8 +538,6 @@ impl Compiler {
         lexer.next();
         tree.decls = parse_program(&mut lexer, &mut tree.errors);
 
-        self.last_errors.clear();
-        self.last_parse_errors.clear();
         for err in &tree.errors {
             let msg = format!(
                 "{}:{}: {}",
@@ -552,27 +546,73 @@ impl Compiler {
             if !self.quiet {
                 println!("{}", msg);
             }
-            self.last_errors.push(msg);
-            self.last_parse_errors.push(err.clone());
         }
 
         let success = tree.errors.is_empty();
         self.ast.push(tree);
+        self.reset_analysis();
         success
     }
 
+    /// Revalidate all accumulated source using the current validation options.
+    /// Replaces templates and clears any prior specialization and its errors.
     pub fn check(&mut self) -> bool {
-        self.last_errors.clear();
-        self.last_type_errors.clear();
-        self.last_safety_errors.clear();
+        self.reset_analysis();
+        // Recovered syntax can retain Expr::Error even when contextual typing
+        // would succeed. Never build checked bodies from those inputs.
+        if !self.last_parse_errors.is_empty() {
+            return false;
+        }
+        let success = self.check_source(false);
+        self.refresh_diagnostics();
+        success
+    }
+
+    /// Check for editor queries, retaining partial facts and visiting recovered
+    /// input. Uses the same checking pass as check(), but collects all body
+    /// diagnostics. Parse/type failures still cannot publish CheckedProgram.
+    pub fn analyze(&mut self) -> bool {
+        self.reset_analysis();
+        let success = self.check_source(true);
+        self.refresh_diagnostics();
+        success
+    }
+
+    pub fn source_analysis(&self) -> Option<&SourceAnalysis> {
+        self.analysis.as_ref()
+    }
+
+    /// Expand and normalize source occurrences before assigning checked meaning.
+    /// Editor recovery keeps an inventory even if macro expansion fails.
+    fn prepare_source(&mut self, editor: bool) -> Option<DeclTable> {
         let mut decls = builtin_decls();
+        let mut parse_clean = vec![true; decls.len()];
         for tree in &self.ast {
-            decls.append(&mut tree.decls.clone());
+            parse_clean.extend(std::iter::repeat(tree.errors.is_empty()).take(tree.decls.len()));
+            decls.extend(tree.decls.iter().cloned());
+        }
+        let recovered_files: HashSet<_> = self
+            .ast
+            .iter()
+            .flat_map(|tree| tree.errors.iter().map(|err| err.location.file))
+            .collect();
+        let mut recovered: HashSet<_> = parse_clean
+            .iter()
+            .enumerate()
+            .filter_map(|(index, clean)| (!clean).then_some(DefId(index as u32)))
+            .collect();
+        if editor {
+            // Even an early macro-expansion failure leaves a source inventory.
+            self.analysis = Some(SourceAnalysis::new(
+                DeclTable::new(decls.clone()),
+                recovered.clone(),
+                recovered_files.clone(),
+            ));
         }
 
         // Collect macros for expansion, rejecting duplicates.
         let mut macros: HashMap<Name, FuncDecl> = HashMap::new();
-        let mut has_errors = false;
+        let mut has_duplicate_macros = false;
         for d in &decls {
             if let Decl::Macro(m) = d {
                 if macros.contains_key(&m.name) {
@@ -580,169 +620,289 @@ impl Compiler {
                     if !self.quiet {
                         print_error_with_context(m.loc, &msg);
                     }
-                    self.last_errors.push(format_error(m.loc, &msg));
-                    has_errors = true;
+                    self.source_diagnostics
+                        .messages
+                        .push(format_error(m.loc, &msg));
+                    has_duplicate_macros = true;
                 } else {
                     macros.insert(m.name, m.clone());
                 }
             }
         }
-        if has_errors {
-            return false;
+        if has_duplicate_macros {
+            return None;
         }
 
         // Expand macros in all function bodies.
         for decl in &mut decls {
             if let Decl::Func(ref mut fdecl) = decl {
                 if let Err((loc, msg)) = fdecl.expand_macros(&macros) {
+                    self.last_type_errors.push(TypeError {
+                        location: loc,
+                        message: msg.clone(),
+                    });
                     if !self.quiet {
                         print_error_with_context(loc, &msg);
                     }
-                    self.last_errors.push(format_error(loc, &msg));
-                    return false;
+                    self.source_diagnostics
+                        .messages
+                        .push(format_error(loc, &msg));
+                    return None;
                 }
             }
         }
 
-        self.decls = DeclTable::new(decls);
-        let orig_decls = self.decls.clone();
-
-        // Rewrite qualified enum accesses (e.g. Direction.Up -> .Up)
-        // before type-checking, so the checker and downstream passes
-        // see them as Expr::Enum nodes.
-        for decl in &mut self.decls.decls {
-            if let Decl::Func(ref mut fdecl) | Decl::Macro(ref mut fdecl) = decl {
-                rewrite_qualified_enums(&mut fdecl.arena, &orig_decls);
+        // Macro declarations are source templates; expanded bodies are their
+        // only contribution to the checked program.
+        recovered.clear();
+        decls = decls
+            .into_iter()
+            .zip(parse_clean)
+            .filter(|(decl, _)| !matches!(decl, Decl::Macro(_)))
+            .enumerate()
+            .map(|(index, (decl, clean))| {
+                if !clean {
+                    recovered.insert(DefId(index as u32));
+                }
+                decl
+            })
+            .collect();
+        let names = DeclTable::new(decls.clone());
+        for decl in &mut decls {
+            match decl {
+                Decl::Func(function) => {
+                    rewrite_qualified_enums(&mut function.arena, &names);
+                    normalize_source_body(
+                        &mut function.arena,
+                        function.body.iter_mut().chain(function.requires.iter_mut()),
+                    );
+                }
+                Decl::Assume { arena, cond } => {
+                    rewrite_qualified_enums(arena, &names);
+                    normalize_source_body(arena, std::iter::once(cond));
+                }
+                _ => {}
             }
         }
+        let source = DeclTable::new(decls);
+        self.analysis =
+            editor.then(|| SourceAnalysis::new(source.clone(), recovered, recovered_files));
+        Some(source)
+    }
 
-        for decl in &mut self.decls.decls {
-            // Skip type-checking macro declarations (they are untyped templates).
-            if matches!(decl, Decl::Macro(_)) {
-                continue;
-            }
-
+    fn check_source(&mut self, editor: bool) -> bool {
+        // Input trees, not publicly mutable diagnostic views, own this gate.
+        let parse_failed = self.ast.iter().any(|tree| !tree.errors.is_empty());
+        let Some(source) = self.prepare_source(editor) else {
+            return false;
+        };
+        let mut has_errors = false;
+        let mut functions = HashMap::new();
+        let mut assumptions = VecDeque::new();
+        for record in source.records() {
             let mut checker = Checker::new();
-            checker.check_decl(decl, &orig_decls);
-
+            checker.check_decl(&record.declaration, &source);
+            match &record.declaration {
+                Decl::Assume { arena, .. } if checker.errors.is_empty() && !parse_failed => {
+                    assumptions.push_back(checker.checked_body(arena));
+                }
+                Decl::Func(function) => {
+                    if let Some(analysis) = &mut self.analysis {
+                        let body = checker.body_analysis(function, analysis);
+                        analysis.bodies.insert(record.definition, body);
+                    }
+                    if checker.errors.is_empty() && !parse_failed {
+                        functions.insert(record.definition, checker.checked_function(function));
+                    }
+                }
+                Decl::Interface(interface) if checker.errors.is_empty() => {
+                    for (function, &id) in interface.funcs.iter().zip(&record.members) {
+                        checker.check_decl(&Decl::Func(function.clone()), &source);
+                        if let Some(analysis) = &mut self.analysis {
+                            let body = checker.body_analysis(function, analysis);
+                            analysis.bodies.insert(id, body);
+                        }
+                        if checker.errors.is_empty() && !parse_failed {
+                            functions.insert(id, checker.checked_function(function));
+                        }
+                    }
+                }
+                _ => {}
+            }
             if !self.quiet {
                 checker.print_errors();
             }
             for err in &checker.errors {
-                self.last_errors
+                self.source_diagnostics
+                    .messages
                     .push(format_error(err.location, &err.message));
             }
-            self.last_type_errors.extend(checker.errors.iter().cloned());
-            if !checker.errors.is_empty() && !self.check_all {
+            has_errors |= !checker.errors.is_empty();
+            self.last_type_errors.extend(checker.errors);
+            if has_errors && !self.check_all && !editor {
                 return false;
             }
-            has_errors = has_errors || !checker.errors.is_empty();
-
-            if let Decl::Func(ref mut fdecl) = decl {
-                fdecl.types = checker.solved_types();
-            }
         }
-
-        // Rewrite overloaded binary ops (e.g. Point + Point) to function calls.
-        for decl in &mut self.decls.decls {
-            if let Decl::Func(ref mut fdecl) = decl {
-                rewrite_overloaded_binops(fdecl);
-            }
+        if has_errors || parse_failed {
+            return false;
         }
-
-        // Static safety checks (array bounds, division by zero).
-        let mut safety_checker = SafetyChecker::new();
+        let checked = CheckedProgram::try_new(source.map_bodies(
+            |id, _| {
+                functions
+                    .remove(&id)
+                    .expect("checked function or interface member")
+            },
+            |_, _| assumptions.pop_front().expect("checked global assumption"),
+        ));
+        let checked = match checked {
+            Ok(checked) => checked,
+            Err(error) => {
+                let error = format!("invalid checked program: {}", error);
+                if !self.quiet {
+                    eprintln!("{}", error);
+                }
+                self.source_diagnostics.messages.push(error);
+                return false;
+            }
+        };
+        let mut safety = SafetyChecker::new();
         if self.no_recursion {
-            safety_checker.check_recursion(&self.decls);
+            safety.check_recursion(&checked);
         }
-        safety_checker.check(&self.decls);
+        safety.check(&checked);
         if !self.quiet {
-            safety_checker.print_errors();
+            safety.print_errors();
         }
-        for err in &safety_checker.errors {
-            self.last_errors
-                .push(format_error(err.location, &err.message));
+        for error in &safety.errors {
+            self.source_diagnostics
+                .messages
+                .push(format_error(error.location, &error.message));
         }
-        self.last_safety_errors
-            .extend(safety_checker.errors.iter().cloned());
-        if !safety_checker.errors.is_empty() {
-            has_errors = true;
-        }
-
-        !has_errors
+        let source_valid = safety.errors.is_empty();
+        self.source_diagnostics.safety_errors = safety.errors;
+        // Safety errors do not invalidate type/resolution facts, but the saved
+        // validation result (not the public diagnostic lists) gates execution.
+        self.program = ProgramState::Checked(CheckedState {
+            templates: checked,
+            specialization: None,
+            options: self.validation_options(),
+            source_valid,
+        });
+        source_valid
     }
 
-    /// Returns a reference to the declaration table (available after check()).
-    pub fn decls(&self) -> &DeclTable {
-        &self.decls
+    /// Source syntax remains available for diagnostics when checking fails.
+    /// It is never accepted by a code generator.
+    pub fn parsed_declarations(&self) -> impl Iterator<Item = &Decl> {
+        self.ast.iter().flat_map(|tree| tree.decls.iter())
+    }
+
+    /// Immutable source templates, also available after specialization or a
+    /// safety failure. These type facts alone do not authorize execution.
+    pub fn checked_program(&self) -> Option<&CheckedProgram> {
+        match &self.program {
+            ProgramState::Checked(checked) => Some(&checked.templates),
+            _ => None,
+        }
+    }
+
+    /// Concrete output for the current roots and validation options. Every
+    /// compiler code-generation entry point passes through this guard.
+    pub fn specialized_program(&self) -> Result<&SpecializedProgram, String> {
+        match &self.program {
+            ProgramState::Checked(checked) => {
+                self.require_current_validation(checked)?;
+                checked
+                    .specialization
+                    .as_ref()
+                    .ok_or_else(|| "specialization is required before code generation".into())
+            }
+            _ => Err("specialization is required before code generation".into()),
+        }
+    }
+
+    /// Compatibility view: current concrete declarations when available,
+    /// otherwise checked templates. Prefer checked_program() for source queries
+    /// and specialized_program() for concrete consumers.
+    pub fn decls(&self) -> &DeclarationList<CheckedFunction> {
+        match &self.program {
+            ProgramState::Checked(checked) => self
+                .specialized_program()
+                .map(|program| &program.decls)
+                .unwrap_or(&checked.templates.decls),
+            ProgramState::Unchecked => panic!("checking has not produced a program"),
+        }
     }
 
     pub fn specialize(&mut self) -> Result<(), String> {
+        let ProgramState::Checked(checked) = &self.program else {
+            return Err("checking is required before specialization".into());
+        };
+        self.require_current_validation(checked)?;
+        if checked.specialization.is_some() {
+            return Ok(());
+        }
+
+        // Failed attempts are retryable, even with the same roots. Never leave
+        // an older output or duplicate diagnostics attached to a new attempt.
+        self.clear_specialization();
+        let result = match self.specialize_checked() {
+            Ok(program) => {
+                let ProgramState::Checked(checked) = &mut self.program else {
+                    unreachable!("specialization retains checked templates");
+                };
+                checked.specialization = Some(program);
+                Ok(())
+            }
+            Err(error) => {
+                if self.specialization_diagnostics.messages.is_empty() {
+                    self.specialization_diagnostics.messages.push(error.clone());
+                }
+                Err(error)
+            }
+        };
+        self.refresh_diagnostics();
+        result
+    }
+
+    fn specialize_checked(&mut self) -> Result<SpecializedProgram, String> {
+        let checked = self.checked_program().expect("checked templates");
+        let entries = self.effective_entry_points();
         let mut pass = MonomorphPass::new();
-        let entry_points = self.effective_entry_points();
-        let all_decls = pass.monomorphize_multi(&self.decls, &entry_points)?;
-        // Capture the names of newly-generated specialized decls so we can
-        // run a focused safety-check pass on them (their bodies were skipped
-        // pre-monomorph because they contained size variables).
-        let specialized_names: std::collections::HashSet<Name> =
-            pass.instantiated_names().collect();
-        self.decls = DeclTable::new(all_decls);
-
-        // Rename non-generic overloaded functions to unique symbols.
-        // Must happen after monomorphization so specialized generic bodies
-        // can resolve overloaded calls (e.g. cmp in a generic quicksort).
-        rename_overloaded_functions(&mut self.decls);
-        self.decls = DeclTable::new(self.decls.decls.clone());
-
-        // Re-run the safety checker on specialized declarations only.
-        // Their bodies were skipped pre-monomorph because they had non-empty
-        // size_vars; now sizes are concrete (`[T; Known(K)]`) so bounds and
-        // require clauses can be verified properly.
-        if !specialized_names.is_empty() {
-            let mut sc = SafetyChecker::new();
-            for decl in &self.decls.decls {
-                if let Decl::Func(f) = decl {
-                    if specialized_names.contains(&f.name) {
-                        sc.check_decl(decl, &self.decls);
-                    }
-                }
-            }
-            if !self.quiet {
-                sc.print_errors();
-            }
-            for err in &sc.errors {
-                self.last_errors
-                    .push(format_error(err.location, &err.message));
-            }
-            self.last_safety_errors.extend(sc.errors.iter().cloned());
-            if !sc.errors.is_empty() {
-                return Err(format!("safety check failed for {} call(s)", sc.errors.len()));
+        let mut program = pass.monomorphize_multi(checked, &entries)?;
+        // Concrete targets and sizes expose obligations in ordinary callers as
+        // well as generic instances. Check every retained body before hoisting
+        // or any other code-moving transformation, then publish atomically.
+        let mut safety = SafetyChecker::new();
+        safety.check(&program);
+        if !self.quiet {
+            safety.print_errors();
+        }
+        for error in &safety.errors {
+            self.specialization_diagnostics
+                .messages
+                .push(format_error(error.location, &error.message));
+        }
+        if !safety.errors.is_empty() {
+            let count = safety.errors.len();
+            self.specialization_diagnostics.safety_errors = safety.errors;
+            return Err(format!("safety check failed for {} call(s)", count));
+        }
+        let effects = crate::hoist::SideEffects::analyze(&program)?;
+        for declaration in &mut program.decls.decls {
+            if let Decl::Func(function) = declaration {
+                hoist_loop_invariant_fields(function, &effects)?;
             }
         }
-
-        // Hoist loop-invariant struct field reads (after monomorphization
-        // so we operate on concrete types, and after safety checking).
-        {
-            let effects = crate::hoist::SideEffects::analyze(&self.decls);
-            for decl in &mut self.decls.decls {
-                if let Decl::Func(ref mut fdecl) = decl {
-                    hoist_loop_invariant_fields(fdecl, &effects);
-                }
-            }
-        }
-
-        Ok(())
+        program.validate()?;
+        Ok(program)
     }
 
     pub fn has_decls(&self) -> bool {
-        // Check if there are any user declarations beyond the built-ins and stdlib
-        let stdlib_decl_count: usize = self
-            .ast
+        self.ast
             .iter()
-            .take(self.stdlib_trees)
-            .map(|t| t.decls.len())
-            .sum();
-        self.decls.decls.len() > builtin_decls().len() + stdlib_decl_count
+            .skip(self.stdlib_trees)
+            .any(|tree| !tree.decls.is_empty())
     }
 
     /// Returns info about each global variable: (name, offset, size, type_string).
@@ -755,10 +915,10 @@ impl Compiler {
     ) -> Vec<(String, usize, usize, String, bool)> {
         let mut result = Vec::new();
         let mut offset: usize = base_offset;
-        for decl in &self.decls.decls {
+        for decl in &self.decls().decls {
             match decl {
                 Decl::Global { name, ty, .. } => {
-                    let size = ty.size(&self.decls) as usize;
+                    let size = ty.size(self.decls()) as usize;
                     let type_str = ty.pretty_print();
                     result.push((name.to_string(), offset, size, type_str, false));
                     offset += size;
@@ -770,7 +930,7 @@ impl Compiler {
                         "extern fn({})",
                         f.params
                             .iter()
-                            .map(|p| { p.ty.map_or("?".to_string(), |t| t.pretty_print()) })
+                            .map(|p| f.arena.local(p.local).ty.pretty_print())
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
@@ -794,7 +954,10 @@ impl Compiler {
         jit.print_ir = self.print_ir;
         jit.no_recursion = self.no_recursion;
         let entry_points = self.effective_entry_points();
-        match jit.compile_and_run_multi(&self.decls, &entry_points) {
+        match jit.compile_and_run_multi(
+            self.specialized_program().expect("specialized program"),
+            &entry_points,
+        ) {
             Ok((trap_reason, compile_time, exec_time)) => {
                 if let Some(msg) = crate::cancel::trap_reason_message(trap_reason) {
                     eprintln!("trap: {}", msg);
@@ -823,9 +986,6 @@ impl Compiler {
         prefix: &str,
         target: crate::llvm_aot::AotTarget,
     ) -> Result<(), String> {
-        if self.decls.decls.is_empty() {
-            return Err("No declarations to compile".into());
-        }
         if !self.no_recursion {
             return Err(
                 "--aot requires --no-recursion (call-depth machinery is unavailable at link time)"
@@ -834,7 +994,7 @@ impl Compiler {
         }
         let entry_points = self.effective_entry_points();
         crate::llvm_aot::compile_aot(
-            &self.decls,
+            self.specialized_program()?,
             &entry_points,
             output_path,
             prefix,
@@ -851,7 +1011,10 @@ impl Compiler {
         jit.ir_only = true;
         jit.no_recursion = self.no_recursion;
         let entry_points = self.effective_entry_points();
-        match jit.compile_and_run_multi(&self.decls, &entry_points) {
+        match jit.compile_and_run_multi(
+            self.specialized_program().expect("specialized program"),
+            &entry_points,
+        ) {
             Ok(_) => {}
             Err(e) => {
                 println!("{}", e);
@@ -867,11 +1030,8 @@ impl Compiler {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
         jit.no_recursion = self.no_recursion;
-        if self.decls.decls.is_empty() {
-            return Err(String::from("No declarations to compile"));
-        }
         let entry_points = self.effective_entry_points();
-        let (map, globals_size) = jit.compile_multi(&self.decls, &entry_points)?;
+        let (map, globals_size) = jit.compile_multi(self.specialized_program()?, &entry_points)?;
         let code_ptr = entry_points
             .iter()
             .find_map(|name| map.get(name).copied())
@@ -888,11 +1048,8 @@ impl Compiler {
         let mut jit = JIT::default();
         jit.print_ir = self.print_ir;
         jit.no_recursion = self.no_recursion;
-        if self.decls.decls.is_empty() {
-            return Err(String::from("No declarations to compile"));
-        }
         let entry_points = self.effective_entry_points();
-        let (map, globals_size) = jit.compile_multi(&self.decls, &entry_points)?;
+        let (map, globals_size) = jit.compile_multi(self.specialized_program()?, &entry_points)?;
         Ok((map, globals_size, jit))
     }
 
@@ -933,22 +1090,16 @@ impl Compiler {
 
     /// Compile the declarations to a VM program.
     pub fn compile_vm(&self) -> Result<VMProgram, String> {
-        if self.decls.decls.is_empty() {
-            return Err(String::from("No declarations to compile"));
-        }
         let mut codegen = VMCodegen::new();
         let entry_points = self.effective_entry_points();
-        codegen.compile_multi(&self.decls, &entry_points)
+        codegen.compile_multi(self.specialized_program()?, &entry_points)
     }
 
     /// Compile to stack-based IR (for Silverfir-nano-style interpreters).
     pub fn compile_stack(&self) -> Result<crate::stack_ir::StackProgram, String> {
-        if self.decls.decls.is_empty() {
-            return Err(String::from("No declarations to compile"));
-        }
         let mut codegen = crate::stack_codegen::StackCodegen::new();
         let entry_points = self.effective_entry_points();
-        let mut program = codegen.compile_multi(&self.decls, &entry_points)?;
+        let mut program = codegen.compile_multi(self.specialized_program()?, &entry_points)?;
         // Inline trivial leaf functions (like cmp(a, b) -> a - b) so their
         // call sites become the raw ops and can participate in fusion.
         crate::stack_inline::inline_trivial(&mut program);
@@ -972,12 +1123,9 @@ impl Compiler {
 
     /// Compile to stack IR WITHOUT the fusion optimizer (for profiling).
     pub fn compile_stack_unfused(&self) -> Result<crate::stack_ir::StackProgram, String> {
-        if self.decls.decls.is_empty() {
-            return Err(String::from("No declarations to compile"));
-        }
         let mut codegen = crate::stack_codegen::StackCodegen::new();
         let entry_points = self.effective_entry_points();
-        codegen.compile_multi(&self.decls, &entry_points)
+        codegen.compile_multi(self.specialized_program()?, &entry_points)
     }
 
     /// Run the code using the stack VM interpreter.
@@ -1011,9 +1159,6 @@ impl Compiler {
     /// Compile to a backend-agnostic CompiledProgram.
     /// Auto-selects LLVM JIT (when available) or VM.
     pub fn compile_program(&self) -> Result<CompiledProgram, String> {
-        if self.decls.decls.is_empty() {
-            return Err(String::from("No declarations to compile"));
-        }
         let entry_points = self.effective_entry_points();
 
         #[cfg(feature = "llvm")]
@@ -1021,14 +1166,14 @@ impl Compiler {
             let mut jit = crate::llvm_jit::LLVMJIT::new();
             jit.print_ir = self.print_ir;
             jit.no_recursion = self.no_recursion;
-            let llvm_prog = jit.compile_only(&self.decls, &entry_points)?;
+            let llvm_prog = jit.compile_only(self.specialized_program()?, &entry_points)?;
             return Ok(CompiledProgram::Llvm(llvm_prog));
         }
 
         #[cfg(not(feature = "llvm"))]
         {
             let mut codegen = VMCodegen::new();
-            let program = codegen.compile_multi(&self.decls, &entry_points)?;
+            let program = codegen.compile_multi(self.specialized_program()?, &entry_points)?;
             let linked = LinkedProgram::from_program(&program);
             let vm = VM::new();
             Ok(CompiledProgram::Vm {
@@ -1041,8 +1186,64 @@ impl Compiler {
 }
 
 #[cfg(test)]
+mod lifecycle_tests;
+
+#[cfg(test)]
+mod safety_tests;
+
+#[cfg(test)]
+mod assumption_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macro_arguments_resolve_at_each_expanded_occurrence() {
+        let mut compiler = Compiler::new();
+        assert!(compiler.parse(
+            r#"
+            macro sum_at_scopes(value) {
+                let first = value
+                { let x = 41; first + value }
+            }
+            main() -> i32 {
+                let x = 1
+                @sum_at_scopes(x)
+            }
+            "#,
+            "macro_scopes.lyte",
+        ));
+        assert!(compiler.check(), "{:?}", compiler.last_errors);
+        compiler.specialize().unwrap();
+        let program = compiler.compile_vm().unwrap();
+        let result = crate::vm::VM::new()
+            .call(&program, Name::str("main"), &[])
+            .unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn extern_preconditions_are_checked_before_publication() {
+        let mut compiler = Compiler::new();
+        assert!(compiler.parse(
+            "extern fn consume(x: i32) require x >= 1\nmain { consume(1) }",
+            "extern.lyte"
+        ));
+        assert!(compiler.check(), "{:?}", compiler.last_errors);
+        compiler.specialize().unwrap();
+
+        for source in [
+            "extern fn consume(x: i32) require missing > 0\nmain {}",
+            "extern fn consume(x)\nmain {}",
+            "interface Use<T> { use(x) -> T }\nmain {}",
+        ] {
+            let mut compiler = Compiler::new();
+            assert!(compiler.parse(source, "invalid_prototype.lyte"));
+            assert!(!compiler.check(), "{}", source);
+            assert!(compiler.checked_program().is_none());
+        }
+    }
 
     #[cfg(feature = "cranelift")]
     fn jit(code: &str) {
@@ -1052,7 +1253,7 @@ mod tests {
         compiler.parse(code.into(), &paths[0]);
         assert!(compiler.check());
         compiler.specialize().unwrap();
-        assert!(compiler.decls.decls.len() > 0);
+        assert!(compiler.decls().decls.len() > 0);
         compiler.run();
     }
 
@@ -1112,7 +1313,7 @@ mod tests {
         compiler.parse(code.into(), &paths[0]);
         assert!(compiler.check());
         compiler.specialize().unwrap();
-        assert!(compiler.decls.decls.len() > 0);
+        assert!(compiler.decls().decls.len() > 0);
         compiler.run_vm().expect("VM execution failed");
     }
 
@@ -1127,7 +1328,7 @@ mod tests {
             compiler.last_errors
         );
         compiler.specialize().expect("specialize failed");
-        assert!(compiler.decls.decls.len() > 0);
+        assert!(compiler.decls().decls.len() > 0);
 
         let program = compiler.compile_vm().expect("VM compile failed");
         let mut vm = VM::new();
@@ -1728,18 +1929,32 @@ mod tests {
         assert!(compiler.check());
         compiler.specialize().unwrap();
 
-        assert!(compiler.decls.find(Name::str("sum")).is_empty());
+        assert!(compiler.decls().find(Name::str("sum")).is_empty());
 
         let main = compiler
-            .decls
+            .decls()
             .find(Name::str("main"))
             .into_iter()
             .find(|decl| matches!(decl, Decl::Func(_)))
             .expect("main should be present after specialization");
 
-        let printed = main.pretty_print();
-        assert!(printed.contains("sum$[i32]"));
-        assert!(printed.contains("sum$[f32]"));
+        let Decl::Func(main) = main else {
+            unreachable!()
+        };
+        let program = compiler.specialized_program().unwrap();
+        let targets: Vec<_> = main
+            .arena
+            .ids()
+            .filter_map(|id| {
+                if let Some(Reference::Instance(target)) = main.arena.reference(id) {
+                    Some(program.instance_name(*target).to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(targets.iter().any(|name| name.contains("sum$[i32]")));
+        assert!(targets.iter().any(|name| name.contains("sum$[f32]")));
     }
 
     #[test]
@@ -2094,8 +2309,6 @@ mod tests {
         // Two intermediate f32 `let`s in a block. Without the fix, each
         // one emits `LocalTeeF(slot), Drop` directly from translate_void.
         let code = r#"
-            var sink: [f32]
-            assume sink.len == 1
             main {
                 for i in 0 .. 4 {
                     let x = i as f32
@@ -2106,7 +2319,8 @@ mod tests {
         "#;
 
         let mut compiler = Compiler::new();
-        compiler.parse(code, "test.lyte");
+        assert!(compiler.parse("var sink: [f32]\nassume sink.len == 1", "<prelude>"));
+        assert!(compiler.parse(code, "test.lyte"));
         assert!(compiler.check(), "type check failed");
         compiler.specialize().expect("specialize failed");
         let program = compiler.compile_stack().expect("stack compile failed");
@@ -2116,12 +2330,14 @@ mod tests {
             .find(|f| f.name == "main")
             .expect("missing main");
 
-        let bad_pair = main.ops.windows(2).enumerate().find_map(|(i, w)| {
-            match (&w[0], &w[1]) {
+        let bad_pair = main
+            .ops
+            .windows(2)
+            .enumerate()
+            .find_map(|(i, w)| match (&w[0], &w[1]) {
                 (StackOp::LocalTeeF(_), StackOp::Drop) => Some(i),
                 _ => None,
-            }
-        });
+            });
         assert!(
             bad_pair.is_none(),
             "f32 `let` compiled to LocalTeeF + Drop (int-window drop) at op {}; \
@@ -2304,52 +2520,71 @@ mod tests {
         // a value in "statement position" after an f32 expression.
         let programs: &[(&str, &str)] = &[
             // Baseline: f32 let as intermediate statement.
-            ("f32 let intermediate", r#"
+            (
+                "f32 let intermediate",
+                r#"
                 fn make_f32() -> f32 { 1.5 }
                 main {
                     let x = make_f32()
                     let y = x + x
                     let z = y + y
                 }
-            "#),
+            "#,
+            ),
             // Bare f32 expression as block statement (should be dropped).
-            ("f32 call as statement", r#"
+            (
+                "f32 call as statement",
+                r#"
                 fn make_f32() -> f32 { 1.5 }
                 main {
                     make_f32()
                 }
-            "#),
+            "#,
+            ),
             // f32 if-expression in void context.
-            ("f32 if in void ctx", r#"
+            (
+                "f32 if in void ctx",
+                r#"
                 main {
                     var x = 0.0f32
                     if true { x = 1.0 } else { x = 2.0 }
                 }
-            "#),
+            "#,
+            ),
             // f32 assignment RHS.
-            ("f32 assign chain", r#"
+            (
+                "f32 assign chain",
+                r#"
                 main {
                     var x = 0.0f32
                     var y = 0.0f32
                     x = 1.5
                     y = x + x
                 }
-            "#),
+            "#,
+            ),
         ];
 
         for (label, code) in programs {
             let mut compiler = Compiler::new();
-            compiler.parse(code, "test.lyte");
-            if !compiler.check() {
-                continue;
-            }
-            if compiler.specialize().is_err() {
-                continue;
-            }
-            let program = match compiler.compile_stack() {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
+            assert!(
+                compiler.parse(code, "test.lyte"),
+                "[{}] parse failed: {:?}",
+                label,
+                compiler.last_errors
+            );
+            assert!(
+                compiler.check(),
+                "[{}] check failed: {:?}",
+                label,
+                compiler.last_errors
+            );
+            compiler
+                .specialize()
+                .unwrap_or_else(|error| panic!("[{}] specialization failed: {}", label, error));
+            let program = compiler
+                .compile_stack()
+                .unwrap_or_else(|error| panic!("[{}] Stack compilation failed: {}", label, error));
             assert_f_window_balanced(&program, label);
         }
     }
@@ -2410,7 +2645,11 @@ mod tests {
             assert_f_window_balanced(&program, &label);
             compiled += 1;
         }
-        assert!(compiled > 50, "expected to sweep >50 corpus files, got {}", compiled);
+        assert!(
+            compiled > 50,
+            "expected to sweep >50 corpus files, got {}",
+            compiled
+        );
     }
 
     #[test]
@@ -2581,7 +2820,10 @@ mod tests {
             vm_program.extern_funcs[0].param_types,
             vec![crate::vm::ExternType::Ptr, crate::vm::ExternType::I32,]
         );
-        assert_eq!(vm_program.extern_funcs[0].ret_type, crate::vm::ExternType::Bool);
+        assert_eq!(
+            vm_program.extern_funcs[0].ret_type,
+            crate::vm::ExternType::Bool
+        );
 
         let linked = crate::vm::LinkedProgram::from_program(&vm_program);
         let mut vm = crate::vm::VM::new();
@@ -2643,9 +2885,7 @@ mod tests {
         assert!(compiler.check(), "type check failed");
         compiler.specialize().expect("specialize failed");
 
-        let stack_program = compiler
-            .compile_stack()
-            .expect("stack VM compile failed");
+        let stack_program = compiler.compile_stack().expect("stack VM compile failed");
         let globals_size = stack_program.globals_size;
 
         let globals_info =
@@ -2680,10 +2920,7 @@ mod tests {
         }
 
         STACK_SEND_CALLED.store(false, Ordering::SeqCst);
-        let func_idx = *stack_program
-            .entry_points
-            .get(&Name::str("main"))
-            .unwrap();
+        let func_idx = *stack_program.entry_points.get(&Name::str("main")).unwrap();
         let result = backend.call_entry(func_idx, globals.as_mut_ptr());
         assert!(
             STACK_SEND_CALLED.load(Ordering::SeqCst),
@@ -2714,7 +2951,7 @@ mod tests {
         let llvm_prog = {
             let jit = crate::llvm_jit::LLVMJIT::new();
             let entry_points = vec![Name::str("main")];
-            jit.compile_only(&compiler.decls, &entry_points)
+            jit.compile_only(compiler.specialized_program().unwrap(), &entry_points)
                 .expect("LLVM compile failed")
         };
         let globals_size = llvm_prog.globals_size;

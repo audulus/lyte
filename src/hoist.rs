@@ -1,703 +1,575 @@
 use crate::*;
 use std::collections::{HashMap, HashSet};
 
-/// The globals a function may write, directly or through anything it calls.
-/// `None` means "may write any global" — the function reaches a callee we
-/// can't see through (an indirect call, or an `extern` body).
-type GlobalWrites = Option<HashSet<Name>>;
+/// Storage identities establish binding identity, not disjoint pointees.
+/// Borrowed arguments and closure captures are invalidated separately below.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+enum Root {
+    Local(LocalId),
+    Global(InstanceId),
+}
 
-/// Whole-module may-write summary, used to decide whether a call inside a loop
-/// can invalidate a hoisted field read.
-///
-/// Lyte function parameters aren't assignable, so a callee's only channel for
-/// mutating state its caller can observe is a global. That makes a
-/// global-granularity summary exact enough to be useful: a loop calling a
-/// function that touches no globals keeps all of its hoists.
+type GlobalWrites = Option<HashSet<InstanceId>>;
+
+/// Global may-write summaries over concrete function instances. This is not a
+/// purity analysis: a builtin can print while writing no module global.
 pub struct SideEffects {
-    globals: HashSet<Name>,
-    per_func: HashMap<Name, GlobalWrites>,
+    globals: HashSet<InstanceId>,
+    per_function: HashMap<InstanceId, GlobalWrites>,
 }
 
 impl SideEffects {
-    /// Build the summary by taking each function's direct global writes and
-    /// closing over the call graph to a fixpoint.
-    ///
-    /// Overloads are merged: the graph is keyed by name, so a name resolves to
-    /// the union of every overload's writes. That over-approximates, which is
-    /// the safe direction.
-    pub fn analyze(decls: &DeclTable) -> Self {
-        let globals: HashSet<Name> = decls
-            .decls
-            .iter()
-            .filter_map(|d| match d {
-                Decl::Global { name, .. } => Some(*name),
-                _ => None,
-            })
-            .collect();
-
-        let known_funcs: HashSet<Name> = decls
-            .decls
-            .iter()
-            .filter_map(|d| match d {
-                Decl::Func(f) => Some(f.name),
-                _ => None,
-            })
-            .collect();
-
-        let mut direct: HashMap<Name, HashSet<Name>> = HashMap::new();
-        let mut callees: HashMap<Name, HashSet<Name>> = HashMap::new();
-        let mut opaque: HashSet<Name> = HashSet::new();
-
-        for d in &decls.decls {
-            let f = match d {
-                Decl::Func(f) => f,
-                _ => continue,
-            };
-            let writes = direct.entry(f.name).or_default();
-            let calls = callees.entry(f.name).or_default();
-            let body = match f.body {
-                Some(b) => b,
-                None => {
-                    // No body: either a builtin (print/assert/putc/math), which
-                    // touches no globals, or an `extern` we can't see into.
-                    if f.is_extern {
-                        opaque.insert(f.name);
-                    }
-                    continue;
+    pub fn analyze(program: &SpecializedProgram) -> Result<Self, String> {
+        let mut globals = HashSet::new();
+        let mut direct = HashMap::<InstanceId, HashSet<InstanceId>>::new();
+        let mut callees = HashMap::<InstanceId, HashSet<InstanceId>>::new();
+        let mut opaque = HashSet::new();
+        for index in 0..program.instances.len() {
+            let instance = InstanceId(index as u32);
+            match program.instance(instance) {
+                Decl::Global { .. } => {
+                    globals.insert(instance);
                 }
-            };
-            let mut is_opaque = false;
-            scan_effects(
-                body,
-                f,
-                &globals,
-                &known_funcs,
-                &shadowed_names(f, &globals),
-                writes,
-                calls,
-                &mut is_opaque,
-            );
-            if is_opaque {
-                opaque.insert(f.name);
+                Decl::Func(function) => {
+                    let writes = direct.entry(instance).or_default();
+                    let calls = callees.entry(instance).or_default();
+                    let mut is_opaque = function.is_extern;
+                    if let Some(body) = function.body {
+                        scan_effects(body, function, writes, calls, &mut is_opaque);
+                    }
+                    if is_opaque {
+                        opaque.insert(instance);
+                    }
+                }
+                _ => return Err("Concrete instance is neither a function nor global".into()),
             }
         }
-
-        // Fixpoint: propagate writes and opacity along call edges. Cycles just
-        // stop changing the sets, so recursion terminates without special
-        // handling.
+        for (&function, calls) in &callees {
+            if calls.iter().any(|callee| !direct.contains_key(callee)) {
+                opaque.insert(function);
+            }
+        }
         loop {
             let mut changed = false;
-            let names: Vec<Name> = direct.keys().copied().collect();
-            for name in names {
-                let targets: Vec<Name> = callees[&name].iter().copied().collect();
-                for t in targets {
-                    if opaque.contains(&t) && !opaque.contains(&name) {
-                        opaque.insert(name);
+            for (&function, calls) in &callees {
+                for callee in calls {
+                    if opaque.contains(callee) && opaque.insert(function) {
                         changed = true;
                     }
-                    let t_writes: Vec<Name> = direct
-                        .get(&t)
-                        .map(|w| w.iter().copied().collect())
-                        .unwrap_or_default();
-                    let w = direct.get_mut(&name).unwrap();
-                    for g in t_writes {
-                        if w.insert(g) {
-                            changed = true;
-                        }
-                    }
+                    let writes = direct.get(callee).cloned().unwrap_or_default();
+                    let own = direct.get_mut(&function).unwrap();
+                    let previous_len = own.len();
+                    own.extend(writes);
+                    changed |= own.len() != previous_len;
                 }
             }
             if !changed {
                 break;
             }
         }
-
-        let per_func = direct
-            .into_iter()
-            .map(|(name, writes)| {
-                if opaque.contains(&name) {
-                    (name, None)
-                } else {
-                    (name, Some(writes))
-                }
-            })
-            .collect();
-
-        SideEffects { globals, per_func }
-    }
-
-    /// Globals possibly written by a call whose callee expression is `func`.
-    /// An indirect callee (a local or parameter of function type) is opaque,
-    /// including one whose name shadows a function of the same name: the
-    /// summary is keyed by name, so consulting it there would describe a
-    /// callee this call never reaches.
-    fn writes_of_call(
-        &self,
-        func: ExprID,
-        fdecl: &FuncDecl,
-        shadowed: &HashSet<Name>,
-    ) -> GlobalWrites {
-        match &fdecl.arena.exprs[func] {
-            Expr::Id(name) if !shadowed.contains(name) => self.writes_of(*name),
-            _ => None,
-        }
-    }
-
-    /// Globals possibly written by calling `name`. `None` means "any global".
-    fn writes_of(&self, name: Name) -> GlobalWrites {
-        match self.per_func.get(&name) {
-            Some(w) => w.clone(),
-            // Not a function we know about — a call through a local or
-            // parameter of function type. Assume the worst.
-            None => None,
-        }
-    }
-}
-
-/// Collect one function's direct global writes and its call edges.
-///
-/// Sets `is_opaque` when the function calls something that isn't a statically
-/// known function name, since we can't summarize such a callee.
-#[allow(clippy::too_many_arguments)]
-fn scan_effects(
-    expr_id: ExprID,
-    fdecl: &FuncDecl,
-    globals: &HashSet<Name>,
-    known_funcs: &HashSet<Name>,
-    shadowed: &HashSet<Name>,
-    writes: &mut HashSet<Name>,
-    calls: &mut HashSet<Name>,
-    is_opaque: &mut bool,
-) {
-    match &fdecl.arena.exprs[expr_id] {
-        Expr::Binop(Binop::Assign, lhs, _) => {
-            if let Some(base) = assigned_root(*lhs, fdecl) {
-                if globals.contains(&base) {
-                    writes.insert(base);
-                }
-            }
-        }
-        Expr::Call(func, _) => match &fdecl.arena.exprs[*func] {
-            // A name that's also bound locally names the binding, not the
-            // function, so the call edge would point at the wrong callee.
-            Expr::Id(name) if known_funcs.contains(name) && !shadowed.contains(name) => {
-                calls.insert(*name);
-            }
-            _ => *is_opaque = true,
-        },
-        _ => {}
-    }
-
-    for sub in fdecl.arena.exprs[expr_id].subexprs() {
-        scan_effects(
-            sub,
-            fdecl,
+        Ok(Self {
             globals,
-            known_funcs,
-            shadowed,
-            writes,
-            calls,
-            is_opaque,
-        );
+            per_function: direct
+                .into_iter()
+                .map(|(function, writes)| {
+                    (function, (!opaque.contains(&function)).then_some(writes))
+                })
+                .collect(),
+        })
+    }
+
+    fn writes_of_call(&self, callee: ExprID, function: &CheckedFunction) -> GlobalWrites {
+        function_target(callee, function)
+            .and_then(|target| self.per_function.get(&target).cloned().flatten())
     }
 }
 
-/// Names that a call site can't be summarized through: every name the function
-/// binds itself — parameters, each `let`, `var`, lambda parameter and `for`
-/// variable — plus every module-level global.
-///
-/// Calls are summarized by callee name, so a call through a name bound to a
-/// value has to be treated as indirect: the summary for the *function* of that
-/// name describes a callee the call never reaches. Globals count because a
-/// global of function type shadows a same-named function everywhere, not just
-/// in the function that declares a local. The local half is function-wide
-/// rather than scope-precise: shadowing a function name is rare, and the extra
-/// conservatism only costs hoists.
-fn shadowed_names(fdecl: &FuncDecl, globals: &HashSet<Name>) -> HashSet<Name> {
-    let mut names: HashSet<Name> = fdecl.params.iter().map(|p| p.name).collect();
-    names.extend(globals.iter().copied());
-    if let Some(body) = fdecl.body {
-        collect_bound_names(body, fdecl, &mut names);
-    }
-    names
-}
-
-/// What the hoist walk needs to know about one function's names.
-struct LocalNames {
-    /// Callee names that don't resolve to the function of the same name.
-    shadowed: HashSet<Name>,
-
-    /// Names mentioned inside a lambda body in this function. A `var` a lambda
-    /// captures is shared by address, so a call the summary can't see through
-    /// may be that lambda, writing one of these behind the loop's back.
-    captured: HashSet<Name>,
-}
-
-fn collect_bound_names(expr_id: ExprID, fdecl: &FuncDecl, names: &mut HashSet<Name>) {
-    match &fdecl.arena.exprs[expr_id] {
-        Expr::Let(name, _, _) | Expr::Var(name, _, _) => {
-            names.insert(*name);
-        }
-        Expr::For { var, .. } => {
-            names.insert(*var);
-        }
-        Expr::Lambda { params, .. } => {
-            for p in params {
-                names.insert(p.name);
-            }
-        }
-        _ => {}
-    }
-
-    for sub in fdecl.arena.exprs[expr_id].subexprs() {
-        collect_bound_names(sub, fdecl, names);
-    }
-}
-
-/// The variable at the root of an assignment target: `g`, `g.f`, `g[i].f`, ...
-fn assigned_root(expr_id: ExprID, fdecl: &FuncDecl) -> Option<Name> {
-    match &fdecl.arena.exprs[expr_id] {
-        Expr::Id(name) => Some(*name),
-        Expr::Field(base, _) | Expr::ArrayIndex(base, _) => assigned_root(*base, fdecl),
+fn function_target(expr: ExprID, function: &CheckedFunction) -> Option<InstanceId> {
+    match function.arena.reference(expr) {
+        Some(Reference::Instance(instance)) => Some(*instance),
         _ => None,
     }
 }
 
-/// Hoist loop-invariant struct field loads out of loops.
-///
-/// For each loop (For/While), finds struct field accesses (`expr.field`) where:
-/// - The base expression is a simple local variable (`Expr::Id`)
-/// - The field is never written to inside the loop body
-/// - The field type is a scalar (not a struct/array/slice)
-///
-/// Each such access is replaced with a reference to a hoisted `let` binding
-/// inserted just before the loop.
-pub fn hoist_loop_invariant_fields(fdecl: &mut FuncDecl, effects: &SideEffects) {
-    if fdecl.body.is_none() {
-        return;
+fn storage_root(expr: ExprID, function: &CheckedFunction) -> Option<Root> {
+    match &function.arena[expr] {
+        Expr::Id(_) => match function.arena.reference(expr)? {
+            Reference::Local(local) => Some(Root::Local(*local)),
+            Reference::Instance(instance) => Some(Root::Global(*instance)),
+            _ => None,
+        },
+        Expr::Field(base, _) | Expr::ArrayIndex(base, _) => storage_root(*base, function),
+        _ => None,
     }
-    let body = fdecl.body.unwrap();
-    let names = LocalNames {
-        shadowed: shadowed_names(fdecl, &effects.globals),
-        captured: fdecl.names_referenced_in_lambdas(),
-    };
-    hoist_in_expr(body, fdecl, effects, &names);
 }
 
-/// Recursively walk the AST looking for loops inside blocks.
-/// When we find a loop inside a block, we can insert hoisted bindings before it.
-fn hoist_in_expr(expr_id: ExprID, fdecl: &mut FuncDecl, effects: &SideEffects, names: &LocalNames) {
-    match fdecl.arena.exprs[expr_id].clone() {
-        Expr::Block(stmts) => {
-            // First, recurse into each statement.
-            for &s in &stmts {
-                hoist_in_expr(s, fdecl, effects, names);
+fn scan_effects(
+    expr: ExprID,
+    function: &CheckedFunction,
+    writes: &mut HashSet<InstanceId>,
+    calls: &mut HashSet<InstanceId>,
+    opaque: &mut bool,
+) {
+    match &function.arena[expr] {
+        Expr::Binop(Binop::Assign, lhs, _) => {
+            if let Some(Root::Global(global)) = storage_root(*lhs, function) {
+                writes.insert(global);
             }
-            // Now look for loops in this block and hoist their invariant fields.
-            hoist_loops_in_block(expr_id, fdecl, effects, names);
         }
-        Expr::For { body, .. } => {
-            hoist_in_expr(body, fdecl, effects, names);
+        Expr::Call(callee, args) => {
+            if let Some(target) = function_target(*callee, function) {
+                calls.insert(target);
+            } else {
+                *opaque = true;
+            }
+            // A wrapper can pass module storage to a callee that only sees a
+            // parameter. Its summary must account for that borrowed write.
+            for root in written_argument_roots(*callee, args, function) {
+                if let Root::Global(global) = root {
+                    writes.insert(global);
+                }
+            }
         }
-        Expr::While(_, body) => {
-            hoist_in_expr(body, fdecl, effects, names);
+        _ => {}
+    }
+    // Scanning lambda bodies conservatively includes their eventual effects.
+    for child in function.arena[expr].subexprs() {
+        scan_effects(child, function, writes, calls, opaque);
+    }
+}
+
+/// Scalar field hoisting, using checked roots and concrete callees.
+/// Lambda bodies retain their own evaluation boundary and are never rewritten.
+pub fn hoist_loop_invariant_fields(
+    function: &mut CheckedFunction,
+    effects: &SideEffects,
+) -> Result<(), String> {
+    if let Some(body) = function.body {
+        let captured = function.arena.captured_locals();
+        hoist_in_expr(body, function, effects, &captured);
+    }
+    Ok(())
+}
+
+fn hoist_in_expr(
+    expr: ExprID,
+    function: &mut CheckedFunction,
+    effects: &SideEffects,
+    captured: &HashSet<LocalId>,
+) {
+    match function.arena[expr].clone() {
+        Expr::Block(statements) => {
+            for statement in statements {
+                hoist_in_expr(statement, function, effects, captured);
+            }
+            hoist_loops_in_block(expr, function, effects, captured);
+        }
+        Expr::For { body, .. } | Expr::While(_, body) => {
+            hoist_in_expr(body, function, effects, captured)
         }
         Expr::If(_, then_branch, else_branch) => {
-            hoist_in_expr(then_branch, fdecl, effects, names);
-            if let Some(e) = else_branch {
-                hoist_in_expr(e, fdecl, effects, names);
+            hoist_in_expr(then_branch, function, effects, captured);
+            if let Some(other) = else_branch {
+                hoist_in_expr(other, function, effects, captured);
             }
         }
         _ => {}
     }
 }
 
-/// For each loop statement in a block, hoist invariant struct field reads.
-fn hoist_loops_in_block(
-    block_id: ExprID,
-    fdecl: &mut FuncDecl,
+type WrittenFields = HashSet<(Root, Option<Name>)>;
+
+struct FieldRead {
+    root: Root,
+    field: Name,
+    expr: ExprID,
+}
+
+/// Reference/slice bindings and aggregate parameters can designate storage
+/// owned outside this body. Their identities do not exclude overlap with globals.
+fn aliased_local_roots(function: &CheckedFunction) -> HashSet<Root> {
+    let mut roots: HashSet<_> = function
+        .arena
+        .locals
+        .iter()
+        .enumerate()
+        .filter(|(_, local)| matches!(&*local.ty, Type::Reference(_) | Type::Slice(_)))
+        .map(|(index, _)| Root::Local(LocalId(index as u32)))
+        .collect();
+    roots.extend(function.params.iter().filter_map(|parameter| {
+        let ty = function.arena.local(parameter.local).ty;
+        (is_ptr_type(ty) || matches!(&*ty, Type::Reference(_) | Type::Float32x4))
+            .then_some(Root::Local(parameter.local))
+    }));
+    roots
+}
+
+fn invalidate_aliased_writes(
+    written: &mut WrittenFields,
+    aliases: &HashSet<Root>,
     effects: &SideEffects,
-    names: &LocalNames,
 ) {
-    let stmts = if let Expr::Block(ref stmts) = fdecl.arena.exprs[block_id] {
-        stmts.clone()
-    } else {
+    let writes_global = written
+        .iter()
+        .any(|(root, _)| matches!(root, Root::Global(_)));
+    let writes_borrowed = written.iter().any(|(root, _)| aliases.contains(root));
+    if writes_global || writes_borrowed {
+        written.extend(aliases.iter().map(|root| (*root, None)));
+    }
+    if writes_borrowed {
+        written.extend(
+            effects
+                .globals
+                .iter()
+                .map(|global| (Root::Global(*global), None)),
+        );
+    }
+}
+
+fn hoist_loops_in_block(
+    block: ExprID,
+    function: &mut CheckedFunction,
+    effects: &SideEffects,
+    captured: &HashSet<LocalId>,
+) {
+    let Expr::Block(statements) = function.arena[block].clone() else {
         return;
     };
-
-    let mut new_stmts = Vec::with_capacity(stmts.len());
-
-    for &stmt_id in &stmts {
-        let loop_body = match &fdecl.arena.exprs[stmt_id] {
-            Expr::For { body, .. } => Some(*body),
-            Expr::While(_, body) => Some(*body),
-            _ => None,
+    let aliases = aliased_local_roots(function);
+    let mut replacement = Vec::with_capacity(statements.len());
+    for statement in statements {
+        let body = match function.arena[statement] {
+            Expr::For { body, .. } | Expr::While(_, body) => body,
+            _ => {
+                replacement.push(statement);
+                continue;
+            }
         };
-
-        if let Some(body_id) = loop_body {
-            // Find all fields written in the loop body.
-            let mut written_fields: HashSet<(Name, Name)> = HashSet::new();
-            collect_written_fields(body_id, fdecl, effects, names, &mut written_fields);
-            // The hoisted binding is inserted before the whole loop statement,
-            // so anything the loop's own header evaluates runs after it: a
-            // `while` condition, and a `for` range, both have to be scanned.
-            match fdecl.arena.exprs[stmt_id].clone() {
-                Expr::While(cond, _) => {
-                    collect_written_fields(cond, fdecl, effects, names, &mut written_fields);
-                }
-                Expr::For {
-                    var, start, end, ..
-                } => {
-                    written_fields.insert((var, Name::str("*")));
-                    collect_written_fields(start, fdecl, effects, names, &mut written_fields);
-                    collect_written_fields(end, fdecl, effects, names, &mut written_fields);
-                }
-                _ => {}
+        let mut written = WrittenFields::new();
+        collect_written_fields(body, function, effects, captured, &mut written);
+        // The new initializer precedes both range evaluation and testing the
+        // condition. Either can invalidate the prospective hoist's source.
+        match function.arena[statement].clone() {
+            Expr::While(condition, _) => {
+                collect_written_fields(condition, function, effects, captured, &mut written)
             }
-
-            // Find all field reads that are loop-invariant.
-            let mut field_reads: Vec<FieldRead> = Vec::new();
-            collect_invariant_field_reads(body_id, fdecl, &written_fields, &mut field_reads);
-            if let Expr::While(cond, _) = &fdecl.arena.exprs[stmt_id] {
-                collect_invariant_field_reads(*cond, fdecl, &written_fields, &mut field_reads);
+            Expr::For { start, end, .. } => {
+                invalidate_binders(statement, function, &mut written);
+                collect_written_fields(start, function, effects, captured, &mut written);
+                collect_written_fields(end, function, effects, captured, &mut written);
             }
-
-            // Deduplicate.
-            let mut seen = HashSet::new();
-            field_reads.retain(|r| seen.insert((r.var, r.field)));
-
-            if !field_reads.is_empty() {
-                // Create hoisted let bindings and a substitution map.
-                let mut subst: HashMap<(Name, Name), Name> = HashMap::new();
-                let loc = fdecl.arena.locs[stmt_id];
-
-                for read in &field_reads {
-                    let hoisted_name =
-                        Name::new(format!("__hoisted_{}_{}", &**read.var, &**read.field));
-
-                    // Build: let __hoisted_var_field = var.field
-                    //
-                    // The types come from the nodes we're copying, not from a
-                    // by-name lookup: a same-named binding in a sibling scope
-                    // would otherwise supply the wrong struct type, and the
-                    // hoisted read would use that type's field offset.
-                    let id_expr = fdecl.arena.add(Expr::Id(read.var), loc);
-                    fdecl.types.push(read.base_type); // type for the Id expr
-
-                    let field_expr = fdecl.arena.add(Expr::Field(id_expr, read.field), loc);
-                    fdecl.types.push(read.field_type); // type for the Field expr
-
-                    let let_expr = fdecl
-                        .arena
-                        .add(Expr::Let(hoisted_name, field_expr, None), loc);
-                    fdecl.types.push(read.field_type); // type for the Let expr (must match init)
-
-                    new_stmts.push(let_expr);
-                    subst.insert((read.var, read.field), hoisted_name);
-                }
-
-                // Replace field accesses in the loop body with hoisted variable references.
-                replace_field_reads(body_id, fdecl, &subst);
-                if let Expr::While(cond, _) = fdecl.arena.exprs[stmt_id].clone() {
-                    replace_field_reads(cond, fdecl, &subst);
-                }
-            }
+            _ => unreachable!(),
         }
-
-        new_stmts.push(stmt_id);
+        invalidate_aliased_writes(&mut written, &aliases, effects);
+        let mut reads = vec![];
+        collect_invariant_field_reads(body, function, &written, &mut reads);
+        if let Expr::While(condition, _) = function.arena[statement] {
+            collect_invariant_field_reads(condition, function, &written, &mut reads);
+        }
+        let mut seen = HashSet::new();
+        reads.retain(|read| seen.insert((read.root, read.field)));
+        let mut substitutions = HashMap::new();
+        for read in reads {
+            let (local, declaration) = create_hoisted_binding(&read, &mut function.arena);
+            replacement.push(declaration);
+            substitutions.insert((read.root, read.field), local);
+        }
+        replace_field_reads(body, function, &substitutions);
+        if let Expr::While(condition, _) = function.arena[statement] {
+            replace_field_reads(condition, function, &substitutions);
+        }
+        replacement.push(statement);
     }
-
-    if new_stmts.len() != stmts.len() {
-        fdecl.arena.exprs[block_id] = Expr::Block(new_stmts);
-    }
+    function
+        .arena
+        .replace(block, Expr::Block(replacement), function.arena.ty(block));
 }
 
-/// Collect all (variable_name, field_name) pairs that are written to in the
-/// expression tree. `(name, "*")` means the whole variable is clobbered.
-///
-/// This has to be complete: a write we miss becomes a stale hoisted read. The
-/// traversal therefore handles the shapes it cares about and then recurses
-/// into every subexpression, so a new `Expr` variant can't silently escape it.
+fn create_hoisted_binding(read: &FieldRead, arena: &mut CheckedBody) -> (LocalId, ExprID) {
+    let Expr::Field(base, _) = arena[read.expr] else {
+        unreachable!();
+    };
+    let Expr::Id(base_name) = arena[base] else {
+        unreachable!();
+    };
+    let base_reference = arena.reference(base).cloned().expect("checked reference");
+    let (base_ty, base_loc) = (arena.ty(base), arena.loc(base));
+    let (field_ty, field_loc) = (arena.ty(read.expr), arena.loc(read.expr));
+    // These are fresh evaluations with fresh ExprIDs, while the copied
+    // outer reference retains its LocalId or global InstanceId.
+    let base = arena.add_id(base_name, base_reference, base_ty, base_loc);
+    let initializer = arena.add(Expr::Field(base, read.field), field_ty, field_loc);
+    let local = arena.add_local(
+        Name::new(format!("__hoisted_{}", read.field)),
+        field_ty,
+        false,
+    );
+    let declaration = arena.add_let(local, initializer, field_loc);
+    (local, declaration)
+}
+
+fn invalidate_binders(expr: ExprID, function: &CheckedFunction, written: &mut WrittenFields) {
+    written.extend(
+        function
+            .arena
+            .binders(expr)
+            .iter()
+            .map(|&local| (Root::Local(local), None)),
+    );
+}
+
 fn collect_written_fields(
-    expr_id: ExprID,
-    fdecl: &FuncDecl,
+    expr: ExprID,
+    function: &CheckedFunction,
     effects: &SideEffects,
-    names: &LocalNames,
-    written: &mut HashSet<(Name, Name)>,
+    captured: &HashSet<LocalId>,
+    written: &mut WrittenFields,
 ) {
-    match &fdecl.arena.exprs[expr_id] {
-        Expr::Binop(Binop::Assign, lhs, _) => match &fdecl.arena.exprs[*lhs] {
-            // `var = ...` replaces the whole variable.
-            Expr::Id(var_name) => {
-                written.insert((*var_name, Name::str("*")));
-            }
-            // `var.field = ...` clobbers exactly that field.
-            //
-            // Deeper targets need nothing: `var.a.b = ...` and `var.arr[i] = ...`
-            // write through an aggregate field, and `slice[i] = ...` writes
-            // elements rather than the slice's `len`. Only scalar fields are
-            // ever hoisted, and none of those writes can reach one.
-            Expr::Field(base, field_name) => {
-                if let Expr::Id(var_name) = &fdecl.arena.exprs[*base] {
-                    written.insert((*var_name, *field_name));
+    match &function.arena[expr] {
+        Expr::Binop(Binop::Assign, lhs, _) => match &function.arena[*lhs] {
+            Expr::Id(_) => {
+                if let Some(root) = storage_root(*lhs, function) {
+                    written.insert((root, None));
                 }
             }
+            Expr::Field(base, field) if matches!(function.arena[*base], Expr::Id(_)) => {
+                if let Some(root) = storage_root(*base, function) {
+                    written.insert((root, Some(*field)));
+                }
+            }
+            // Deeper aggregate writes cannot affect the scalar direct fields
+            // eligible for this pass's existing read grammar.
             _ => {}
         },
-        Expr::Call(func, args) => {
-            // Parameters aren't assignable in Lyte, so a callee we can name
-            // reaches its caller's state only through globals.
-            match effects.writes_of_call(*func, fdecl, &names.shadowed) {
-                Some(gs) => {
-                    for g in gs {
-                        written.insert((g, Name::str("*")));
-                    }
-                }
+        Expr::Call(callee, args) => {
+            match effects.writes_of_call(*callee, function) {
+                Some(globals) => written.extend(
+                    globals
+                        .into_iter()
+                        .map(|global| (Root::Global(global), None)),
+                ),
                 None => {
-                    // A callee we can't name may be a lambda holding the
-                    // address of one of our own locals, so those go too.
-                    for g in &effects.globals {
-                        written.insert((*g, Name::str("*")));
-                    }
-                    for c in &names.captured {
-                        written.insert((*c, Name::str("*")));
-                    }
+                    written.extend(
+                        effects
+                            .globals
+                            .iter()
+                            .map(|global| (Root::Global(*global), None)),
+                    );
+                    written.extend(captured.iter().map(|local| (Root::Local(*local), None)));
+                    written.extend(
+                        aliased_local_roots(function)
+                            .into_iter()
+                            .map(|root| (root, None)),
+                    );
                 }
             }
-            // Aggregates handed to a call stay tainted as before.
-            for &arg in args {
-                if let Expr::Id(var_name) = &fdecl.arena.exprs[arg] {
-                    written.insert((*var_name, Name::str("*")));
-                }
-            }
+            written
+                .extend(written_argument_roots(*callee, args, function).map(|root| (root, None)));
         }
-        Expr::Var(name, _, _) => {
-            // A binding introduced inside the loop is a fresh variable on every
-            // iteration, and it doesn't exist before the loop at all — nothing
-            // about it can be hoisted.
-            written.insert((*name, Name::str("*")));
-        }
-        Expr::Let(name, _, _) => {
-            written.insert((*name, Name::str("*")));
-        }
-        Expr::Lambda { params, .. } => {
-            // Lambda parameters shadow anything of the same name in the
-            // enclosing scope, so reads through them aren't invariant either.
-            for p in params {
-                written.insert((p.name, Name::str("*")));
-            }
-        }
-        Expr::For { var, .. } => {
-            written.insert((*var, Name::str("*")));
+        Expr::Let(..) | Expr::Var(..) | Expr::For { .. } | Expr::Lambda { .. } => {
+            invalidate_binders(expr, function, written);
         }
         _ => {}
     }
-
-    for sub in fdecl.arena.exprs[expr_id].subexprs() {
-        collect_written_fields(sub, fdecl, effects, names, written);
+    for child in function.arena[expr].subexprs() {
+        collect_written_fields(child, function, effects, captured, written);
     }
 }
 
-/// A field read the hoister decided is loop-invariant, carrying the types of
-/// the nodes it was found on so the hoisted copy reproduces them exactly.
-struct FieldRead {
-    var: Name,
-    field: Name,
-    base_type: TypeID,
-    field_type: TypeID,
+/// Conservatively include direct bindings and borrowed projections. Scalar
+/// projections passed by value only read their root.
+fn written_argument_roots<'a>(
+    callee: ExprID,
+    args: &'a [ExprID],
+    function: &'a CheckedFunction,
+) -> impl Iterator<Item = Root> + 'a {
+    args.iter().enumerate().filter_map(move |(position, &arg)| {
+        if matches!(function.arena[arg], Expr::Id(_))
+            || borrows_argument(callee, position, function)
+        {
+            storage_root(arg, function)
+        } else {
+            None
+        }
+    })
 }
 
-/// Collect loop-invariant scalar field reads.
+fn borrows_argument(callee: ExprID, position: usize, function: &CheckedFunction) -> bool {
+    let Type::Func(domain, _) = &*function.arena.ty(callee) else {
+        return true;
+    };
+    let Type::Tuple(params) = &**domain else {
+        return true;
+    };
+    match params.get(position).map(|ty| &**ty) {
+        Some(
+            Type::Reference(_) | Type::Slice(_) | Type::Array(..) | Type::Name(..) | Type::Tuple(_),
+        ) => true,
+        Some(_) => false,
+        None => true,
+    }
+}
+
+fn read_subexprs(expr: &Expr) -> Vec<ExprID> {
+    match expr {
+        Expr::Lambda { .. } | Expr::Arena(_) | Expr::Array(..) | Expr::Macro(..) => vec![],
+        Expr::Binop(Binop::Assign, _, rhs) => vec![*rhs],
+        _ => expr.subexprs(),
+    }
+}
+
 fn collect_invariant_field_reads(
-    expr_id: ExprID,
-    fdecl: &FuncDecl,
-    written: &HashSet<(Name, Name)>,
+    expr: ExprID,
+    function: &CheckedFunction,
+    written: &WrittenFields,
     reads: &mut Vec<FieldRead>,
 ) {
-    match &fdecl.arena.exprs[expr_id] {
-        Expr::Field(base, field_name) => {
-            if let Expr::Id(var_name) = &fdecl.arena.exprs[*base] {
-                let pair = (*var_name, *field_name);
-                let wildcard = (*var_name, Name::str("*"));
-                // Only hoist if the field is never written and the variable isn't wholly reassigned.
-                if !written.contains(&pair) && !written.contains(&wildcard) {
-                    // Only hoist scalar fields (not sub-structs, arrays, etc.)
-                    let field_type = fdecl.types[expr_id];
-                    if !is_ptr_type(&field_type) {
-                        reads.push(FieldRead {
-                            var: *var_name,
-                            field: *field_name,
-                            base_type: fdecl.types[*base],
-                            field_type,
-                        });
-                    }
+    if let Expr::Field(base, field) = &function.arena[expr] {
+        if matches!(function.arena[*base], Expr::Id(_)) {
+            if let Some(root) = storage_root(*base, function) {
+                if !written.contains(&(root, Some(*field)))
+                    && !written.contains(&(root, None))
+                    && !is_ptr_type(function.arena.ty(expr))
+                {
+                    reads.push(FieldRead {
+                        root,
+                        field: *field,
+                        expr,
+                    });
                 }
             }
-            collect_invariant_field_reads(*base, fdecl, written, reads);
         }
-        Expr::Binop(Binop::Assign, _lhs, rhs) => {
-            // Don't collect reads from the LHS of assignments.
-            collect_invariant_field_reads(*rhs, fdecl, written, reads);
-        }
-        Expr::Binop(_, lhs, rhs) => {
-            collect_invariant_field_reads(*lhs, fdecl, written, reads);
-            collect_invariant_field_reads(*rhs, fdecl, written, reads);
-        }
-        Expr::Unop(_, arg) => {
-            collect_invariant_field_reads(*arg, fdecl, written, reads);
-        }
-        Expr::Call(func, args) => {
-            collect_invariant_field_reads(*func, fdecl, written, reads);
-            for &arg in args {
-                collect_invariant_field_reads(arg, fdecl, written, reads);
-            }
-        }
-        Expr::Block(stmts) => {
-            for &s in stmts {
-                collect_invariant_field_reads(s, fdecl, written, reads);
-            }
-        }
-        Expr::If(cond, then_b, else_b) => {
-            collect_invariant_field_reads(*cond, fdecl, written, reads);
-            collect_invariant_field_reads(*then_b, fdecl, written, reads);
-            if let Some(e) = else_b {
-                collect_invariant_field_reads(*e, fdecl, written, reads);
-            }
-        }
-        Expr::While(cond, body) => {
-            collect_invariant_field_reads(*cond, fdecl, written, reads);
-            collect_invariant_field_reads(*body, fdecl, written, reads);
-        }
-        Expr::For {
-            start, end, body, ..
-        } => {
-            collect_invariant_field_reads(*start, fdecl, written, reads);
-            collect_invariant_field_reads(*end, fdecl, written, reads);
-            collect_invariant_field_reads(*body, fdecl, written, reads);
-        }
-        Expr::ArrayIndex(base, idx) => {
-            collect_invariant_field_reads(*base, fdecl, written, reads);
-            collect_invariant_field_reads(*idx, fdecl, written, reads);
-        }
-        Expr::Return(e) | Expr::Assume(e) | Expr::AsTy(e, _) => {
-            collect_invariant_field_reads(*e, fdecl, written, reads);
-        }
-        Expr::Var(_, init, _) => {
-            if let Some(e) = init {
-                collect_invariant_field_reads(*e, fdecl, written, reads);
-            }
-        }
-        Expr::Let(_, init, _) => {
-            collect_invariant_field_reads(*init, fdecl, written, reads);
-        }
-        // Deliberately not descending into lambda bodies: capture lists are
-        // fixed before this pass runs, so a body rewritten to mention a
-        // hoisted binding would reference something it doesn't capture.
-        Expr::Lambda { .. } => {}
-        Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
-            for &e in elems {
-                collect_invariant_field_reads(e, fdecl, written, reads);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                collect_invariant_field_reads(*fval, fdecl, written, reads);
-            }
-        }
-        _ => {}
+    }
+    for child in read_subexprs(&function.arena[expr]) {
+        collect_invariant_field_reads(child, function, written, reads);
     }
 }
 
-/// Replace field accesses in the expression tree with references to hoisted variables.
-fn replace_field_reads(expr_id: ExprID, fdecl: &mut FuncDecl, subst: &HashMap<(Name, Name), Name>) {
-    match fdecl.arena.exprs[expr_id].clone() {
-        Expr::Field(base, field_name) => {
-            if let Expr::Id(var_name) = &fdecl.arena.exprs[base] {
-                let pair = (*var_name, field_name);
-                if let Some(hoisted_name) = subst.get(&pair) {
-                    // Replace this Field expression with an Id referencing the hoisted variable.
-                    fdecl.arena.exprs[expr_id] = Expr::Id(*hoisted_name);
-                    return;
-                }
-            }
-            replace_field_reads(base, fdecl, subst);
-        }
-        Expr::Binop(Binop::Assign, _lhs, rhs) => {
-            // Don't replace in LHS of assignments.
-            replace_field_reads(rhs, fdecl, subst);
-        }
-        Expr::Binop(_, lhs, rhs) => {
-            replace_field_reads(lhs, fdecl, subst);
-            replace_field_reads(rhs, fdecl, subst);
-        }
-        Expr::Unop(_, arg) => {
-            replace_field_reads(arg, fdecl, subst);
-        }
-        Expr::Call(func, args) => {
-            replace_field_reads(func, fdecl, subst);
-            for arg in args {
-                replace_field_reads(arg, fdecl, subst);
+fn replace_field_reads(
+    expr: ExprID,
+    function: &mut CheckedFunction,
+    substitutions: &HashMap<(Root, Name), LocalId>,
+) {
+    if let Expr::Field(base, field) = function.arena[expr] {
+        if matches!(function.arena[base], Expr::Id(_)) {
+            if let Some(local) =
+                storage_root(base, function).and_then(|root| substitutions.get(&(root, field)))
+            {
+                let (name, ty) = (function.arena.local(*local).name, function.arena.ty(expr));
+                function.arena.replace(expr, Expr::Id(name), ty);
+                function.arena.set_reference(expr, Reference::Local(*local));
+                return;
             }
         }
-        Expr::Block(stmts) => {
-            for s in stmts {
-                replace_field_reads(s, fdecl, subst);
-            }
-        }
-        Expr::If(cond, then_b, else_b) => {
-            replace_field_reads(cond, fdecl, subst);
-            replace_field_reads(then_b, fdecl, subst);
-            if let Some(e) = else_b {
-                replace_field_reads(e, fdecl, subst);
-            }
-        }
-        Expr::While(cond, body) => {
-            replace_field_reads(cond, fdecl, subst);
-            replace_field_reads(body, fdecl, subst);
-        }
-        Expr::For {
-            start, end, body, ..
-        } => {
-            replace_field_reads(start, fdecl, subst);
-            replace_field_reads(end, fdecl, subst);
-            replace_field_reads(body, fdecl, subst);
-        }
-        Expr::ArrayIndex(base, idx) => {
-            replace_field_reads(base, fdecl, subst);
-            replace_field_reads(idx, fdecl, subst);
-        }
-        Expr::Return(e) | Expr::Assume(e) | Expr::AsTy(e, _) => {
-            replace_field_reads(e, fdecl, subst);
-        }
-        Expr::Var(_, init, _) => {
-            if let Some(e) = init {
-                replace_field_reads(e, fdecl, subst);
-            }
-        }
-        Expr::Let(_, init, _) => {
-            replace_field_reads(init, fdecl, subst);
-        }
-        // Not descended into, matching collect_invariant_field_reads: a lambda
-        // body must never be rewritten to mention a hoisted binding.
-        Expr::Lambda { .. } => {}
-        Expr::Tuple(elems) | Expr::ArrayLiteral(elems) => {
-            for e in elems {
-                replace_field_reads(e, fdecl, subst);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                replace_field_reads(fval, fdecl, subst);
-            }
-        }
-        _ => {}
+    }
+    for child in read_subexprs(&function.arena[expr]) {
+        replace_field_reads(child, function, substitutions);
     }
 }
 
-/// Check if a type is a pointer type (struct, array, slice, tuple).
-fn is_ptr_type(ty: &TypeID) -> bool {
+fn is_ptr_type(ty: TypeID) -> bool {
     matches!(
-        &**ty,
+        &*ty,
         Type::Name(_, _) | Type::Tuple(_) | Type::Array(_, _) | Type::Slice(_)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn specialized(source: &str) -> SpecializedProgram {
+        let mut compiler = Compiler::new();
+        compiler.quiet = true;
+        assert!(compiler.parse(source, "checked-hoisting.lyte"));
+        assert!(compiler.check(), "{:?}", compiler.last_errors);
+        MonomorphPass::new()
+            .monomorphize(compiler.checked_program().unwrap(), Name::str("main"))
+            .unwrap()
+    }
+
+    fn main_mut(program: &mut SpecializedProgram) -> &mut CheckedFunction {
+        program
+            .decls
+            .decls
+            .iter_mut()
+            .find_map(|declaration| match declaration {
+                Decl::Func(function) if function.name == Name::str("main") => Some(function),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn hoist_binding_identity_is_independent_of_diagnostic_spelling() {
+        let mut program = specialized("struct P { x: i32 } main { let __hoisted_x = 90; var p: P; p.x = 7; for i in 0 .. 2 { let value = p.x + __hoisted_x } }");
+        let effects = SideEffects::analyze(&program).unwrap();
+        let function = main_mut(&mut program);
+        let before = function.arena.locals.len();
+        let original = function
+            .arena
+            .locals
+            .iter()
+            .position(|local| local.name == Name::str("__hoisted_x"))
+            .unwrap();
+        hoist_loop_invariant_fields(function, &effects).unwrap();
+        assert_eq!(function.arena.locals.len(), before + 1);
+        assert_eq!(
+            function.arena.locals[before].name,
+            function.arena.locals[original].name
+        );
+        for local in [original, before] {
+            assert!(function
+                .arena
+                .ids()
+                .any(|id| function.arena.reference(id)
+                    == Some(&Reference::Local(LocalId(local as u32)))));
+        }
+    }
+
+    #[test]
+    fn borrowed_field_writes_prevent_hoisting() {
+        let mut program = specialized("struct P { x: i32 } bump(x: &i32) { x = x + 1 } main { var p: P; p.x = 1; for i in 0 .. 2 { let value = p.x; bump(p.x) } }");
+        let effects = SideEffects::analyze(&program).unwrap();
+        let function = main_mut(&mut program);
+        let before = function.clone();
+        hoist_loop_invariant_fields(function, &effects).unwrap();
+        assert_eq!(function, &before);
+    }
+
+    #[test]
+    fn an_inner_shadow_does_not_invalidate_outer_storage() {
+        let mut program = specialized("struct P { x: i32 } main { var p: P; p.x = 7; for i in 0 .. 2 { if true { var p: P; p.x = i; let inner = p.x }; let outer = p.x } }");
+        let effects = SideEffects::analyze(&program).unwrap();
+        let function = main_mut(&mut program);
+        let before = function.arena.locals.len();
+        hoist_loop_invariant_fields(function, &effects).unwrap();
+        assert_eq!(function.arena.locals.len(), before + 1);
+    }
+
+    #[test]
+    fn borrowed_parameter_and_global_writes_invalidate_aliases() {
+        // Call-site no-alias checking rejects overlapping arguments, but a
+        // single borrowed argument may still designate a module global.
+        for (read, written) in [("p", "g"), ("g", "p")] {
+            let source = format!(
+                "struct P {{ x: i32 }} var g: P
+                sum(p: &P) -> i32 {{ var result = 0
+                    for i in 0 .. 2 {{ result = result + {read}.x; {written}.x = {written}.x + 1 }}
+                    result }}
+                main() -> i32 {{ g.x = 1; sum(g) }}"
+            );
+            let mut compiler = Compiler::new();
+            compiler.quiet = true;
+            assert!(compiler.parse(&source, "aliased-hoisting.lyte"));
+            assert!(compiler.check());
+            compiler.specialize().unwrap();
+            assert_eq!(crate::vm::VM::new().run(&compiler.compile_vm().unwrap()), 3);
+            #[cfg(has_stack_interp)]
+            assert_eq!(
+                crate::stack_interp_bridge::run(&compiler.compile_stack().unwrap()),
+                3
+            );
+        }
+    }
 }

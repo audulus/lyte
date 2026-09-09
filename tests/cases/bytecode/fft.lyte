@@ -8,9 +8,9 @@
 //      0: SaveRegs { start_reg: 0, count: 16, slot: 8224 }
 //      1: LoadImm { dst: 10, value: 1024 }
 //      2: LoadImm { dst: 11, value: 2000 }
-//      3: LocalAddr { dst: 12, slot: 0 }
+//      3: LocalAddr { dst: 12, slot: 0 }  ; re
 //      4: MemZero { dst: 12, size: 4096 }
-//      5: LocalAddr { dst: 13, slot: 512 }
+//      5: LocalAddr { dst: 13, slot: 512 }  ; im
 //      6: MemZero { dst: 13, size: 4096 }
 //      7: LoadF32 { dst: 14, value: 0.0 }
 //      8: LoadImm { dst: 15, value: 0 }
@@ -47,12 +47,12 @@
 //     39: Store32 { addr: 5, src: 4 }
 //     40: IAddImm { dst: 3, src: 3, imm: 1 }
 //     41: Jump { offset: -29 }
-// =>  42: LocalAddr { dst: 12, slot: 0 }
+// =>  42: LocalAddr { dst: 12, slot: 0 }  ; re
 //     43: LocalAddr { dst: 1, slot: 1024 }
 //     44: Store64 { addr: 1, src: 12 }
 //     45: LoadImm { dst: 2, value: 1024 }
 //     46: Store32Off { base: 1, offset: 8, src: 2 }
-//     47: LocalAddr { dst: 13, slot: 512 }
+//     47: LocalAddr { dst: 13, slot: 512 }  ; im
 //     48: LocalAddr { dst: 2, slot: 1026 }
 //     49: Store64 { addr: 2, src: 13 }
 //     50: LoadImm { dst: 3, value: 1024 }
@@ -60,7 +60,7 @@
 //     52: Move { dst: 3, src: 1 }
 //     53: Move { dst: 4, src: 2 }
 //     54: Call { func: 1, args_start: 3, arg_count: 2 }
-//     55: LocalAddr { dst: 12, slot: 0 }
+//     55: LocalAddr { dst: 12, slot: 0 }  ; re
 //     56: LoadImm { dst: 1, value: 0 }
 //     57: LoadImm { dst: 2, value: 4 }
 //     58: IMul { dst: 3, a: 1, b: 2 }
@@ -73,6 +73,17 @@
 //     65: Move { dst: 0, src: 1 }
 //     66: RestoreRegs { start_reg: 1, count: 15, slot: 8232 }
 //     67: Return
+// locals:
+//   r1	freq1
+//   r10	n
+//   r11	iters
+//   r14	checksum
+//   r15	iter
+//   r2	freq2
+//   r3	i
+//   r6	t
+//   slot 0	re
+//   slot 512	im
 // fn fft (params: 2, locals: 184 bytes):
 //      0: SaveRegs { start_reg: 0, count: 23, slot: 0 }
 //      1: Move { dst: 19, src: 0 }
@@ -144,6 +155,27 @@
 //     67: Move { dst: 0, src: 1 }
 //     68: RestoreRegs { start_reg: 1, count: 22, slot: 8 }
 //     69: Return
+// locals:
+//   r1	size
+//   r10	__hoisted_len
+//   r11	k
+//   r12	wr
+//   r13	i
+//   r13	theta
+//   r14	wi
+//   r15	j
+//   r16	ti
+//   r17	tr
+//   r2	__hoisted_len
+//   r21	n
+//   r22	pi
+//   r3	__hoisted_len
+//   r4	group
+//   r5	half
+//   r6	angle
+//   r7	__hoisted_len
+//   r8	__hoisted_len
+//   r9	__hoisted_len
 // fn bit_reverse_permute (params: 2, locals: 88 bytes):
 //      0: SaveRegs { start_reg: 0, count: 11, slot: 0 }
 //      1: Move { dst: 5, src: 0 }
@@ -180,6 +212,12 @@
 //     32: Move { dst: 0, src: 1 }
 //     33: RestoreRegs { start_reg: 1, count: 10, slot: 8 }
 //     34: Return
+// locals:
+//   r1	j
+//   r2	ti
+//   r2	tr
+//   r7	__hoisted_len
+//   r8	__hoisted_len
 // fn bit_reverse (params: 2, locals: 64 bytes):
 //      0: SaveRegs { start_reg: 0, count: 8, slot: 0 }
 //      1: Move { dst: 2, src: 1 }
@@ -200,8 +238,10 @@
 //     16: RestoreRegs { start_reg: 1, count: 7, slot: 8 }
 //     17: Return
 // locals:
+//   r1	result
 //   r2	bits
-//   r2	x
+//   r3	val
+//   r4	i
 
 bit_reverse(x: i32, bits: i32) -> i32 {
     var result = 0

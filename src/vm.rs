@@ -1631,16 +1631,16 @@ impl VM {
                     }
 
                     // SliceEq/SliceNe — compare slice contents by value
-                    // Fat pointer layout: data_ptr (8 bytes) + len (4 bytes)
+                    // Fat pointer layout: data_ptr (8 bytes) + len (4 bytes), without padding.
                     tags::SLICE_EQ => {
                         let fat_a = r!(op.b()) as *const u8;
                         let fat_b = r!(op.c()) as *const u8;
                         let elem_size = (*ops.add(ip)).0 as usize;
                         ip += 1;
-                        let ptr_a = *(fat_a as *const u64) as *const u8;
-                        let len_a = *(fat_a.add(8) as *const u32) as usize;
-                        let ptr_b = *(fat_b as *const u64) as *const u8;
-                        let len_b = *(fat_b.add(8) as *const u32) as usize;
+                        let ptr_a = (fat_a as *const u64).read_unaligned() as *const u8;
+                        let len_a = (fat_a.add(8) as *const u32).read_unaligned() as usize;
+                        let ptr_b = (fat_b as *const u64).read_unaligned() as *const u8;
+                        let len_b = (fat_b.add(8) as *const u32).read_unaligned() as usize;
                         let eq = len_a == len_b
                             && std::slice::from_raw_parts(ptr_a, len_a * elem_size)
                                 == std::slice::from_raw_parts(ptr_b, len_b * elem_size);
@@ -1652,10 +1652,10 @@ impl VM {
                         let fat_b = r!(op.c()) as *const u8;
                         let elem_size = (*ops.add(ip)).0 as usize;
                         ip += 1;
-                        let ptr_a = *(fat_a as *const u64) as *const u8;
-                        let len_a = *(fat_a.add(8) as *const u32) as usize;
-                        let ptr_b = *(fat_b as *const u64) as *const u8;
-                        let len_b = *(fat_b.add(8) as *const u32) as usize;
+                        let ptr_a = (fat_a as *const u64).read_unaligned() as *const u8;
+                        let len_a = (fat_a.add(8) as *const u32).read_unaligned() as usize;
+                        let ptr_b = (fat_b as *const u64).read_unaligned() as *const u8;
+                        let len_b = (fat_b.add(8) as *const u32).read_unaligned() as usize;
                         let ne = len_a != len_b
                             || std::slice::from_raw_parts(ptr_a, len_a * elem_size)
                                 != std::slice::from_raw_parts(ptr_b, len_b * elem_size);
@@ -1666,17 +1666,17 @@ impl VM {
                     tags::SLICE_LOAD32 => {
                         // B = slice fat pointer, C = index
                         let fat_ptr = r!(op.b()) as *const u8;
-                        let data_ptr = *(fat_ptr as *const *const u8);
+                        let data_ptr = (fat_ptr as *const *const u8).read_unaligned();
                         let idx = r!(op.c()) as usize;
-                        let elem = *(data_ptr.add(idx * 4) as *const i32);
+                        let elem = (data_ptr.add(idx * 4) as *const i32).read_unaligned();
                         r_set!(op.a(), elem as i64 as u64);
                     }
                     tags::SLICE_STORE32 => {
                         // A = src value, B = slice fat pointer, C = index
                         let fat_ptr = r!(op.b()) as *const u8;
-                        let data_ptr = *(fat_ptr as *const *mut u8);
+                        let data_ptr = (fat_ptr as *const *mut u8).read_unaligned();
                         let idx = r!(op.c()) as usize;
-                        *(data_ptr.add(idx * 4) as *mut i32) = r!(op.a()) as i32;
+                        (data_ptr.add(idx * 4) as *mut i32).write_unaligned(r!(op.a()) as i32);
                     }
 
                     // Type conversions — AB
@@ -1708,7 +1708,8 @@ impl VM {
                         set_i64!(op.a(), (get_i64!(op.b()) as u32) as i64);
                     }
 
-                    // Memory operations
+                    // Language storage uses packed byte offsets, including pointer headers.
+                    // Indirect accesses therefore cannot assume native integer alignment.
                     tags::LOAD8 => {
                         let ptr = r!(op.b());
                         self.check_ptr(ptr, 1);
@@ -1717,36 +1718,36 @@ impl VM {
                     tags::LOAD32 => {
                         let ptr = r!(op.b());
                         self.check_ptr(ptr, 4);
-                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                        set_i64!(op.a(), (ptr as *const i32).read_unaligned() as i64);
                     }
                     tags::LOAD64 => {
                         let ptr = r!(op.b());
                         self.check_ptr(ptr, 8);
-                        set_i64!(op.a(), *(ptr as *const i64));
+                        set_i64!(op.a(), (ptr as *const i64).read_unaligned());
                     }
                     tags::LOAD32_OFF => {
                         let ptr = r!(op.b()).wrapping_add(op.c() as u64);
                         self.check_ptr(ptr, 4);
-                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                        set_i64!(op.a(), (ptr as *const i32).read_unaligned() as i64);
                     }
                     tags::LOAD32_OFF_WIDE => {
                         let off = (*ops.add(ip)).0 as i64;
                         ip += 1;
                         let ptr = (r!(op.b()) as i64 + off) as u64;
                         self.check_ptr(ptr, 4);
-                        set_i64!(op.a(), *(ptr as *const i32) as i64);
+                        set_i64!(op.a(), (ptr as *const i32).read_unaligned() as i64);
                     }
                     tags::LOAD64_OFF => {
                         let ptr = r!(op.b()).wrapping_add(op.c() as u64);
                         self.check_ptr(ptr, 8);
-                        set_i64!(op.a(), *(ptr as *const i64));
+                        set_i64!(op.a(), (ptr as *const i64).read_unaligned());
                     }
                     tags::LOAD64_OFF_WIDE => {
                         let off = (*ops.add(ip)).0 as i64;
                         ip += 1;
                         let ptr = (r!(op.b()) as i64 + off) as u64;
                         self.check_ptr(ptr, 8);
-                        set_i64!(op.a(), *(ptr as *const i64));
+                        set_i64!(op.a(), (ptr as *const i64).read_unaligned());
                     }
                     tags::STORE8 => {
                         let ptr = r!(op.a());
@@ -1756,12 +1757,12 @@ impl VM {
                     tags::STORE32 => {
                         let ptr = r!(op.a());
                         self.check_ptr(ptr, 4);
-                        *(ptr as *mut i32) = get_i64!(op.b()) as i32;
+                        (ptr as *mut i32).write_unaligned(get_i64!(op.b()) as i32);
                     }
                     tags::STORE64 => {
                         let ptr = r!(op.a());
                         self.check_ptr(ptr, 8);
-                        *(ptr as *mut i64) = get_i64!(op.b());
+                        (ptr as *mut i64).write_unaligned(get_i64!(op.b()));
                     }
                     tags::STORE8_OFF => {
                         let ptr = r!(op.a()).wrapping_add(op.c() as u64);
@@ -1778,26 +1779,26 @@ impl VM {
                     tags::STORE32_OFF => {
                         let ptr = r!(op.a()).wrapping_add(op.c() as u64);
                         self.check_ptr(ptr, 4);
-                        *(ptr as *mut i32) = get_i64!(op.b()) as i32;
+                        (ptr as *mut i32).write_unaligned(get_i64!(op.b()) as i32);
                     }
                     tags::STORE32_OFF_WIDE => {
                         let off = (*ops.add(ip)).0 as i64;
                         ip += 1;
                         let ptr = (r!(op.a()) as i64 + off) as u64;
                         self.check_ptr(ptr, 4);
-                        *(ptr as *mut i32) = get_i64!(op.b()) as i32;
+                        (ptr as *mut i32).write_unaligned(get_i64!(op.b()) as i32);
                     }
                     tags::STORE64_OFF => {
                         let ptr = r!(op.a()).wrapping_add(op.c() as u64);
                         self.check_ptr(ptr, 8);
-                        *(ptr as *mut i64) = get_i64!(op.b());
+                        (ptr as *mut i64).write_unaligned(get_i64!(op.b()));
                     }
                     tags::STORE64_OFF_WIDE => {
                         let off = (*ops.add(ip)).0 as i64;
                         ip += 1;
                         let ptr = (r!(op.a()) as i64 + off) as u64;
                         self.check_ptr(ptr, 8);
-                        *(ptr as *mut i64) = get_i64!(op.b());
+                        (ptr as *mut i64).write_unaligned(get_i64!(op.b()));
                     }
 
                     tags::LOCAL_ADDR => {
@@ -2078,8 +2079,8 @@ impl VM {
                     // fat_ptr points to {func_idx: i64, closure_ptr: i64}
                     tags::CALL_CLOSURE => {
                         let fat_ptr = r!(op.a()) as *const u64;
-                        let func_idx = *fat_ptr as FuncIdx;
-                        let closure_ptr_val = *fat_ptr.add(1);
+                        let func_idx = fat_ptr.read_unaligned() as FuncIdx;
+                        let closure_ptr_val = fat_ptr.add(1).read_unaligned();
                         let args_start = op.b() as usize;
                         let arg_count = op.c() as usize;
 
@@ -2130,8 +2131,8 @@ impl VM {
 
                         // Read fn_ptr and context from globals buffer.
                         let slot = self.globals.as_ptr().add(globals_offset as usize) as *const u64;
-                        let fn_ptr = *slot as usize;
-                        let context = *slot.add(1) as *mut u8;
+                        let fn_ptr = slot.read_unaligned() as usize;
+                        let context = slot.add(1).read_unaligned() as *mut u8;
 
                         if fn_ptr == 0 {
                             panic!(

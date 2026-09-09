@@ -1,271 +1,125 @@
-# Monomorphization Pass
+# Checked programs and specialization
 
-This document describes the monomorphization implementation for the Lyte compiler.
+Specialization consumes checked templates and produces concrete function/global
+targets for safety analysis and code generation. The authoritative ownership,
+lifecycle, editor and mutation rules are in the
+[checked-program contract](CHECKED_PROGRAM.md).
 
-## Overview
-
-Monomorphization is the process of generating specialized versions of generic functions for each unique set of concrete type arguments they're called with. This transforms generic code into concrete, type-specific code.
-
-For example:
-```lyte
-id<T>(x: T) → T { x }
-
-main {
-    let a = id(42)      // Generates id$i32
-    let b = id(true)    // Generates id$bool
-}
+```text
+source syntax → CheckedProgram → SpecializedProgram → backend IR
+                 checking       specialization,
+                 and source     concrete safety,
+                 safety         field hoisting,
+                                final validation
 ```
 
-## Architecture
+`Compiler` retains checked templates alongside optional concrete output. Changing
+effective entry points invalidates only concrete output and its diagnostics;
+different roots can specialize without rechecking. Parsing invalidates all derived
+results. Checking replaces templates; changes to validation policy such as
+`no_recursion` require revalidation before execution. Code generation borrows a
+successfully specialized program and consumes neither artifact.
 
-### Module: `src/monomorph_pass.rs`
+`analyze()` runs the shared checker with partial editor publication. Its separate
+`SourceAnalysis` owns recovered source facts for hover/navigation; incomplete facts
+never serve as executable input. Parsed syntax remains available for diagnostics
+and editing, but backends consume checked bodies.
 
-The monomorphization pass is implemented in a separate module that can be invoked between type checking and JIT compilation.
+## Bodies and identities
 
-### Key Components
+`CheckedBody` owns the expression tree, its per-expression type, reference and
+binder tables, local records and interface requirements. Binding types belong to
+`LocalId` records; a checked `let`/`var` statement is `void` and has no remaining
+source annotation. Source and checked bodies share the same `Expr` type; the
+checked tables, not the spelled names, carry resolution and binding identity.
 
-#### `MonomorphPass`
+`DefId` identifies a checked definition, including an interface member.
+`InstanceId` identifies a concrete function/global inventory entry. `ExprID`,
+`LocalId` and `RequirementId` belong to one body. Equal numeric coordinates in
+different owners are unrelated; spelling and symbol mangling are not semantic
+identity. A size binder links its `LocalId` to the type-level `ArraySize::Var`
+symbol, so diagnostic renaming does not affect size substitution.
 
-The main struct that manages the monomorphization process:
+`DeclTable` owns definition indexing over a `DeclarationList`. Concrete programs
+own a declaration list and instance inventory. The common list provides nominal
+layout and host symbol lookup without source identity APIs. Declaration sorting
+preserves definition/instance identities by remapping storage coordinates.
 
-```rust
-pub struct MonomorphPass {
-    instantiations: HashMap<MonomorphKey, Name>,  // Tracks what's been generated
-    recursion_detector: RecursionDetector,        // Detects infinite recursion
-    specialized_decls: Vec<Decl>,                 // Newly generated declarations
-    worklist: VecDeque<Name>,                     // Functions to process
-    processed: HashSet<Name>,                     // Functions already processed
-}
+## Specialization and publication
+
+`MonomorphPass::monomorphize_multi` validates its checked input and starts from
+entry definitions. It interns a `MonomorphKey` of definition, concrete type
+arguments and size arguments, reserving an instance before visiting its body.
+Recursive calls and repeated reachability share that instance. The recursion
+guard still rejects increasingly complex recursive type specializations.
+
+Templates can retain named generics, symbolic sizes and deferred interface
+obligations, but no anonymous inference variables. `Reference::Functions` stores
+ordered candidates, not a selected callee. Ordinary specialization retains its
+inference/coercion and size-generic precedence rules over those recorded IDs.
+Interface selection separately uses the first exact signature match, without
+generic overload unification or coercions. Interface selections remain in the
+owning body's specialization frame while recursive callees are instantiated.
+
+Specialization substitutes node/local types, resolves size parameters, selects
+candidates/requirements and rewrites nonlocal references to `InstanceId`s.
+Generic globals use the same interning mechanism: repeated use of one concrete
+global shares storage. Non-generic globals remain present even when unreachable.
+Final sorting preserves the existing host layout order.
+
+Fulfilled requirements, interfaces and macros are removed. Function/global
+signatures and bodies are concrete, and all retained references are `Local` or
+`Instance`, including nodes outside runtime roots. Generic struct definitions
+remain for layout; concrete global assumptions remain body/condition records.
+No specialized body returns to source syntax for another type check.
+
+Fallible constructors validate structure and complete instance inventories;
+origin validation checks definition kind and type/size argument counts against
+the retained templates. All retained concrete function bodies then run through
+the existing safety traversal, including ordinary callers of generics. Direct
+function instances supply exact contracts without signature filtering. This
+precedes field hoisting; structural validation runs again before compiler
+publication. Failure retains templates and publishes no concrete program.
+
+## Analyses and lowering
+
+Safety owns its existing interval/constraint proofs. Identified storage roots
+and fresh callee contexts prevent equal numeric locals in different bodies from
+sharing facts. Indirect function values carry no direct-call contract, and
+unsupported precondition syntax can still fail conservatively.
+
+Field hoisting uses instance-keyed may-write summaries and accounts for borrowed/
+global aliases, captured storage, transitive writes and opaque calls. Binding
+identity alone proves neither disjoint memory nor safe code motion. Copy elision
+retains its own liveness/escape rules. Mutating public checked data requires
+validation and recomputation of affected analyses; coordinates and source
+locations do not keep old results valid.
+
+Backends use local/instance maps and shared ordered free-local discovery. They
+retain representation recovery, implicit conversions, captured storage, closure
+ABI and generated-lambda queues/patches. Extracted lambdas clone enclosing arenas;
+they are not additional source instances. VM expression inlining switches the
+complete callee body/storage context and restores its caller. Runtime cancellation
+belongs to backend lowering; LLVM AOT retains its omission of callback cancellation.
+
+## Maintaining the contract
+
+Boundary tests live in `src/checked.rs` and `src/checked/validate.rs`; compiler
+lifecycle/safety/assumption tests and LSP recovery tests exercise phase consumers.
+The CLI golden corpus covers backend execution and emitted-code checks, with
+per-case check-only flags and backend exclusions. Build the CLI before each
+workspace golden run; the runner uses Cargo's `CARGO_BIN_EXE_lyte`, including with
+a custom target directory:
+
+```sh
+cargo build --workspace
+cargo test --workspace
+cargo build --workspace --features llvm
+cargo test --workspace --features llvm
+cargo check --lib --no-default-features
 ```
 
-#### Algorithm
-
-The pass uses a **demand-driven** approach:
-
-1. **Start from entry point** (e.g., `main`)
-2. **Walk the call graph** by processing each function's body
-3. **For each generic call**:
-   - Compute concrete type arguments
-   - Check if already instantiated
-   - Check for infinite recursion
-   - Generate specialized version
-   - Add to worklist
-4. **Repeat** until worklist is empty
-
-### Type Argument Inference
-
-The pass infers concrete type arguments from call sites by examining the resolved types after type checking. This is simpler than full Hindley-Milner inference since types are already known.
-
-### Name Mangling
-
-Specialized functions are given mangled names using the existing `mangle_name` function:
-- `id<i32>` → `id$i32`
-- `map<i32, bool>` → `map$i32$bool`
-- `process<[f32;10]>` → `process$[f32;10]`
-
-### Type Substitution
-
-For each specialized version:
-1. Create an `Instance` (type substitution map) from type parameters to type arguments
-2. Clone the generic function declaration
-3. Substitute all type variables in:
-   - Return type
-   - Parameter types
-   - Body expression types
-4. Clear the `typevars` field (no longer generic)
-
-### Infinite Recursion Detection
-
-The pass uses the existing `RecursionDetector` from `src/monomorph.rs` to detect:
-- Direct recursion: `foo<Vec<T>>()` calling `foo<Vec<Vec<T>>>()`
-- Mutually recursive: `f<T>()` calling `g<Vec<T>>()` calling `f<Vec<Vec<T>>>()`
-
-## Integration Points
-
-### Where to Hook In
-
-The monomorphization pass should be called in `src/compiler.rs`:
-
-```rust
-pub fn check(&mut self) -> bool {
-    // Parse and collect declarations
-    let mut decls = self.collect_decls();
-
-    // Type check all declarations
-    self.typecheck_decls(&mut decls)?;
-
-    // NEW: Monomorphize generics
-    let specialized = self.monomorphize(&mut decls)?;
-    decls.extend(specialized);
-
-    // Freeze into immutable DeclTable for JIT
-    self.decls = DeclTable::new(decls);
-
-    true
-}
-```
-
-### Calling Convention
-
-```rust
-fn monomorphize(&mut self, decls: &DeclTable) -> Result<Vec<Decl>, String> {
-    let mut pass = MonomorphPass::new();
-    let entry_point = Name::str("main"); // or configurable
-    pass.monomorphize(decls, entry_point)
-}
-```
-
-## Testing
-
-The module includes 26 unit tests covering:
-
-- **Basic instantiation**: Single generic parameter, multiple parameters
-- **Deduplication**: Same type args don't create duplicates
-- **Type substitution**: Nested types, arrays, tuples
-- **Constraints**: Interface constraints are preserved
-- **Expression traversal**: All expression types handled
-- **Recursion detection**: Uses existing infrastructure
-- **Edge cases**: Non-generic functions, empty declarations
-
-### Running Tests
-
-```bash
-cargo test --lib monomorph_pass::tests
-```
-
-## Current Limitations
-
-The current implementation has some simplifications that will need to be enhanced:
-
-1. **Type Argument Inference**: Currently uses a simplified heuristic. May need to be enhanced to handle complex cases.
-
-2. **Call Site Resolution**: Currently only handles direct `Expr::Id` calls. Doesn't yet handle:
-   - Function values assigned to variables
-   - Higher-order function calls
-   - Method calls
-
-3. **Generic Structs**: The pass focuses on functions. Struct monomorphization is partially handled by the existing `Instance` mechanism in the JIT.
-
-4. **Separate Compilation**: All monomorphization happens at link time from a single entry point.
-
-## Future Enhancements
-
-### 1. Enhanced Type Inference
-
-Improve `infer_type_arguments` to:
-- Match function types against generic signatures
-- Handle partial application
-- Support higher-rank types
-
-### 2. Incremental Monomorphization
-
-Support multiple entry points for library compilation:
-```rust
-pub fn monomorphize_multiple(&mut self, entry_points: &[Name]) -> Result<Vec<Decl>, String>
-```
-
-### 3. Optimization Opportunities
-
-After monomorphization:
-- Dead code elimination (remove unused specializations)
-- Cross-function inlining
-- Specialization-specific optimizations
-
-### 4. Better Diagnostics
-
-- Report which generic function caused infinite recursion
-- Show the type argument chain
-- Suggest fixes (e.g., add runtime bounds)
-
-### 5. Struct Monomorphization
-
-Explicitly generate specialized struct declarations:
-```rust
-struct Vec<T> { ... }
-// Generate:
-// struct Vec$i32 { ... }
-// struct Vec$bool { ... }
-```
-
-## Examples
-
-### Example 1: Simple Generic Function
-
-**Input:**
-```lyte
-id<T>(x: T) → T { x }
-
-main {
-    let a = id(42)
-}
-```
-
-**Generated:**
-```lyte
-id$i32(x: i32) → i32 { x }
-
-main {
-    let a = id$i32(42)
-}
-```
-
-### Example 2: Multiple Type Parameters
-
-**Input:**
-```lyte
-map<T0, T1>(a: [T0], f: T0 → T1) → [T1] { ... }
-
-main {
-    let result = map([1, 2, 3], |x| x > 0)
-}
-```
-
-**Generated:**
-```lyte
-map$i32$bool(a: [i32], f: i32 → bool) → [bool] { ... }
-
-main {
-    let result = map$i32$bool([1, 2, 3], |x| x > 0)
-}
-```
-
-### Example 3: Nested Generics
-
-**Input:**
-```lyte
-process<T>(arr: [T; 10]) → T { ... }
-
-main {
-    let arr: [i32; 10]
-    let x = process(arr)
-}
-```
-
-**Generated:**
-```lyte
-process$i32(arr: [i32; 10]) → i32 { ... }
-
-main {
-    let arr: [i32; 10]
-    let x = process$i32(arr)
-}
-```
-
-## Implementation Status
-
-- ✅ Core monomorphization infrastructure
-- ✅ Type substitution
-- ✅ Name mangling
-- ✅ Infinite recursion detection
-- ✅ Comprehensive unit tests
-- ✅ Integration with compiler (not yet added)
-- ⏳ Enhanced type inference
-- ⏳ Struct monomorphization
-- ⏳ Integration tests with real code
-
-## References
-
-- **Name Mangling**: `src/monomorph.rs` - `mangle_name()`
-- **Recursion Detection**: `src/monomorph.rs` - `RecursionDetector`
-- **Type Substitution**: `src/types.rs` - `TypeID::subst()`
-- **Declaration Table**: `src/decl_table.rs`
+LLVM requires the configured LLVM toolchain. Production C Stack runtime/golden
+suites require the supported Clang-built interpreter; Rust StackVM tests are
+separate. The assembly VM requires AArch64. AOT emission tests establish
+object/header generation, not execution on the target device.

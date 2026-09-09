@@ -1,0 +1,21 @@
+// expected stdout:
+// compilation successful
+// 42
+// 24
+
+make() -> void -> i32 {
+    let x = 99
+    return (|| { let x = 42; x })
+}
+
+main {
+    let f = make()
+    print(f())
+    var a = 1
+    var b = 2
+    let outer = |x: i32| {
+        let inner = || { b * 10 + a + x }
+        inner()
+    }
+    print(outer(3))
+}
