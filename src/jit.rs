@@ -3,10 +3,11 @@
 
 use crate::cancel::*;
 use crate::checked::{
-    CheckedDecl as Decl, CheckedExpr as Expr, CheckedFunction as FuncDecl, InstanceId, LocalId,
-    Reference, SpecializedProgram as DeclTable,
+    CheckedDecl as Decl, CheckedFunction as FuncDecl, InstanceId, LocalId, Reference,
+    SpecializedProgram as DeclTable,
 };
 use crate::defs::*;
+use crate::Expr;
 use crate::TypeID;
 extern crate cranelift_codegen;
 use core::panic;
@@ -776,12 +777,15 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
-            Expr::Id(Reference::Local(local)) => self.builder.use_var(self.variables[local]),
-            Expr::Id(Reference::Instance(instance)) => {
-                let offset = self.globals[instance];
-                let base = self.globals_base.expect("globals_base not set");
-                self.builder.ins().iadd_imm(base, offset as i64)
-            }
+            Expr::Id(_) => match decl.arena.reference(expr) {
+                Some(Reference::Local(local)) => self.builder.use_var(self.variables[local]),
+                Some(Reference::Instance(instance)) => {
+                    let offset = self.globals[instance];
+                    let base = self.globals_base.expect("globals_base not set");
+                    self.builder.ins().iadd_imm(base, offset as i64)
+                }
+                reference => panic!("unresolved checked reference: {:?}", reference),
+            },
             Expr::Field(lhs, name) => {
                 let lhs_ty = decl.arena.ty(*lhs);
                 let lhs_value = self.translate_lvalue(*lhs, decl, decls);
@@ -855,34 +859,36 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Expr::Char(c) => self.builder.ins().iconst(I8, *c as i64),
-            Expr::Id(Reference::Local(local)) => {
-                let ty = decl.arena.ty(expr);
-                let val = self.builder.use_var(self.variables[local]);
-                if self.let_bindings.contains(local) || is_indirect(ty) {
-                    val
-                } else {
-                    self.builder
-                        .ins()
-                        .load(ty.cranelift_type(), MemFlags::new(), val, 0)
-                }
-            }
-            Expr::Id(Reference::Instance(instance)) => {
-                let ty = decl.arena.ty(expr);
-                if let Some(&offset) = self.globals.get(instance) {
-                    let base = self.globals_base.expect("globals_base not set");
-                    let addr = self.builder.ins().iadd_imm(base, offset as i64);
-                    if is_indirect(ty) {
-                        addr
+            Expr::Id(_) => match decl.arena.reference(expr) {
+                Some(Reference::Local(local)) => {
+                    let ty = decl.arena.ty(expr);
+                    let val = self.builder.use_var(self.variables[local]);
+                    if self.let_bindings.contains(local) || is_indirect(ty) {
+                        val
                     } else {
                         self.builder
                             .ins()
-                            .load(ty.cranelift_type(), MemFlags::new(), addr, 0)
+                            .load(ty.cranelift_type(), MemFlags::new(), val, 0)
                     }
-                } else {
-                    self.translate_func(*instance, &*ty, decls)
                 }
-            }
-            Expr::Id(reference) => panic!("unresolved checked reference: {:?}", reference),
+                Some(Reference::Instance(instance)) => {
+                    let ty = decl.arena.ty(expr);
+                    if let Some(&offset) = self.globals.get(instance) {
+                        let base = self.globals_base.expect("globals_base not set");
+                        let addr = self.builder.ins().iadd_imm(base, offset as i64);
+                        if is_indirect(ty) {
+                            addr
+                        } else {
+                            self.builder
+                                .ins()
+                                .load(ty.cranelift_type(), MemFlags::new(), addr, 0)
+                        }
+                    } else {
+                        self.translate_func(*instance, &*ty, decls)
+                    }
+                }
+                reference => panic!("unresolved checked reference: {:?}", reference),
+            },
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
             }
@@ -891,14 +897,14 @@ impl<'a> FunctionTranslator<'a> {
                 // Determine if this is a builtin (assert/print) which has a raw fn_ptr
                 // and no globals/closure parameters, vs a user function with a fat pointer.
                 let is_builtin =
-                    if let Expr::Id(Reference::Instance(instance)) = &decl.arena[*fn_id] {
+                    if let Some(Reference::Instance(instance)) = decl.arena.reference(*fn_id) {
                         is_builtin_name(&decls.instance_name(*instance))
                     } else {
                         false
                     };
 
                 // f32x4 constructor and splat — emit inline vector construction.
-                if let Expr::Id(Reference::Instance(instance)) = &decl.arena[*fn_id] {
+                if let Some(Reference::Instance(instance)) = decl.arena.reference(*fn_id) {
                     let name = decls.instance_name(*instance);
                     if *name == "f32x4" && arg_ids.len() == 4 {
                         let x = self.translate_expr(arg_ids[0], decl, decls);
@@ -937,7 +943,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Use the declaration (not the solved call-site type) because
                     // the solver may retain Array types where the callee expects Slice.
                     let param_types: Vec<crate::TypeID> =
-                        if let Expr::Id(Reference::Instance(callee)) = &decl.arena[*fn_id] {
+                        if let Some(Reference::Instance(callee)) = decl.arena.reference(*fn_id) {
                             if let Some(f) = decls.function_instance(*callee) {
                                 f.param_types()
                             } else if let crate::Type::Tuple(pts) = &*from {
@@ -953,7 +959,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     // Check if this is a math builtin that can use a direct call.
                     let math_sym =
-                        if let Expr::Id(Reference::Instance(instance)) = &decl.arena[*fn_id] {
+                        if let Some(Reference::Instance(instance)) = decl.arena.reference(*fn_id) {
                             math_builtin_symbol(&decls.instance_name(*instance))
                         } else {
                             None
@@ -961,7 +967,7 @@ impl<'a> FunctionTranslator<'a> {
 
                     // Check if this is an extern function call.
                     let is_extern_fn =
-                        if let Expr::Id(Reference::Instance(callee)) = &decl.arena[*fn_id] {
+                        if let Some(Reference::Instance(callee)) = decl.arena.reference(*fn_id) {
                             decls
                                 .function_instance(*callee)
                                 .is_some_and(|function| function.is_extern)
@@ -989,7 +995,7 @@ impl<'a> FunctionTranslator<'a> {
                     } else if is_extern_fn {
                         // Extern function: indirect call through {fn_ptr, context} in globals.
                         let callee_name =
-                            if let Expr::Id(Reference::Instance(n)) = &decl.arena[*fn_id] {
+                            if let Some(Reference::Instance(n)) = decl.arena.reference(*fn_id) {
                                 *n
                             } else {
                                 unreachable!()
@@ -1082,8 +1088,8 @@ impl<'a> FunctionTranslator<'a> {
                         // assert needs the globals pointer as the first arg so
                         // it can write trap_reason and longjmp on failure.
                         let is_assert = matches!(
-                            &decl.arena[*fn_id],
-                            Expr::Id(Reference::Instance(instance)) if *decls.instance_name(*instance) == "assert"
+                            decl.arena.reference(*fn_id),
+                            Some(Reference::Instance(instance)) if *decls.instance_name(*instance) == "assert"
                         );
                         let f = self.translate_expr(*fn_id, decl, decls);
                         let mut args = vec![];
@@ -1160,8 +1166,9 @@ impl<'a> FunctionTranslator<'a> {
                     );
                 }
             }
-            Expr::Let(name, init, _) => {
-                let ty = &decl.arena.local(*name).ty;
+            Expr::Let(_, init, _) => {
+                let name = decl.arena.binder(expr);
+                let ty = &decl.arena.local(name).ty;
                 let init_val = self.translate_expr(*init, decl, decls);
                 let init_val = self.wrap_for_expected_slice(init_val, *ty, *init, decl, decls);
 
@@ -1174,7 +1181,7 @@ impl<'a> FunctionTranslator<'a> {
                     && !self.elidable_lets.contains(&expr)
                     && sz > 0
                 {
-                    let var = self.declare_variable(name, I64);
+                    let var = self.declare_variable(&name, I64);
                     let slot = self.builder.create_sized_stack_slot(StackSlotData {
                         kind: StackSlotKind::ExplicitSlot,
                         size: sz,
@@ -1184,32 +1191,33 @@ impl<'a> FunctionTranslator<'a> {
                     let addr = self.builder.ins().stack_addr(I64, slot, 0);
                     self.builder.def_var(var, addr);
                     self.gen_copy(*ty, addr, init_val, decls);
-                    self.variable_types.insert(*name, *ty);
+                    self.variable_types.insert(name, *ty);
                     // The binding owns a stack slot now, exactly like a `var`,
                     // so it must not be treated as holding a value directly.
-                    self.let_bindings.remove(&*name);
+                    self.let_bindings.remove(&name);
                     return addr;
                 }
 
-                let var = self.declare_variable(name, ty.cranelift_type());
+                let var = self.declare_variable(&name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
-                self.variable_types.insert(*name, *ty);
-                self.let_bindings.insert(*name);
+                self.variable_types.insert(name, *ty);
+                self.let_bindings.insert(name);
                 init_val
             }
-            Expr::Var(name, init, _) => {
-                let ty = &decl.arena.local(*name).ty;
+            Expr::Var(_, init, _) => {
+                let name = decl.arena.binder(expr);
+                let ty = &decl.arena.local(name).ty;
                 // This storage is addressed through a pointer.
-                self.let_bindings.remove(&*name);
+                self.let_bindings.remove(&name);
 
                 // f32x4: treat as value type (like a let binding) so it lives in
                 // a Cranelift variable (F32X4) rather than a pointer to a stack slot.
                 // A variable a lambda captures is shared by address, so it has to
                 // stay in memory for writes on either side to be visible.
                 if matches!(**ty, crate::types::Type::Float32x4)
-                    && !self.lambda_referenced.contains(&*name)
+                    && !self.lambda_referenced.contains(&name)
                 {
-                    let var = self.declare_variable(name, F32X4);
+                    let var = self.declare_variable(&name, F32X4);
                     let init_val = if let Some(init_id) = init {
                         self.translate_expr(*init_id, decl, decls)
                     } else {
@@ -1217,13 +1225,13 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().splat(F32X4, zero)
                     };
                     self.builder.def_var(var, init_val);
-                    self.variable_types.insert(*name, *ty);
-                    self.let_bindings.insert(*name);
+                    self.variable_types.insert(name, *ty);
+                    self.let_bindings.insert(name);
                     return init_val;
                 }
 
-                let var = self.declare_variable(name, I64);
-                self.variable_types.insert(*name, *ty);
+                let var = self.declare_variable(&name, I64);
+                self.variable_types.insert(name, *ty);
 
                 let sz = ty.size(decls) as u32;
                 if sz == 0 {
@@ -1597,10 +1605,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Expr::For {
-                var,
-                start,
-                end,
-                body,
+                start, end, body, ..
             } => {
                 // Evaluate start and end values. Both are outside the loop
                 // variable's scope, so they still see any outer binding of the
@@ -1609,13 +1614,14 @@ impl<'a> FunctionTranslator<'a> {
                 let end_val = self.translate_expr(*end, decl, decls);
 
                 // The checked loop binding has its own local identity.
+                let var = decl.arena.binder(expr);
 
                 // Create a variable for the loop counter.
-                let loop_var = self.declare_variable(var, I32);
+                let loop_var = self.declare_variable(&var, I32);
                 self.builder.def_var(loop_var, start_val);
                 self.variable_types
-                    .insert(*var, crate::types::mk_type(crate::Type::Int32));
-                self.let_bindings.insert(*var);
+                    .insert(var, crate::types::mk_type(crate::Type::Int32));
+                self.let_bindings.insert(var);
 
                 // Create blocks for header, body, latch, and exit.
                 let header_block = self.builder.create_block();
@@ -2292,7 +2298,7 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().store(MemFlags::new(), rhs, ptr, 0);
                         return rhs;
                     }
-                    if let Expr::Id(Reference::Local(name)) = &decl.arena[lhs_id] {
+                    if let Some(Reference::Local(name)) = decl.arena.reference(lhs_id) {
                         if let Some(&var) = self.variables.get(name) {
                             self.builder.def_var(var, rhs);
                             return rhs;
@@ -2523,18 +2529,21 @@ impl<'a> FunctionTranslator<'a> {
     /// a variable, or when the expression isn't a place at all.
     fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<Value> {
         match &decl.arena[expr] {
-            Expr::Id(Reference::Local(local)) => {
-                if self.let_bindings.contains(local) {
-                    None
-                } else {
-                    Some(self.builder.use_var(self.variables[local]))
+            Expr::Id(_) => match decl.arena.reference(expr) {
+                Some(Reference::Local(local)) => {
+                    if self.let_bindings.contains(local) {
+                        None
+                    } else {
+                        Some(self.builder.use_var(self.variables[local]))
+                    }
                 }
-            }
-            Expr::Id(Reference::Instance(instance)) => {
-                let offset = *self.globals.get(instance)?;
-                let base = self.globals_base.expect("globals_base not set");
-                Some(self.builder.ins().iadd_imm(base, offset as i64))
-            }
+                Some(Reference::Instance(instance)) => {
+                    let offset = *self.globals.get(instance)?;
+                    let base = self.globals_base.expect("globals_base not set");
+                    Some(self.builder.ins().iadd_imm(base, offset as i64))
+                }
+                _ => None,
+            },
             Expr::Field(_, _) | Expr::ArrayIndex(_, _) => {
                 Some(self.translate_lvalue(expr, decl, decls))
             }
@@ -2559,7 +2568,7 @@ impl<'a> FunctionTranslator<'a> {
             self.builder.ins().store(MemFlags::new(), new_vec, ptr, 0);
             return;
         }
-        if let Expr::Id(Reference::Local(name)) = &decl.arena[vec_id] {
+        if let Some(Reference::Local(name)) = decl.arena.reference(vec_id) {
             if let Some(&var) = self.variables.get(name) {
                 let vec = self.builder.use_var(var);
                 let new_vec = self.builder.ins().insertlane(vec, value, lane);
@@ -2590,7 +2599,7 @@ impl<'a> FunctionTranslator<'a> {
             self.builder.ins().store(MemFlags::new(), value, addr, 0);
             return;
         }
-        if let Expr::Id(Reference::Local(name)) = &decl.arena[vec_id] {
+        if let Some(Reference::Local(name)) = decl.arena.reference(vec_id) {
             if let Some(&var) = self.variables.get(name) {
                 let vec = self.builder.use_var(var);
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
@@ -2687,13 +2696,16 @@ impl<'a> FunctionTranslator<'a> {
         decls: &DeclTable,
     ) -> crate::TypeID {
         match &decl.arena[expr] {
-            Expr::Id(Reference::Local(local)) => self
-                .variable_types
-                .get(local)
-                .copied()
-                .unwrap_or(decl.arena.local(*local).ty),
-            Expr::Id(Reference::Instance(instance)) => match decls.instance(*instance) {
-                Decl::Global { ty, .. } => *ty,
+            Expr::Id(_) => match decl.arena.reference(expr) {
+                Some(Reference::Local(local)) => self
+                    .variable_types
+                    .get(local)
+                    .copied()
+                    .unwrap_or(decl.arena.local(*local).ty),
+                Some(Reference::Instance(instance)) => match decls.instance(*instance) {
+                    Decl::Global { ty, .. } => *ty,
+                    _ => decl.arena.ty(expr),
+                },
                 _ => decl.arena.ty(expr),
             },
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl, decls) {

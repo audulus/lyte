@@ -1,4 +1,4 @@
-use crate::checked::{CheckedBody as ExprArena, CheckedExpr as Expr, CheckedFunction as FuncDecl};
+use crate::checked::{CheckedBody as ExprArena, CheckedFunction as FuncDecl};
 use crate::interval::{enclose, IndexInterval};
 use crate::*;
 
@@ -122,7 +122,7 @@ fn reference_place(reference: &Reference) -> Option<Place> {
 }
 fn id_place(id: ExprID, arena: &ExprArena) -> Option<Place> {
     match &arena[id] {
-        Expr::Id(reference) => reference_place(reference),
+        Expr::Id(_) => arena.reference(id).and_then(reference_place),
         _ => None,
     }
 }
@@ -161,7 +161,7 @@ fn collect_size_subst(param_ty: TypeID, arg_ty: TypeID, out: &mut Vec<(Name, i64
 /// A trackable storage place, including direct field projections.
 fn expr_place(id: ExprID, arena: &ExprArena) -> Option<Place> {
     match &arena[id] {
-        Expr::Id(reference) => reference_place(reference),
+        Expr::Id(_) => arena.reference(id).and_then(reference_place),
         Expr::Field(base, field) => Some(expr_place(*base, arena)?.field(*field)),
         _ => None,
     }
@@ -736,10 +736,11 @@ impl SafetyChecker {
                 }
                 IndexInterval::default()
             }
-            Expr::Let(local, init, _) => {
-                let name = &Place::local(*local);
+            Expr::Let(_, init, _) => {
+                let local = context.arena.binder(expr);
+                let name = &Place::local(local);
                 let init_r = self.check_expr(*init, context, decls);
-                let ty = context.arena.local(*local).ty;
+                let ty = context.arena.local(local).ty;
 
                 // Track the interval from the initializer.
                 let mut min = if init_r.min != i64::MIN {
@@ -778,14 +779,15 @@ impl SafetyChecker {
 
                 IndexInterval::default()
             }
-            Expr::Var(local, init, _) => {
-                let name = &Place::local(*local);
+            Expr::Var(_, init, _) => {
+                let local = context.arena.binder(expr);
+                let name = &Place::local(local);
                 let init_r = if let Some(init) = init {
                     self.check_expr(*init, context, decls)
                 } else {
                     IndexInterval::default()
                 };
-                let ty = context.arena.local(*local).ty;
+                let ty = context.arena.local(local).ty;
 
                 let mut min = if init_r.min != i64::MIN {
                     Some(init_r.min)
@@ -825,8 +827,8 @@ impl SafetyChecker {
 
                 IndexInterval::default()
             }
-            Expr::Id(reference) => {
-                let Some(place) = reference_place(reference) else {
+            Expr::Id(_) => {
+                let Some(place) = context.arena.reference(expr).and_then(reference_place) else {
                     return IndexInterval::default();
                 };
                 let name = &place;
@@ -1135,7 +1137,8 @@ impl SafetyChecker {
                     .collect();
                 // An immediately-invoked lambda has known arguments, so check
                 // its body against them rather than unconstrained.
-                if let Expr::Lambda { params, body } = &context.arena[*callee_expr] {
+                if let Expr::Lambda { body, .. } = &context.arena[*callee_expr] {
+                    let params = context.arena.binders(*callee_expr);
                     self.check_lambda_body(params, *body, Some((args, &arg_ivals)), context, decls);
                 }
                 self.check_call_requires(*callee_expr, args, expr, context, decls);
@@ -1208,12 +1211,9 @@ impl SafetyChecker {
                 }
             }
             Expr::For {
-                var,
-                start,
-                end,
-                body,
+                start, end, body, ..
             } => {
-                let var = &Place::local(*var);
+                let var = &Place::local(context.arena.binder(expr));
                 let start_r = self.check_expr(*start, context, decls);
                 let end_r = self.check_expr(*end, context, decls);
 
@@ -1289,19 +1289,14 @@ impl SafetyChecker {
                     // Scan the AST for `Var(name, Some(init), _)` where init
                     // is `Expr::Id(start_name)`.
                     let initialized_from_start = start_name.is_some_and(|sn| {
-                        context
-                            .arena
-                            .nodes()
-                            .iter()
-                            .map(|node| &node.kind)
-                            .any(|e| {
-                                if let Expr::Var(vn, Some(init), _) = e {
-                                    Place::local(*vn) == name
-                                        && id_place(*init, context.arena) == Some(sn)
-                                } else {
-                                    false
-                                }
-                            })
+                        context.arena.ids().any(|id| {
+                            if let Expr::Var(_, Some(init), _) = &context.arena[id] {
+                                Place::local(context.arena.binder(id)) == name
+                                    && id_place(*init, context.arena) == Some(sn)
+                            } else {
+                                false
+                            }
+                        })
                     });
                     if initialized_from_start {
                         if let Some(ref end_name) = id_place(*end, context.arena) {
@@ -1325,11 +1320,12 @@ impl SafetyChecker {
                 }
                 IndexInterval::default()
             }
-            Expr::Lambda { params, body } => {
+            Expr::Lambda { body, .. } => {
                 // Nothing is known about the arguments at the definition site,
                 // so the body is checked with its parameters unconstrained.
                 // (A directly-called lambda is handled by the `Call` arm, which
                 // knows the arguments.)
+                let params = context.arena.binders(expr);
                 self.check_lambda_body(params, *body, None, context, decls);
                 IndexInterval::default()
             }
@@ -1358,7 +1354,7 @@ impl SafetyChecker {
     /// at the definition site parameter values are unknown.
     fn check_lambda_body(
         &mut self,
-        params: &[CheckedParam],
+        params: &[LocalId],
         body: ExprID,
         call_args: Option<(&[ExprID], &[IndexInterval])>,
         context: SafetyBody<'_>,
@@ -1382,12 +1378,12 @@ impl SafetyChecker {
             }
         }
 
-        for (i, param) in params.iter().enumerate() {
-            let ty = context.arena.local(param.local).ty;
+        for (i, &param) in params.iter().enumerate() {
+            let ty = context.arena.local(param).ty;
             let is_u32 = ty == mk_type(Type::UInt32);
 
             // A repeated analysis of this lambda starts with fresh parameter facts.
-            self.forget(Place::local(param.local));
+            self.forget(Place::local(param));
 
             let arg = call_args.and_then(|(exprs, ivals)| Some((exprs.get(i)?, ivals.get(i)?)));
             match arg {
@@ -1397,9 +1393,9 @@ impl SafetyChecker {
                     if is_u32 {
                         min = Some(min.unwrap_or(0).max(0));
                     }
-                    self.add(Place::local(param.local), min, max);
+                    self.add(Place::local(param), min, max);
                     if ival.non_zero {
-                        self.add_non_zero(Place::local(param.local));
+                        self.add_non_zero(Place::local(param));
                     }
                     // The param inherits the argument's symbolic length bounds.
                     // Read the live state so bounds from earlier parameters
@@ -1413,14 +1409,14 @@ impl SafetyChecker {
                             .collect();
                         for array in inherited {
                             self.len_bounds.push(LenBound {
-                                index: Place::local(param.local),
+                                index: Place::local(param),
                                 array,
                             });
                         }
                     }
                 }
-                None if is_u32 => self.add(Place::local(param.local), Some(0), None),
-                None => self.add(Place::local(param.local), None, None),
+                None if is_u32 => self.add(Place::local(param), Some(0), None),
+                None => self.add(Place::local(param), None, None),
             }
         }
 
@@ -1534,7 +1530,10 @@ impl SafetyChecker {
         caller: SafetyBody<'_>,
         decls: &impl SafetyProgram,
     ) {
-        let Expr::Id(reference) = &caller.arena[callee_expr] else {
+        if !matches!(caller.arena[callee_expr], Expr::Id(_)) {
+            return;
+        }
+        let Some(reference) = caller.arena.reference(callee_expr) else {
             return;
         };
         let Some(callee) = decls.call_target(
@@ -1641,11 +1640,15 @@ impl SafetyChecker {
                     && self.prove_at_call(*rhs, callee, caller, subst, size_subst, decls)
             }
             Expr::Binop(Binop::Less, lhs, rhs) => {
-                if let (Expr::Id(index), Expr::Field(array, field)) =
+                if let (Expr::Id(_), Expr::Field(array, field)) =
                     (&callee.arena[*lhs], &callee.arena[*rhs])
                 {
                     if field.as_str() == "len" {
-                        if let Expr::Id(array) = &callee.arena[*array] {
+                        if let (Expr::Id(_), Some(index), Some(array)) = (
+                            &callee.arena[*array],
+                            callee.arena.reference(*lhs),
+                            callee.arena.reference(*array),
+                        ) {
                             if let (Some(index_arg), Some(array_arg)) =
                                 (lookup(index), lookup(array))
                             {
@@ -1671,21 +1674,32 @@ impl SafetyChecker {
                         }
                     }
                 }
-                if let (Expr::Id(lhs), Expr::Id(rhs)) = (&callee.arena[*lhs], &callee.arena[*rhs]) {
-                    if let (Some(argument), Some(size)) = (lookup(lhs), size_lookup(rhs)) {
+                if let (Expr::Id(_), Expr::Id(_)) = (&callee.arena[*lhs], &callee.arena[*rhs]) {
+                    if let (Some(argument), Some(size)) = (
+                        callee.arena.reference(*lhs).and_then(lookup),
+                        callee.arena.reference(*rhs).and_then(size_lookup),
+                    ) {
                         let interval = self.check_expr(argument, caller, decls);
                         if interval.max != i64::MAX && interval.max < size {
                             return true;
                         }
                     }
                 }
-                let left = if let Expr::Id(reference) = &callee.arena[*lhs] {
-                    lookup(reference).map(|argument| self.check_expr(argument, caller, decls))
+                let left = if let Expr::Id(_) = &callee.arena[*lhs] {
+                    callee
+                        .arena
+                        .reference(*lhs)
+                        .and_then(lookup)
+                        .map(|argument| self.check_expr(argument, caller, decls))
                 } else {
                     Some(Self::callee_interval(*lhs, callee, decls))
                 };
-                let right = if let Expr::Id(reference) = &callee.arena[*rhs] {
-                    lookup(reference).map(|argument| self.check_expr(argument, caller, decls))
+                let right = if let Expr::Id(_) = &callee.arena[*rhs] {
+                    callee
+                        .arena
+                        .reference(*rhs)
+                        .and_then(lookup)
+                        .map(|argument| self.check_expr(argument, caller, decls))
                 } else {
                     Some(Self::callee_interval(*rhs, callee, decls))
                 };
@@ -1697,8 +1711,8 @@ impl SafetyChecker {
                 }
             }
             Expr::Binop(Binop::Geq, lhs, rhs) => {
-                if let Expr::Id(reference) = &callee.arena[*lhs] {
-                    if let Some(argument) = lookup(reference) {
+                if let Expr::Id(_) = &callee.arena[*lhs] {
+                    if let Some(argument) = callee.arena.reference(*lhs).and_then(lookup) {
                         let argument = self.check_expr(argument, caller, decls);
                         let rhs = Self::callee_interval(*rhs, callee, decls);
                         return argument.min != i64::MIN
@@ -1829,9 +1843,11 @@ impl SafetyChecker {
             graph: &mut Graph,
         ) {
             match &body[expression] {
-                Expr::Id(reference) | Expr::TypeApp(reference, _) => {
+                Expr::Id(_) | Expr::TypeApp(_, _) => {
                     if !in_callee {
-                        graph.address_taken.extend(definitions(reference, body));
+                        if let Some(reference) = body.reference(expression) {
+                            graph.address_taken.extend(definitions(reference, body));
+                        }
                     }
                 }
                 Expr::Lambda {
@@ -1910,8 +1926,12 @@ impl SafetyChecker {
                     unreachable!();
                 };
                 let direct = match &function.arena[*callee] {
-                    Expr::Id(reference) | Expr::TypeApp(reference, _) => {
-                        let definitions = definitions(reference, &function.arena);
+                    Expr::Id(_) | Expr::TypeApp(_, _) => {
+                        let definitions = function
+                            .arena
+                            .reference(*callee)
+                            .map(|reference| definitions(reference, &function.arena))
+                            .unwrap_or_default();
                         let mut found = false;
                         for definition in definitions {
                             if program.function(definition).is_some() {
@@ -2051,17 +2071,17 @@ mod tests {
             };
             let callee = caller
                 .arena
-                .nodes()
+                .exprs()
                 .iter()
-                .find_map(|node| {
-                    if let Expr::Call(callee, _) = node.kind {
-                        Some(callee)
+                .find_map(|expr| {
+                    if let Expr::Call(callee, _) = expr {
+                        Some(*callee)
                     } else {
                         None
                     }
                 })
                 .unwrap();
-            let Expr::Id(Reference::Instance(target)) = caller.arena[callee] else {
+            let Some(&Reference::Instance(target)) = caller.arena.reference(callee) else {
                 unreachable!()
             };
             let integer = mk_type(Type::Int32);
@@ -2074,9 +2094,7 @@ mod tests {
                 mk_type(Type::Tuple(parameters)),
                 mk_type(Type::Void),
             ));
-            caller
-                .arena
-                .replace(callee, Expr::Id(Reference::Instance(target)), recorded);
+            caller.arena.set_ty(callee, recorded);
             let actual = program.function_instance(target).unwrap().ty();
             assert_ne!(actual, recorded);
             assert!(unify(actual, recorded, &mut Instance::new()));

@@ -1944,11 +1944,10 @@ mod tests {
         let program = compiler.specialized_program().unwrap();
         let targets: Vec<_> = main
             .arena
-            .nodes()
-            .iter()
-            .filter_map(|node| {
-                if let CheckedExpr::Id(Reference::Instance(target)) = node.kind {
-                    Some(program.instance_name(target).to_string())
+            .ids()
+            .filter_map(|id| {
+                if let Some(Reference::Instance(target)) = main.arena.reference(id) {
+                    Some(program.instance_name(*target).to_string())
                 } else {
                     None
                 }

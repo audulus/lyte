@@ -4,11 +4,11 @@
 //! executed by the register-based virtual machine.
 
 use crate::checked::{
-    CheckedBody, CheckedExpr as Expr, CheckedFunction, InstanceId, LocalId, Reference,
-    SpecializedProgram,
+    CheckedBody, CheckedFunction, InstanceId, LocalId, Reference, SpecializedProgram,
 };
 use crate::decl::Decl;
 use crate::defs::*;
+use crate::expr::Expr;
 use crate::types::*;
 use crate::vm::*;
 use std::collections::{HashMap, HashSet};
@@ -782,14 +782,17 @@ impl<'a> FunctionTranslator<'a> {
     /// pointer itself.
     fn representation_type(&self, expr: ExprID) -> TypeID {
         match &self.body.decl.arena[expr] {
-            Expr::Id(Reference::Local(local)) => {
-                let ty = self.body.decl.arena.local(*local).ty;
-                match &*ty {
-                    Type::Reference(inner) => *inner,
-                    _ => ty,
+            Expr::Id(_) => match self.body.decl.arena.reference(expr) {
+                Some(Reference::Local(local)) => {
+                    let ty = self.body.decl.arena.local(*local).ty;
+                    match &*ty {
+                        Type::Reference(inner) => *inner,
+                        _ => ty,
+                    }
                 }
-            }
-            Expr::Id(Reference::Instance(instance)) => self.decls.instance(*instance).ty(),
+                Some(Reference::Instance(instance)) => self.decls.instance(*instance).ty(),
+                _ => self.expr_type(expr),
+            },
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
                 Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => *elem,
                 _ => self.expr_type(expr),
@@ -839,127 +842,129 @@ impl<'a> FunctionTranslator<'a> {
                 dst
             }
 
-            Expr::Id(Reference::Local(name)) => {
-                let ty = self.expr_type(expr);
+            Expr::Id(_) => match self.body.decl.arena.reference(expr) {
+                Some(Reference::Local(name)) => {
+                    let ty = self.expr_type(expr);
 
-                // Check if it's a captured closure variable (double indirection).
-                if self.body.captured_vars.contains(name) {
-                    // Load pointer-to-captured-storage from our local slot.
-                    let slot = *self.body.local_slots.get(name).unwrap();
-                    let slot_addr = self.alloc_reg();
-                    func.emit(Opcode::LocalAddr {
-                        dst: slot_addr,
-                        slot,
-                    });
-                    let captured_addr = self.alloc_reg();
-                    func.emit(Opcode::Load64 {
-                        dst: captured_addr,
-                        addr: slot_addr,
-                    });
-                    // Aggregates and slices are represented by their address,
-                    // and the captured pointer already is that address —
-                    // dereferencing it would yield the first word of the value.
-                    if self.is_ptr_type(&ty) {
-                        return captured_addr;
-                    }
-                    // Now load the value from the captured variable's storage.
-                    let dst = self.alloc_reg();
-                    self.emit_load(&ty, dst, captured_addr, func);
-                    return dst;
-                }
-
-                // Check if it's a local variable.
-                if let Some(&reg) = self.body.variables.get(name) {
-                    if self.body.reference_vars.contains(name) {
-                        if self.is_ptr_type(&ty) {
-                            return reg;
-                        }
-                        let dst = self.alloc_reg();
-                        self.emit_load(&ty, dst, reg, func);
-                        dst
-                    } else if self.body.reg_promoted.contains(name) {
-                        // Register-promoted scalar: value is already in the register.
-                        reg
-                    } else if self.is_ptr_type(&ty) {
-                        // Pointer type: re-emit LocalAddr to ensure the register
-                        // is correct after calls that may have clobbered it.
-                        if let Some(&slot) = self.body.local_slots.get(name) {
-                            func.emit(Opcode::LocalAddr { dst: reg, slot });
-                        }
-                        reg
-                    } else if let Some(&slot) = self.body.local_slots.get(name) {
-                        // Non-promoted scalar in local slot: load from memory.
-                        let dst = self.alloc_reg();
-                        func.emit(Opcode::LocalAddr { dst, slot });
-                        let load_dst = self.alloc_reg();
-                        self.emit_load(&ty, load_dst, dst, func);
-                        load_dst
-                    } else {
-                        reg
-                    }
-                } else {
-                    unreachable!("checked local must have storage")
-                }
-            }
-            Expr::Id(Reference::Instance(name)) => {
-                let ty = self.expr_type(expr);
-                if let Some(&offset) = self.globals.get(name) {
-                    // Global variable - load from globals memory.
-                    let addr = self.alloc_reg();
-                    func.emit(Opcode::GlobalAddr { dst: addr, offset });
-                    // Composite types (arrays, structs) are pointer-represented:
-                    // return the address, don't load the value.
-                    if self.is_ptr_type(&ty) {
-                        addr
-                    } else {
-                        let dst = self.alloc_reg();
-                        self.emit_load(&ty, dst, addr, func);
-                        dst
-                    }
-                } else {
-                    // Check if it's a function.
-                    if let Type::Func(_, _) = &*ty {
-                        // Build a 16-byte fat pointer {func_idx, 0} on the stack.
-                        let fat_slot = self.alloc_local(16);
-                        let fat_addr = self.alloc_reg();
+                    // Check if it's a captured closure variable (double indirection).
+                    if self.body.captured_vars.contains(name) {
+                        // Load pointer-to-captured-storage from our local slot.
+                        let slot = *self.body.local_slots.get(name).unwrap();
+                        let slot_addr = self.alloc_reg();
                         func.emit(Opcode::LocalAddr {
-                            dst: fat_addr,
-                            slot: fat_slot,
+                            dst: slot_addr,
+                            slot,
                         });
-                        // Store func_idx (patched later).
-                        let func_idx_reg = self.alloc_reg();
-                        self.pending_functions.push(*name);
-                        let instr_idx = func.emit(Opcode::LoadImm {
-                            dst: func_idx_reg,
-                            value: 0,
+                        let captured_addr = self.alloc_reg();
+                        func.emit(Opcode::Load64 {
+                            dst: captured_addr,
+                            addr: slot_addr,
                         });
-                        self.func_load_patches.push(CallToPatch {
-                            instr_idx,
-                            callee: *name,
-                        });
-                        func.emit(Opcode::Store64 {
-                            addr: fat_addr,
-                            src: func_idx_reg,
-                        });
-                        // Store closure_ptr = 0.
-                        let zero_reg = self.alloc_reg();
-                        func.emit(Opcode::LoadImm {
-                            dst: zero_reg,
-                            value: 0,
-                        });
-                        func.emit(Opcode::Store64Off {
-                            base: fat_addr,
-                            offset: 8,
-                            src: zero_reg,
-                        });
-                        fat_addr
+                        // Aggregates and slices are represented by their address,
+                        // and the captured pointer already is that address —
+                        // dereferencing it would yield the first word of the value.
+                        if self.is_ptr_type(&ty) {
+                            return captured_addr;
+                        }
+                        // Now load the value from the captured variable's storage.
+                        let dst = self.alloc_reg();
+                        self.emit_load(&ty, dst, captured_addr, func);
+                        return dst;
+                    }
+
+                    // Check if it's a local variable.
+                    if let Some(&reg) = self.body.variables.get(name) {
+                        if self.body.reference_vars.contains(name) {
+                            if self.is_ptr_type(&ty) {
+                                return reg;
+                            }
+                            let dst = self.alloc_reg();
+                            self.emit_load(&ty, dst, reg, func);
+                            dst
+                        } else if self.body.reg_promoted.contains(name) {
+                            // Register-promoted scalar: value is already in the register.
+                            reg
+                        } else if self.is_ptr_type(&ty) {
+                            // Pointer type: re-emit LocalAddr to ensure the register
+                            // is correct after calls that may have clobbered it.
+                            if let Some(&slot) = self.body.local_slots.get(name) {
+                                func.emit(Opcode::LocalAddr { dst: reg, slot });
+                            }
+                            reg
+                        } else if let Some(&slot) = self.body.local_slots.get(name) {
+                            // Non-promoted scalar in local slot: load from memory.
+                            let dst = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr { dst, slot });
+                            let load_dst = self.alloc_reg();
+                            self.emit_load(&ty, load_dst, dst, func);
+                            load_dst
+                        } else {
+                            reg
+                        }
                     } else {
-                        unreachable!("instance must name storage or a function")
+                        unreachable!("checked local must have storage")
                     }
                 }
-            }
+                Some(Reference::Instance(name)) => {
+                    let ty = self.expr_type(expr);
+                    if let Some(&offset) = self.globals.get(name) {
+                        // Global variable - load from globals memory.
+                        let addr = self.alloc_reg();
+                        func.emit(Opcode::GlobalAddr { dst: addr, offset });
+                        // Composite types (arrays, structs) are pointer-represented:
+                        // return the address, don't load the value.
+                        if self.is_ptr_type(&ty) {
+                            addr
+                        } else {
+                            let dst = self.alloc_reg();
+                            self.emit_load(&ty, dst, addr, func);
+                            dst
+                        }
+                    } else {
+                        // Check if it's a function.
+                        if let Type::Func(_, _) = &*ty {
+                            // Build a 16-byte fat pointer {func_idx, 0} on the stack.
+                            let fat_slot = self.alloc_local(16);
+                            let fat_addr = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr {
+                                dst: fat_addr,
+                                slot: fat_slot,
+                            });
+                            // Store func_idx (patched later).
+                            let func_idx_reg = self.alloc_reg();
+                            self.pending_functions.push(*name);
+                            let instr_idx = func.emit(Opcode::LoadImm {
+                                dst: func_idx_reg,
+                                value: 0,
+                            });
+                            self.func_load_patches.push(CallToPatch {
+                                instr_idx,
+                                callee: *name,
+                            });
+                            func.emit(Opcode::Store64 {
+                                addr: fat_addr,
+                                src: func_idx_reg,
+                            });
+                            // Store closure_ptr = 0.
+                            let zero_reg = self.alloc_reg();
+                            func.emit(Opcode::LoadImm {
+                                dst: zero_reg,
+                                value: 0,
+                            });
+                            func.emit(Opcode::Store64Off {
+                                base: fat_addr,
+                                offset: 8,
+                                src: zero_reg,
+                            });
+                            fat_addr
+                        } else {
+                            unreachable!("instance must name storage or a function")
+                        }
+                    }
+                }
 
-            Expr::Id(_) => unreachable!("non-concrete reference in specialized body"),
+                _ => unreachable!("non-concrete reference in specialized body"),
+            },
 
             Expr::Binop(op, lhs_id, rhs_id) => self.translate_binop(*op, *lhs_id, *rhs_id, func),
 
@@ -967,7 +972,9 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Call(fn_id, arg_ids) => self.translate_call(*fn_id, arg_ids, expr, func),
 
-            Expr::Let(name, init, _) => {
+            Expr::Let(_, init, _) => {
+                let name = self.body.decl.arena.binder(expr);
+                let name = &name;
                 let ty = self.body.decl.arena.local(*name).ty;
                 let init_reg = self.translate_expr(*init, func);
                 let init_reg = self.wrap_for_expected_slice(init_reg, ty, *init, func);
@@ -1023,7 +1030,9 @@ impl<'a> FunctionTranslator<'a> {
                 init_reg
             }
 
-            Expr::Var(name, init, _) => {
+            Expr::Var(_, init, _) => {
+                let name = self.body.decl.arena.binder(expr);
+                let name = &name;
                 let ty = self.body.decl.arena.local(*name).ty;
 
                 if !self.is_ptr_type(&ty) && self.body.lambda_referenced.contains(name) {
@@ -1160,11 +1169,11 @@ impl<'a> FunctionTranslator<'a> {
             Expr::While(cond_id, body_id) => self.translate_while(*cond_id, *body_id, func),
 
             Expr::For {
-                var,
-                start,
-                end,
-                body,
-            } => self.translate_for(*var, *start, *end, *body, func),
+                start, end, body, ..
+            } => {
+                let var = self.body.decl.arena.binder(expr);
+                self.translate_for(var, *start, *end, *body, func)
+            }
 
             Expr::Assume(_) => {
                 // No-op: assume is only used by the safety checker.
@@ -1968,7 +1977,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an assignment expression.
     fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut VMFunction) -> Reg {
         // Check for captured variable assignment (double indirection).
-        if let Expr::Id(Reference::Local(name)) = &self.body.decl.arena[lhs_id] {
+        if let Some(Reference::Local(name)) = self.body.decl.arena.reference(lhs_id) {
             if self.body.captured_vars.contains(name) {
                 let rhs = self.translate_expr(rhs_id, func);
                 let ty = self.representation_type(lhs_id);
@@ -1989,7 +1998,7 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
         // Check for direct register-promoted scalar assignment (e.g., `x = expr`).
-        if let Expr::Id(Reference::Local(name)) = &self.body.decl.arena[lhs_id] {
+        if let Some(Reference::Local(name)) = self.body.decl.arena.reference(lhs_id) {
             if self.body.reg_promoted.contains(name) {
                 let rhs = self.translate_expr(rhs_id, func);
                 let reg = *self.body.variables.get(name).unwrap();
@@ -2046,33 +2055,36 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an lvalue expression (returns address).
     fn translate_lvalue(&mut self, expr: ExprID, func: &mut VMFunction) -> Reg {
         match &self.body.decl.arena[expr] {
-            Expr::Id(Reference::Local(name)) => {
-                if let Some(&reg) = self.body.variables.get(name) {
-                    if self.body.reg_promoted.contains(name) {
-                        let ty = self.body.decl.arena.local(*name).ty;
-                        let slot = self.alloc_local(ty.size(self.decls) as u32);
-                        let addr = self.alloc_reg();
-                        func.emit(Opcode::LocalAddr { dst: addr, slot });
-                        self.emit_store(&ty, addr, reg, func);
-                        self.body.variables.insert(*name, addr);
-                        self.body.local_slots.insert(*name, slot);
-                        self.body.reg_promoted.remove(name);
-                        addr
+            Expr::Id(_) => match self.body.decl.arena.reference(expr) {
+                Some(Reference::Local(name)) => {
+                    if let Some(&reg) = self.body.variables.get(name) {
+                        if self.body.reg_promoted.contains(name) {
+                            let ty = self.body.decl.arena.local(*name).ty;
+                            let slot = self.alloc_local(ty.size(self.decls) as u32);
+                            let addr = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr { dst: addr, slot });
+                            self.emit_store(&ty, addr, reg, func);
+                            self.body.variables.insert(*name, addr);
+                            self.body.local_slots.insert(*name, slot);
+                            self.body.reg_promoted.remove(name);
+                            addr
+                        } else {
+                            reg
+                        }
                     } else {
-                        reg
+                        unreachable!("checked local must have storage")
                     }
-                } else {
-                    unreachable!("checked local must have storage")
                 }
-            }
-            Expr::Id(Reference::Instance(instance)) => {
-                let dst = self.alloc_reg();
-                func.emit(Opcode::GlobalAddr {
-                    dst,
-                    offset: self.globals[instance],
-                });
-                dst
-            }
+                Some(Reference::Instance(instance)) => {
+                    let dst = self.alloc_reg();
+                    func.emit(Opcode::GlobalAddr {
+                        dst,
+                        offset: self.globals[instance],
+                    });
+                    dst
+                }
+                _ => unreachable!("non-concrete reference in specialized body"),
+            },
 
             Expr::Field(lhs_id, name) => {
                 let lhs_addr = self.translate_lvalue(*lhs_id, func);
@@ -2241,7 +2253,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Special handling for built-in functions.
-        if let Expr::Id(Reference::Instance(instance)) = &self.body.decl.arena[fn_id] {
+        if let Some(Reference::Instance(instance)) = self.body.decl.arena.reference(fn_id) {
             let instance = *instance;
             let name = &self.decls.instance_name(instance);
             if **name == "print" {
@@ -2654,9 +2666,9 @@ impl<'a> FunctionTranslator<'a> {
     /// rather than naming a function declaration. Such calls go through
     /// `translate_closure_call` instead of the direct-call path.
     fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
-        match &self.body.decl.arena[fn_id] {
-            Expr::Id(Reference::Local(_)) => true,
-            Expr::Id(Reference::Instance(id)) => {
+        match self.body.decl.arena.reference(fn_id) {
+            Some(Reference::Local(_)) => true,
+            Some(Reference::Instance(id)) => {
                 matches!(self.decls.instance(*id), Decl::Global { .. })
             }
             _ => false,
@@ -3680,21 +3692,21 @@ mod tests {
             let mut arena = CheckedBody::new();
             let counter = arena.add_local(Name::str("counter"), ty, true);
             let zero = arena.add(Expr::Int(0, None), ty, loc);
-            let binding = arena.add(Expr::Var(counter, Some(zero), None), void, loc);
+            let binding = arena.add_var(counter, Some(zero), loc);
             let condition = if iterations == 0 {
                 arena.add(Expr::False, boolean, loc)
             } else {
-                let read = arena.add(Expr::Id(Reference::Local(counter)), ty, loc);
+                let read = arena.add_local_read(counter, ty, loc);
                 let limit = arena.add(Expr::Int(iterations, None), ty, loc);
                 arena.add(Expr::Binop(Binop::Less, read, limit), boolean, loc)
             };
-            let read = arena.add(Expr::Id(Reference::Local(counter)), ty, loc);
+            let read = arena.add_local_read(counter, ty, loc);
             let one = arena.add(Expr::Int(1, None), ty, loc);
             let next = arena.add(Expr::Binop(Binop::Plus, read, one), ty, loc);
             let increment = arena.add(Expr::Binop(Binop::Assign, read, next), ty, loc);
             let loop_expr = arena.add(Expr::While(condition, increment), void, loc);
             // The returned state exposes omitted, extra, or missing iterations.
-            let result = arena.add(Expr::Id(Reference::Local(counter)), ty, loc);
+            let result = arena.add_local_read(counter, ty, loc);
             arena.add(Expr::Block(vec![binding, loop_expr, result]), ty, loc);
 
             assert_eq!(
@@ -3732,7 +3744,7 @@ mod tests {
         let wrong = make_function(Name::str("step"), vec![], wrong_body);
         let mut callee_body = CheckedBody::new();
         let parameter = callee_body.add_local(Name::str("value"), ty, false);
-        let value = callee_body.add(Expr::Id(Reference::Local(parameter)), ty, loc);
+        let value = callee_body.add_local_read(parameter, ty, loc);
         let one = callee_body.add(Expr::Int(1, None), ty, loc);
         callee_body.add(Expr::Binop(Binop::Plus, value, one), ty, loc);
         let callee = make_function(
@@ -3748,23 +3760,25 @@ mod tests {
             "the two bodies intentionally reuse local index zero"
         );
         let forty = main_body.add(Expr::Int(40, None), ty, loc);
-        let binding = main_body.add(Expr::Let(outer, forty, None), mk_type(Type::Void), loc);
-        let target = main_body.add(
-            Expr::Id(Reference::Instance(InstanceId(2))),
+        let binding = main_body.add_let(outer, forty, loc);
+        let target = main_body.add_id(
+            Name::str("step"),
+            Reference::Instance(InstanceId(2)),
             callee.ty(),
             loc,
         );
         let arg = main_body.add(Expr::Int(0, None), ty, loc);
         let first_call = main_body.add(Expr::Call(target, vec![arg]), ty, loc);
-        let target = main_body.add(
-            Expr::Id(Reference::Instance(InstanceId(2))),
+        let target = main_body.add_id(
+            Name::str("step"),
+            Reference::Instance(InstanceId(2)),
             callee.ty(),
             loc,
         );
         let arg = main_body.add(Expr::Int(0, None), ty, loc);
         let second_call = main_body.add(Expr::Call(target, vec![arg]), ty, loc);
         let call = main_body.add(Expr::Binop(Binop::Plus, first_call, second_call), ty, loc);
-        let outer_read = main_body.add(Expr::Id(Reference::Local(outer)), ty, loc);
+        let outer_read = main_body.add_local_read(outer, ty, loc);
         let sum = main_body.add(Expr::Binop(Binop::Plus, call, outer_read), ty, loc);
         main_body.add(Expr::Block(vec![binding, sum]), ty, loc);
         let main = make_function(Name::str("main"), vec![], main_body);

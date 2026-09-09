@@ -1,6 +1,5 @@
 use crate::checked::{
-    CheckedBody, CheckedExpr, CheckedFunction, CheckedNode, CheckedParam, Local, LocalId,
-    Reference, RequirementId,
+    CheckedBody, CheckedFunction, CheckedParam, Local, LocalId, Reference, RequirementId,
 };
 use crate::free_locals::{free_locals, BindingFacts, BindingNode};
 use crate::*;
@@ -1857,96 +1856,73 @@ impl Checker {
             })
             .collect();
         let solved = self.solved_types();
-        let mut nodes = Vec::with_capacity(source.exprs.len());
-        for (id, expression) in source.exprs.iter().enumerate() {
-            let resolution = || self.references[id].clone().expect("checked reference");
-            let binder = || *self.binders[id].first().expect("checked binder");
-            let kind = match expression {
-                Expr::Id(_) => CheckedExpr::Id(resolution()),
-                Expr::TypeApp(_, args) => CheckedExpr::TypeApp(
-                    resolution(),
-                    args.iter().map(|t| t.subst(&self.inst)).collect(),
-                ),
-                Expr::Let(_, init, _) => CheckedExpr::Let(binder(), *init, None),
-                Expr::Var(_, init, _) => CheckedExpr::Var(binder(), *init, None),
-                Expr::For {
-                    start, end, body, ..
-                } => CheckedExpr::For {
-                    var: binder(),
-                    start: *start,
-                    end: *end,
-                    body: *body,
-                },
-                Expr::Lambda { body, .. } => CheckedExpr::Lambda {
-                    params: self.binders[id]
-                        .iter()
-                        .map(|&local| CheckedParam { local })
-                        .collect(),
-                    body: *body,
-                },
-                Expr::Int(v, s) => CheckedExpr::Int(*v, *s),
-                Expr::Real(v, s) => CheckedExpr::Real(v.clone(), *s),
-                Expr::Call(f, a) => CheckedExpr::Call(*f, a.clone()),
-                Expr::Binop(op, a, b) => CheckedExpr::Binop(*op, *a, *b),
-                Expr::Unop(op, a) => CheckedExpr::Unop(*op, *a),
-                Expr::String(v) => CheckedExpr::String(v.clone()),
-                Expr::Char(v) => CheckedExpr::Char(*v),
-                Expr::Field(a, n) => CheckedExpr::Field(*a, *n),
-                Expr::Array(a, b) => CheckedExpr::Array(*a, *b),
-                Expr::ArrayLiteral(a) => CheckedExpr::ArrayLiteral(a.clone()),
-                Expr::ArrayIndex(a, b) => CheckedExpr::ArrayIndex(*a, *b),
-                Expr::True => CheckedExpr::True,
-                Expr::False => CheckedExpr::False,
-                Expr::AsTy(a, t) => CheckedExpr::AsTy(*a, t.subst(&self.inst)),
-                Expr::If(a, b, c) => CheckedExpr::If(*a, *b, *c),
-                Expr::While(a, b) => CheckedExpr::While(*a, *b),
-                Expr::Block(v) => CheckedExpr::Block(v.clone()),
-                Expr::Return(a) => CheckedExpr::Return(*a),
-                Expr::Break => CheckedExpr::Break,
-                Expr::Continue => CheckedExpr::Continue,
-                Expr::Enum(n) => CheckedExpr::Enum(*n),
-                Expr::Tuple(v) => CheckedExpr::Tuple(v.clone()),
-                Expr::StructLit(n, v) => CheckedExpr::StructLit(*n, v.clone()),
-                Expr::Arena(a) => CheckedExpr::Arena(*a),
-                Expr::Assume(a) => CheckedExpr::Assume(*a),
+        let mut syntax = source.clone();
+        let mut types = Vec::with_capacity(syntax.exprs.len());
+        let mut references = Vec::with_capacity(syntax.exprs.len());
+        for (id, expression) in syntax.exprs.iter_mut().enumerate() {
+            let mut reference = None;
+            match expression {
+                Expr::Id(_) => {
+                    reference = Some(self.references[id].clone().expect("checked reference"));
+                }
+                Expr::TypeApp(_, args) => {
+                    reference = Some(self.references[id].clone().expect("checked reference"));
+                    for ty in args {
+                        *ty = ty.subst(&self.inst);
+                    }
+                }
+                // Declarations consume their annotations: local records own the types.
+                Expr::Let(_, _, annotation) | Expr::Var(_, _, annotation) => *annotation = None,
+                Expr::Lambda { params, .. } => {
+                    for param in params {
+                        param.ty = None;
+                    }
+                }
+                Expr::AsTy(_, ty) => *ty = ty.subst(&self.inst),
                 Expr::Macro(..) | Expr::Error => {
                     panic!("unexpanded or invalid source in checked body")
                 }
-            };
-            let ty = if matches!(expression, Expr::Let(..) | Expr::Var(..)) {
+                _ => {}
+            }
+            references.push(reference);
+            types.push(if matches!(expression, Expr::Let(..) | Expr::Var(..)) {
                 mk_type(Type::Void)
             } else {
                 solved[id]
-            };
-            nodes.push(CheckedNode {
-                kind,
-                ty,
-                loc: source.locs[id],
             });
         }
+        let mut body = CheckedBody::from_parts(
+            syntax,
+            types,
+            references,
+            self.binders.clone(),
+            locals,
+            self.requirements.clone(),
+        );
         // Operator overloading is lowered while publishing checked meaning,
         // rather than rewriting source syntax after its types have been solved.
-        for id in 0..nodes.len() {
-            if let CheckedExpr::Binop(op, lhs, rhs) = nodes[id].kind.clone() {
+        for id in body.ids() {
+            if let Expr::Binop(op, lhs, rhs) = body[id].clone() {
                 if op.arithmetic()
-                    && (matches!(*nodes[lhs].ty, Type::Name(_, _))
+                    && (matches!(*body.ty(lhs), Type::Name(_, _))
                         || (op == Binop::Mod
-                            && matches!(*nodes[lhs].ty, Type::Float32 | Type::Float64)))
+                            && matches!(*body.ty(lhs), Type::Float32 | Type::Float64)))
                 {
                     let Some(reference) = self.references[id].clone() else {
                         continue;
                     };
-                    let callee = nodes.len();
-                    nodes.push(CheckedNode {
-                        kind: CheckedExpr::Id(reference),
-                        ty: func(tuple(vec![nodes[lhs].ty, nodes[rhs].ty]), nodes[id].ty),
-                        loc: nodes[id].loc,
-                    });
-                    nodes[id].kind = CheckedExpr::Call(callee, vec![lhs, rhs]);
+                    let ty = body.ty(id);
+                    let callee = body.add_id(
+                        Name::new(op.overload_name().into()),
+                        reference,
+                        func(tuple(vec![body.ty(lhs), body.ty(rhs)]), ty),
+                        body.loc(id),
+                    );
+                    body.replace(id, Expr::Call(callee, vec![lhs, rhs]), ty);
                 }
             }
         }
-        CheckedBody::from_parts(nodes, locals, self.requirements.clone())
+        body
     }
 
     /// Publish function metadata only at the function boundary.

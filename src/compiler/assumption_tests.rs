@@ -38,14 +38,15 @@ fn normalization_remaps_assumption_roots_and_shared_binding_occurrences() {
     };
     assert_ne!(left, right);
     for (root, expected) in [(left, LocalId(0)), (right, LocalId(1))] {
-        let CheckedExpr::Block(statements) = &body[root] else {
+        let Expr::Block(statements) = &body[root] else {
             panic!()
         };
-        assert!(matches!(body[statements[0]], Expr::Let(local, ..) if local == expected));
+        assert!(matches!(body[statements[0]], Expr::Let(..)));
+        assert_eq!(body.binder(statements[0]), expected);
         let Expr::Binop(Binop::Geq, value, _) = body[statements[1]] else {
             panic!()
         };
-        assert_eq!(body[value], Expr::Id(Reference::Local(expected)));
+        assert_eq!(body.reference(value), Some(&Reference::Local(expected)));
     }
     CheckedProgram::try_new(DeclTable::new(vec![Decl::Assume {
         arena: body,
@@ -148,8 +149,8 @@ fn assumption_specialization_preserves_local_ownership_and_concrete_targets() {
     assert_eq!(body.ty(root), mk_type(Type::Bool));
     assert_eq!(body.locals, source_body.locals);
     let mut targets = vec![];
-    for node in body.nodes() {
-        if let Expr::Id(Reference::Instance(target)) = node.kind {
+    for id in body.ids() {
+        if let Some(Reference::Instance(target)) = body.reference(id) {
             targets.push(output.instances[target.index()].definition);
         }
     }
@@ -171,15 +172,17 @@ fn assumption_specialization_preserves_local_ownership_and_concrete_targets() {
         .into_iter()
         .find(|id| templates.function(*id).unwrap().param_types() == vec![mk_type(Type::Int32)])
         .unwrap();
-    assert!(checked.arena.nodes().iter().any(|node| match node.kind {
-        Expr::Id(Reference::Instance(target)) =>
-            output.instances[target.index()].definition == positive,
-        _ => false,
-    }));
+    assert!(checked
+        .arena
+        .ids()
+        .any(|id| match checked.arena.reference(id) {
+            Some(Reference::Instance(target)) =>
+                output.instances[target.index()].definition == positive,
+            _ => false,
+        }));
     assert!(body
-        .nodes()
-        .iter()
-        .any(|node| matches!(node.kind, Expr::Id(Reference::Local(LocalId(0))))));
+        .ids()
+        .any(|id| body.reference(id) == Some(&Reference::Local(LocalId(0)))));
     let retained = compiler
         .checked_program()
         .unwrap()
@@ -252,12 +255,12 @@ fn safety_errors_in_assumptions_keep_the_expression_location() {
         })
         .unwrap();
     let division = body
-        .nodes()
-        .iter()
-        .find(|node| matches!(node.kind, Expr::Binop(Binop::Div, ..)))
+        .ids()
+        .find(|&id| matches!(body[id], Expr::Binop(Binop::Div, ..)))
+        .map(|id| body.loc(id))
         .unwrap();
     assert_eq!(compiler.last_safety_errors.len(), 1);
-    assert_eq!(compiler.last_safety_errors[0].location, division.loc);
-    assert_eq!(division.loc.file, Name::str("<prelude>"));
-    assert_eq!(division.loc, original_location);
+    assert_eq!(compiler.last_safety_errors[0].location, division);
+    assert_eq!(division.file, Name::str("<prelude>"));
+    assert_eq!(division, original_location);
 }

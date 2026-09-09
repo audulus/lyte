@@ -181,11 +181,15 @@ impl MonomorphPass {
         decls: &DeclTable<CheckedFunction>,
         selections: &HashMap<(RequirementId, DefId), DefId>,
     ) -> Result<(), String> {
-        let (reference, explicit) = match body[id].clone() {
-            Expr::Id(reference) => (reference, None),
-            Expr::TypeApp(reference, arguments) => (reference, Some(arguments)),
+        let explicit = match body[id].clone() {
+            Expr::Id(_) => None,
+            Expr::TypeApp(_, arguments) => Some(arguments),
             _ => return Err("Expected a checked reference".into()),
         };
+        let reference = body
+            .reference(id)
+            .cloned()
+            .ok_or("Expected a checked reference")?;
         let solved = body.ty(id);
         let candidates = match reference {
             Reference::Local(_) | Reference::Instance(_) => return Ok(()),
@@ -194,7 +198,7 @@ impl MonomorphPass {
             }
             Reference::Global(definition) => {
                 let instance = self.instantiate_global(definition, explicit, solved, decls)?;
-                body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+                select_instance(body, id, instance);
                 return Ok(());
             }
             Reference::Functions(candidates) => candidates,
@@ -225,7 +229,7 @@ impl MonomorphPass {
                     let types = infer_type_arguments(target, solved)?;
                     let instance =
                         self.instantiate_function(definition, types, sizes, target, decls)?;
-                    body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+                    select_instance(body, id, instance);
                     substitute_body_sizes(body, &bindings, size_vars);
                     return Ok(());
                 }
@@ -251,7 +255,7 @@ impl MonomorphPass {
                 }
                 let instance =
                     self.instantiate_global(definition, explicit.clone(), solved, decls)?;
-                body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+                select_instance(body, id, instance);
                 return Ok(());
             }
             let target = decls
@@ -293,7 +297,7 @@ impl MonomorphPass {
                 .map(|parameter| bindings.get(&parameter.symbol).copied().unwrap_or(0))
                 .collect();
             let instance = self.instantiate_function(definition, types, sizes, target, decls)?;
-            body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+            select_instance(body, id, instance);
             substitute_body_sizes(body, &bindings, size_vars);
             return Ok(());
         }
@@ -519,6 +523,16 @@ fn subst_size_vars(ty: TypeID, bindings: &HashMap<Name, i32>) -> TypeID {
     }
 }
 
+/// Record the selected concrete target. An explicit application collapses to
+/// a plain identifier: its type arguments are consumed by the selection.
+fn select_instance(body: &mut CheckedBody, id: ExprID, instance: InstanceId) {
+    if let Expr::TypeApp(name, _) = body[id].clone() {
+        let ty = body.ty(id);
+        body.replace(id, Expr::Id(name), ty);
+    }
+    body.set_reference(id, Reference::Instance(instance));
+}
+
 fn substitute_body_sizes(
     body: &mut CheckedBody,
     bindings: &HashMap<Name, i32>,
@@ -538,9 +552,11 @@ fn substitute_body_sizes(
     for id in 0..body.len() {
         let mut kind = body[id].clone();
         match &mut kind {
-            Expr::Id(Reference::SizeParameter(local)) => {
-                if let Some(value) = values.get(local) {
-                    kind = Expr::Int(i64::from(*value), None);
+            Expr::Id(_) => {
+                if let Some(Reference::SizeParameter(local)) = body.reference(id) {
+                    if let Some(value) = values.get(local) {
+                        kind = Expr::Int(i64::from(*value), None);
+                    }
                 }
             }
             Expr::TypeApp(_, types) => {
@@ -631,10 +647,9 @@ mod tests {
     fn targets(function: &CheckedFunction) -> Vec<InstanceId> {
         function
             .arena
-            .nodes()
-            .iter()
-            .filter_map(|node| match node.kind {
-                Expr::Id(Reference::Instance(id)) => Some(id),
+            .ids()
+            .filter_map(|id| match function.arena.reference(id) {
+                Some(Reference::Instance(id)) => Some(*id),
                 _ => None,
             })
             .collect()
@@ -664,8 +679,9 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        main.arena.add(
-            Expr::Id(Reference::Functions(vec![definition])),
+        main.arena.add_id(
+            Name::str("target"),
+            Reference::Functions(vec![definition]),
             ty,
             test_loc(),
         );
@@ -697,9 +713,9 @@ mod tests {
         let specialized = output.find_entry_point(Name::str("probe$3")).unwrap();
         assert!(specialized
             .arena
-            .nodes()
+            .exprs()
             .iter()
-            .any(|node| node.kind == Expr::Int(3, None)));
+            .any(|expr| *expr == Expr::Int(3, None)));
         assert_eq!(
             specialized.param_types(),
             vec![mk_type(Type::Array(
@@ -738,8 +754,9 @@ mod tests {
         let mut source = checked("var limit: i32 main {}");
         let global = source.decls.named_ids(Name::str("limit"))[0];
         let mut arena = CheckedBody::new();
-        let reference = arena.add(
-            Expr::Id(Reference::Global(global)),
+        let reference = arena.add_id(
+            Name::str("limit"),
+            Reference::Global(global),
             mk_type(Type::Int32),
             test_loc(),
         );
@@ -771,7 +788,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        let Expr::Id(Reference::Instance(instance)) = assumption[reference] else {
+        let Some(&Reference::Instance(instance)) = assumption.reference(reference) else {
             panic!("assumption retained a generic-phase reference");
         };
         assert_eq!(output.instances[instance.index()].definition, global);
@@ -841,9 +858,8 @@ mod tests {
             .unwrap();
         assert!(main
             .arena
-            .nodes()
-            .iter()
-            .any(|node| node.kind == Expr::Id(Reference::Local(LocalId(binding as u32)))));
+            .ids()
+            .any(|id| main.arena.reference(id) == Some(&Reference::Local(LocalId(binding as u32)))));
         assert!(output.find(Name::str("bump$i32")).is_empty());
         assert!(output.find(Name::str("bump$f32")).is_empty());
     }
@@ -855,19 +871,18 @@ mod tests {
         assert_eq!(
             function
                 .arena
-                .nodes()
+                .exprs()
                 .iter()
-                .filter(|node| node.kind == Expr::Int(3, None))
+                .filter(|expr| **expr == Expr::Int(3, None))
                 .count(),
             2
         );
-        assert!(function.arena.nodes().iter().any(|node| matches!(node.kind,
-            Expr::Id(Reference::Local(local)) if function.arena.local(local).name == Name::str("N"))));
+        assert!(function.arena.ids().any(|id| matches!(function.arena.reference(id),
+            Some(Reference::Local(local)) if function.arena.local(*local).name == Name::str("N"))));
         assert!(!function
             .arena
-            .nodes()
-            .iter()
-            .any(|node| matches!(node.kind, Expr::Id(Reference::SizeParameter(_)))));
+            .ids()
+            .any(|id| matches!(function.arena.reference(id), Some(Reference::SizeParameter(_)))));
     }
 
     #[test]

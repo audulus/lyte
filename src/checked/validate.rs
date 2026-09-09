@@ -202,8 +202,8 @@ impl Phase<'_> {
         for local in &body.locals {
             validate_type(local.ty, self.concrete())?;
         }
-        for (id, node) in body.nodes().iter().enumerate() {
-            self.node(node, body, &bindings)
+        for id in body.ids() {
+            self.node(id, body, &bindings)
                 .map_err(|error| format!("expression {}: {}", id, error))?;
         }
         Ok(())
@@ -211,26 +211,52 @@ impl Phase<'_> {
 
     fn node(
         &self,
-        node: &CheckedNode,
+        id: ExprID,
         body: &CheckedBody,
         bindings: &[Option<BinderKind>],
     ) -> Result<(), String> {
-        validate_type(node.ty, self.concrete())?;
-        match &node.kind {
-            Expr::Id(reference) => self.reference(reference, body, bindings)?,
-            Expr::TypeApp(reference, args) => {
+        validate_type(body.ty(id), self.concrete())?;
+        let expression = &body[id];
+        let reference = body.reference(id);
+        let declares = match expression {
+            Expr::Let(..) | Expr::Var(..) | Expr::For { .. } => 1,
+            Expr::Lambda { params, .. } => params.len(),
+            _ => 0,
+        };
+        if body.binders(id).len() != declares {
+            return Err(format!(
+                "expression declares {} bindings but records {}",
+                declares,
+                body.binders(id).len()
+            ));
+        }
+        match expression {
+            Expr::Id(_) | Expr::TypeApp(..) => {
+                let Some(reference) = reference else {
+                    return Err("reference has no recorded resolution".into());
+                };
                 self.reference(reference, body, bindings)?;
-                for &ty in args {
-                    validate_type(ty, self.concrete())?;
+                if let Expr::TypeApp(_, args) = expression {
+                    for &ty in args {
+                        validate_type(ty, self.concrete())?;
+                    }
                 }
+            }
+            _ if reference.is_some() => {
+                return Err("non-reference expression records a resolution".into())
             }
             Expr::AsTy(_, ty) => validate_type(*ty, self.concrete())?,
             Expr::Let(_, _, annotation) | Expr::Var(_, _, annotation) => {
                 if annotation.is_some() {
                     return Err("checked declaration retains a source annotation".into());
                 }
-                if node.ty != mk_type(Type::Void) {
+                if body.ty(id) != mk_type(Type::Void) {
                     return Err("checked declaration result type is not void".into());
+                }
+            }
+            Expr::Lambda { params, .. } => {
+                if params.iter().any(|param| param.ty.is_some()) {
+                    return Err("checked lambda parameter retains a source annotation".into());
                 }
             }
             Expr::Macro(..) | Expr::Error => return Err("unexpanded or invalid expression".into()),
@@ -245,15 +271,18 @@ impl Phase<'_> {
                     return Err("call arity does not match checked signature".into());
                 }
                 if let Self::Concrete(program) = self {
-                    if let Expr::Id(reference @ Reference::Instance(instance))
-                    | Expr::TypeApp(reference @ Reference::Instance(instance), _) =
-                        &body[*callee]
-                    {
-                        // The callee node can occur later in the arena.
-                        self.reference(reference, body, bindings)?;
-                        if let Some(target) = program.function_instance(*instance) {
-                            if target.params.len() != args.len() {
-                                return Err("call arity does not match function instance".into());
+                    if matches!(body[*callee], Expr::Id(_) | Expr::TypeApp(..)) {
+                        if let Some(reference @ Reference::Instance(instance)) =
+                            body.reference(*callee)
+                        {
+                            // The callee node can occur later in the arena.
+                            self.reference(reference, body, bindings)?;
+                            if let Some(target) = program.function_instance(*instance) {
+                                if target.params.len() != args.len() {
+                                    return Err(
+                                        "call arity does not match function instance".into()
+                                    );
+                                }
                             }
                         }
                     }
@@ -395,17 +424,9 @@ fn collect_bindings(
     for size in sizes {
         bind(size.local, BinderKind::Size)?;
     }
-    for node in body.nodes() {
-        match &node.kind {
-            Expr::Let(local, ..) | Expr::Var(local, ..) | Expr::For { var: local, .. } => {
-                bind(*local, BinderKind::Value)?
-            }
-            Expr::Lambda { params, .. } => {
-                for param in params {
-                    bind(param.local, BinderKind::Value)?;
-                }
-            }
-            _ => {}
+    for id in body.ids() {
+        for &local in body.binders(id) {
+            bind(local, BinderKind::Value)?;
         }
     }
     Ok(bindings)
@@ -438,8 +459,8 @@ fn validate_edges(body: &CheckedBody, roots: &[ExprID]) -> Result<(), String> {
     for &root in roots {
         uses[root] += 1;
     }
-    for node in body.nodes() {
-        for child in node.kind.subexprs() {
+    for id in body.ids() {
+        for child in body[id].subexprs() {
             *uses
                 .get_mut(child)
                 .ok_or("expression edge is outside its body")? += 1;
@@ -457,14 +478,11 @@ fn validate_edges(body: &CheckedBody, roots: &[ExprID]) -> Result<(), String> {
                 .get_mut(id)
                 .ok_or("expression edge is outside its body")?;
             if leaving {
-                contains_binder[id] = match &body[id] {
-                    Expr::Let(..) | Expr::Var(..) | Expr::For { .. } => true,
-                    Expr::Lambda { params, .. } if !params.is_empty() => true,
-                    _ => body[id]
+                contains_binder[id] = !body.binders(id).is_empty()
+                    || body[id]
                         .subexprs()
                         .iter()
-                        .any(|&child| contains_binder[child]),
-                };
+                        .any(|&child| contains_binder[child]);
                 // Sharing reads is allowed. Sharing a declaration-containing
                 // subtree would give distinct lexical occurrences one binder,
                 // undoing the normalization required before checking/duplication.
@@ -494,7 +512,7 @@ mod tests {
         let mut arena = CheckedBody::new();
         let ty = mk_type(Type::Int32);
         let local = arena.add_local(Name::str("x"), ty, false);
-        let body = arena.add(Expr::Id(Reference::Local(local)), ty, test_loc());
+        let body = arena.add_local_read(local, ty, test_loc());
         CheckedFunction {
             name: Name::str("main"),
             typevars: vec![],
@@ -557,28 +575,33 @@ mod tests {
             (|f| f.params.push(f.params[0].clone()), "multiple binders"),
             (
                 |f| {
-                    f.arena
-                        .add(Expr::Id(Reference::Local(LocalId(999))), f.ret, test_loc());
+                    f.arena.add_id(
+                        Name::str("x"),
+                        Reference::Local(LocalId(999)),
+                        f.ret,
+                        test_loc(),
+                    );
                 },
                 "no value binder",
             ),
             (
                 |f| {
                     let local = f.arena.add_local(Name::str("orphan"), f.ret, false);
-                    f.arena
-                        .add(Expr::Id(Reference::Local(local)), f.ret, test_loc());
+                    f.arena.add_local_read(local, f.ret, test_loc());
                 },
                 "no value binder",
             ),
             (
                 |f| {
-                    f.arena.add(
+                    f.arena.add_binding(
                         Expr::Lambda {
-                            params: vec![CheckedParam {
-                                local: LocalId(999),
+                            params: vec![Param {
+                                name: Name::str("p"),
+                                ty: None,
                             }],
                             body: 0,
                         },
+                        vec![LocalId(999)],
                         f.ty(),
                         test_loc(),
                     );
@@ -626,9 +649,8 @@ mod tests {
             let function = templates.function(definition).unwrap();
             let id = function
                 .arena
-                .nodes()
-                .iter()
-                .position(|node| matches!(node.kind, Expr::Let(..) | Expr::Var(..)))
+                .ids()
+                .find(|&id| matches!(function.arena[id], Expr::Let(..) | Expr::Var(..)))
                 .unwrap();
             concrete(function.clone()).unwrap();
             for (annotation, result, expected) in [
@@ -693,14 +715,16 @@ mod tests {
                     caller.ret,
                     test_loc(),
                 ));
-                let reference = Reference::Instance(target_id);
                 let kind = if type_application {
-                    Expr::TypeApp(reference, vec![])
+                    Expr::TypeApp(Name::str("target"), vec![])
                 } else {
-                    Expr::Id(reference)
+                    Expr::Id(Name::str("target"))
                 };
                 // Validate the forward reference before looking up its target.
                 assert_eq!(caller.arena.add(kind, recorded_type, test_loc()), callee);
+                caller
+                    .arena
+                    .set_reference(callee, Reference::Instance(target_id));
                 let result = SpecializedProgram::try_from_instances(
                     vec![Decl::Func(caller), Decl::Func(target)],
                     vec![record(0), record(1)],
@@ -724,8 +748,8 @@ mod tests {
         let main = templates
             .function(templates.decls.named_ids(Name::str("main"))[0])
             .unwrap();
-        assert!(main.arena.nodes().iter().any(|node| {
-            matches!(&node.kind, Expr::Id(Reference::Functions(candidates)) if candidates.len() == 2)
+        assert!(main.arena.ids().any(|id| {
+            matches!(main.arena.reference(id), Some(Reference::Functions(candidates)) if candidates.len() == 2)
         }));
         MonomorphPass::new()
             .monomorphize(&templates, Name::str("main"))
@@ -746,11 +770,7 @@ mod tests {
         let local = function
             .arena
             .add_local(Name::str("y"), function.ret, false);
-        let binding = function.arena.add(
-            Expr::Let(local, read, None),
-            mk_type(Type::Void),
-            test_loc(),
-        );
+        let binding = function.arena.add_let(local, read, test_loc());
         let block = function
             .arena
             .add(Expr::Block(vec![binding]), mk_type(Type::Void), test_loc());
@@ -800,14 +820,15 @@ mod tests {
             let mut function = sample_function();
             function
                 .arena
-                .add(Expr::Id(reference), function.ty(), test_loc());
+                .add_id(Name::str("x"), reference, function.ty(), test_loc());
             assert!(
                 CheckedProgram::try_new(CheckedDeclTable::new(vec![Decl::Func(function)])).is_err()
             );
         }
         let mut function = sample_function();
-        function.arena.add(
-            Expr::Id(Reference::Functions(vec![DefId(0)])),
+        function.arena.add_id(
+            Name::str("x"),
+            Reference::Functions(vec![DefId(0)]),
             function.ty(),
             test_loc(),
         );
@@ -915,8 +936,9 @@ mod tests {
         )
         .is_err());
         let mut function = sample_function();
-        function.arena.add(
-            Expr::Id(Reference::Instance(InstanceId(1))),
+        function.arena.add_id(
+            Name::str("x"),
+            Reference::Instance(InstanceId(1)),
             function.ty(),
             test_loc(),
         );
@@ -954,12 +976,10 @@ mod tests {
             *update.arena.local(update.params[0].local).ty,
             Type::Reference(_)
         ));
-        assert!(update
-            .arena
-            .nodes()
-            .iter()
-            .any(|node| matches!(node.kind, Expr::Id(Reference::Local(_)))
-                && node.ty == mk_type(Type::Int32)));
+        assert!(update.arena.ids().any(|id| {
+            matches!(update.arena.reference(id), Some(Reference::Local(_)))
+                && update.arena.ty(id) == mk_type(Type::Int32)
+        }));
     }
 
     #[test]
@@ -987,15 +1007,14 @@ mod tests {
             .unwrap();
         let original = function
             .arena
-            .nodes()
-            .iter()
-            .position(|node| matches!(node.kind, Expr::For { .. }))
+            .ids()
+            .find(|&id| matches!(function.arena[id], Expr::For { .. }))
             .unwrap();
-        let captures = function.arena.captures(original, &[]);
+        let captures = function.arena.captures(original, []);
         assert_eq!(captures.len(), 1);
         let previous_locals = function.arena.locals.len();
         let copy = function.arena.duplicate(original);
-        assert_eq!(function.arena.captures(copy, &[]), captures);
+        assert_eq!(function.arena.captures(copy, []), captures);
         // The loop variable, local function value and lambda parameter all freshen.
         assert_eq!(function.arena.locals.len(), previous_locals + 3);
         assert_eq!(function.arena.ty(copy), function.arena.ty(original));

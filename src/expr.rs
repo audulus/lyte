@@ -8,9 +8,9 @@ use crate::*;
 /// tree. It's also faster. Most hierarchical data
 /// should be represented this way.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Expr<R = Name, B = Name, P = Param> {
+pub enum Expr {
     /// Identifier expression.
-    Id(R),
+    Id(Name),
 
     /// Integer literal, with optional explicit suffix.
     Int(i64, Option<IntLiteralSuffix>),
@@ -31,7 +31,7 @@ pub enum Expr<R = Name, B = Name, P = Param> {
     Unop(Unop, ExprID),
 
     /// Lambda expression with parameters and body.
-    Lambda { params: Vec<P>, body: ExprID },
+    Lambda { params: Vec<Param>, body: ExprID },
 
     /// String literal.
     String(String),
@@ -61,13 +61,13 @@ pub enum Expr<R = Name, B = Name, P = Param> {
     AsTy(ExprID, TypeID),
 
     /// Explicit type application: `name⟨i32⟩` or `name⟨i32, f32⟩`.
-    TypeApp(R, Vec<TypeID>),
+    TypeApp(Name, Vec<TypeID>),
 
     /// Immutable variable declaration with initializer and optional type.
-    Let(B, ExprID, Option<TypeID>),
+    Let(Name, ExprID, Option<TypeID>),
 
     /// Mutable variable declaration with optional initializer and type.
-    Var(B, Option<ExprID>, Option<TypeID>),
+    Var(Name, Option<ExprID>, Option<TypeID>),
 
     /// If expression with optional else branch.
     If(ExprID, ExprID, Option<ExprID>),
@@ -77,7 +77,7 @@ pub enum Expr<R = Name, B = Name, P = Param> {
 
     /// For loop expression.
     For {
-        var: B,
+        var: Name,
         start: ExprID,
         end: ExprID,
         body: ExprID,
@@ -115,7 +115,7 @@ pub enum Expr<R = Name, B = Name, P = Param> {
     Error,
 }
 
-impl<R, B, P> Expr<R, B, P> {
+impl Expr {
     /// The immediate subexpression IDs of this expression.
     ///
     /// Lambda yields its body: walks that treat a lambda specially still need

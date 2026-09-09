@@ -27,11 +27,11 @@ and editing, but backends consume checked bodies.
 
 ## Bodies and identities
 
-`CheckedBody` owns operation/type/location nodes, local records and interface
-requirements. Binding types belong to `LocalId` records; a checked `let`/`var`
-statement is `void` and has no remaining source annotation. Source and checked
-expressions share syntax shape and child traversal with distinct reference,
-binder and parameter payloads.
+`CheckedBody` owns the expression tree, its per-expression type, reference and
+binder tables, local records and interface requirements. Binding types belong to
+`LocalId` records; a checked `let`/`var` statement is `void` and has no remaining
+source annotation. Source and checked bodies share the same `Expr` type; the
+checked tables, not the spelled names, carry resolution and binding identity.
 
 `DefId` identifies a checked definition, including an interface member.
 `InstanceId` identifies a concrete function/global inventory entry. `ExprID`,

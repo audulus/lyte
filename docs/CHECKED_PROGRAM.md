@@ -24,7 +24,10 @@ an equal numeric handle from another owner. Names support diagnostics, entry
 selection, host layout lookup and emitted symbols; they do not establish local
 or concrete target identity.
 
-Each `CheckedNode` owns its operation, result type and source location. Each
+A `CheckedBody` is the source expression tree plus side tables indexed by
+`ExprID`: the result type, the resolved `Reference` of each identifier or type
+application, and the `LocalId`s each declaration or lambda introduces. The tree
+keeps source spellings for diagnostics; only the tables establish identity. Each
 `Local` owns its binding type and mutability. Checked `let`/`var` nodes have a
 `void` result and no source annotation, even when the binding stores an array.
 Reading a reference parameter can have type `T` while its local record has type
@@ -268,7 +271,8 @@ binders, remaps their uses and preserves enclosing references and source locatio
 Shared reads are allowed; shared subtrees declaring bindings need freshening.
 Macro occurrence normalization precedes checking so expansions resolve in their
 actual lexical scopes. `replace` keeps a coordinate/location and takes the new
-result type; `replace_node` can also change provenance.
+result type, retaining recorded references/binders only when they still apply
+to the new expression.
 
 Derived analyses must be recomputed after input changes. Validation and preserved
 coordinates/locations neither refresh analyses nor prove behavior preservation.

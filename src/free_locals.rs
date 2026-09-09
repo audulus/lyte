@@ -1,5 +1,5 @@
 //! Capture discovery needs lexical bindings, not solved types or publication.
-use crate::{CheckedBody, Expr, ExprID, LocalId, Reference};
+use crate::{CheckedBody, ExprID, LocalId, Reference};
 use std::collections::HashSet;
 
 /// The narrow facts needed from either a checked body or a check in progress.
@@ -56,24 +56,14 @@ pub(crate) fn free_locals(
 
 impl BindingFacts for CheckedBody {
     fn binding_node(&self, id: ExprID) -> BindingNode {
-        let mut node = BindingNode {
+        BindingNode {
             children: self[id].subexprs(),
-            used: None,
-            declared: vec![],
+            used: match self.reference(id) {
+                Some(Reference::Local(local)) => Some(*local),
+                _ => None,
+            },
+            declared: self.binders(id).to_vec(),
             complete: true,
-        };
-        match &self[id] {
-            Expr::Id(Reference::Local(local)) | Expr::TypeApp(Reference::Local(local), _) => {
-                node.used = Some(*local);
-            }
-            Expr::Let(local, ..) | Expr::Var(local, ..) | Expr::For { var: local, .. } => {
-                node.declared.push(*local);
-            }
-            Expr::Lambda { params, .. } => {
-                node.declared.extend(params.iter().map(|param| param.local));
-            }
-            _ => {}
         }
-        node
     }
 }

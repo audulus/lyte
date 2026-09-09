@@ -85,16 +85,19 @@ impl SideEffects {
 }
 
 fn function_target(expr: ExprID, function: &CheckedFunction) -> Option<InstanceId> {
-    match function.arena[expr] {
-        Expr::Id(Reference::Instance(instance)) => Some(instance),
+    match function.arena.reference(expr) {
+        Some(Reference::Instance(instance)) => Some(*instance),
         _ => None,
     }
 }
 
 fn storage_root(expr: ExprID, function: &CheckedFunction) -> Option<Root> {
     match &function.arena[expr] {
-        Expr::Id(Reference::Local(local)) => Some(Root::Local(*local)),
-        Expr::Id(Reference::Instance(instance)) => Some(Root::Global(*instance)),
+        Expr::Id(_) => match function.arena.reference(expr)? {
+            Reference::Local(local) => Some(Root::Local(*local)),
+            Reference::Instance(instance) => Some(Root::Global(*instance)),
+            _ => None,
+        },
         Expr::Field(base, _) | Expr::ArrayIndex(base, _) => storage_root(*base, function),
         _ => None,
     }
@@ -286,43 +289,33 @@ fn create_hoisted_binding(read: &FieldRead, arena: &mut CheckedBody) -> (LocalId
     let Expr::Field(base, _) = arena[read.expr] else {
         unreachable!();
     };
-    let source_base = arena.node(base).clone();
-    let source_field = arena.node(read.expr).clone();
+    let Expr::Id(base_name) = arena[base] else {
+        unreachable!();
+    };
+    let base_reference = arena.reference(base).cloned().expect("checked reference");
+    let (base_ty, base_loc) = (arena.ty(base), arena.loc(base));
+    let (field_ty, field_loc) = (arena.ty(read.expr), arena.loc(read.expr));
     // These are fresh evaluations with fresh ExprIDs, while the copied
     // outer reference retains its LocalId or global InstanceId.
-    let base = arena.add(source_base.kind, source_base.ty, source_base.loc);
-    let initializer = arena.add(
-        Expr::Field(base, read.field),
-        source_field.ty,
-        source_field.loc,
-    );
+    let base = arena.add_id(base_name, base_reference, base_ty, base_loc);
+    let initializer = arena.add(Expr::Field(base, read.field), field_ty, field_loc);
     let local = arena.add_local(
         Name::new(format!("__hoisted_{}", read.field)),
-        source_field.ty,
+        field_ty,
         false,
     );
-    let declaration = arena.add(
-        Expr::Let(local, initializer, None),
-        mk_type(Type::Void),
-        source_field.loc,
-    );
+    let declaration = arena.add_let(local, initializer, field_loc);
     (local, declaration)
 }
 
 fn invalidate_binders(expr: ExprID, function: &CheckedFunction, written: &mut WrittenFields) {
-    match &function.arena[expr] {
-        Expr::Let(local, ..) | Expr::Var(local, ..) | Expr::For { var: local, .. } => {
-            written.insert((Root::Local(*local), None));
-        }
-        Expr::Lambda { params, .. } => {
-            written.extend(
-                params
-                    .iter()
-                    .map(|parameter| (Root::Local(parameter.local), None)),
-            );
-        }
-        _ => {}
-    }
+    written.extend(
+        function
+            .arena
+            .binders(expr)
+            .iter()
+            .map(|&local| (Root::Local(local), None)),
+    );
 }
 
 fn collect_written_fields(
@@ -417,7 +410,7 @@ fn borrows_argument(callee: ExprID, position: usize, function: &CheckedFunction)
     }
 }
 
-fn read_subexprs(expr: &CheckedExpr) -> Vec<ExprID> {
+fn read_subexprs(expr: &Expr) -> Vec<ExprID> {
     match expr {
         Expr::Lambda { .. } | Expr::Arena(_) | Expr::Array(..) | Expr::Macro(..) => vec![],
         Expr::Binop(Binop::Assign, _, rhs) => vec![*rhs],
@@ -462,11 +455,9 @@ fn replace_field_reads(
             if let Some(local) =
                 storage_root(base, function).and_then(|root| substitutions.get(&(root, field)))
             {
-                function.arena.replace(
-                    expr,
-                    Expr::Id(Reference::Local(*local)),
-                    function.arena.ty(expr),
-                );
+                let (name, ty) = (function.arena.local(*local).name, function.arena.ty(expr));
+                function.arena.replace(expr, Expr::Id(name), ty);
+                function.arena.set_reference(expr, Reference::Local(*local));
                 return;
             }
         }
@@ -530,9 +521,9 @@ mod tests {
         for local in [original, before] {
             assert!(function
                 .arena
-                .nodes()
-                .iter()
-                .any(|node| node.kind == Expr::Id(Reference::Local(LocalId(local as u32)))));
+                .ids()
+                .any(|id| function.arena.reference(id)
+                    == Some(&Reference::Local(LocalId(local as u32)))));
         }
     }
 

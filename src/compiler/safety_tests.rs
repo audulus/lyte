@@ -137,11 +137,11 @@ fn local_and_global_function_values_remain_indirect() {
         .unwrap();
     let mut local_calls = 0;
     let mut global_calls = 0;
-    for node in main.arena.nodes() {
-        if let CheckedExpr::Call(callee, _) = &node.kind {
-            match &main.arena[*callee] {
-                CheckedExpr::Id(Reference::Local(_)) => local_calls += 1,
-                CheckedExpr::Id(Reference::Instance(target)) => {
+    for id in main.arena.ids() {
+        if let Expr::Call(callee, _) = &main.arena[id] {
+            match main.arena.reference(*callee) {
+                Some(Reference::Local(_)) => local_calls += 1,
+                Some(Reference::Instance(target)) => {
                     assert!(matches!(
                         program.instance(*target),
                         CheckedDecl::Global { .. }

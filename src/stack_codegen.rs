@@ -4,11 +4,10 @@
 //! executed by a stack-based virtual machine. It mirrors the register-based
 //! VM codegen but emits stack IR instructions instead.
 
-use crate::checked::{
-    CheckedExpr as Expr, CheckedFunction, InstanceId, LocalId, Reference, SpecializedProgram,
-};
+use crate::checked::{CheckedFunction, InstanceId, LocalId, Reference, SpecializedProgram};
 use crate::decl::Decl;
 use crate::defs::*;
+use crate::expr::Expr;
 use crate::stack_ir::*;
 use crate::types::*;
 use std::collections::{HashMap, HashSet};
@@ -419,14 +418,17 @@ impl<'a> FunctionTranslator<'a> {
     /// has an array address and must explicitly build the slice fat pointer.
     fn representation_type(&self, expr: ExprID) -> TypeID {
         match &self.decl.arena[expr] {
-            Expr::Id(Reference::Local(local)) => {
-                let ty = self.decl.arena.local(*local).ty;
-                match &*ty {
-                    Type::Reference(inner) => *inner,
-                    _ => ty,
+            Expr::Id(_) => match self.decl.arena.reference(expr) {
+                Some(Reference::Local(local)) => {
+                    let ty = self.decl.arena.local(*local).ty;
+                    match &*ty {
+                        Type::Reference(inner) => *inner,
+                        _ => ty,
+                    }
                 }
-            }
-            Expr::Id(Reference::Instance(instance)) => self.decls.instance(*instance).ty(),
+                Some(Reference::Instance(instance)) => self.decls.instance(*instance).ty(),
+                _ => self.expr_type(expr),
+            },
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
                 Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => *elem,
                 _ => self.expr_type(expr),
@@ -767,7 +769,9 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::LocalAddr(mem_slot));
             }
 
-            Expr::Id(reference) => {
+            Expr::Id(_) => {
+                let decl = self.decl;
+                let reference = decl.arena.reference(expr).expect("checked reference");
                 self.translate_id(reference, expr, func);
             }
 
@@ -806,8 +810,8 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_call(*fn_id, &arg_ids, expr, func);
             }
 
-            Expr::Let(name, init, _) => {
-                let name = *name;
+            Expr::Let(_, init, _) => {
+                let name = self.decl.arena.binder(expr);
                 let init = *init;
                 let ty = self.decl.arena.local(name).ty;
 
@@ -874,8 +878,8 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
 
-            Expr::Var(name, init, _) => {
-                let name = *name;
+            Expr::Var(_, init, _) => {
+                let name = self.decl.arena.binder(expr);
                 let init = *init;
                 let ty = self.decl.arena.local(name).ty;
 
@@ -995,12 +999,10 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             Expr::For {
-                var,
-                start,
-                end,
-                body,
+                start, end, body, ..
             } => {
-                self.translate_for(*var, *start, *end, *body, func);
+                let var = self.decl.arena.binder(expr);
+                self.translate_for(var, *start, *end, *body, func);
                 if !self.void_ctx {
                     func.emit(StackOp::I64Const(0));
                 }
@@ -1243,7 +1245,7 @@ impl<'a> FunctionTranslator<'a> {
                 if self.holds_fat_pointer(*fn_id) {
                     return None;
                 }
-                let Expr::Id(Reference::Instance(instance)) = &self.decl.arena[*fn_id] else {
+                let Some(Reference::Instance(instance)) = self.decl.arena.reference(*fn_id) else {
                     return None;
                 };
                 let name = self.decls.instance_name(*instance);
@@ -1523,7 +1525,7 @@ impl<'a> FunctionTranslator<'a> {
         let lhs_ty = self.representation_type(lhs_id);
 
         // Check for captured variable assignment (double indirection).
-        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[lhs_id] {
+        if let Some(Reference::Local(name)) = self.decl.arena.reference(lhs_id) {
             let name = *name;
             if self.captured_vars.contains(&name) {
                 self.translate_expr(rhs_id, func);
@@ -1547,7 +1549,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Direct scalar local assignment.
-        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[lhs_id] {
+        if let Some(Reference::Local(name)) = self.decl.arena.reference(lhs_id) {
             let name = *name;
             if let Some(&LocalKind::Scalar(slot)) = self.variables.get(&name) {
                 // Try to emit a register-form `locals[slot] = a OP b` op
@@ -1711,7 +1713,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// If this expr is an Id that resolves to a memory-backed local, return the slot index.
     fn get_memory_slot(&self, expr: ExprID) -> Option<u16> {
-        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[expr] {
+        if let Some(Reference::Local(name)) = self.decl.arena.reference(expr) {
             if let Some(LocalKind::Memory(slot)) = self.variables.get(name) {
                 return Some(*slot);
             }
@@ -1721,7 +1723,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// If this expr is an Id that resolves to a scalar local, return the local index.
     fn get_scalar_local(&self, expr: ExprID) -> Option<u16> {
-        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[expr] {
+        if let Some(Reference::Local(name)) = self.decl.arena.reference(expr) {
             if let Some(LocalKind::Scalar(local)) = self.variables.get(name) {
                 return Some(*local);
             }
@@ -1774,32 +1776,35 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an lvalue expression. Pushes the address onto the stack.
     fn translate_lvalue(&mut self, expr: ExprID, func: &mut StackFunction) {
         match &self.decl.arena[expr].clone() {
-            Expr::Id(Reference::Local(name)) => {
-                let name = *name;
-                if let Some(&kind) = self.variables.get(&name) {
-                    match kind {
-                        LocalKind::Scalar(slot) => {
-                            let ty = self.expr_type(expr);
-                            if self.is_ptr_type(&ty) {
+            Expr::Id(_) => match self.decl.arena.reference(expr) {
+                Some(Reference::Local(name)) => {
+                    let name = *name;
+                    if let Some(&kind) = self.variables.get(&name) {
+                        match kind {
+                            LocalKind::Scalar(slot) => {
+                                let ty = self.expr_type(expr);
+                                if self.is_ptr_type(&ty) {
+                                    func.emit(StackOp::LocalGet(slot));
+                                } else {
+                                    self.emit_var_address(&name, func);
+                                }
+                            }
+                            LocalKind::Reference(slot) => {
                                 func.emit(StackOp::LocalGet(slot));
-                            } else {
-                                self.emit_var_address(&name, func);
+                            }
+                            LocalKind::Memory(slot) => {
+                                func.emit(StackOp::LocalAddr(slot));
                             }
                         }
-                        LocalKind::Reference(slot) => {
-                            func.emit(StackOp::LocalGet(slot));
-                        }
-                        LocalKind::Memory(slot) => {
-                            func.emit(StackOp::LocalAddr(slot));
-                        }
+                    } else {
+                        unreachable!("checked local must have storage");
                     }
-                } else {
-                    unreachable!("checked local must have storage");
                 }
-            }
-            Expr::Id(Reference::Instance(instance)) => {
-                func.emit(StackOp::GlobalAddr(self.globals[instance]));
-            }
+                Some(Reference::Instance(instance)) => {
+                    func.emit(StackOp::GlobalAddr(self.globals[instance]));
+                }
+                reference => unreachable!("unresolved checked reference: {:?}", reference),
+            },
 
             Expr::Field(lhs_id, name) => {
                 let lhs_id = *lhs_id;
@@ -1920,7 +1925,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Check for builtin functions.
-        if let Expr::Id(Reference::Instance(instance)) = &self.decl.arena[fn_id] {
+        if let Some(Reference::Instance(instance)) = self.decl.arena.reference(fn_id) {
             let instance = *instance;
             let name = self.decls.instance_name(instance);
 
@@ -2336,9 +2341,9 @@ impl<'a> FunctionTranslator<'a> {
     /// rather than naming a function declaration. Such calls go through
     /// `translate_closure_call` instead of the direct-call path.
     fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
-        match &self.decl.arena[fn_id] {
-            Expr::Id(Reference::Local(_)) => true,
-            Expr::Id(Reference::Instance(id)) => {
+        match self.decl.arena.reference(fn_id) {
+            Some(Reference::Local(_)) => true,
+            Some(Reference::Instance(id)) => {
                 matches!(self.decls.instance(*id), Decl::Global { .. })
             }
             _ => false,

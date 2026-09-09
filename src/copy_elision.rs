@@ -18,9 +18,10 @@
 //! the source is observationally identical to copying it, and the backend is
 //! free to skip the copy. `elidable_let_copies` finds those bindings.
 
-use crate::checked::{CheckedExpr as Expr, CheckedFunction, LocalId, Reference};
+use crate::checked::{CheckedFunction, LocalId, Reference};
 use crate::defs::{Binop, ExprID};
 use crate::types::{Type, TypeID};
+use crate::Expr;
 use std::collections::HashSet;
 
 /// Types that `let` binds by value, and so must copy out of the initializer's
@@ -49,10 +50,11 @@ pub fn elidable_let_copies(decl: &CheckedFunction) -> HashSet<ExprID> {
 fn scan_blocks(id: ExprID, decl: &CheckedFunction, elidable: &mut HashSet<ExprID>) {
     if let Expr::Block(stmts) = &decl.arena[id] {
         for (i, &stmt) in stmts.iter().enumerate() {
-            let Expr::Let(local, ..) = &decl.arena[stmt] else {
+            if !matches!(decl.arena[stmt], Expr::Let(..)) {
                 continue;
-            };
-            if !is_value_aggregate(&decl.arena.local(*local).ty) {
+            }
+            let local = decl.arena.binder(stmt);
+            if !is_value_aggregate(&decl.arena.local(local).ty) {
                 continue;
             }
             // This analysis requires a following sequence and keeps tail
@@ -64,7 +66,7 @@ fn scan_blocks(id: ExprID, decl: &CheckedFunction, elidable: &mut HashSet<ExprID
             // The block's value escapes it, so the binding must not reach the
             // final statement.
             let last = *stmts.last().unwrap();
-            if mentions(last, *local, decl) {
+            if mentions(last, local, decl) {
                 continue;
             }
             if rest.iter().all(|&s| live_range_is_read_only(s, decl)) {
@@ -115,10 +117,8 @@ fn live_range_is_read_only(id: ExprID, decl: &CheckedFunction) -> bool {
 
 /// True if `name` is referenced anywhere in this subtree.
 fn mentions(id: ExprID, name: LocalId, decl: &CheckedFunction) -> bool {
-    if let Expr::Id(Reference::Local(n)) = &decl.arena[id] {
-        if *n == name {
-            return true;
-        }
+    if decl.arena.reference(id) == Some(&Reference::Local(name)) {
+        return true;
     }
     decl.arena[id]
         .subexprs()

@@ -1,9 +1,10 @@
 //! The program after lexical and type checking.
 //!
-//! Nodes own their operation, result type and source provenance. Expression and
-//! local IDs are handles in one body, not historical identities: cloning a whole
-//! body preserves the handles, while duplication inside that body freshens its
-//! declarations. Analyses must be recomputed after mutation.
+//! A body keeps the source expression tree and records solved types, resolved
+//! references and binding identities in side tables indexed by `ExprID`.
+//! Expression and local IDs are handles in one body, not historical identities:
+//! cloning a whole body preserves the handles, while duplication inside that
+//! body freshens its declarations. Analyses must be recomputed after mutation.
 //!
 //! See `docs/CHECKED_PROGRAM.md` for the separate template and concrete contracts.
 use crate::*;
@@ -65,21 +66,22 @@ pub struct Local {
     pub mutable: bool,
 }
 
-pub type CheckedExpr = Expr<Reference, LocalId, CheckedParam>;
 pub type CheckedDecl = Decl<CheckedFunction>;
 pub type CheckedDeclTable = DeclTable<CheckedFunction>;
 pub type CheckedDeclarations = DeclarationList<CheckedFunction>;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct CheckedNode {
-    pub kind: CheckedExpr,
-    pub ty: TypeID,
-    pub loc: Loc,
-}
-
+/// A checked body: the source expression tree plus side tables indexed by
+/// `ExprID`. The tree keeps its source spellings for diagnostics; solved
+/// types, resolved references and binding identities live in the tables.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct CheckedBody {
-    nodes: Vec<CheckedNode>,
+    syntax: ExprArena,
+    types: Vec<TypeID>,
+    /// The recorded resolution of each `Id`/`TypeApp` node; `None` elsewhere.
+    references: Vec<Option<Reference>>,
+    /// The locals introduced by each `Let`/`Var`/`For` node (one) or `Lambda`
+    /// node (one per parameter); empty elsewhere.
+    binders: Vec<Vec<LocalId>>,
     pub locals: Vec<Local>,
     pub requirements: Vec<InterfaceRequirement>,
 }
@@ -89,33 +91,71 @@ impl CheckedBody {
         Self::default()
     }
     pub fn from_parts(
-        nodes: Vec<CheckedNode>,
+        syntax: ExprArena,
+        types: Vec<TypeID>,
+        references: Vec<Option<Reference>>,
+        binders: Vec<Vec<LocalId>>,
         locals: Vec<Local>,
         requirements: Vec<InterfaceRequirement>,
     ) -> Self {
+        let n = syntax.exprs.len();
+        assert!(
+            syntax.locs.len() == n
+                && types.len() == n
+                && references.len() == n
+                && binders.len() == n,
+            "checked body tables must cover every expression"
+        );
         Self {
-            nodes,
+            syntax,
+            types,
+            references,
+            binders,
             locals,
             requirements,
         }
     }
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.syntax.exprs.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.syntax.exprs.is_empty()
     }
-    pub fn node(&self, id: ExprID) -> &CheckedNode {
-        &self.nodes[id]
+    /// Every expression handle in this body.
+    pub fn ids(&self) -> std::ops::Range<ExprID> {
+        0..self.len()
     }
-    pub fn nodes(&self) -> &[CheckedNode] {
-        &self.nodes
+    /// The expression tree with its source locations.
+    pub fn syntax(&self) -> &ExprArena {
+        &self.syntax
+    }
+    pub fn exprs(&self) -> &[Expr] {
+        &self.syntax.exprs
     }
     pub fn ty(&self, id: ExprID) -> TypeID {
-        self.nodes[id].ty
+        self.types[id]
     }
     pub fn loc(&self, id: ExprID) -> Loc {
-        self.nodes[id].loc
+        self.syntax.locs[id]
+    }
+    /// The recorded resolution of an `Id` or `TypeApp` node. Other nodes
+    /// record nothing.
+    pub fn reference(&self, id: ExprID) -> Option<&Reference> {
+        self.references[id].as_ref()
+    }
+    /// The locals a node introduces: one for `let`/`var`/`for`, one per
+    /// lambda parameter, none otherwise.
+    pub fn binders(&self, id: ExprID) -> &[LocalId] {
+        &self.binders[id]
+    }
+    /// The local introduced by a `let`, `var` or `for` node.
+    pub fn binder(&self, id: ExprID) -> LocalId {
+        match &self.syntax.exprs[id] {
+            Expr::Let(..) | Expr::Var(..) | Expr::For { .. } => *self.binders[id]
+                .first()
+                .unwrap_or_else(|| panic!("expression {} records no binding", id)),
+            _ => panic!("expression {} is not a declaration", id),
+        }
     }
     pub fn local(&self, id: LocalId) -> &Local {
         &self.locals[id.index()]
@@ -125,24 +165,109 @@ impl CheckedBody {
         self.locals.push(Local { name, ty, mutable });
         id
     }
-    pub fn add(&mut self, kind: CheckedExpr, ty: TypeID, loc: Loc) -> ExprID {
-        let id = self.nodes.len();
-        self.nodes.push(CheckedNode { kind, ty, loc });
+    /// Append an expression with no recorded reference or binders.
+    pub fn add(&mut self, expr: Expr, ty: TypeID, loc: Loc) -> ExprID {
+        let id = self.syntax.add(expr, loc);
+        self.types.push(ty);
+        self.references.push(None);
+        self.binders.push(vec![]);
         id
     }
-    /// Replacing a node retains its handle and provenance, not any analysis of
-    /// the previous node. Callers provide the replacement's checked result type.
-    pub fn replace(&mut self, id: ExprID, kind: CheckedExpr, ty: TypeID) {
-        self.nodes[id].kind = kind;
-        self.nodes[id].ty = ty;
+    /// Append an identifier with its resolution.
+    pub fn add_id(&mut self, name: Name, reference: Reference, ty: TypeID, loc: Loc) -> ExprID {
+        let id = self.add(Expr::Id(name), ty, loc);
+        self.references[id] = Some(reference);
+        id
     }
-    pub fn replace_node(&mut self, id: ExprID, node: CheckedNode) {
-        self.nodes[id] = node;
+    /// Append a read of a body-local binding, spelled with the local's name.
+    pub fn add_local_read(&mut self, local: LocalId, ty: TypeID, loc: Loc) -> ExprID {
+        self.add_id(self.local(local).name, Reference::Local(local), ty, loc)
+    }
+    /// Append a declaration or lambda together with the locals it introduces.
+    pub fn add_binding(
+        &mut self,
+        expr: Expr,
+        binders: Vec<LocalId>,
+        ty: TypeID,
+        loc: Loc,
+    ) -> ExprID {
+        let id = self.add(expr, ty, loc);
+        self.set_binders(id, binders);
+        id
+    }
+    /// Append `let local = init`, spelled with the local's name.
+    pub fn add_let(&mut self, local: LocalId, init: ExprID, loc: Loc) -> ExprID {
+        let name = self.local(local).name;
+        self.add_binding(
+            Expr::Let(name, init, None),
+            vec![local],
+            mk_type(Type::Void),
+            loc,
+        )
+    }
+    /// Append `var local = init`, spelled with the local's name.
+    pub fn add_var(&mut self, local: LocalId, init: Option<ExprID>, loc: Loc) -> ExprID {
+        let name = self.local(local).name;
+        self.add_binding(
+            Expr::Var(name, init, None),
+            vec![local],
+            mk_type(Type::Void),
+            loc,
+        )
+    }
+    pub fn set_ty(&mut self, id: ExprID, ty: TypeID) {
+        self.types[id] = ty;
+    }
+    /// Record the resolution of an `Id` or `TypeApp` node.
+    pub fn set_reference(&mut self, id: ExprID, reference: Reference) {
+        assert!(
+            matches!(self.syntax.exprs[id], Expr::Id(_) | Expr::TypeApp(..)),
+            "expression {} is not a reference",
+            id
+        );
+        self.references[id] = Some(reference);
+    }
+    /// Record the locals a declaration or lambda introduces.
+    pub fn set_binders(&mut self, id: ExprID, binders: Vec<LocalId>) {
+        let expected = match &self.syntax.exprs[id] {
+            Expr::Let(..) | Expr::Var(..) | Expr::For { .. } => 1,
+            Expr::Lambda { params, .. } => params.len(),
+            _ => panic!("expression {} declares no bindings", id),
+        };
+        assert_eq!(
+            binders.len(),
+            expected,
+            "expression {} declares {} bindings",
+            id,
+            expected
+        );
+        self.binders[id] = binders;
+    }
+    /// Replace an expression, keeping its handle and location. Recorded facts
+    /// that still apply to the new expression are kept: a reference for an
+    /// `Id`/`TypeApp`, binders for a declaration or a lambda with the same
+    /// parameter count. Any other recorded fact is cleared.
+    pub fn replace(&mut self, id: ExprID, expr: Expr, ty: TypeID) {
+        let binders = match &expr {
+            Expr::Let(..) | Expr::Var(..) | Expr::For { .. } => 1,
+            Expr::Lambda { params, .. } => params.len(),
+            _ => 0,
+        };
+        if !matches!(expr, Expr::Id(_) | Expr::TypeApp(..)) {
+            self.references[id] = None;
+        }
+        if self.binders[id].len() != binders {
+            self.binders[id].clear();
+        }
+        self.syntax.exprs[id] = expr;
+        self.types[id] = ty;
     }
     pub fn substitute(&mut self, instance: &Instance) {
-        for node in &mut self.nodes {
-            node.ty = node.ty.subst(instance);
-            match &mut node.kind {
+        for ty in &mut self.types {
+            *ty = ty.subst(instance);
+        }
+        for expr in &mut self.syntax.exprs {
+            match expr {
                 Expr::AsTy(_, ty) => *ty = ty.subst(instance),
                 Expr::TypeApp(_, args) => {
                     for ty in args {
@@ -165,166 +290,9 @@ impl CheckedBody {
         }
     }
 
-    /// Source-oriented diagnostics over checked nodes; spellings are presentation
-    /// data and are never converted back into unresolved syntax.
+    /// Source-oriented diagnostics over checked expressions.
     pub fn pretty_print(&self, id: ExprID, indent: usize) -> String {
-        self.pretty_print_with(id, indent, &|reference| match reference {
-            Reference::Local(local) | Reference::SizeParameter(local) => self.local(*local).name,
-            Reference::Global(id) => Name::new(format!("global#{}", id.0)),
-            Reference::Functions(ids) => Name::new(format!("function#{:?}", ids)),
-            Reference::InterfaceMember { member, .. } => Name::new(format!("member#{}", member.0)),
-            Reference::Instance(id) => Name::new(format!("instance#{}", id.0)),
-        })
-    }
-    pub fn pretty_print_with(
-        &self,
-        id: ExprID,
-        indent: usize,
-        reference_name: &impl Fn(&Reference) -> Name,
-    ) -> String {
-        let child = |id| self.pretty_print_with(id, indent, reference_name);
-        let list = |ids: &[ExprID]| {
-            ids.iter()
-                .map(|id| child(*id))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        match &self[id] {
-            Expr::Id(reference) => reference_name(reference).to_string(),
-            Expr::TypeApp(reference, args) => format!(
-                "{}⟨{}⟩",
-                reference_name(reference),
-                args.iter()
-                    .map(|ty| ty.pretty_print())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Expr::Int(value, suffix) => format!(
-                "{}{}",
-                value,
-                suffix.map(|suffix| suffix.to_string()).unwrap_or_default()
-            ),
-            Expr::Real(value, suffix) => format!(
-                "{}{}",
-                value,
-                suffix.map(|suffix| suffix.to_string()).unwrap_or_default()
-            ),
-            Expr::String(value) => format!("\"{}\"", value),
-            Expr::Char(value) => format!("'{}'", value),
-            Expr::True => "true".into(),
-            Expr::False => "false".into(),
-            Expr::Enum(name) => format!(".{}", name),
-            Expr::Error => "<error>".into(),
-            Expr::Call(function, args) => format!("{}({})", child(*function), list(args)),
-            Expr::Macro(name, args) => format!("@{}({})", name, list(args)),
-            Expr::Binop(op, lhs, rhs) => {
-                format!("{} {} {}", child(*lhs), format_binop(*op), child(*rhs))
-            }
-            Expr::Unop(op, value) => format!("{}{}", format_unop(*op), child(*value)),
-            Expr::Lambda { params, body } => format!(
-                "|{}| {}",
-                params
-                    .iter()
-                    .map(|param| format!(
-                        "{}: {}",
-                        self.local(param.local).name,
-                        self.local(param.local).ty.pretty_print()
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                child(*body)
-            ),
-            Expr::Field(base, name) => format!("{}.{}", child(*base), name),
-            Expr::Array(element, size) => format!("[{}; {}]", child(*element), child(*size)),
-            Expr::ArrayLiteral(elements) => format!("[{}]", list(elements)),
-            Expr::ArrayIndex(array, index) => format!("{}[{}]", child(*array), child(*index)),
-            Expr::AsTy(value, ty) => format!("{}:{}", child(*value), ty.pretty_print()),
-            Expr::Let(local, init, annotation) => {
-                let annotation = annotation
-                    .map(|ty| format!(": {}", ty.pretty_print()))
-                    .unwrap_or_default();
-                format!(
-                    "let {}{} = {}",
-                    self.local(*local).name,
-                    annotation,
-                    child(*init)
-                )
-            }
-            Expr::Var(local, init, annotation) => {
-                let annotation = annotation
-                    .map(|ty| format!(": {}", ty.pretty_print()))
-                    .unwrap_or_default();
-                let init = init
-                    .map(|init| format!(" = {}", child(init)))
-                    .unwrap_or_default();
-                format!("var {}{}{}", self.local(*local).name, annotation, init)
-            }
-            Expr::If(cond, yes, no) => {
-                let no = no
-                    .map(|no| {
-                        format!(
-                            " else {}",
-                            self.pretty_print_with(no, indent + 1, reference_name)
-                        )
-                    })
-                    .unwrap_or_default();
-                format!(
-                    "if {} {}{}",
-                    child(*cond),
-                    self.pretty_print_with(*yes, indent + 1, reference_name),
-                    no
-                )
-            }
-            Expr::While(cond, body) => format!(
-                "while {} {}",
-                child(*cond),
-                self.pretty_print_with(*body, indent + 1, reference_name)
-            ),
-            Expr::For {
-                var,
-                start,
-                end,
-                body,
-            } => format!(
-                "for {} in {} .. {} {}",
-                self.local(*var).name,
-                child(*start),
-                child(*end),
-                self.pretty_print_with(*body, indent + 1, reference_name)
-            ),
-            Expr::Block(exprs) => {
-                if exprs.is_empty() {
-                    return "{}".into();
-                }
-                let expressions = exprs
-                    .iter()
-                    .map(|expr| {
-                        format!(
-                            "{}{}",
-                            "    ".repeat(indent + 1),
-                            self.pretty_print_with(*expr, indent + 1, reference_name)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                format!("{{\n{}\n{}}}", expressions, "    ".repeat(indent))
-            }
-            Expr::Return(value) => format!("return {}", child(*value)),
-            Expr::Assume(value) => format!("assume {}", child(*value)),
-            Expr::Break => "break".into(),
-            Expr::Continue => "continue".into(),
-            Expr::Tuple(values) => format!("({})", list(values)),
-            Expr::StructLit(name, fields) => format!(
-                "{}({})",
-                name,
-                fields
-                    .iter()
-                    .map(|(name, value)| format!("{}: {}", name, child(*value)))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Expr::Arena(value) => format!("arena {}", child(*value)),
-        }
+        self.syntax.exprs[id].pretty_print(&self.syntax, indent)
     }
 
     /// Duplicate evaluations. Bindings declared in the copied subtree receive
@@ -334,15 +302,7 @@ impl CheckedBody {
     /// program validation; shared reads can occur more than once.
     pub fn duplicate(&mut self, root: ExprID) -> ExprID {
         fn declarations(body: &CheckedBody, id: ExprID, found: &mut HashSet<LocalId>) {
-            match &body[id] {
-                Expr::Let(local, ..) | Expr::Var(local, ..) | Expr::For { var: local, .. } => {
-                    found.insert(*local);
-                }
-                Expr::Lambda { params, .. } => {
-                    found.extend(params.iter().map(|param| param.local));
-                }
-                _ => {}
-            }
+            found.extend(body.binders(id).iter().copied());
             for child in body[id].subexprs() {
                 declarations(body, child, found);
             }
@@ -357,50 +317,44 @@ impl CheckedBody {
             locals.insert(old, self.add_local(local.name, local.ty, local.mutable));
         }
         fn copy(body: &mut CheckedBody, id: ExprID, locals: &HashMap<LocalId, LocalId>) -> ExprID {
-            let mut node = body.node(id).clone();
-            let remap = |local: &mut LocalId| {
-                if let Some(new) = locals.get(local) {
-                    *local = *new;
-                }
-            };
-            match &mut node.kind {
-                Expr::Id(Reference::Local(local))
-                | Expr::TypeApp(Reference::Local(local), _)
-                | Expr::Let(local, ..)
-                | Expr::Var(local, ..)
-                | Expr::For { var: local, .. } => remap(local),
-                Expr::Lambda { params, .. } => {
-                    for param in params {
-                        remap(&mut param.local);
-                    }
-                }
-                _ => {}
-            }
-            node.kind.map_children(|child| copy(body, child, locals));
-            body.add(node.kind, node.ty, node.loc)
+            let remap = |local: LocalId| locals.get(&local).copied().unwrap_or(local);
+            let mut expr = body.syntax.exprs[id].clone();
+            let ty = body.types[id];
+            let loc = body.syntax.locs[id];
+            let reference = body.references[id].clone().map(|reference| match reference {
+                Reference::Local(local) => Reference::Local(remap(local)),
+                Reference::SizeParameter(local) => Reference::SizeParameter(remap(local)),
+                other => other,
+            });
+            let binders: Vec<_> = body.binders[id].iter().map(|&local| remap(local)).collect();
+            expr.map_children(|child| copy(body, child, locals));
+            let new = body.add(expr, ty, loc);
+            body.references[new] = reference;
+            body.binders[new] = binders;
+            new
         }
         copy(self, root, &locals)
     }
 
     /// Free local references of a lambda, in source evaluation order. Descending
     /// into nested lambdas includes the captures needed to construct them.
-    pub fn captures(&self, root: ExprID, params: &[CheckedParam]) -> Vec<LocalId> {
-        crate::free_locals::free_locals(self, root, params.iter().map(|param| param.local)).locals
+    pub fn captures(&self, root: ExprID, bound: impl IntoIterator<Item = LocalId>) -> Vec<LocalId> {
+        crate::free_locals::free_locals(self, root, bound).locals
     }
     pub fn captured_locals(&self) -> HashSet<LocalId> {
         let mut captured = HashSet::new();
-        for node in &self.nodes {
-            if let Expr::Lambda { params, body } = &node.kind {
-                captured.extend(self.captures(*body, params));
+        for id in self.ids() {
+            if let Expr::Lambda { body, .. } = &self[id] {
+                captured.extend(self.captures(*body, self.binders(id).iter().copied()));
             }
         }
         captured
     }
 }
 impl Index<ExprID> for CheckedBody {
-    type Output = CheckedExpr;
+    type Output = Expr;
     fn index(&self, id: ExprID) -> &Self::Output {
-        &self.nodes[id].kind
+        &self.syntax.exprs[id]
     }
 }
 
@@ -435,23 +389,24 @@ impl CheckedFunction {
         self.arena.captured_locals()
     }
     pub fn extract_lambda(&self, expression: ExprID, name: Name) -> Self {
-        let Expr::Lambda { params, body } = &self.arena[expression] else {
+        let Expr::Lambda { body, .. } = &self.arena[expression] else {
             panic!("expected lambda");
         };
         let Type::Func(_, ret) = &*self.arena.ty(expression) else {
             panic!("checked lambda type");
         };
+        let locals = self.arena.binders(expression);
         Self {
             name,
             typevars: Vec::new(),
             size_vars: Vec::new(),
-            params: params.clone(),
+            params: locals.iter().map(|&local| CheckedParam { local }).collect(),
             body: Some(*body),
             ret: *ret,
             requires: Vec::new(),
             loc: self.arena.loc(expression),
             arena: self.arena.clone(),
-            closure_vars: self.arena.captures(*body, params),
+            closure_vars: self.arena.captures(*body, locals.iter().copied()),
             is_extern: false,
         }
     }
@@ -602,28 +557,25 @@ mod tests {
         let ty = mk_type(Type::Int32);
         let outer = body.add_local(Name::str("x"), ty, false);
         let inner = body.add_local(Name::str("x"), ty, false);
-        let outer_read = body.add(Expr::Id(Reference::Local(outer)), ty, test_loc());
-        let binding = body.add(
-            Expr::Let(inner, outer_read, None),
-            mk_type(Type::Void),
-            test_loc(),
-        );
-        let inner_read = body.add(Expr::Id(Reference::Local(inner)), ty, test_loc());
+        let outer_read = body.add_local_read(outer, ty, test_loc());
+        let binding = body.add_let(inner, outer_read, test_loc());
+        let inner_read = body.add_local_read(inner, ty, test_loc());
         let root = body.add(Expr::Block(vec![binding, inner_read]), ty, test_loc());
         let copy = body.duplicate(root);
         let Expr::Block(children) = &body[copy] else {
             panic!()
         };
-        let Expr::Let(fresh, initializer, _) = body[children[0]] else {
+        let Expr::Let(_, initializer, _) = body[children[0]] else {
             panic!()
         };
+        let fresh = body.binder(children[0]);
         assert_ne!(fresh, inner);
-        assert_eq!(body[initializer], Expr::Id(Reference::Local(outer)));
-        assert_eq!(body[children[1]], Expr::Id(Reference::Local(fresh)));
+        assert_eq!(body.reference(initializer), Some(&Reference::Local(outer)));
+        assert_eq!(body.reference(children[1]), Some(&Reference::Local(fresh)));
         assert_eq!(body.local(fresh), body.local(inner));
         assert_eq!(body.ty(copy), body.ty(root));
         assert_eq!(body.loc(copy), body.loc(root));
-        assert_eq!(body[inner_read], Expr::Id(Reference::Local(inner)));
+        assert_eq!(body.reference(inner_read), Some(&Reference::Local(inner)));
     }
 
     #[test]
@@ -633,33 +585,28 @@ mod tests {
         let callable = func(tuple(vec![]), ty);
         let outer = body.add_local(Name::str("x"), callable, true);
         let inner = body.add_local(Name::str("x"), ty, false);
-        let read_outer = body.add(Expr::Id(Reference::Local(outer)), callable, test_loc());
-        let read_inner = body.add(Expr::Id(Reference::Local(inner)), ty, test_loc());
-        let applied_outer = body.add(
-            Expr::TypeApp(Reference::Local(outer), vec![]),
-            callable,
-            test_loc(),
-        );
+        let read_outer = body.add_local_read(outer, callable, test_loc());
+        let read_inner = body.add_local_read(inner, ty, test_loc());
+        let applied_outer = body.add(Expr::TypeApp(Name::str("x"), vec![]), callable, test_loc());
+        body.set_reference(applied_outer, Reference::Local(outer));
         let nested_root = body.add(
             Expr::Block(vec![read_inner, applied_outer, read_outer, read_inner]),
             ty,
             test_loc(),
         );
-        let nested = body.add(
+        let nested = body.add_binding(
             Expr::Lambda {
                 params: vec![],
                 body: nested_root,
             },
+            vec![],
             func(mk_type(Type::Tuple(vec![])), ty),
             test_loc(),
         );
         // Preserve first use, including explicit applications and repeated reads,
         // rather than sorting captures by ID or diagnostic spelling.
-        assert_eq!(body.captures(nested_root, &[]), vec![inner, outer]);
-        assert_eq!(
-            body.captures(nested, &[CheckedParam { local: inner }]),
-            vec![outer]
-        );
+        assert_eq!(body.captures(nested_root, []), vec![inner, outer]);
+        assert_eq!(body.captures(nested, [inner]), vec![outer]);
     }
 
     #[test]
@@ -667,7 +614,7 @@ mod tests {
         let mut body = CheckedBody::new();
         let generic = typevar("T");
         let local = body.add_local(Name::str("x"), generic, false);
-        let read = body.add(Expr::Id(Reference::Local(local)), generic, test_loc());
+        let read = body.add_local_read(local, generic, test_loc());
         body.requirements.push(InterfaceRequirement {
             id: RequirementId(0),
             interface: DefId(1),
