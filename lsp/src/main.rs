@@ -5,6 +5,8 @@ mod analysis;
 mod diagnostics;
 mod goto_def;
 mod hover;
+#[cfg(test)]
+mod recovery_tests;
 
 fn main() {
     let (connection, io_threads) = Connection::stdio();
@@ -41,7 +43,7 @@ fn main_loop(connection: &Connection, state: &mut analysis::AnalysisState) {
     }
 }
 
-fn handle_request(connection: &Connection, state: &mut analysis::AnalysisState, req: Request) {
+fn handle_request(connection: &Connection, state: &analysis::AnalysisState, req: Request) {
     if let Some(params) = cast_request::<request::HoverRequest>(&req) {
         let result = hover::handle_hover(state, &params);
         let resp = Response::new_ok(req.id, serde_json::to_value(result).unwrap());

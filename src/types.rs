@@ -232,7 +232,7 @@ impl TypeID {
     }
 
     /// Returns the size of a type in bytes.
-    pub fn size(self, decls: &DeclTable) -> i32 {
+    pub fn size<F: FunctionInfo>(self, decls: &DeclarationList<F>) -> i32 {
         match &*self {
             Type::Void => 0,
             Type::Bool => 1,
@@ -550,12 +550,12 @@ pub fn unify_with_vars(lhs: TypeID, rhs: TypeID, inst: &mut Instance) -> bool {
     }
 }
 
-impl Decl {
+impl<F: FunctionInfo> Decl<F> {
     pub fn ty(&self) -> TypeID {
         match self {
             Decl::Interface { .. } => mk_type(Type::Void),
-            Decl::Func(FuncDecl { params, ret, .. }) => func(params_ty(params), *ret),
-            Decl::Macro(FuncDecl { params, ret, .. }) => func(params_ty(params), *ret),
+            Decl::Func(function) => function.ty(),
+            Decl::Macro(function) => function.ty(),
             Decl::Struct(StructDecl { name, .. }) => mk_type(Type::Name(*name, vec![])),
             Decl::Enum { name, .. } => mk_type(Type::Name(*name, vec![])),
             Decl::Global { ty, .. } => *ty,
@@ -566,6 +566,17 @@ impl Decl {
 }
 
 impl FuncDecl {
+    /// Source signatures can be incomplete during editing. Do not substitute a
+    /// made-up type for a missing parameter annotation.
+    pub fn annotated_ty(&self) -> Option<TypeID> {
+        let params = self
+            .params
+            .iter()
+            .map(|param| param.ty)
+            .collect::<Option<Vec<_>>>()?;
+        Some(func(tuple(params), self.ret))
+    }
+
     /// Returns the type for this function declaration.
     pub fn ty(&self) -> TypeID {
         func(params_ty(&self.params), self.ret)
@@ -573,53 +584,6 @@ impl FuncDecl {
 }
 
 impl Interface {
-    /// Is an interface satisfied?
-    pub fn satisfied(
-        &self,
-        types: &[TypeID],
-        decls: &DeclTable,
-        errors: &mut Vec<TypeError>,
-        loc: Loc,
-    ) -> bool {
-        let mut inst = Instance::new();
-        for (v, t) in self.typevars.iter().zip(types) {
-            inst.insert(typevar(v), *t);
-        }
-
-        // If any type parameter is still unresolved (type variable or anonymous),
-        // defer the check — it will be verified when the generic function is
-        // instantiated with concrete types.
-        if types
-            .iter()
-            .any(|t| matches!(&**t, Type::Var(_) | Type::Anon(_)))
-        {
-            return true;
-        }
-
-        let mut satisfied = true;
-
-        // Find functions among decls that have the same type.
-        for func in &self.funcs {
-            let d = decls.find(func.name);
-
-            // Do we want to unify instead?
-            let found = d.iter().any(|d| d.ty() == func.ty().subst(&inst));
-
-            if !found {
-                satisfied = false;
-                errors.push(TypeError {
-                    location: loc,
-                    message: format!(
-                        "function {} for interface {} is required",
-                        func.name, self.name
-                    ),
-                });
-            }
-        }
-
-        satisfied
-    }
-
     /// Replaces any named types with type variables.
     pub fn subst_typevars(&mut self) {
         let mut inst = Instance::new();

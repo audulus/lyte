@@ -1,0 +1,16 @@
+// expected stdout:
+// compilation successful
+// 42
+// 42
+
+call(a: &i32, b: &i32) { a = b }
+set<T>(a: &T, b: &T) { a = b }
+
+main {
+    let call = |a: i32, b: i32| { a + b }
+    print(call(21, 21))
+    var a = 0
+    var b = 42
+    set⟨i32⟩(a, b)
+    print(a)
+}

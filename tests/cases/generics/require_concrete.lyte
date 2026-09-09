@@ -1,0 +1,34 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+
+// Concrete checking covers ordinary callers, explicit type applications,
+// wrappers, and implicit array-to-slice and reference conversions.
+bounded<T>(x: i32, value: T) require x >= 0 {}
+
+wrapper(x: i32) require x >= 0 {
+    bounded(x, true)
+    bounded⟨bool⟩(x, true)
+}
+
+write<T>(xs: [T], idx: i32, value: T)
+require idx >= 0
+require idx < xs.len
+{
+    xs[idx] = value
+}
+
+bump<T>(x: &i32, value: T) require x >= 0 {
+    x = x + 1
+}
+
+main {
+    bounded(0, true)
+    bounded⟨bool⟩(0, true)
+    wrapper(0)
+    var xs = [1, 2]
+    var idx = 0
+    bump(idx, true)
+    write⟨i32⟩(xs, idx, 42)
+    assert(xs[1] == 42)
+}

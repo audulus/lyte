@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 pub struct AltInterface {
     pub interface: Name,
     pub typevars: Vec<TypeID>,
+    pub members: Option<Vec<InterfaceMember>>,
 }
 
 impl AltInterface {
@@ -21,23 +22,18 @@ impl AltInterface {
         AltInterface {
             interface: self.interface,
             typevars: self.typevars.iter().map(|ty| ty.subst(inst)).collect(),
+            members: self
+                .members
+                .as_ref()
+                .map(|members| members.iter().map(|member| member.subst(inst)).collect()),
         }
     }
 
     /// Is the constraint satisfied in the current environment?
-    pub fn satisfied(&self, instance: &Instance, decls: &DeclTable, loc: Loc) -> bool {
-        if let Some(Decl::Interface(interface)) = decls.find(self.interface).first() {
-            let mut types = vec![];
-            for ty in &self.typevars {
-                types.push(ty.subst(instance));
-            }
-
-            let mut tmp_errors = vec![];
-            interface.satisfied(&types, decls, &mut tmp_errors, loc)
-        } else {
-            // Unknown interface!
-            false
-        }
+    pub fn satisfied(&self, instance: &Instance, decls: &DeclTable, _loc: Loc) -> bool {
+        self.members.as_ref().is_some_and(|members| {
+            select_interface_members(&self.typevars, members, instance, decls).is_ok()
+        })
     }
 }
 
@@ -359,9 +355,22 @@ pub fn iterate_solver(
                             // We've narrowed it down. Better unify!
                             if let Some(field) = find_field(&st.fields, field_name) {
                                 let field_ty = if let Type::Var(name) = *field.ty {
-                                    let index =
-                                        st.typevars.iter().position(|&n| n == name).unwrap();
-                                    vars[index]
+                                    let Some(ty) = st
+                                        .typevars
+                                        .iter()
+                                        .position(|&n| n == name)
+                                        .and_then(|index| vars.get(index))
+                                    else {
+                                        errors.push(TypeError {
+                                            location: loc,
+                                            message: format!(
+                                                "missing type argument for field '{}' of {}",
+                                                field_name, struct_name
+                                            ),
+                                        });
+                                        continue;
+                                    };
+                                    *ty
                                 } else {
                                     field.ty
                                 };

@@ -1,0 +1,13 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/generics/require_concrete_unproven.lyte:10:8: couldn't prove require clause `x >= 0` for call to `bounded$bool`
+//     main { bounded(-1, true) }
+//            ^
+
+// The ordinary caller must be checked after the generic target is concrete.
+bounded<T>(x: i32, value: T) require x >= 0 {}
+
+main { bounded(-1, true) }
+
+// expected stderr:
+// safety check failed for 1 call(s)

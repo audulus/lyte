@@ -33,7 +33,7 @@ main {
 //      0: SaveRegs { start_reg: 0, count: 11, slot: 40016 }
 //      1: LoadImm { dst: 6, value: 10000 }
 //      2: LoadImm { dst: 7, value: 50 }
-//      3: LocalAddr { dst: 8, slot: 0 }
+//      3: LocalAddr { dst: 8, slot: 0 }  ; a
 //      4: MemZero { dst: 8, size: 40000 }
 //      5: LoadImm { dst: 9, value: 0 }
 //      6: LoadImm { dst: 10, value: 0 }
@@ -56,7 +56,7 @@ main {
 //     23: Store32 { addr: 2, src: 3 }
 //     24: IAddImm { dst: 1, src: 1, imm: 1 }
 //     25: Jump { offset: -13 }
-// =>  26: LocalAddr { dst: 8, slot: 0 }
+// =>  26: LocalAddr { dst: 8, slot: 0 }  ; a
 //     27: LocalAddr { dst: 1, slot: 5000 }
 //     28: Store64 { addr: 1, src: 8 }
 //     29: LoadImm { dst: 2, value: 10000 }
@@ -65,7 +65,7 @@ main {
 //     32: Call { func: 1, args_start: 2, arg_count: 1 }
 //     33: LoadImm { dst: 1, value: 1 }
 //     34: ILtJump { a: 1, b: 6, offset: 14 }
-//     35: LocalAddr { dst: 8, slot: 0 }
+//     35: LocalAddr { dst: 8, slot: 0 }  ; a
 //     36: LoadImm { dst: 1, value: 0 }
 //     37: LoadImm { dst: 2, value: 4 }
 //     38: IMul { dst: 3, a: 1, b: 2 }
@@ -85,6 +85,14 @@ main {
 //     52: Move { dst: 0, src: 1 }
 //     53: RestoreRegs { start_reg: 1, count: 10, slot: 40024 }
 //     54: Return
+// locals:
+//   r1	i
+//   r10	iter
+//   r3	seed
+//   r6	n
+//   r7	iters
+//   r9	checksum
+//   slot 0	a
 // fn sort$i32 (params: 1, locals: 16 bytes):
 //      0: SaveRegs { start_reg: 0, count: 2, slot: 0 }
 //      1: Move { dst: 1, src: 0 }
@@ -94,9 +102,9 @@ main {
 // fn quicksort$i32 (params: 1, locals: 608 bytes):
 //      0: SaveRegs { start_reg: 0, count: 12, slot: 512 }
 //      1: Move { dst: 1, src: 0 }
-//      2: LocalAddr { dst: 2, slot: 0 }
+//      2: LocalAddr { dst: 2, slot: 0 }  ; lo_stk
 //      3: MemZero { dst: 2, size: 256 }
-//      4: LocalAddr { dst: 3, slot: 32 }
+//      4: LocalAddr { dst: 3, slot: 32 }  ; hi_stk
 //      5: MemZero { dst: 3, size: 256 }
 //      6: LoadImm { dst: 4, value: 0 }
 //      7: LoadImm { dst: 5, value: 0 }
@@ -117,12 +125,12 @@ main {
 //     22: ILtJump { a: 5, b: 4, offset: 65 }
 //     23: LoadImm { dst: 5, value: 1 }
 //     24: ISub { dst: 4, a: 4, b: 5 }
-//     25: LocalAddr { dst: 2, slot: 0 }
+//     25: LocalAddr { dst: 2, slot: 0 }  ; lo_stk
 //     26: LoadImm { dst: 5, value: 4 }
 //     27: IMul { dst: 6, a: 4, b: 5 }
 //     28: IAdd { dst: 5, a: 2, b: 6 }
 //     29: Load32 { dst: 6, addr: 5 }
-//     30: LocalAddr { dst: 3, slot: 32 }
+//     30: LocalAddr { dst: 3, slot: 32 }  ; hi_stk
 //     31: LoadImm { dst: 5, value: 4 }
 //     32: IMul { dst: 7, a: 4, b: 5 }
 //     33: IAdd { dst: 5, a: 3, b: 7 }
@@ -184,4 +192,19 @@ main {
 //     89: Move { dst: 0, src: 1 }
 //     90: RestoreRegs { start_reg: 1, count: 11, slot: 520 }
 //     91: Return
+// locals:
+//   r10	right_lo
+//   r10	tmp
+//   r4	top
+//   r5	left_size
+//   r5	pivot_val
+//   r5	tmp
+//   r6	cur_lo
+//   r7	cur_hi
+//   r8	i
+//   r8	right_size
+//   r9	j
+//   r9	left_hi
+//   slot 0	lo_stk
+//   slot 32	hi_stk
 
