@@ -8,9 +8,9 @@ use crate::*;
 /// tree. It's also faster. Most hierarchical data
 /// should be represented this way.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Expr {
+pub enum Expr<R = Name, B = Name, P = Param> {
     /// Identifier expression.
-    Id(Name),
+    Id(R),
 
     /// Integer literal, with optional explicit suffix.
     Int(i64, Option<IntLiteralSuffix>),
@@ -31,7 +31,7 @@ pub enum Expr {
     Unop(Unop, ExprID),
 
     /// Lambda expression with parameters and body.
-    Lambda { params: Vec<Param>, body: ExprID },
+    Lambda { params: Vec<P>, body: ExprID },
 
     /// String literal.
     String(String),
@@ -61,13 +61,13 @@ pub enum Expr {
     AsTy(ExprID, TypeID),
 
     /// Explicit type application: `name⟨i32⟩` or `name⟨i32, f32⟩`.
-    TypeApp(Name, Vec<TypeID>),
+    TypeApp(R, Vec<TypeID>),
 
     /// Immutable variable declaration with initializer and optional type.
-    Let(Name, ExprID, Option<TypeID>),
+    Let(B, ExprID, Option<TypeID>),
 
     /// Mutable variable declaration with optional initializer and type.
-    Var(Name, Option<ExprID>, Option<TypeID>),
+    Var(B, Option<ExprID>, Option<TypeID>),
 
     /// If expression with optional else branch.
     If(ExprID, ExprID, Option<ExprID>),
@@ -77,7 +77,7 @@ pub enum Expr {
 
     /// For loop expression.
     For {
-        var: Name,
+        var: B,
         start: ExprID,
         end: ExprID,
         body: ExprID,
@@ -115,7 +115,7 @@ pub enum Expr {
     Error,
 }
 
-impl Expr {
+impl<R, B, P> Expr<R, B, P> {
     /// The immediate subexpression IDs of this expression.
     ///
     /// Lambda yields its body: walks that treat a lambda specially still need
@@ -168,6 +168,70 @@ impl Expr {
         }
     }
 
+    /// Rewrite immediate edges without interpreting names, types, or bindings.
+    pub fn map_children(&mut self, mut map: impl FnMut(ExprID) -> ExprID) {
+        match self {
+            Self::Call(function, args) => {
+                *function = map(*function);
+                for arg in args {
+                    *arg = map(*arg);
+                }
+            }
+            Self::Macro(_, args)
+            | Self::ArrayLiteral(args)
+            | Self::Block(args)
+            | Self::Tuple(args) => {
+                for arg in args {
+                    *arg = map(*arg);
+                }
+            }
+            Self::Binop(_, lhs, rhs)
+            | Self::Array(lhs, rhs)
+            | Self::ArrayIndex(lhs, rhs)
+            | Self::While(lhs, rhs) => {
+                *lhs = map(*lhs);
+                *rhs = map(*rhs);
+            }
+            Self::Unop(_, child)
+            | Self::Field(child, _)
+            | Self::AsTy(child, _)
+            | Self::Let(_, child, _)
+            | Self::Return(child)
+            | Self::Arena(child)
+            | Self::Assume(child)
+            | Self::Lambda { body: child, .. } => {
+                *child = map(*child);
+            }
+            Self::Var(_, child, _) => {
+                if let Some(child) = child {
+                    *child = map(*child);
+                }
+            }
+            Self::If(cond, yes, no) => {
+                *cond = map(*cond);
+                *yes = map(*yes);
+                if let Some(no) = no {
+                    *no = map(*no);
+                }
+            }
+            Self::For {
+                start, end, body, ..
+            } => {
+                *start = map(*start);
+                *end = map(*end);
+                *body = map(*body);
+            }
+            Self::StructLit(_, fields) => {
+                for (_, value) in fields {
+                    *value = map(*value);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Expr {
     /// Pretty-print an expression in lyte syntax.
     ///
     /// This method formats an expression as it would appear in lyte source code.
@@ -575,7 +639,7 @@ pub fn format_binop(op: Binop) -> &'static str {
     }
 }
 
-fn format_unop(op: Unop) -> &'static str {
+pub fn format_unop(op: Unop) -> &'static str {
     match op {
         Unop::Neg => "-",
         Unop::Not => "!",

@@ -1,14 +1,16 @@
 //! VM code generator.
 //!
-//! This module translates a DeclTable into a VMProgram that can be
+//! This module translates a SpecializedProgram into a VMProgram that can be
 //! executed by the register-based virtual machine.
 
-use crate::decl::*;
+use crate::checked::{
+    CheckedBody, CheckedExpr as Expr, CheckedFunction, InstanceId, LocalId, Reference,
+    SpecializedProgram,
+};
+use crate::decl::Decl;
 use crate::defs::*;
-use crate::expr::*;
 use crate::types::*;
 use crate::vm::*;
-use crate::DeclTable;
 use std::collections::{HashMap, HashSet};
 
 /// Loop context for break/continue support.
@@ -29,8 +31,8 @@ struct PendingCall {
     func_idx: FuncIdx,
     /// Index of the Call instruction within that function.
     instr_idx: usize,
-    /// Name of the function being called.
-    callee: Name,
+    /// Concrete function instance being called.
+    callee: InstanceId,
 }
 
 /// Code generator for the VM.
@@ -38,14 +40,14 @@ pub struct VMCodegen {
     /// The program being built.
     program: VMProgram,
 
-    /// Map from function names to their indices in the program.
-    func_indices: HashMap<Name, FuncIdx>,
+    /// Map from function instances to their indices in the program.
+    func_indices: HashMap<InstanceId, FuncIdx>,
 
     /// Functions that have been compiled.
-    compiled_functions: HashSet<Name>,
+    compiled_functions: HashSet<InstanceId>,
 
     /// Functions that need to be compiled.
-    pending_functions: Vec<Name>,
+    pending_functions: Vec<InstanceId>,
 
     /// Calls that need to be patched after all functions are compiled.
     pending_calls: Vec<PendingCall>,
@@ -54,7 +56,7 @@ pub struct VMCodegen {
     pending_func_loads: Vec<PendingCall>,
 
     /// Global variable offsets.
-    globals: HashMap<Name, i32>,
+    globals: HashMap<InstanceId, i32>,
 
     /// Counter for generating unique lambda names.
     lambda_counter: usize,
@@ -81,34 +83,25 @@ impl VMCodegen {
     }
 
     /// Collect global variables and compute their offsets.
-    fn declare_globals(&mut self, decls: &DeclTable) {
+    fn declare_globals(&mut self, decls: &SpecializedProgram) {
         let mut offset: i32 = 0;
-        for decl in &decls.decls {
-            match decl {
-                Decl::Global {
-                    name, typevars, ty, ..
-                } => {
-                    if typevars.is_empty() {
-                        self.globals.insert(*name, offset);
-                        offset += ty.size(decls) as i32;
-                    }
-                }
-                Decl::Func(f) if f.is_extern => {
-                    // Extern functions get 16 bytes: {fn_ptr, context}
-                    self.globals.insert(f.name, offset);
-                    offset += 16;
-                }
-                _ => {}
-            }
+        for (instance, decl) in decls.storage_instances() {
+            let size = match decl {
+                Decl::Global { ty, .. } => ty.size(decls) as i32,
+                Decl::Func(f) if f.is_extern => 16,
+                _ => continue,
+            };
+            self.globals.insert(instance, offset);
+            offset += size;
         }
         self.program.globals_size = offset as usize;
     }
 
-    /// Compile a DeclTable into a VMProgram.
+    /// Compile a SpecializedProgram into a VMProgram.
     ///
     /// This looks for a "main" function and compiles it along with all
     /// functions it calls.
-    pub fn compile(&mut self, decls: &DeclTable) -> Result<VMProgram, String> {
+    pub fn compile(&mut self, decls: &SpecializedProgram) -> Result<VMProgram, String> {
         let main_name = Name::str("main");
         self.compile_multi(decls, &[main_name])
     }
@@ -119,7 +112,7 @@ impl VMCodegen {
     /// found show up in `program.entry_points`.
     pub fn compile_multi(
         &mut self,
-        decls: &DeclTable,
+        decls: &SpecializedProgram,
         entry_points: &[Name],
     ) -> Result<VMProgram, String> {
         // First, collect all global variables.
@@ -127,26 +120,26 @@ impl VMCodegen {
 
         // Compile each entry point root.
         for &ep_name in entry_points {
-            if self.compiled_functions.contains(&ep_name) {
-                continue;
-            }
-            let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+            let Some(instance) = decls.instance_for_entry(ep_name) else {
                 continue;
             };
-            self.compile_function(ep_decl, decls)?;
+            if self.compiled_functions.contains(&instance) {
+                continue;
+            }
+            let ep_decl = decls
+                .function_instance(instance)
+                .expect("entry is a function");
+            self.compile_function(ep_decl, decls, Some(instance))?;
 
             // Compile any pending functions (called by this entry point or transitively).
             while let Some(name) = self.pending_functions.pop() {
                 if self.compiled_functions.contains(&name) {
                     continue;
                 }
-                let func_decls = decls.find(name);
-                if func_decls.is_empty() {
-                    continue;
-                }
-                if let Decl::Func(func_decl) = &func_decls[0] {
-                    self.compile_function(func_decl, decls)?;
-                }
+                let func_decl = decls
+                    .function_instance(name)
+                    .expect("call target is a function");
+                self.compile_function(func_decl, decls, Some(name))?;
             }
         }
 
@@ -155,7 +148,10 @@ impl VMCodegen {
         // found, program.entry stays at its default and the map is empty.
         let mut entry_set = false;
         for &ep_name in entry_points {
-            if let Some(&idx) = self.func_indices.get(&ep_name) {
+            if let Some(&idx) = decls
+                .instance_for_entry(ep_name)
+                .and_then(|id| self.func_indices.get(&id))
+            {
                 self.program.entry_points.insert(ep_name, idx);
                 if !entry_set {
                     self.program.entry = idx;
@@ -196,7 +192,12 @@ impl VMCodegen {
     }
 
     /// Compile a single function.
-    fn compile_function(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Result<FuncIdx, String> {
+    fn compile_function(
+        &mut self,
+        decl: &CheckedFunction,
+        decls: &SpecializedProgram,
+        instance: Option<InstanceId>,
+    ) -> Result<FuncIdx, String> {
         let mut func = VMFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
 
@@ -210,13 +211,15 @@ impl VMCodegen {
         translator.translate(&mut func);
 
         // Extract debug info: register and slot names for disassembly.
-        for (&name, &reg) in &translator.variables {
-            if translator.reg_promoted.contains(&name) {
-                func.reg_names.push((reg, format!("{}", name)));
+        for (&name, &reg) in &translator.body.variables {
+            if translator.body.reg_promoted.contains(&name) {
+                func.reg_names
+                    .push((reg, format!("{}", decl.arena.local(name).name)));
             }
         }
-        for (&name, &slot) in &translator.local_slots {
-            func.slot_names.push((slot, format!("{}", name)));
+        for (&name, &slot) in &translator.body.local_slots {
+            func.slot_names
+                .push((slot, format!("{}", decl.arena.local(name).name)));
         }
 
         // Peephole optimize: eliminate redundant instructions + register allocation.
@@ -226,23 +229,21 @@ impl VMCodegen {
             // Register allocation compacted the register numbering.
             // Update locals_size: slot area stays the same, register save area shrinks.
             func.locals_size = func.local_slots as u32 * 8 + new_reg_count as u32 * 8;
-            // Update debug register names with the new physical register numbers.
-            for entry in &mut func.reg_names {
-                let idx = entry.0 as usize;
-                if idx < mapping.len() {
-                    let preg = mapping[idx];
-                    if preg != Reg::MAX {
-                        entry.0 = preg;
-                    }
-                }
+            // Debug names follow only registers the allocator retained.
+            // An eliminated virtual register must never label a reused physical one.
+            for (register, _) in &mut func.reg_names {
+                *register = mapping.get(*register as usize).copied().unwrap_or(Reg::MAX);
             }
-            // Remove entries where the register was optimized away.
-            func.reg_names.retain(|&(reg, _)| reg != Reg::MAX);
+            func.reg_names.retain(|&(register, _)| register != Reg::MAX);
+            func.reg_names.sort();
+            func.reg_names.dedup();
         }
 
         let idx = self.program.add_function(func);
-        self.func_indices.insert(decl.name, idx);
-        self.compiled_functions.insert(decl.name);
+        if let Some(instance) = instance {
+            self.func_indices.insert(instance, idx);
+            self.compiled_functions.insert(instance);
+        }
 
         // Extract data from translator before it's dropped (it borrows self.pending_functions).
         let calls_to_patch = std::mem::take(&mut translator.calls_to_patch);
@@ -276,7 +277,7 @@ impl VMCodegen {
         // Compile lambda functions and patch their indices into the parent function.
         for lambda_decl in pending_lambdas {
             let lambda_name = lambda_decl.name;
-            let lambda_idx = self.compile_function(&lambda_decl, decls)?;
+            let lambda_idx = self.compile_function(&lambda_decl, decls, None)?;
             // Patch every LoadImm placeholder for this lambda.
             for &(instr_idx, patch_name) in &lambda_patches {
                 if patch_name == lambda_name {
@@ -291,25 +292,12 @@ impl VMCodegen {
 
         Ok(idx)
     }
-
-    /// Get or create a function index for a given name.
-    fn get_or_create_func_index(&mut self, name: Name) -> FuncIdx {
-        if let Some(&idx) = self.func_indices.get(&name) {
-            idx
-        } else {
-            // Create a placeholder index - the function will be compiled later.
-            let idx = self.program.functions.len() as FuncIdx;
-            self.func_indices.insert(name, idx);
-            self.pending_functions.push(name);
-            idx
-        }
-    }
 }
 
 /// Check if an expression is simple enough to inline: no blocks, control flow,
 /// let/var bindings, or nested calls. Only arithmetic, comparisons, literals,
 /// identifiers, type casts, and field access are allowed.
-fn is_inline_expr(id: ExprID, arena: &ExprArena) -> bool {
+fn is_inline_expr(id: ExprID, arena: &CheckedBody) -> bool {
     match &arena[id] {
         Expr::Int(_, _) | Expr::Real(_, _) | Expr::Id(_) | Expr::True | Expr::False => true,
         Expr::Binop(op, lhs, rhs) => {
@@ -332,57 +320,48 @@ fn is_inline_expr(id: ExprID, arena: &ExprArena) -> bool {
     }
 }
 
-/// A snapshot of a translator's name-keyed binding state. See
-/// `FunctionTranslator::save_bindings`.
-struct SavedBindings {
-    variables: HashMap<Name, Reg>,
-    variable_types: HashMap<Name, TypeID>,
-    local_slots: HashMap<Name, u16>,
-    reg_promoted: HashSet<Name>,
-    reference_vars: HashSet<Name>,
-    captured_vars: HashSet<Name>,
-}
-
 /// A call instruction that needs patching.
 struct CallToPatch {
     /// Index of the Call instruction.
     instr_idx: usize,
-    /// Name of the function being called.
-    callee: Name,
+    /// Concrete function instance being called.
+    callee: InstanceId,
+}
+
+/// Storage and derived facts whose IDs belong to one checked body. Inlining
+/// switches this context as a unit; lexical scopes need no storage snapshots.
+struct BodyContext<'a> {
+    decl: &'a CheckedFunction,
+    variables: HashMap<LocalId, Reg>,
+    reg_promoted: HashSet<LocalId>,
+    lambda_referenced: HashSet<LocalId>,
+    reference_vars: HashSet<LocalId>,
+    local_slots: HashMap<LocalId, u16>,
+    elidable_lets: HashSet<ExprID>,
+    captured_vars: HashSet<LocalId>,
+}
+
+impl<'a> BodyContext<'a> {
+    fn new(decl: &'a CheckedFunction) -> Self {
+        Self {
+            decl,
+            variables: HashMap::new(),
+            reg_promoted: HashSet::new(),
+            lambda_referenced: decl.captured_locals(),
+            reference_vars: HashSet::new(),
+            local_slots: HashMap::new(),
+            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
+            captured_vars: HashSet::new(),
+        }
+    }
 }
 
 /// Translator for a single function body.
 struct FunctionTranslator<'a> {
-    /// The function declaration being translated.
-    decl: &'a FuncDecl,
+    body: BodyContext<'a>,
 
     /// Declaration table for looking up types and functions.
-    decls: &'a DeclTable,
-
-    /// Map from variable names to their register numbers.
-    /// For pointer types, the register holds the memory address.
-    /// For register-promoted scalars, the register holds the value directly.
-    variables: HashMap<Name, Reg>,
-
-    /// Declared representation type for local bindings.
-    variable_types: HashMap<Name, TypeID>,
-
-    /// Set of variable names that are register-promoted (value in register, not memory).
-    reg_promoted: HashSet<Name>,
-
-    /// Names a lambda in this function mentions. These are shared with the
-    /// closure by address, so they must never be register-promoted.
-    lambda_referenced: HashSet<Name>,
-
-    /// Set of variable names whose register stores a reference address.
-    reference_vars: HashSet<Name>,
-
-    /// Map from variable names to their local slot indices (for addressable vars).
-    local_slots: HashMap<Name, u16>,
-
-    /// `Expr::Let` ids whose value-copy is unobservable, so the binding can
-    /// alias the initializer's storage instead. See `crate::copy_elision`.
-    elidable_lets: HashSet<crate::ExprID>,
+    decls: &'a SpecializedProgram,
 
     /// Next available register.
     next_reg: Reg,
@@ -394,22 +373,16 @@ struct FunctionTranslator<'a> {
     locals_size: u32,
 
     /// Functions that are called and need to be compiled.
-    pending_functions: &'a mut Vec<Name>,
+    pending_functions: &'a mut Vec<InstanceId>,
 
     /// Counter for generating unique lambda names.
     lambda_counter: &'a mut usize,
 
-    /// Map from function name to expected function index.
-    called_functions: HashMap<Name, FuncIdx>,
-
-    /// Current next function index for placeholders.
-    next_func_idx: FuncIdx,
-
     /// Calls that need patching.
     calls_to_patch: Vec<CallToPatch>,
 
-    /// Lambda FuncDecls extracted from this function body, to be compiled afterward.
-    pending_lambdas: Vec<FuncDecl>,
+    /// Lambda CheckedFunctions extracted from this function body, to be compiled afterward.
+    pending_lambdas: Vec<CheckedFunction>,
 
     /// LoadImm instructions that need to be patched with lambda function indices.
     lambda_patches: Vec<(usize, Name)>,
@@ -418,7 +391,7 @@ struct FunctionTranslator<'a> {
     func_load_patches: Vec<CallToPatch>,
 
     /// Global variable offsets.
-    globals: &'a HashMap<Name, i32>,
+    globals: &'a HashMap<InstanceId, i32>,
 
     /// Output pointer register for functions returning pointer types.
     output_ptr: Option<Reg>,
@@ -437,9 +410,6 @@ struct FunctionTranslator<'a> {
 
     /// Byte offset in locals where registers are saved.
     save_regs_offset: u32,
-
-    /// Variables captured from an enclosing scope (accessed via double indirection).
-    captured_vars: HashSet<Name>,
 
     /// Extern function info collected during translation.
     extern_funcs: Vec<crate::vm::ExternFuncInfo>,
@@ -473,29 +443,21 @@ fn returns_via_pointer(ty: TypeID) -> bool {
 
 impl<'a> FunctionTranslator<'a> {
     fn new(
-        decl: &'a FuncDecl,
-        decls: &'a DeclTable,
-        pending_functions: &'a mut Vec<Name>,
+        decl: &'a CheckedFunction,
+        decls: &'a SpecializedProgram,
+        pending_functions: &'a mut Vec<InstanceId>,
         lambda_counter: &'a mut usize,
-        globals: &'a HashMap<Name, i32>,
+        globals: &'a HashMap<InstanceId, i32>,
     ) -> Self {
         Self {
-            decl,
+            body: BodyContext::new(decl),
             decls,
-            variables: HashMap::new(),
-            variable_types: HashMap::new(),
-            reg_promoted: HashSet::new(),
-            lambda_referenced: decl.names_referenced_in_lambdas(),
-            reference_vars: HashSet::new(),
-            local_slots: HashMap::new(),
-            elidable_lets: crate::copy_elision::elidable_let_copies(decl),
+
             next_reg: 0,
             next_slot: 0,
             locals_size: 0,
             pending_functions,
             lambda_counter,
-            called_functions: HashMap::new(),
-            next_func_idx: 0,
             calls_to_patch: Vec::new(),
             pending_lambdas: Vec::new(),
             lambda_patches: Vec::new(),
@@ -505,7 +467,6 @@ impl<'a> FunctionTranslator<'a> {
             output_ptr_slot: None,
             has_returned: false,
             save_regs_offset: 0,
-            captured_vars: HashSet::new(),
             loop_stack: Vec::new(),
             extern_funcs: Vec::new(),
         }
@@ -514,13 +475,13 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate the function body.
     fn translate(&mut self, func: &mut VMFunction) {
         // If return type is a pointer type, first parameter is output pointer.
-        if returns_via_pointer(self.decl.ret) {
+        if returns_via_pointer(self.body.decl.ret) {
             self.output_ptr = Some(self.alloc_reg());
             func.param_count += 1;
         }
 
         // Reserve registers for parameters (these are the incoming argument positions).
-        let param_count = self.decl.params.len();
+        let param_count = self.body.decl.params.len();
         for _ in 0..param_count {
             self.alloc_reg();
         }
@@ -553,24 +514,28 @@ impl<'a> FunctionTranslator<'a> {
 
         // Handle parameters. Scalars stay in registers (SaveRegs preserves them
         // across calls). Pointer types are stored to local slots.
-        let param_offset = if returns_via_pointer(self.decl.ret) {
+        let param_offset = if returns_via_pointer(self.body.decl.ret) {
             1u8
         } else {
             0u8
         };
-        for (i, param) in self.decl.params.iter().enumerate() {
+        for (i, param) in self.body.decl.params.iter().enumerate() {
             let src_reg = i as Reg + param_offset as Reg;
-            let ty = param.ty.expect("parameter must have type");
+            let ty = self.body.decl.arena.local(param.local).ty;
 
-            if let Type::Reference(inner) = &*ty {
+            if let Type::Reference(_) = &*ty {
                 let reg = self.alloc_reg();
                 func.emit(Opcode::Move {
                     dst: reg,
                     src: src_reg,
                 });
-                self.variables.insert(param.name, reg);
-                self.variable_types.insert(param.name, *inner);
-                self.reference_vars.insert(param.name);
+                self.body.variables.insert(param.local, reg);
+
+                self.body.reference_vars.insert(param.local);
+            } else if !self.is_ptr_type(&ty) && self.body.lambda_referenced.contains(&param.local) {
+                // A conditional capture must not decide whether parameter storage exists.
+                let addr = self.alloc_scalar_slot(param.local, ty, func);
+                self.emit_store(&ty, addr, src_reg, func);
             } else if !self.is_ptr_type(&ty) {
                 // Scalar parameter: copy to a dedicated register so the param
                 // register can be reused. The copy will be eliminated by
@@ -580,9 +545,9 @@ impl<'a> FunctionTranslator<'a> {
                     dst: reg,
                     src: src_reg,
                 });
-                self.variables.insert(param.name, reg);
-                self.variable_types.insert(param.name, ty);
-                self.reg_promoted.insert(param.name);
+                self.body.variables.insert(param.local, reg);
+
+                self.body.reg_promoted.insert(param.local);
             } else {
                 // Pointer-represented parameters are passed as addresses.
                 // Copy them out of the call argument registers so scalar
@@ -592,19 +557,18 @@ impl<'a> FunctionTranslator<'a> {
                     dst: reg,
                     src: src_reg,
                 });
-                self.variables.insert(param.name, reg);
-                self.variable_types.insert(param.name, ty);
+                self.body.variables.insert(param.local, reg);
             }
         }
 
         // Set up captured closure variables.
         // The closure pointer was set by CallClosure before entering this function.
-        if !self.decl.closure_vars.is_empty() {
+        if !self.body.decl.closure_vars.is_empty() {
             let closure_ptr_reg = self.alloc_reg();
             func.emit(Opcode::GetClosurePtr {
                 dst: closure_ptr_reg,
             });
-            for (i, cv) in self.decl.closure_vars.iter().enumerate() {
+            for (i, cv) in self.body.decl.closure_vars.iter().enumerate() {
                 // Load the address of the captured variable from closure_struct[i].
                 let addr_reg = self.alloc_reg();
                 func.emit(Opcode::Load64Off {
@@ -614,7 +578,7 @@ impl<'a> FunctionTranslator<'a> {
                 });
                 // Store this address in a local slot so it survives across calls.
                 let slot = self.alloc_local(8);
-                self.local_slots.insert(cv.name, slot);
+                self.body.local_slots.insert(*cv, slot);
                 let slot_addr = self.alloc_reg();
                 func.emit(Opcode::LocalAddr {
                     dst: slot_addr,
@@ -626,25 +590,25 @@ impl<'a> FunctionTranslator<'a> {
                 });
                 // The variable maps to the address of the captured storage (a pointer).
                 // Access goes: load addr from local slot → load/store value through addr.
-                self.variables.insert(cv.name, addr_reg);
-                self.variable_types.insert(cv.name, cv.ty);
+                self.body.variables.insert(*cv, addr_reg);
+
                 // Mark as a captured variable (accessed via double indirection).
-                self.captured_vars.insert(cv.name);
+                self.body.captured_vars.insert(*cv);
             }
         }
 
         // Translate the body if present.
-        if let Some(body) = self.decl.body {
+        if let Some(body) = self.body.decl.body {
             let result_reg = self.translate_expr(body, func);
 
             // Skip epilogue if we already emitted a return (e.g., explicit return statement).
             if !self.has_returned {
                 // Return the result.
-                if returns_via_pointer(self.decl.ret) {
+                if returns_via_pointer(self.body.decl.ret) {
                     // Reload output pointer from local slot (r0 may have been
                     // clobbered by subcalls).
                     let output = self.reload_output_ptr(func);
-                    let size = self.decl.ret.size(self.decls) as u32;
+                    let size = self.body.decl.ret.size(self.decls) as u32;
                     func.emit(Opcode::MemCopy {
                         dst: output,
                         src: result_reg,
@@ -748,66 +712,27 @@ impl<'a> FunctionTranslator<'a> {
         ptr
     }
 
-    /// Forget everything known about an outer binding of `name`, so a new
-    /// binding that shadows it is a clean rebinding rather than a mix of the
-    /// two. Every read path consults these name-keyed sets before falling back
-    /// to `variables`, so a leftover entry sends reads to the outer binding's
-    /// storage (or through an indirection the new binding doesn't have).
-    /// Block scope saves and restores all of them, so the outer binding's
-    /// state comes back at block exit.
-    fn shadow_outer_binding(&mut self, name: &Name) {
-        self.local_slots.remove(name);
-        self.reg_promoted.remove(name);
-        self.reference_vars.remove(name);
-        self.captured_vars.remove(name);
-    }
-
-    /// Snapshot every name-keyed binding fact, to be restored when the scope
-    /// that shadowed it ends. Blocks and `for` loops both need this: a binding
-    /// made inside one must stop being visible when it ends, and an outer
-    /// binding of the same name must come back.
-    fn save_bindings(&self) -> SavedBindings {
-        SavedBindings {
-            variables: self.variables.clone(),
-            variable_types: self.variable_types.clone(),
-            local_slots: self.local_slots.clone(),
-            reg_promoted: self.reg_promoted.clone(),
-            reference_vars: self.reference_vars.clone(),
-            captured_vars: self.captured_vars.clone(),
-        }
-    }
-
-    fn restore_bindings(&mut self, saved: SavedBindings) {
-        self.variables = saved.variables;
-        self.variable_types = saved.variable_types;
-        self.local_slots = saved.local_slots;
-        self.reg_promoted = saved.reg_promoted;
-        self.reference_vars = saved.reference_vars;
-        self.captured_vars = saved.captured_vars;
-    }
-
     /// Give a scalar variable a local slot instead of a register, and return a
     /// register holding the slot's address.
-    fn alloc_scalar_slot(&mut self, name: Name, ty: TypeID, func: &mut VMFunction) -> Reg {
-        self.shadow_outer_binding(&name);
+    fn alloc_scalar_slot(&mut self, name: LocalId, ty: TypeID, func: &mut VMFunction) -> Reg {
         let slot = self.alloc_local(ty.size(self.decls) as u32);
-        self.local_slots.insert(name, slot);
+        self.body.local_slots.insert(name, slot);
         let addr = self.alloc_reg();
         func.emit(Opcode::LocalAddr { dst: addr, slot });
-        self.variables.insert(name, addr);
-        self.variable_types.insert(name, ty);
-        self.reg_promoted.remove(&name);
+        self.body.variables.insert(name, addr);
+
+        self.body.reg_promoted.remove(&name);
         addr
     }
 
     /// Get the address of a variable's storage (for closure capture).
     /// For register-promoted vars, spills to a local slot first.
-    fn get_var_address(&mut self, name: &Name, func: &mut VMFunction) -> Reg {
-        if self.captured_vars.contains(name) {
+    fn get_var_address(&mut self, name: &LocalId, func: &mut VMFunction) -> Reg {
+        if self.body.captured_vars.contains(name) {
             // This variable was itself captured from an enclosing scope.
             // Our local slot holds a *pointer* to the actual storage, so we
             // must follow the indirection to return the real address.
-            let slot = *self.local_slots.get(name).unwrap();
+            let slot = *self.body.local_slots.get(name).unwrap();
             let slot_addr = self.alloc_reg();
             func.emit(Opcode::LocalAddr {
                 dst: slot_addr,
@@ -819,23 +744,26 @@ impl<'a> FunctionTranslator<'a> {
                 addr: slot_addr,
             });
             actual_addr
-        } else if self.reg_promoted.contains(name) {
+        } else if self.body.reg_promoted.contains(name) {
             // Register-promoted scalar: spill to a local slot so we have a stable address.
-            let val_reg = *self.variables.get(name).unwrap();
+            let val_reg = *self.body.variables.get(name).unwrap();
             let slot = self.alloc_local(8);
-            self.local_slots.insert(*name, slot);
+            self.body.local_slots.insert(*name, slot);
             let addr = self.alloc_reg();
             func.emit(Opcode::LocalAddr { dst: addr, slot });
             func.emit(Opcode::Store64 { addr, src: val_reg });
             // Change variable from register-promoted to stack-allocated.
-            self.reg_promoted.remove(name);
-            self.variables.insert(*name, addr);
+            self.body.reg_promoted.remove(name);
+            self.body.variables.insert(*name, addr);
             addr
-        } else if let Some(&slot) = self.local_slots.get(name) {
+        } else if let Some(&slot) = self.body.local_slots.get(name) {
             // Already stack-allocated: return its address.
             let addr = self.alloc_reg();
             func.emit(Opcode::LocalAddr { dst: addr, slot });
             addr
+        } else if self.is_ptr_type(&self.body.decl.arena.local(*name).ty) {
+            // Borrowed and aggregate parameters carry the captured storage address.
+            self.body.variables[name]
         } else {
             // Should not happen for captured variables.
             panic!("get_var_address: variable {:?} has no storage", name);
@@ -844,7 +772,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Get the type of an expression.
     fn expr_type(&self, expr: ExprID) -> TypeID {
-        self.decl.types[expr]
+        self.body.decl.arena.ty(expr)
     }
 
     /// Get the type that determines how an expression is represented at runtime.
@@ -853,21 +781,15 @@ impl<'a> FunctionTranslator<'a> {
     /// codegen still receives an array address and must build the slice fat
     /// pointer itself.
     fn representation_type(&self, expr: ExprID) -> TypeID {
-        match &self.decl.arena.exprs[expr] {
-            Expr::Id(name) => self
-                .variable_types
-                .get(name)
-                .copied()
-                .or_else(|| {
-                    self.decls.find(*name).iter().find_map(|decl| {
-                        if let Decl::Global { ty, .. } = decl {
-                            Some(*ty)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or_else(|| self.expr_type(expr)),
+        match &self.body.decl.arena[expr] {
+            Expr::Id(Reference::Local(local)) => {
+                let ty = self.body.decl.arena.local(*local).ty;
+                match &*ty {
+                    Type::Reference(inner) => *inner,
+                    _ => ty,
+                }
+            }
+            Expr::Id(Reference::Instance(instance)) => self.decls.instance(*instance).ty(),
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
                 Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => *elem,
                 _ => self.expr_type(expr),
@@ -878,7 +800,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an expression and return the register containing the result.
     fn translate_expr(&mut self, expr: ExprID, func: &mut VMFunction) -> Reg {
-        match &self.decl.arena.exprs[expr] {
+        match &self.body.decl.arena[expr] {
             Expr::Int(n, _) => {
                 let dst = self.alloc_reg();
                 func.emit(Opcode::LoadImm { dst, value: *n });
@@ -917,13 +839,13 @@ impl<'a> FunctionTranslator<'a> {
                 dst
             }
 
-            Expr::Id(name) => {
+            Expr::Id(Reference::Local(name)) => {
                 let ty = self.expr_type(expr);
 
                 // Check if it's a captured closure variable (double indirection).
-                if self.captured_vars.contains(name) {
+                if self.body.captured_vars.contains(name) {
                     // Load pointer-to-captured-storage from our local slot.
-                    let slot = *self.local_slots.get(name).unwrap();
+                    let slot = *self.body.local_slots.get(name).unwrap();
                     let slot_addr = self.alloc_reg();
                     func.emit(Opcode::LocalAddr {
                         dst: slot_addr,
@@ -947,25 +869,25 @@ impl<'a> FunctionTranslator<'a> {
                 }
 
                 // Check if it's a local variable.
-                if let Some(&reg) = self.variables.get(name) {
-                    if self.reference_vars.contains(name) {
+                if let Some(&reg) = self.body.variables.get(name) {
+                    if self.body.reference_vars.contains(name) {
                         if self.is_ptr_type(&ty) {
                             return reg;
                         }
                         let dst = self.alloc_reg();
                         self.emit_load(&ty, dst, reg, func);
                         dst
-                    } else if self.reg_promoted.contains(name) {
+                    } else if self.body.reg_promoted.contains(name) {
                         // Register-promoted scalar: value is already in the register.
                         reg
                     } else if self.is_ptr_type(&ty) {
                         // Pointer type: re-emit LocalAddr to ensure the register
                         // is correct after calls that may have clobbered it.
-                        if let Some(&slot) = self.local_slots.get(name) {
+                        if let Some(&slot) = self.body.local_slots.get(name) {
                             func.emit(Opcode::LocalAddr { dst: reg, slot });
                         }
                         reg
-                    } else if let Some(&slot) = self.local_slots.get(name) {
+                    } else if let Some(&slot) = self.body.local_slots.get(name) {
                         // Non-promoted scalar in local slot: load from memory.
                         let dst = self.alloc_reg();
                         func.emit(Opcode::LocalAddr { dst, slot });
@@ -975,7 +897,13 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         reg
                     }
-                } else if let Some(&offset) = self.globals.get(name) {
+                } else {
+                    unreachable!("checked local must have storage")
+                }
+            }
+            Expr::Id(Reference::Instance(name)) => {
+                let ty = self.expr_type(expr);
+                if let Some(&offset) = self.globals.get(name) {
                     // Global variable - load from globals memory.
                     let addr = self.alloc_reg();
                     func.emit(Opcode::GlobalAddr { dst: addr, offset });
@@ -1026,13 +954,12 @@ impl<'a> FunctionTranslator<'a> {
                         });
                         fat_addr
                     } else {
-                        // Unknown identifier - this shouldn't happen after type checking.
-                        let dst = self.alloc_reg();
-                        func.emit(Opcode::LoadImm { dst, value: 0 });
-                        dst
+                        unreachable!("instance must name storage or a function")
                     }
                 }
             }
+
+            Expr::Id(_) => unreachable!("non-concrete reference in specialized body"),
 
             Expr::Binop(op, lhs_id, rhs_id) => self.translate_binop(*op, *lhs_id, *rhs_id, func),
 
@@ -1041,11 +968,11 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Call(fn_id, arg_ids) => self.translate_call(*fn_id, arg_ids, expr, func),
 
             Expr::Let(name, init, _) => {
-                let ty = self.expr_type(expr);
+                let ty = self.body.decl.arena.local(*name).ty;
                 let init_reg = self.translate_expr(*init, func);
                 let init_reg = self.wrap_for_expected_slice(init_reg, ty, *init, func);
 
-                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(name) {
+                if !self.is_ptr_type(&ty) && self.body.lambda_referenced.contains(name) {
                     // Captured by a lambda: must live in memory, not a register.
                     let addr = self.alloc_scalar_slot(*name, ty, func);
                     self.emit_store(&ty, addr, init_reg, func);
@@ -1056,12 +983,12 @@ impl<'a> FunctionTranslator<'a> {
                         dst: reg,
                         src: init_reg,
                     });
-                    self.shadow_outer_binding(name);
-                    self.variables.insert(*name, reg);
-                    self.variable_types.insert(*name, ty);
-                    self.reg_promoted.insert(*name);
+
+                    self.body.variables.insert(*name, reg);
+
+                    self.body.reg_promoted.insert(*name);
                 } else if crate::copy_elision::is_value_aggregate(&ty)
-                    && !self.elidable_lets.contains(&expr)
+                    && !self.body.elidable_lets.contains(&expr)
                 {
                     // `let` binds aggregates by value, so the initializer's
                     // storage has to be copied — otherwise a slice coerced from
@@ -1069,16 +996,16 @@ impl<'a> FunctionTranslator<'a> {
                     // `var`, which has always copied.
                     let size = self.vm_type_size(&ty);
                     let slot = self.alloc_local(size);
-                    self.shadow_outer_binding(name);
-                    self.local_slots.insert(*name, slot);
+
+                    self.body.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
                     func.emit(Opcode::LocalAddr {
                         dst: addr_reg,
                         slot,
                     });
-                    self.variables.insert(*name, addr_reg);
-                    self.variable_types.insert(*name, ty);
+                    self.body.variables.insert(*name, addr_reg);
+
                     self.emit_store(&ty, addr_reg, init_reg, func);
                     return addr_reg;
                 } else {
@@ -1088,28 +1015,27 @@ impl<'a> FunctionTranslator<'a> {
                         dst: reg,
                         src: init_reg,
                     });
-                    // This binding has no slot of its own. If it shadows one
-                    // that does, the outer slot mapping has to go: reads
-                    // re-emit LocalAddr for any slot the name still maps to,
-                    // which would clobber this binding's address register.
-                    self.shadow_outer_binding(name);
-                    self.variables.insert(*name, reg);
-                    self.variable_types.insert(*name, ty);
+
+                    self.body.variables.insert(*name, reg);
+
                     return reg;
                 }
                 init_reg
             }
 
             Expr::Var(name, init, _) => {
-                let ty = self.expr_type(expr);
+                let ty = self.body.decl.arena.local(*name).ty;
 
-                if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(name) {
+                if !self.is_ptr_type(&ty) && self.body.lambda_referenced.contains(name) {
                     // Captured by a lambda: must live in memory, not a register.
                     let init_reg = if let Some(init_id) = init {
                         self.translate_expr(*init_id, func)
                     } else {
                         let zero = self.alloc_reg();
-                        func.emit(Opcode::LoadImm { dst: zero, value: 0 });
+                        func.emit(Opcode::LoadImm {
+                            dst: zero,
+                            value: 0,
+                        });
                         zero
                     };
                     let addr = self.alloc_scalar_slot(*name, ty, func);
@@ -1126,24 +1052,23 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         func.emit(Opcode::LoadImm { dst: reg, value: 0 });
                     }
-                    self.shadow_outer_binding(name);
-                    self.variables.insert(*name, reg);
-                    self.variable_types.insert(*name, ty);
-                    self.reg_promoted.insert(*name);
+
+                    self.body.variables.insert(*name, reg);
+
+                    self.body.reg_promoted.insert(*name);
                 } else {
                     // Pointer type: store to local slot.
                     let size = self.vm_type_size(&ty);
                     let slot = self.alloc_local(size);
-                    self.shadow_outer_binding(name);
-                    self.local_slots.insert(*name, slot);
+
+                    self.body.local_slots.insert(*name, slot);
 
                     let addr_reg = self.alloc_reg();
                     func.emit(Opcode::LocalAddr {
                         dst: addr_reg,
                         slot,
                     });
-                    self.variables.insert(*name, addr_reg);
-                    self.variable_types.insert(*name, ty);
+                    self.body.variables.insert(*name, addr_reg);
 
                     if let Some(init_id) = init {
                         let init_reg = self.translate_expr(*init_id, func);
@@ -1219,14 +1144,11 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(Opcode::LoadImm { dst, value: 0 });
                     dst
                 } else {
-                    // Save variable scope — declarations inside this block
-                    // shadow outer names only for the duration of the block.
-                    let saved = self.save_bindings();
                     let mut result = 0;
                     for expr_id in exprs {
                         result = self.translate_expr(*expr_id, func);
                     }
-                    self.restore_bindings(saved);
+
                     result
                 }
             }
@@ -1398,125 +1320,68 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::AsTy(expr_id, target_ty) => self.translate_cast(*expr_id, *target_ty, func),
 
-            Expr::Lambda { params, body } => {
-                let lambda_ty = self.expr_type(expr);
-                if let Type::Func(dom, rng) = &*lambda_ty {
-                    if let Type::Tuple(param_types) = &**dom {
-                        let id = *self.lambda_counter;
-                        *self.lambda_counter += 1;
-                        let lambda_name = Name::new(format!("__lambda_{}", id));
+            Expr::Lambda { .. } => {
+                let id = *self.lambda_counter;
+                *self.lambda_counter += 1;
+                let lambda_name = Name::new(format!("__lambda_{}", id));
 
-                        let lambda_params: Vec<Param> = params
-                            .iter()
-                            .zip(param_types.iter())
-                            .map(|(p, ty)| Param {
-                                name: p.name,
-                                ty: Some(*ty),
-                            })
-                            .collect();
+                let lambda_decl = self.body.decl.extract_lambda(expr, lambda_name);
+                let free_vars = &lambda_decl.closure_vars;
 
-                        // Compute free variables captured from the enclosing scope.
-                        let param_names: std::collections::HashSet<String> =
-                            params.iter().map(|p| p.name.to_string()).collect();
-                        let free_vars = collect_free_var_names(
-                            *body,
-                            &self.decl.arena,
-                            &param_names,
-                            &self.variables,
-                            &self.decl.types,
-                        );
-
-                        // Build closure struct if there are captures.
-                        let closure_ptr_val = if !free_vars.is_empty() {
-                            let n = free_vars.len();
-                            let closure_slot = self.alloc_local((n * 8) as u32);
-                            let closure_addr = self.alloc_reg();
-                            func.emit(Opcode::LocalAddr {
-                                dst: closure_addr,
-                                slot: closure_slot,
-                            });
-                            for (i, (name, _ty)) in free_vars.iter().enumerate() {
-                                let var_name = Name::new(name.clone());
-                                let var_addr = self.get_var_address(&var_name, func);
-                                func.emit(Opcode::Store64Off {
-                                    base: closure_addr,
-                                    offset: (i * 8) as i32,
-                                    src: var_addr,
-                                });
-                            }
-                            closure_addr
-                        } else {
-                            let zero = self.alloc_reg();
-                            func.emit(Opcode::LoadImm {
-                                dst: zero,
-                                value: 0,
-                            });
-                            zero
-                        };
-
-                        let closure_vars: Vec<ClosureVar> = free_vars
-                            .iter()
-                            .map(|(name, ty)| ClosureVar {
-                                name: Name::new(name.clone()),
-                                ty: *ty,
-                            })
-                            .collect();
-
-                        let lambda_decl = FuncDecl {
-                            name: lambda_name,
-                            typevars: vec![],
-                            size_vars: vec![],
-                            params: lambda_params,
-                            body: Some(*body),
-                            ret: *rng,
-                            constraints: vec![],
-                            requires: vec![],
-                            loc: self.decl.loc,
-                            arena: self.decl.arena.clone(),
-                            types: self.decl.types.clone(),
-                            closure_vars,
-                            is_extern: false,
-                        };
-
-                        self.pending_lambdas.push(lambda_decl);
-
-                        // Build a 16-byte fat pointer {func_idx, closure_ptr}.
-                        let fat_slot = self.alloc_local(16);
-                        let fat_addr = self.alloc_reg();
-                        func.emit(Opcode::LocalAddr {
-                            dst: fat_addr,
-                            slot: fat_slot,
-                        });
-                        // Store func_idx (patched later).
-                        let func_idx_reg = self.alloc_reg();
-                        let instr_idx = func.emit(Opcode::LoadImm {
-                            dst: func_idx_reg,
-                            value: 0,
-                        });
-                        self.lambda_patches.push((instr_idx, lambda_name));
-                        func.emit(Opcode::Store64 {
-                            addr: fat_addr,
-                            src: func_idx_reg,
-                        });
-                        // Store closure_ptr.
+                // Build closure struct if there are captures.
+                let closure_ptr_val = if !free_vars.is_empty() {
+                    let n = free_vars.len();
+                    let closure_slot = self.alloc_local((n * 8) as u32);
+                    let closure_addr = self.alloc_reg();
+                    func.emit(Opcode::LocalAddr {
+                        dst: closure_addr,
+                        slot: closure_slot,
+                    });
+                    for (i, var_name) in free_vars.iter().enumerate() {
+                        let var_addr = self.get_var_address(var_name, func);
                         func.emit(Opcode::Store64Off {
-                            base: fat_addr,
-                            offset: 8,
-                            src: closure_ptr_val,
+                            base: closure_addr,
+                            offset: (i * 8) as i32,
+                            src: var_addr,
                         });
-                        fat_addr
-                    } else {
-                        panic!(
-                            "VM codegen lambda: expected tuple domain type, got {:?}",
-                            dom
-                        );
                     }
+                    closure_addr
                 } else {
-                    panic!(
-                        "VM codegen lambda: expected function type, got {:?}",
-                        lambda_ty
-                    );
-                }
+                    let zero = self.alloc_reg();
+                    func.emit(Opcode::LoadImm {
+                        dst: zero,
+                        value: 0,
+                    });
+                    zero
+                };
+
+                self.pending_lambdas.push(lambda_decl);
+
+                // Build a 16-byte fat pointer {func_idx, closure_ptr}.
+                let fat_slot = self.alloc_local(16);
+                let fat_addr = self.alloc_reg();
+                func.emit(Opcode::LocalAddr {
+                    dst: fat_addr,
+                    slot: fat_slot,
+                });
+                // Store func_idx (patched later).
+                let func_idx_reg = self.alloc_reg();
+                let instr_idx = func.emit(Opcode::LoadImm {
+                    dst: func_idx_reg,
+                    value: 0,
+                });
+                self.lambda_patches.push((instr_idx, lambda_name));
+                func.emit(Opcode::Store64 {
+                    addr: fat_addr,
+                    src: func_idx_reg,
+                });
+                // Store closure_ptr.
+                func.emit(Opcode::Store64Off {
+                    base: fat_addr,
+                    offset: 8,
+                    src: closure_ptr_val,
+                });
+                fat_addr
             }
 
             Expr::Char(c) => {
@@ -1529,7 +1394,8 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             Expr::Enum(case_name) => {
-                let index = if let crate::Type::Name(enum_name, _) = &*self.decl.types[expr] {
+                let index = if let crate::Type::Name(enum_name, _) = &*self.body.decl.arena.ty(expr)
+                {
                     let enum_decls = self.decls.find(*enum_name);
                     if let Some(crate::Decl::Enum { cases, .. }) = enum_decls
                         .iter()
@@ -1558,11 +1424,8 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Arena(inner) => self.translate_expr(*inner, func),
 
-            _ => {
-                // Unimplemented expression - return 0.
-                let dst = self.alloc_reg();
-                func.emit(Opcode::LoadImm { dst, value: 0 });
-                dst
+            Expr::Macro(..) | Expr::TypeApp(..) | Expr::Error => {
+                unreachable!("unresolved expression in specialized body")
             }
         }
     }
@@ -1577,11 +1440,11 @@ impl<'a> FunctionTranslator<'a> {
         is_f64: bool,
         func: &mut VMFunction,
     ) -> Option<Reg> {
-        let arena = &self.decl.arena;
+        let arena = &self.body.decl.arena;
 
         if op == Binop::Plus {
             // a + b*c → FMulAdd { dst, a: b, b: c, c: a }
-            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[rhs_id] {
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena[rhs_id] {
                 let c = self.translate_expr(lhs_id, func);
                 let a = self.translate_expr(ma, func);
                 let b = self.translate_expr(mb, func);
@@ -1594,7 +1457,7 @@ impl<'a> FunctionTranslator<'a> {
                 return Some(dst);
             }
             // b*c + a → FMulAdd { dst, a: b, b: c, c: a }
-            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[lhs_id] {
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena[lhs_id] {
                 let a = self.translate_expr(ma, func);
                 let b = self.translate_expr(mb, func);
                 let c = self.translate_expr(rhs_id, func);
@@ -1608,7 +1471,7 @@ impl<'a> FunctionTranslator<'a> {
             }
         } else if op == Binop::Minus {
             // b*c - a → FMulSub { dst, a: b, b: c, c: a }  (b*c - a)
-            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[lhs_id] {
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena[lhs_id] {
                 let a = self.translate_expr(ma, func);
                 let b = self.translate_expr(mb, func);
                 let c = self.translate_expr(rhs_id, func);
@@ -1621,7 +1484,7 @@ impl<'a> FunctionTranslator<'a> {
                 return Some(dst);
             }
             // a - b*c → FNMulAdd { dst, a: b, b: c, c: a }  (a - b*c)
-            if let Expr::Binop(Binop::Mult, ma, mb) = arena.exprs[rhs_id] {
+            if let Expr::Binop(Binop::Mult, ma, mb) = arena[rhs_id] {
                 let c = self.translate_expr(lhs_id, func);
                 let a = self.translate_expr(ma, func);
                 let b = self.translate_expr(mb, func);
@@ -2105,12 +1968,12 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an assignment expression.
     fn translate_assign(&mut self, lhs_id: ExprID, rhs_id: ExprID, func: &mut VMFunction) -> Reg {
         // Check for captured variable assignment (double indirection).
-        if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
-            if self.captured_vars.contains(name) {
+        if let Expr::Id(Reference::Local(name)) = &self.body.decl.arena[lhs_id] {
+            if self.body.captured_vars.contains(name) {
                 let rhs = self.translate_expr(rhs_id, func);
                 let ty = self.representation_type(lhs_id);
                 let rhs = self.wrap_for_expected_slice(rhs, ty, rhs_id, func);
-                let slot = *self.local_slots.get(name).unwrap();
+                let slot = *self.body.local_slots.get(name).unwrap();
                 let slot_addr = self.alloc_reg();
                 func.emit(Opcode::LocalAddr {
                     dst: slot_addr,
@@ -2126,10 +1989,10 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
         // Check for direct register-promoted scalar assignment (e.g., `x = expr`).
-        if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
-            if self.reg_promoted.contains(name) {
+        if let Expr::Id(Reference::Local(name)) = &self.body.decl.arena[lhs_id] {
+            if self.body.reg_promoted.contains(name) {
                 let rhs = self.translate_expr(rhs_id, func);
-                let reg = *self.variables.get(name).unwrap();
+                let reg = *self.body.variables.get(name).unwrap();
                 if reg != rhs {
                     func.emit(Opcode::Move { dst: reg, src: rhs });
                 }
@@ -2137,7 +2000,7 @@ impl<'a> FunctionTranslator<'a> {
             }
         }
         // Slice store superinstruction: a[i] = rhs where a is a slice of 32-bit elements.
-        if let Expr::ArrayIndex(arr_id, idx_id) = &self.decl.arena.exprs[lhs_id] {
+        if let Expr::ArrayIndex(arr_id, idx_id) = &self.body.decl.arena[lhs_id] {
             let arr_ty = self.expr_type(*arr_id);
             if let Type::Slice(elem_ty) = &*arr_ty {
                 let elem_size = elem_ty.size(self.decls);
@@ -2162,7 +2025,7 @@ impl<'a> FunctionTranslator<'a> {
         // Struct field assignment of Func type: only copy 8 bytes (func_idx).
         // The struct field stores only the func_idx, not the full 16-byte fat pointer.
         if matches!(&*ty, Type::Func(_, _)) {
-            if matches!(&self.decl.arena.exprs[lhs_id], Expr::Field(_, _)) {
+            if matches!(&self.body.decl.arena[lhs_id], Expr::Field(_, _)) {
                 // rhs is a fat pointer address; load func_idx from it and store to struct field.
                 let func_idx_reg = self.alloc_reg();
                 func.emit(Opcode::Load64 {
@@ -2182,36 +2045,33 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an lvalue expression (returns address).
     fn translate_lvalue(&mut self, expr: ExprID, func: &mut VMFunction) -> Reg {
-        match &self.decl.arena.exprs[expr] {
-            Expr::Id(name) => {
-                if let Some(&reg) = self.variables.get(name) {
-                    if self.reg_promoted.contains(name) {
-                        let ty = self
-                            .variable_types
-                            .get(name)
-                            .copied()
-                            .unwrap_or(self.expr_type(expr));
+        match &self.body.decl.arena[expr] {
+            Expr::Id(Reference::Local(name)) => {
+                if let Some(&reg) = self.body.variables.get(name) {
+                    if self.body.reg_promoted.contains(name) {
+                        let ty = self.body.decl.arena.local(*name).ty;
                         let slot = self.alloc_local(ty.size(self.decls) as u32);
                         let addr = self.alloc_reg();
                         func.emit(Opcode::LocalAddr { dst: addr, slot });
                         self.emit_store(&ty, addr, reg, func);
-                        self.variables.insert(*name, addr);
-                        self.local_slots.insert(*name, slot);
-                        self.reg_promoted.remove(name);
+                        self.body.variables.insert(*name, addr);
+                        self.body.local_slots.insert(*name, slot);
+                        self.body.reg_promoted.remove(name);
                         addr
                     } else {
                         reg
                     }
-                } else if let Some(&offset) = self.globals.get(name) {
-                    // Global variable - return its address.
-                    let dst = self.alloc_reg();
-                    func.emit(Opcode::GlobalAddr { dst, offset });
-                    dst
                 } else {
-                    let dst = self.alloc_reg();
-                    func.emit(Opcode::LoadImm { dst, value: 0 });
-                    dst
+                    unreachable!("checked local must have storage")
                 }
+            }
+            Expr::Id(Reference::Instance(instance)) => {
+                let dst = self.alloc_reg();
+                func.emit(Opcode::GlobalAddr {
+                    dst,
+                    offset: self.globals[instance],
+                });
+                dst
             }
 
             Expr::Field(lhs_id, name) => {
@@ -2381,7 +2241,9 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Special handling for built-in functions.
-        if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
+        if let Expr::Id(Reference::Instance(instance)) = &self.body.decl.arena[fn_id] {
+            let instance = *instance;
+            let name = &self.decls.instance_name(instance);
             if **name == "print" {
                 // Print the first argument.
                 if let Some(&arg_id) = arg_ids.first() {
@@ -2564,19 +2426,18 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             // Check for extern function calls — emit CallExtern instead of Call.
-            if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
-                let callee_decls = self.decls.find(*callee_name);
-                if let Some(Decl::Func(f)) = callee_decls.first() {
+            {
+                if let Some(f) = self.decls.function_instance(instance) {
                     if f.is_extern {
                         let globals_offset = *self
                             .globals
-                            .get(callee_name)
+                            .get(&instance)
                             .expect("extern function not in globals");
 
                         // Build the C-level parameter types (slices expand to ptr + i32).
                         let mut c_param_types: Vec<crate::vm::ExternType> = Vec::new();
                         for p in &f.params {
-                            c_param_types.extend(type_to_extern_types(p.ty.unwrap()));
+                            c_param_types.extend(type_to_extern_types(f.arena.local(p.local).ty));
                         }
                         let ret_types = type_to_extern_types(f.ret);
                         let ret_type = ret_types[0];
@@ -2589,7 +2450,7 @@ impl<'a> FunctionTranslator<'a> {
                         // Translate arguments, wrapping arrays as slices where needed.
                         let mut arg_values = Vec::new();
                         for (i, arg_id) in arg_ids.iter().enumerate() {
-                            let param_ty = f.params[i].ty.unwrap();
+                            let param_ty = f.arena.local(f.params[i].local).ty;
                             let arg_reg = if matches!(&*param_ty, Type::Reference(_)) {
                                 self.translate_lvalue(*arg_id, func)
                             } else {
@@ -2614,7 +2475,7 @@ impl<'a> FunctionTranslator<'a> {
                         let mut c_arg_count: u8 = 0;
                         for (i, param) in f.params.iter().enumerate() {
                             let arg_reg = arg_values[i];
-                            let param_ty = param.ty.unwrap();
+                            let param_ty = f.arena.local(param.local).ty;
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 // arg_reg points to fat pointer {data_ptr: i64, len: i32}.
                                 let ptr_reg = self.alloc_reg();
@@ -2659,14 +2520,9 @@ impl<'a> FunctionTranslator<'a> {
 
             // Try to inline small leaf functions. This avoids Call overhead
             // for trivial functions like `cmp(lhs, rhs) { lhs - rhs }`.
-            if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
-                let callee_decls = self.decls.find(*callee_name);
-                for d in callee_decls {
-                    if let Decl::Func(callee) = d {
-                        if let Some(result) = self.try_inline(callee, arg_ids, func) {
-                            return result;
-                        }
-                    }
+            if let Some(callee) = self.decls.function_instance(instance) {
+                if let Some(result) = self.try_inline(callee, arg_ids, func) {
+                    return result;
                 }
             }
 
@@ -2685,17 +2541,11 @@ impl<'a> FunctionTranslator<'a> {
             // Get the callee's declared parameter types to detect slice params.
             // We use the declaration (not the solved call-site type) because
             // the solver may retain Array types where the callee expects Slice.
-            let param_types: Vec<TypeID> =
-                if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
-                    let callee_decls = self.decls.find(*callee_name);
-                    if let Some(Decl::Func(f)) = callee_decls.first() {
-                        f.param_types()
-                    } else {
-                        vec![]
-                    }
-                } else {
-                    self.closure_param_types(fn_id)
-                };
+            let param_types = self
+                .decls
+                .function_instance(instance)
+                .expect("direct call target is a function")
+                .param_types();
 
             // First, translate all arguments to get their values.
             // We need to do this before allocating the consecutive arg registers
@@ -2751,7 +2601,7 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             // Add function to pending list.
-            self.pending_functions.push(*name);
+            self.pending_functions.push(instance);
 
             // Calculate arg count (including output pointer if present).
             let arg_count = if output_slot.is_some() {
@@ -2771,7 +2621,7 @@ impl<'a> FunctionTranslator<'a> {
             // Record this call for patching.
             self.calls_to_patch.push(CallToPatch {
                 instr_idx,
-                callee: *name,
+                callee: instance,
             });
 
             // If returning pointer type, return the address of the output storage.
@@ -2804,21 +2654,13 @@ impl<'a> FunctionTranslator<'a> {
     /// rather than naming a function declaration. Such calls go through
     /// `translate_closure_call` instead of the direct-call path.
     fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
-        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
-            return false;
-        };
-        if self.variables.contains_key(name) {
-            return true;
+        match &self.body.decl.arena[fn_id] {
+            Expr::Id(Reference::Local(_)) => true,
+            Expr::Id(Reference::Instance(id)) => {
+                matches!(self.decls.instance(*id), Decl::Global { .. })
+            }
+            _ => false,
         }
-        // Extern functions live in globals memory too, but they are called
-        // through the direct-call path.
-        self.globals.contains_key(name)
-            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
-            && !self
-                .decls
-                .find(*name)
-                .iter()
-                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
     }
 
     /// Parameter types of a callee reached through a fat pointer, taken from
@@ -3025,7 +2867,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate a for loop.
     fn translate_for(
         &mut self,
-        var: Name,
+        var: LocalId,
         start_id: ExprID,
         end_id: ExprID,
         body_id: ExprID,
@@ -3047,9 +2889,9 @@ impl<'a> FunctionTranslator<'a> {
         // name-keyed state — otherwise reads of the name go to its slot
         // instead of the counter — and the snapshot brings that state back at
         // loop exit, where the loop variable is out of scope again.
-        let saved = self.save_bindings();
+
         let int_ty = mk_type(Type::Int32);
-        let counter_slot = if self.lambda_referenced.contains(&var) {
+        let counter_slot = if self.body.lambda_referenced.contains(&var) {
             // A lambda shares the counter by address, so it needs storage of
             // its own, allocated up front the way `let` and `var` do it.
             // Leaving it register-promoted and letting `get_var_address` spill
@@ -3057,12 +2899,11 @@ impl<'a> FunctionTranslator<'a> {
             // on a conditionally-executed path — iterations that don't reach
             // it would then read an unwritten slot.
             self.alloc_scalar_slot(var, int_ty, func);
-            self.local_slots.get(&var).copied()
+            self.body.local_slots.get(&var).copied()
         } else {
-            self.shadow_outer_binding(&var);
-            self.variables.insert(var, loop_var);
-            self.variable_types.insert(var, int_ty);
-            self.reg_promoted.insert(var);
+            self.body.variables.insert(var, loop_var);
+
+            self.body.reg_promoted.insert(var);
             None
         };
 
@@ -3098,7 +2939,6 @@ impl<'a> FunctionTranslator<'a> {
 
         // Execute body.
         self.translate_expr(body_id, func);
-        self.restore_bindings(saved);
 
         // Increment position — this is where continue jumps to.
         let increment_pos = func.code.len();
@@ -3387,10 +3227,10 @@ impl<'a> FunctionTranslator<'a> {
     /// - Not be recursive
     ///
     /// The inlined body is translated using the callee's arena and types,
-    /// with callee parameter names temporarily bound to argument registers.
+    /// with callee parameter identities bound in a fresh body context.
     fn try_inline(
         &mut self,
-        callee: &'a FuncDecl,
+        callee: &'a CheckedFunction,
         arg_ids: &[ExprID],
         func: &mut VMFunction,
     ) -> Option<Reg> {
@@ -3408,10 +3248,9 @@ impl<'a> FunctionTranslator<'a> {
 
         // Only inline scalar parameters (no slices, structs, arrays).
         for param in &callee.params {
-            if let Some(ty) = param.ty {
-                if ty.is_ptr() || matches!(&*ty, Type::Slice(_)) {
-                    return None;
-                }
+            let ty = callee.arena.local(param.local).ty;
+            if ty.is_ptr() || matches!(&*ty, Type::Slice(_)) {
+                return None;
             }
         }
 
@@ -3426,25 +3265,15 @@ impl<'a> FunctionTranslator<'a> {
             .map(|arg| self.translate_expr(*arg, func))
             .collect();
 
-        // Temporarily bind callee parameters to argument registers.
+        // Local IDs are interpreted only in the body context that owns them.
+        // Register/slot allocation and emitted instructions stay in the caller.
+        let caller = std::mem::replace(&mut self.body, BodyContext::new(callee));
         for (param, &reg) in callee.params.iter().zip(arg_regs.iter()) {
-            self.variables.insert(param.name, reg);
-            self.reg_promoted.insert(param.name);
+            self.body.variables.insert(param.local, reg);
+            self.body.reg_promoted.insert(param.local);
         }
-
-        // Save the caller's decl and switch to the callee's.
-        let saved_decl = self.decl;
-        self.decl = callee;
-
-        // Translate the callee body in-place.
         let result = self.translate_expr(body, func);
-
-        // Restore caller context.
-        self.decl = saved_decl;
-        for param in &callee.params {
-            self.variables.remove(&param.name);
-            self.reg_promoted.remove(&param.name);
-        }
+        self.body = caller;
 
         Some(result)
     }
@@ -3761,357 +3590,269 @@ impl<'a> FunctionTranslator<'a> {
     }
 }
 
-/// Collect free variable names referenced in a lambda body that come from the enclosing scope.
-fn collect_free_var_names(
-    body: crate::ExprID,
-    arena: &crate::ExprArena,
-    exclude: &std::collections::HashSet<String>,
-    local_vars: &HashMap<Name, Reg>,
-    types: &[crate::TypeID],
-) -> Vec<(String, crate::TypeID)> {
-    let mut result = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    collect_free_vars_rec(
-        body,
-        arena,
-        exclude,
-        local_vars,
-        types,
-        &mut result,
-        &mut seen,
-    );
-    result
-}
-
-fn collect_free_vars_rec(
-    expr: crate::ExprID,
-    arena: &crate::ExprArena,
-    exclude: &std::collections::HashSet<String>,
-    local_vars: &HashMap<Name, Reg>,
-    types: &[crate::TypeID],
-    result: &mut Vec<(String, crate::TypeID)>,
-    seen: &mut std::collections::HashSet<String>,
-) {
-    match &arena[expr] {
-        Expr::TypeApp(_, _) => {} // Rewritten to Id by monomorphizer
-        Expr::Id(name) => {
-            let s = name.to_string();
-            if local_vars.contains_key(name) && !exclude.contains(&s) && !seen.contains(&s) {
-                result.push((s.clone(), types[expr]));
-                seen.insert(s);
-            }
-        }
-        Expr::Call(fn_id, args) => {
-            collect_free_vars_rec(*fn_id, arena, exclude, local_vars, types, result, seen);
-            for a in args {
-                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Binop(_, lhs, rhs) => {
-            collect_free_vars_rec(*lhs, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Unop(_, arg) => {
-            collect_free_vars_rec(*arg, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Let(_, init, _) => {
-            collect_free_vars_rec(*init, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Var(_, init, _) => {
-            if let Some(init_id) = init {
-                collect_free_vars_rec(*init_id, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::If(cond, then, else_) => {
-            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*then, arena, exclude, local_vars, types, result, seen);
-            if let Some(e) = else_ {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::While(cond, body) => {
-            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::For {
-            start, end, body, ..
-        } => {
-            collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Return(e) | Expr::Assume(e) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Field(e, _) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayIndex(arr, idx) => {
-            collect_free_vars_rec(*arr, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*idx, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayLiteral(elems) => {
-            for e in elems {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Tuple(elems) => {
-            for e in elems {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::AsTy(e, _) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Arena(e) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Array(ty_expr, size_expr) => {
-            collect_free_vars_rec(*ty_expr, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*size_expr, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Lambda { params, body } => {
-            let mut inner_exclude = exclude.clone();
-            for p in params {
-                inner_exclude.insert(p.name.to_string());
-            }
-            collect_free_vars_rec(
-                *body,
-                arena,
-                &inner_exclude,
-                local_vars,
-                types,
-                result,
-                seen,
-            );
-        }
-        Expr::Macro(_, args) => {
-            for a in args {
-                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Int(_, _)
-        | Expr::Real(_, _)
-        | Expr::String(_)
-        | Expr::Char(_)
-        | Expr::True
-        | Expr::False
-        | Expr::Enum(_)
-        | Expr::Break
-        | Expr::Continue
-        | Expr::Error => {}
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checked::{DefId, InstanceRecord};
     use crate::vm::VM;
 
-    /// Helper to create a simple function for testing.
-    fn make_simple_decl_table(body: Expr, ret_ty: TypeID) -> DeclTable {
-        let mut arena = ExprArena::new();
-        let body_id = arena.add(body, crate::test_loc());
+    fn program(expressions: Vec<(Expr, TypeID)>) -> VMProgram {
+        let mut arena = CheckedBody::new();
+        for (expr, ty) in expressions {
+            arena.add(expr, ty, crate::test_loc());
+        }
+        compile_body(arena)
+    }
 
-        let func = FuncDecl {
+    fn compile_body(arena: CheckedBody) -> VMProgram {
+        let body = arena.len() - 1;
+        let func = CheckedFunction {
             name: Name::str("main"),
             typevars: vec![],
             size_vars: vec![],
             params: vec![],
-            body: Some(body_id),
-            ret: ret_ty,
-            constraints: vec![],
+            body: Some(body),
+            ret: arena.ty(body),
+
             requires: vec![],
             loc: crate::test_loc(),
             arena,
-            types: vec![ret_ty], // Simplified - just use return type.
             closure_vars: vec![],
             is_extern: false,
         };
-
-        DeclTable::new(vec![Decl::Func(func)])
+        let checked = SpecializedProgram::from_instances(
+            vec![Decl::Func(func)],
+            vec![InstanceRecord {
+                definition: DefId(0),
+                type_args: vec![],
+                size_args: vec![],
+                declaration: 0,
+            }],
+        );
+        VMCodegen::new().compile(&checked).unwrap()
     }
 
     #[test]
     fn test_compile_simple_int() {
-        let mut arena = ExprArena::new();
-        let expr = arena.add(Expr::Int(42, None), crate::test_loc());
-
-        let func = FuncDecl {
-            name: Name::str("main"),
-            typevars: vec![],
-            size_vars: vec![],
-            params: vec![],
-            body: Some(expr),
-            ret: mk_type(Type::Int32),
-            constraints: vec![],
-            requires: vec![],
-            loc: crate::test_loc(),
-            arena,
-            types: vec![mk_type(Type::Int32)],
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(func)]);
-
-        let mut codegen = VMCodegen::new();
-        let program = codegen.compile(&decls).unwrap();
-
-        let mut vm = VM::new();
-        let result = vm.run(&program);
-        assert_eq!(result, 42);
+        let program = program(vec![(Expr::Int(42, None), mk_type(Type::Int32))]);
+        assert_eq!(VM::new().run(&program), 42);
     }
 
     #[test]
     fn test_compile_addition() {
-        let mut arena = ExprArena::new();
-        let lhs = arena.add(Expr::Int(10, None), crate::test_loc());
-        let rhs = arena.add(Expr::Int(32, None), crate::test_loc());
-        let add = arena.add(Expr::Binop(Binop::Plus, lhs, rhs), crate::test_loc());
-
-        let int32 = mk_type(Type::Int32);
-        let func = FuncDecl {
-            name: Name::str("main"),
-            typevars: vec![],
-            size_vars: vec![],
-            params: vec![],
-            body: Some(add),
-            ret: int32,
-            constraints: vec![],
-            requires: vec![],
-            loc: crate::test_loc(),
-            arena,
-            types: vec![int32, int32, int32],
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(func)]);
-
-        let mut codegen = VMCodegen::new();
-        let program = codegen.compile(&decls).unwrap();
-
-        let mut vm = VM::new();
-        let result = vm.run(&program);
-        assert_eq!(result, 42);
+        let program = program(vec![
+            (Expr::Int(10, None), mk_type(Type::Int32)),
+            (Expr::Int(32, None), mk_type(Type::Int32)),
+            (Expr::Binop(Binop::Plus, 0, 1), mk_type(Type::Int32)),
+        ]);
+        assert_eq!(VM::new().run(&program), 42);
     }
 
     #[test]
     fn test_compile_float_arithmetic() {
-        let mut arena = ExprArena::new();
-        let lhs = arena.add(Expr::Real("1.5".to_string(), None), crate::test_loc());
-        let rhs = arena.add(Expr::Real("2.5".to_string(), None), crate::test_loc());
-        let mul = arena.add(Expr::Binop(Binop::Mult, lhs, rhs), crate::test_loc());
-
-        let f32_ty = mk_type(Type::Float32);
-        let func = FuncDecl {
-            name: Name::str("main"),
-            typevars: vec![],
-            size_vars: vec![],
-            params: vec![],
-            body: Some(mul),
-            ret: f32_ty,
-            constraints: vec![],
-            requires: vec![],
-            loc: crate::test_loc(),
-            arena,
-            types: vec![f32_ty, f32_ty, f32_ty],
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(func)]);
-
-        let mut codegen = VMCodegen::new();
-        let program = codegen.compile(&decls).unwrap();
-
-        let mut vm = VM::new();
-        let result = vm.run_f32(&program);
-        assert!((result - 3.75).abs() < 0.0001);
+        let ty = mk_type(Type::Float32);
+        let program = program(vec![
+            (Expr::Real("1.5".into(), None), ty),
+            (Expr::Real("2.5".into(), None), ty),
+            (Expr::Binop(Binop::Mult, 0, 1), ty),
+        ]);
+        assert!((VM::new().run_f32(&program) - 3.75).abs() < 0.0001);
     }
 
     #[test]
     fn test_compile_if_else() {
-        let mut arena = ExprArena::new();
-        let cond = arena.add(Expr::True, crate::test_loc());
-        let then_val = arena.add(Expr::Int(100, None), crate::test_loc());
-        let else_val = arena.add(Expr::Int(200, None), crate::test_loc());
-        let if_expr = arena.add(Expr::If(cond, then_val, Some(else_val)), crate::test_loc());
-
-        let int32 = mk_type(Type::Int32);
-        let bool_ty = mk_type(Type::Bool);
-        let func = FuncDecl {
-            name: Name::str("main"),
-            typevars: vec![],
-            size_vars: vec![],
-            params: vec![],
-            body: Some(if_expr),
-            ret: int32,
-            constraints: vec![],
-            requires: vec![],
-            loc: crate::test_loc(),
-            arena,
-            types: vec![bool_ty, int32, int32, int32],
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(func)]);
-
-        let mut codegen = VMCodegen::new();
-        let program = codegen.compile(&decls).unwrap();
-
-        let mut vm = VM::new();
-        let result = vm.run(&program);
-        assert_eq!(result, 100);
+        let program = program(vec![
+            (Expr::True, mk_type(Type::Bool)),
+            (Expr::Int(100, None), mk_type(Type::Int32)),
+            (Expr::Int(200, None), mk_type(Type::Int32)),
+            (Expr::If(0, 1, Some(2)), mk_type(Type::Int32)),
+        ]);
+        assert_eq!(VM::new().run(&program), 100);
     }
 
     #[test]
     fn test_compile_while_loop() {
-        // while (false) { 1 }
-        let mut arena = ExprArena::new();
-        let cond = arena.add(Expr::False, crate::test_loc());
-        let body = arena.add(Expr::Int(1, None), crate::test_loc());
-        let while_expr = arena.add(Expr::While(cond, body), crate::test_loc());
-        let result = arena.add(Expr::Int(42, None), crate::test_loc());
-        let block = arena.add(Expr::Block(vec![while_expr, result]), crate::test_loc());
+        let ty = mk_type(Type::Int32);
+        let void = mk_type(Type::Void);
+        let boolean = mk_type(Type::Bool);
+        let loc = crate::test_loc();
+        for iterations in [0, 1, 4] {
+            let mut arena = CheckedBody::new();
+            let counter = arena.add_local(Name::str("counter"), ty, true);
+            let zero = arena.add(Expr::Int(0, None), ty, loc);
+            let binding = arena.add(Expr::Var(counter, Some(zero), None), void, loc);
+            let condition = if iterations == 0 {
+                arena.add(Expr::False, boolean, loc)
+            } else {
+                let read = arena.add(Expr::Id(Reference::Local(counter)), ty, loc);
+                let limit = arena.add(Expr::Int(iterations, None), ty, loc);
+                arena.add(Expr::Binop(Binop::Less, read, limit), boolean, loc)
+            };
+            let read = arena.add(Expr::Id(Reference::Local(counter)), ty, loc);
+            let one = arena.add(Expr::Int(1, None), ty, loc);
+            let next = arena.add(Expr::Binop(Binop::Plus, read, one), ty, loc);
+            let increment = arena.add(Expr::Binop(Binop::Assign, read, next), ty, loc);
+            let loop_expr = arena.add(Expr::While(condition, increment), void, loc);
+            // The returned state exposes omitted, extra, or missing iterations.
+            let result = arena.add(Expr::Id(Reference::Local(counter)), ty, loc);
+            arena.add(Expr::Block(vec![binding, loop_expr, result]), ty, loc);
 
-        let int32 = mk_type(Type::Int32);
-        let bool_ty = mk_type(Type::Bool);
-        let func = FuncDecl {
-            name: Name::str("main"),
+            assert_eq!(
+                VM::new().run(&compile_body(arena)),
+                iterations,
+                "while loop with {} iterations",
+                iterations
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_targets_and_body_local_ids_survive_lowering() {
+        use crate::checked::CheckedParam;
+        let ty = mk_type(Type::Int32);
+        let loc = crate::test_loc();
+        let make_function = |name, params, arena: CheckedBody| CheckedFunction {
+            name,
+            params,
+            body: Some(arena.len() - 1),
+            ret: ty,
             typevars: vec![],
             size_vars: vec![],
-            params: vec![],
-            body: Some(block),
-            ret: int32,
-            constraints: vec![],
+
             requires: vec![],
-            loc: crate::test_loc(),
+            loc,
             arena,
-            types: vec![bool_ty, int32, int32, int32, int32],
             closure_vars: vec![],
             is_extern: false,
         };
+        // Both callee definitions deliberately have the same diagnostic name.
+        // The checked instance reference chooses the second definition.
+        let mut wrong_body = CheckedBody::new();
+        wrong_body.add(Expr::Int(900, None), ty, loc);
+        let wrong = make_function(Name::str("step"), vec![], wrong_body);
+        let mut callee_body = CheckedBody::new();
+        let parameter = callee_body.add_local(Name::str("value"), ty, false);
+        let value = callee_body.add(Expr::Id(Reference::Local(parameter)), ty, loc);
+        let one = callee_body.add(Expr::Int(1, None), ty, loc);
+        callee_body.add(Expr::Binop(Binop::Plus, value, one), ty, loc);
+        let callee = make_function(
+            Name::str("step"),
+            vec![CheckedParam { local: parameter }],
+            callee_body,
+        );
 
-        let decls = DeclTable::new(vec![Decl::Func(func)]);
+        let mut main_body = CheckedBody::new();
+        let outer = main_body.add_local(Name::str("value"), ty, false);
+        assert_eq!(
+            outer, parameter,
+            "the two bodies intentionally reuse local index zero"
+        );
+        let forty = main_body.add(Expr::Int(40, None), ty, loc);
+        let binding = main_body.add(Expr::Let(outer, forty, None), mk_type(Type::Void), loc);
+        let target = main_body.add(
+            Expr::Id(Reference::Instance(InstanceId(2))),
+            callee.ty(),
+            loc,
+        );
+        let arg = main_body.add(Expr::Int(0, None), ty, loc);
+        let first_call = main_body.add(Expr::Call(target, vec![arg]), ty, loc);
+        let target = main_body.add(
+            Expr::Id(Reference::Instance(InstanceId(2))),
+            callee.ty(),
+            loc,
+        );
+        let arg = main_body.add(Expr::Int(0, None), ty, loc);
+        let second_call = main_body.add(Expr::Call(target, vec![arg]), ty, loc);
+        let call = main_body.add(Expr::Binop(Binop::Plus, first_call, second_call), ty, loc);
+        let outer_read = main_body.add(Expr::Id(Reference::Local(outer)), ty, loc);
+        let sum = main_body.add(Expr::Binop(Binop::Plus, call, outer_read), ty, loc);
+        main_body.add(Expr::Block(vec![binding, sum]), ty, loc);
+        let main = make_function(Name::str("main"), vec![], main_body);
+        let checked = SpecializedProgram::from_instances(
+            vec![Decl::Func(main), Decl::Func(wrong), Decl::Func(callee)],
+            (0..3)
+                .map(|i| InstanceRecord {
+                    definition: DefId(i),
+                    type_args: vec![],
+                    size_args: vec![],
+                    declaration: i as usize,
+                })
+                .collect(),
+        );
+        let vm = VMCodegen::new().compile(&checked).unwrap();
+        assert_eq!(VM::new().run(&vm), 42);
+        let mut stack = crate::stack_codegen::StackCodegen::new()
+            .compile(&checked)
+            .unwrap();
+        for function in &mut stack.functions {
+            crate::stack_rebase_lm::rebase(function);
+            crate::stack_rebase_lm::patch_call_preserve(function);
+        }
+        assert_eq!(crate::stack_interp_bridge::run(&stack), 42);
+    }
 
-        let mut codegen = VMCodegen::new();
-        let program = codegen.compile(&decls).unwrap();
+    fn check_capture_program(source: &str) {
+        let mut compiler = crate::Compiler::new();
+        compiler.quiet = true;
+        compiler.parse(source, ".");
+        assert!(
+            compiler.check(),
+            "capture regression must check successfully"
+        );
+        compiler.specialize().unwrap();
+        let stack = compiler.compile_stack().unwrap();
+        assert_eq!(
+            crate::stack_interp_bridge::run(&stack),
+            42,
+            "Stack capture result"
+        );
+        let vm = compiler.compile_vm().unwrap();
+        assert_eq!(VM::new().run(&vm), 42, "register VM capture result");
+    }
 
-        let mut vm = VM::new();
-        let result = vm.run(&program);
-        assert_eq!(result, 42);
+    #[test]
+    fn scalar_parameter_capture_has_storage_before_conditional() {
+        check_capture_program(
+            r#"
+            capture(value: i32, create: bool) -> i32 {
+                if create { let read = || { value }; }
+                value
+            }
+            main() -> i32 { capture(42, false) }
+        "#,
+        );
+    }
+
+    #[test]
+    fn aggregate_parameter_capture_keeps_the_aggregate_address() {
+        check_capture_program(
+            r#"
+            capture(values: [i32; 2]) -> i32 {
+                var total = 0
+                for i in 0 .. 2 {
+                    let read = || { values[0] }
+                    total = total + read()
+                }
+                total
+            }
+            main() -> i32 { capture([21, 0]) }
+        "#,
+        );
+    }
+
+    #[test]
+    fn borrowed_parameter_capture_keeps_the_borrowed_address() {
+        check_capture_program(
+            r#"
+            capture(value: &i32) -> i32 {
+                for i in 0 .. 2 {
+                    let increment = || { value = value + 1 }
+                    increment()
+                }
+                value
+            }
+            main() -> i32 { var value = 40; capture(value) }
+        "#,
+        );
     }
 }

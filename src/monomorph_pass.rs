@@ -1,1282 +1,887 @@
 use crate::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-/// Manages the monomorphization process, generating specialized versions
-/// of generic functions and structs.
+/// Converts checked definitions into concrete instances. The cache is reserved
+/// before visiting a body, so recursive calls and generic globals always name
+/// the same instance, regardless of the path by which they are reached.
 pub struct MonomorphPass {
-    /// Maps (function_name, type_args) -> mangled_name of the specialized version
-    instantiations: HashMap<MonomorphKey, Name>,
+    cache: HashMap<MonomorphKey, InstanceId>,
+    records: Vec<InstanceRecord>,
+    declarations: Vec<Option<CheckedDecl>>,
+    recursion: RecursionDetector,
+}
 
-    /// Detects infinite generic recursion
-    recursion_detector: RecursionDetector,
-
-    /// Newly generated specialized declarations
-    out_decls: Vec<Decl>,
-
-    /// Non-generic functions whose bodies have been processed (to prevent reprocessing).
-    processed_non_generic: HashSet<Name>,
+impl Default for MonomorphPass {
+    fn default() -> Self {
+        Self {
+            cache: HashMap::new(),
+            records: vec![],
+            declarations: vec![],
+            recursion: RecursionDetector::new(),
+        }
+    }
 }
 
 impl MonomorphPass {
     pub fn new() -> Self {
-        Self {
-            instantiations: HashMap::new(),
-            recursion_detector: RecursionDetector::new(),
-            out_decls: Vec::new(),
-            processed_non_generic: HashSet::new(),
-        }
+        Self::default()
     }
 
-    /// Main entry point: monomorphize all functions starting from the entry point.
-    ///
-    /// This performs a demand-driven monomorphization, only specializing
-    /// generic functions that are actually called with concrete types.
-    ///
-    /// Returns all reached function declarations and other declarations.
     pub fn monomorphize(
         &mut self,
-        decls: &DeclTable,
+        program: &CheckedProgram,
         entry_point: Name,
-    ) -> Result<Vec<Decl>, String> {
-        self.monomorphize_multi(decls, &[entry_point])
+    ) -> Result<SpecializedProgram, String> {
+        self.monomorphize_multi(program, &[entry_point])
     }
 
-    /// Monomorphize starting from multiple entry points.
-    ///
-    /// Each entry point is processed as a root. The `processed_non_generic`
-    /// set prevents reprocessing shared functions reached from multiple roots.
-    ///
-    /// Entry points that aren't defined are skipped — whether a missing entry
-    /// point is an error is up to the client.
     pub fn monomorphize_multi(
         &mut self,
-        decls: &DeclTable,
+        program: &CheckedProgram,
         entry_points: &[Name],
-    ) -> Result<Vec<Decl>, String> {
+    ) -> Result<SpecializedProgram, String> {
+        program.validate()?;
+        let decls = &program.decls;
         for &entry_point in entry_points {
-            if decls.entry_point_overloads(entry_point).count() > 1 {
+            let roots: Vec<_> = decls
+                .named_ids(entry_point)
+                .into_iter()
+                .filter(|id| decls.function(*id).is_some())
+                .collect();
+            if roots.len() > 1 {
                 return Err(format!(
                     "Multiple overloads found for entry point function '{}'",
                     entry_point
                 ));
             }
-
-            let Some(fdecl) = decls.find_entry_point(entry_point) else {
-                continue;
-            };
-
-            if !self.processed_non_generic.contains(&fdecl.name) {
-                self.processed_non_generic.insert(fdecl.name);
-                let mut fdecl = fdecl.clone();
-                self.process_function(&mut fdecl, decls)?;
-                self.out_decls.push(Decl::Func(fdecl));
+            if let Some(&definition) = roots.first() {
+                let source = decls.function(definition).unwrap();
+                self.instantiate_function(definition, vec![], vec![], source, decls)?;
             }
         }
-
-        for decl in decls.decls.iter() {
-            match decl {
-                Decl::Func(_) => {
-                    // Functions are processed on demand
+        // Non-generic globals exist even when no reached function names them:
+        // their storage is part of the host-visible module layout.
+        for (index, declaration) in decls.decls.iter().enumerate() {
+            match declaration {
+                Decl::Global { typevars, ty, .. } if typevars.is_empty() => {
+                    self.instantiate_global(decls.id_at(index), None, *ty, decls)?;
                 }
-                Decl::Global { typevars, .. } if !typevars.is_empty() => {
-                    // Generic globals — concrete instances emitted during process_expr
+                Decl::Func(_) | Decl::Global { .. } | Decl::Interface(_) | Decl::Macro(_) => {}
+                Decl::Assume { arena, cond } => {
+                    let mut body = arena.clone();
+                    self.process_body(&mut body, std::iter::once(*cond), &[], decls)?;
+                    self.declarations.push(Some(Decl::Assume {
+                        arena: body,
+                        cond: *cond,
+                    }));
                 }
-                _ => {
-                    self.out_decls.push(decl.clone());
-                }
+                _ => self.declarations.push(Some(declaration.clone())),
             }
         }
-
-        // Collect all declarations: original + specialized
-        Ok(self.out_decls.clone())
+        let declarations = self
+            .declarations
+            .iter()
+            .cloned()
+            .map(|decl| decl.ok_or_else(|| "Unfinished concrete instance".to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let specialized = SpecializedProgram::try_from_instances(
+            declarations,
+            self.records.clone(),
+        )?;
+        specialized.validate_origins(program)?;
+        Ok(specialized)
     }
 
-    /// Process a single function, finding all generic calls within it
-    fn process_function(&mut self, fdecl: &mut FuncDecl, decls: &DeclTable) -> Result<(), String> {
-        if let Some(body) = fdecl.body {
-            self.process_expr(body, fdecl, decls)?;
+    fn reserve(&mut self, key: MonomorphKey) -> InstanceId {
+        let id = InstanceId(self.records.len() as u32);
+        self.records.push(InstanceRecord {
+            definition: key.definition,
+            type_args: key.type_args.clone(),
+            size_args: key.size_args.clone(),
+            declaration: self.declarations.len(),
+        });
+        self.declarations.push(None);
+        self.cache.insert(key, id);
+        id
+    }
+
+    fn finish(&mut self, id: InstanceId, declaration: CheckedDecl) {
+        let slot = self.records[id.0 as usize].declaration;
+        self.declarations[slot] = Some(declaration);
+    }
+
+    fn process_body(
+        &mut self,
+        body: &mut CheckedBody,
+        roots: impl IntoIterator<Item = ExprID>,
+        size_vars: &[SizeParameter],
+        decls: &DeclTable<CheckedFunction>,
+    ) -> Result<(), String> {
+        // Requirements are body-local. Keep their concrete selection in this
+        // stack frame while recursively specializing any selected callees.
+        let mut selections = HashMap::new();
+        for requirement in &body.requirements {
+            let selected = requirement
+                .select(&Instance::new(), decls)
+                .map_err(|error| error.message(requirement.interface, decls))?
+                .ok_or("Unresolved body interface requirement")?;
+            for member in selected {
+                selections.insert((requirement.id, member.member), member.implementation);
+            }
         }
+        for root in roots {
+            self.process_expr(root, body, size_vars, decls, &selections)?;
+        }
+        // Publication validates every retained node, including nodes outside
+        // these roots, without instantiating otherwise unreachable code.
+        // Selected implementations are now explicit Instance references. Source
+        // requirement/member IDs have no owner in the concrete program.
+        body.requirements.clear();
         Ok(())
     }
 
-    /// Recursively process an expression, looking for function calls
     fn process_expr(
         &mut self,
-        expr_id: ExprID,
-        fdecl: &mut FuncDecl,
-        decls: &DeclTable,
+        id: ExprID,
+        body: &mut CheckedBody,
+        size_vars: &[SizeParameter],
+        decls: &DeclTable<CheckedFunction>,
+        selections: &HashMap<(RequirementId, DefId), DefId>,
     ) -> Result<(), String> {
-        // Clone the expression to avoid borrow checker issues
-        let expr = fdecl.arena[expr_id].clone();
-
-        match &expr {
-            Expr::TypeApp(name, type_args) => {
-                // Explicit type application: name⟨i32⟩.
-                // The type args are known directly — no inference needed.
-                let fn_decls = decls.find(*name);
-
-                // Check generic functions. When multiple overloads have the
-                // same number of type params, use the solved type to pick the
-                // right one (e.g. different arities like new⟨T⟩() vs new⟨T⟩(cap)).
-                let solved_type = fdecl.types[expr_id];
-                for decl in fn_decls.iter() {
-                    if let Decl::Func(target_fdecl) = decl {
-                        if target_fdecl.typevars.len() == type_args.len() {
-                            // Substitute explicit type args into the generic signature
-                            // and check if it unifies with the solved call-site type.
-                            let mut inst = Instance::new();
-                            for (tv, ta) in target_fdecl.typevars.iter().zip(type_args.iter()) {
-                                inst.insert(mk_type(Type::Var(*tv)), *ta);
-                            }
-                            let candidate_ty = target_fdecl.ty().subst(&inst);
-                            let mut unify_inst = Instance::new();
-                            if !unify(candidate_ty, solved_type, &mut unify_inst) {
-                                continue;
-                            }
-                            let mangled = self.instantiate_function(
-                                *name,
-                                type_args.clone(),
-                                target_fdecl,
-                                decls,
-                            )?;
-                            fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
-                            return Ok(());
-                        }
-                    }
+        match body[id].clone() {
+            Expr::Id(_) | Expr::TypeApp(_, _) => {
+                self.process_reference(id, &[], body, size_vars, decls, selections)
+            }
+            Expr::Call(callee, arguments) => {
+                // Preserve the prior specialization walk's argument order.
+                for &arg in &arguments {
+                    self.process_expr(arg, body, size_vars, decls, selections)?;
                 }
-
-                // Check generic globals.
-                for decl in fn_decls.iter() {
-                    if let Decl::Global {
-                        name: gname,
-                        typevars,
-                        ty,
-                    } = decl
-                    {
-                        if typevars.len() == type_args.len() {
-                            let mut inst = Instance::new();
-                            for (tv, ta) in typevars.iter().zip(type_args.iter()) {
-                                inst.insert(mk_type(Type::Var(*tv)), *ta);
-                            }
-                            let mangled = crate::mangle::mangle_name(*gname, type_args);
-                            if !self.processed_non_generic.contains(&mangled) {
-                                self.processed_non_generic.insert(mangled);
-                                let concrete_ty = ty.subst(&inst);
-                                self.out_decls.push(Decl::Global {
-                                    name: mangled,
-                                    typevars: vec![],
-                                    ty: concrete_ty,
-                                });
-                            }
-                            fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
-                            return Ok(());
-                        }
-                    }
+                if matches!(body[callee], Expr::Id(_) | Expr::TypeApp(_, _)) {
+                    self.process_reference(callee, &arguments, body, size_vars, decls, selections)
+                } else {
+                    self.process_expr(callee, body, size_vars, decls, selections)
                 }
             }
-            Expr::Id(name) => {
-                // Check if this identifier refers to a function
-                // Get the solved type for this expression
-                let solved_type = fdecl.types[expr_id];
-
-                // Look up the declaration
-                let fn_decls = decls.find(*name);
-
-                // Only attempt function monomorphization if the solved type is a
-                // function type. If it's not, this identifier was resolved to a
-                // local variable/parameter by the type checker (which shadows
-                // global function names), so skip the function loop.
-                let is_func_type = matches!(*solved_type, Type::Func(_, _));
-                if is_func_type {
-                    for decl in fn_decls {
-                        if let Decl::Func(target_fdecl) = decl {
-                            if !target_fdecl.typevars.is_empty() {
-                                // This is a generic function - compute type arguments from solved type
-                                let type_args =
-                                    self.infer_type_arguments(target_fdecl, solved_type, fdecl)?;
-
-                                if !type_args.is_empty() {
-                                    // Create a specialized version
-                                    let mangled_name = self.instantiate_function(
-                                        *name,
-                                        type_args,
-                                        target_fdecl,
-                                        decls,
-                                    )?;
-
-                                    // Rewrite the identifier to use the mangled name
-                                    fdecl.arena.exprs[expr_id] = Expr::Id(mangled_name);
-                                }
-                            } else {
-                                // Non-generic function - include it and recursively process its body.
-                                let non_generic_overload_count = fn_decls
-                                    .iter()
-                                    .filter(|d| matches!(d, Decl::Func(f) if f.typevars.is_empty()))
-                                    .count();
-
-                                if non_generic_overload_count > 1 {
-                                    let func_ty = TypeID::new(Type::Func(
-                                        target_fdecl.domain(),
-                                        target_fdecl.ret,
-                                    ));
-                                    let mut inst = Instance::new();
-                                    if unify(func_ty, solved_type, &mut inst) {
-                                        let param_types = target_fdecl.param_types();
-                                        let mangled =
-                                            crate::mangle::mangle_overload(*name, &param_types);
-
-                                        if !self.processed_non_generic.contains(&mangled) {
-                                            self.processed_non_generic.insert(mangled);
-                                            let mut func = target_fdecl.clone();
-                                            func.name = mangled;
-                                            self.process_function(&mut func, decls)?;
-                                            self.out_decls.push(Decl::Func(func));
-                                        }
-
-                                        fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
-                                    }
-                                } else {
-                                    if !self.processed_non_generic.contains(&target_fdecl.name) {
-                                        self.processed_non_generic.insert(target_fdecl.name);
-                                        let mut func = target_fdecl.clone();
-                                        self.process_function(&mut func, decls)?;
-                                        self.out_decls.push(Decl::Func(func));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } // is_func_type
-
-                // Check for generic globals.
-                for decl in fn_decls {
-                    if let Decl::Global {
-                        name: gname,
-                        typevars,
-                        ty,
-                    } = decl
-                    {
-                        if !typevars.is_empty() {
-                            // Infer type arguments by unifying the generic type with
-                            // the solved type at this expression.
-                            let mut inst = Instance::new();
-                            if unify_with_vars(*ty, solved_type, &mut inst) {
-                                let type_args: Vec<TypeID> = typevars
-                                    .iter()
-                                    .map(|tv| {
-                                        let var_ty = mk_type(Type::Var(*tv));
-                                        inst.get(&var_ty).copied().unwrap_or(var_ty)
-                                    })
-                                    .collect();
-
-                                let mangled = crate::mangle::mangle_name(*gname, &type_args);
-
-                                // Emit the concrete global if not already done.
-                                if !self.processed_non_generic.contains(&mangled) {
-                                    self.processed_non_generic.insert(mangled);
-                                    let concrete_ty = ty.subst(&inst);
-                                    self.out_decls.push(Decl::Global {
-                                        name: mangled,
-                                        typevars: vec![],
-                                        ty: concrete_ty,
-                                    });
-                                }
-
-                                fdecl.arena.exprs[expr_id] = Expr::Id(mangled);
-                            }
-                        }
-                    }
+            expression => {
+                for child in expression.subexprs() {
+                    self.process_expr(child, body, size_vars, decls, selections)?;
                 }
+                Ok(())
             }
-            Expr::Call(fn_id, arg_ids) => {
-                // Process arguments first
-                let arg_ids = arg_ids.clone();
-                for arg_id in &arg_ids {
-                    self.process_expr(*arg_id, fdecl, decls)?;
-                }
-
-                let fn_id = *fn_id;
-
-                // Check if this is a call to a size-var generic function.
-                // We handle it here because we need the solved argument types.
-                if let Expr::Id(fn_name) = fdecl.arena[fn_id].clone() {
-                    let fn_decls = decls.find(fn_name);
-                    let size_var_func = fn_decls.iter().find_map(|d| {
-                        if let Decl::Func(f) = d {
-                            if !f.size_vars.is_empty() {
-                                Some(f.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    });
-                    if let Some(target_fdecl) = size_var_func {
-                        // Infer size bindings from argument types vs generic param types.
-                        let size_bindings = infer_size_bindings(&target_fdecl, &arg_ids, fdecl);
-                        if !size_bindings.is_empty() {
-                            let size_args: Vec<i32> = target_fdecl
-                                .size_vars
-                                .iter()
-                                .map(|sv| size_bindings.get(sv).copied().unwrap_or(0))
-                                .collect();
-                            // Also infer type arguments if the function has type vars.
-                            let type_args = if !target_fdecl.typevars.is_empty() {
-                                let solved_type = fdecl.types[fn_id];
-                                self.infer_type_arguments(&target_fdecl, solved_type, fdecl)?
-                            } else {
-                                vec![]
-                            };
-                            let mangled = self.instantiate_function_with_sizes(
-                                fn_name,
-                                type_args,
-                                size_args,
-                                &target_fdecl,
-                                decls,
-                            )?;
-                            fdecl.arena.exprs[fn_id] = Expr::Id(mangled);
-                            // Update ALL caller types to substitute the resolved size vars.
-                            for ty in fdecl.types.iter_mut() {
-                                *ty = subst_size_vars(*ty, &size_bindings);
-                            }
-                            return Ok(());
-                        }
-                    }
-                }
-
-                // Process the function expression (which handles Id rewriting for type-var generics)
-                self.process_expr(fn_id, fdecl, decls)?;
-            }
-            Expr::Binop(_, lhs, rhs) => {
-                self.process_expr(*lhs, fdecl, decls)?;
-                self.process_expr(*rhs, fdecl, decls)?;
-            }
-            Expr::Unop(_, arg) => {
-                self.process_expr(*arg, fdecl, decls)?;
-            }
-            Expr::Let(_, init, _) => {
-                self.process_expr(*init, fdecl, decls)?;
-            }
-            Expr::Var(_, init, _) => {
-                if let Some(init_id) = init {
-                    self.process_expr(*init_id, fdecl, decls)?;
-                }
-            }
-            Expr::Block(exprs) => {
-                for expr in exprs {
-                    self.process_expr(*expr, fdecl, decls)?;
-                }
-            }
-            Expr::Field(lhs, _) => {
-                self.process_expr(*lhs, fdecl, decls)?;
-            }
-            Expr::ArrayIndex(lhs, rhs) => {
-                self.process_expr(*lhs, fdecl, decls)?;
-                self.process_expr(*rhs, fdecl, decls)?;
-            }
-            Expr::ArrayLiteral(elements) => {
-                for elem in elements {
-                    self.process_expr(*elem, fdecl, decls)?;
-                }
-            }
-            Expr::If(cond, then_expr, else_expr) => {
-                self.process_expr(*cond, fdecl, decls)?;
-                self.process_expr(*then_expr, fdecl, decls)?;
-                if let Some(else_id) = else_expr {
-                    self.process_expr(*else_id, fdecl, decls)?;
-                }
-            }
-            Expr::While(cond, body) => {
-                self.process_expr(*cond, fdecl, decls)?;
-                self.process_expr(*body, fdecl, decls)?;
-            }
-            Expr::Lambda { body, .. } => {
-                self.process_expr(*body, fdecl, decls)?;
-            }
-            Expr::Return(inner) | Expr::Assume(inner) => {
-                self.process_expr(*inner, fdecl, decls)?;
-            }
-            Expr::For {
-                start, end, body, ..
-            } => {
-                let (start, end, body) = (*start, *end, *body);
-                self.process_expr(start, fdecl, decls)?;
-                self.process_expr(end, fdecl, decls)?;
-                self.process_expr(body, fdecl, decls)?;
-            }
-            Expr::AsTy(inner, _) => {
-                self.process_expr(*inner, fdecl, decls)?;
-            }
-            Expr::Tuple(elems) => {
-                for e in elems.clone() {
-                    self.process_expr(e, fdecl, decls)?;
-                }
-            }
-            Expr::Arena(inner) => {
-                self.process_expr(*inner, fdecl, decls)?;
-            }
-            Expr::StructLit(_, fields) => {
-                let fields = fields.clone();
-                for (_, fval) in &fields {
-                    self.process_expr(*fval, fdecl, decls)?;
-                }
-            }
-            Expr::Array(val, sz) => {
-                let (val, sz) = (*val, *sz);
-                self.process_expr(val, fdecl, decls)?;
-                self.process_expr(sz, fdecl, decls)?;
-            }
-            // True leaves
-            Expr::Int(_, _)
-            | Expr::Real(_, _)
-            | Expr::String(_)
-            | Expr::Char(_)
-            | Expr::True
-            | Expr::False
-            | Expr::Enum(_)
-            | Expr::Error
-            | Expr::Macro(_, _)
-            | Expr::Break
-            | Expr::Continue => {}
         }
-        Ok(())
     }
 
-    /// Infer concrete type arguments for a generic function call.
-    fn infer_type_arguments(
-        &self,
-        generic_fdecl: &FuncDecl,
-        call_site_type: TypeID,
-        _caller_fdecl: &FuncDecl,
-    ) -> Result<Vec<TypeID>, String> {
-        if generic_fdecl.typevars.is_empty() {
-            return Ok(Vec::new());
-        }
-        // Build the generic function type using the same convention as the
-        // type checker: domain is always a tuple of parameter types.
-        let generic_func_type = generic_fdecl.ty();
-        // Convert named type variables (Var) to anonymous (Anon) for unification.
-        let mut fresh_index = 1000;
-        let mut fresh_inst = Instance::new();
-        let fresh_func_type = generic_func_type.fresh_aux(&mut fresh_index, &mut fresh_inst);
-        // Build map from typevar name to its Anon type.
-        let var_to_anon: Vec<(Name, TypeID)> = generic_fdecl
-            .typevars
-            .iter()
-            .map(|tv_name| {
-                let tv = typevar(&tv_name.to_string());
-                let anon_ty = fresh_inst.get(&tv).copied().unwrap_or(tv);
-                (*tv_name, anon_ty)
-            })
-            .collect();
-        // Unify the fresh generic type with the call-site type.
-        let mut unify_inst = Instance::new();
-        if !unify(fresh_func_type, call_site_type, &mut unify_inst) {
-            return Err(format!(
-                "Cannot infer type arguments for {}",
-                generic_fdecl.name
-            ));
-        }
-        // Extract type arguments: look up what each Anon resolved to.
-        let mut type_args = Vec::new();
-        for (_tv_name, anon_ty) in &var_to_anon {
-            let resolved = find(*anon_ty, &unify_inst);
-            type_args.push(resolved);
-        }
-        Ok(type_args)
-    }
-
-    /// Create a specialized version of a generic function (type vars only).
-    fn instantiate_function(
+    fn process_reference(
         &mut self,
-        name: Name,
-        type_args: Vec<TypeID>,
-        generic_fdecl: &FuncDecl,
-        decls: &DeclTable,
-    ) -> Result<Name, String> {
-        self.instantiate_function_with_sizes(name, type_args, vec![], generic_fdecl, decls)
-    }
-
-    /// Create a specialized version of a generic function with both type and size args.
-    fn instantiate_function_with_sizes(
-        &mut self,
-        name: Name,
-        type_args: Vec<TypeID>,
-        size_args: Vec<i32>,
-        generic_fdecl: &FuncDecl,
-        decls: &DeclTable,
-    ) -> Result<Name, String> {
-        // Check if this generic name has multiple generic overloads with the
-        // same typevar count. If so, include concrete param types in the key
-        // to disambiguate (e.g. new<T>() vs new<T>(cap: i32)).
-        let same_typevar_count = decls
-            .find(name)
-            .iter()
-            .filter(|d| {
-                matches!(d, Decl::Func(f) if !f.typevars.is_empty()
-                    && f.typevars.len() == generic_fdecl.typevars.len())
-            })
-            .count();
-        let key = if same_typevar_count > 1 {
-            let mut inst = Instance::new();
-            for (tv, ta) in generic_fdecl.typevars.iter().zip(type_args.iter()) {
-                inst.insert(mk_type(Type::Var(*tv)), *ta);
+        id: ExprID,
+        arguments: &[ExprID],
+        body: &mut CheckedBody,
+        size_vars: &[SizeParameter],
+        decls: &DeclTable<CheckedFunction>,
+        selections: &HashMap<(RequirementId, DefId), DefId>,
+    ) -> Result<(), String> {
+        let (reference, explicit) = match body[id].clone() {
+            Expr::Id(reference) => (reference, None),
+            Expr::TypeApp(reference, arguments) => (reference, Some(arguments)),
+            _ => return Err("Expected a checked reference".into()),
+        };
+        let solved = body.ty(id);
+        let candidates = match reference {
+            Reference::Local(_) | Reference::Instance(_) => return Ok(()),
+            Reference::SizeParameter(_) => {
+                return Err(format_error(body.loc(id), "Unsubstituted size parameter"));
             }
-            let concrete_params: Vec<TypeID> = generic_fdecl
-                .param_types()
-                .iter()
-                .map(|t| t.subst(&inst))
-                .collect();
-            MonomorphKey::new_with_sizes(name, type_args.clone(), size_args.clone())
-                .with_param_types(concrete_params)
-        } else {
-            MonomorphKey::new_with_sizes(name, type_args.clone(), size_args.clone())
+            Reference::Global(definition) => {
+                let instance = self.instantiate_global(definition, explicit, solved, decls)?;
+                body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+                return Ok(());
+            }
+            Reference::Functions(candidates) => candidates,
+            Reference::InterfaceMember {
+                requirement,
+                member,
+            } => vec![*selections
+                .get(&(requirement, member))
+                .ok_or("Missing checked interface selection")?],
         };
 
-        // Check if already instantiated
-        if let Some(mangled) = self.instantiations.get(&key) {
-            return Ok(*mangled);
-        }
-
-        // Check for infinite recursion
-        self.recursion_detector.check(&key)?;
-        self.recursion_detector.begin_instantiation(key.clone());
-
-        // Generate mangled name
-        let mangled_name = key.mangled_name();
-
-        // Create type substitution map
-        let mut instance = Instance::new();
-        for (type_param, type_arg) in generic_fdecl.typevars.iter().zip(type_args.iter()) {
-            let type_var = typevar(&type_param.to_string());
-            instance.insert(type_var, *type_arg);
-        }
-
-        // Create size substitution map: Name -> i32
-        let size_bindings: HashMap<Name, i32> = generic_fdecl
-            .size_vars
-            .iter()
-            .zip(size_args.iter())
-            .map(|(sv, &n)| (*sv, n))
-            .collect();
-
-        // Clone and specialize the function declaration
-        let mut specialized = generic_fdecl.clone();
-        specialized.name = mangled_name;
-        specialized.typevars = Vec::new();
-        specialized.size_vars = Vec::new(); // No longer generic
-
-        // Substitute types in return type (type vars + size vars in array sizes)
-        specialized.ret = subst_size_vars(specialized.ret.subst(&instance), &size_bindings);
-
-        // Substitute types in parameters
-        for param in &mut specialized.params {
-            if let Some(ref mut ty) = param.ty {
-                *ty = subst_size_vars(ty.subst(&instance), &size_bindings);
-            }
-        }
-
-        // Substitute types in the body's type map
-        for ty in specialized.types.iter_mut() {
-            *ty = subst_size_vars(ty.subst(&instance), &size_bindings);
-        }
-
-        // Substitute type args in TypeApp expressions (e.g. pool⟨T⟩ → pool⟨i32⟩)
-        for expr in specialized.arena.exprs.iter_mut() {
-            if let Expr::TypeApp(_, ref mut args) = expr {
-                for arg in args.iter_mut() {
-                    *arg = subst_size_vars(arg.subst(&instance), &size_bindings);
+        // Size-generic calls historically precede ordinary overload inference.
+        // Candidate order is the checker's order, never another name lookup.
+        if explicit.is_none() {
+            if let Some((definition, target)) = candidates.iter().find_map(|definition| {
+                decls
+                    .function(*definition)
+                    .filter(|target| !target.size_vars.is_empty())
+                    .map(|target| (*definition, target))
+            }) {
+                let bindings = infer_size_bindings(target, arguments, body);
+                if !bindings.is_empty() {
+                    let sizes = target
+                        .size_vars
+                        .iter()
+                        .map(|parameter| bindings.get(&parameter.symbol).copied().unwrap_or(0))
+                        .collect();
+                    let types = infer_type_arguments(target, solved)?;
+                    let instance =
+                        self.instantiate_function(definition, types, sizes, target, decls)?;
+                    body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+                    substitute_body_sizes(body, &bindings, size_vars);
+                    return Ok(());
                 }
             }
         }
 
-        // Substitute size vars in the body expressions (e.g. Expr::Id("N") → Expr::Int(3, None))
-        if !size_bindings.is_empty() {
-            substitute_size_var_exprs(&mut specialized.arena, &size_bindings);
+        // Preserve the old ordinary-overload diagnostic policy: every generic
+        // candidate must infer successfully for an implicit function reference.
+        let mut inferred = HashMap::new();
+        if explicit.is_none() && matches!(*solved, Type::Func(_, _)) {
+            for &definition in &candidates {
+                if let Some(target) = decls.function(definition) {
+                    if !target.typevars.is_empty() {
+                        inferred.insert(definition, infer_type_arguments(target, solved)?);
+                    }
+                }
+            }
         }
-
-        // Record the instantiation
-        self.instantiations.insert(key, mangled_name);
-
-        // Recursively process the specialized function's body immediately
-        self.process_function(&mut specialized, decls)?;
-
-        // Add to specialized decls
-        self.out_decls.push(Decl::Func(specialized));
-
-        self.recursion_detector.end_instantiation();
-
-        Ok(mangled_name)
+        for definition in candidates {
+            if let Some(Decl::Global { ty, .. }) = decls.definition(definition) {
+                if !unify_with_vars(*ty, solved, &mut Instance::new()) {
+                    continue;
+                }
+                let instance =
+                    self.instantiate_global(definition, explicit.clone(), solved, decls)?;
+                body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+                return Ok(());
+            }
+            let target = decls
+                .function(definition)
+                .ok_or("Resolved function declaration is missing")?;
+            let types = if let Some(types) = &explicit {
+                if target.typevars.len() != types.len() {
+                    continue;
+                }
+                let substitution: Instance = target
+                    .typevars
+                    .iter()
+                    .zip(types)
+                    .map(|(variable, ty)| (mk_type(Type::Var(*variable)), *ty))
+                    .collect();
+                if !unify(
+                    target.ty().subst(&substitution),
+                    solved,
+                    &mut Instance::new(),
+                ) {
+                    continue;
+                }
+                types.clone()
+            } else if target.typevars.is_empty() {
+                if !unify(target.ty(), solved, &mut Instance::new()) {
+                    continue;
+                }
+                vec![]
+            } else {
+                let Some(types) = inferred.get(&definition) else {
+                    continue;
+                };
+                types.clone()
+            };
+            let bindings = infer_size_bindings(target, arguments, body);
+            let sizes = target
+                .size_vars
+                .iter()
+                .map(|parameter| bindings.get(&parameter.symbol).copied().unwrap_or(0))
+                .collect();
+            let instance = self.instantiate_function(definition, types, sizes, target, decls)?;
+            body.replace(id, Expr::Id(Reference::Instance(instance)), solved);
+            substitute_body_sizes(body, &bindings, size_vars);
+            return Ok(());
+        }
+        Err(format_error(
+            body.loc(id),
+            &format!("No checked function candidate matches expression {}", id),
+        ))
     }
 
-    /// Get all generated specialized declarations
-    pub fn specialized_declarations(&self) -> &[Decl] {
-        &self.out_decls
+    fn instantiate_global(
+        &mut self,
+        definition: DefId,
+        explicit: Option<Vec<TypeID>>,
+        solved: TypeID,
+        decls: &DeclTable<CheckedFunction>,
+    ) -> Result<InstanceId, String> {
+        let Some(Decl::Global { name, typevars, ty }) = decls.definition(definition) else {
+            return Err("Resolved global declaration is missing".into());
+        };
+        let mut substitution = Instance::new();
+        let types = if let Some(types) = explicit {
+            if types.len() != typevars.len() {
+                return Err(format!(
+                    "Wrong number of checked global arguments for '{}'",
+                    name
+                ));
+            }
+            for (variable, ty) in typevars.iter().zip(&types) {
+                substitution.insert(mk_type(Type::Var(*variable)), *ty);
+            }
+            types
+        } else if typevars.is_empty() {
+            vec![]
+        } else {
+            if !unify_with_vars(*ty, solved, &mut substitution) {
+                return Err(format!(
+                    "Cannot infer checked global arguments for '{}'",
+                    name
+                ));
+            }
+            typevars
+                .iter()
+                .map(|variable| {
+                    let variable = mk_type(Type::Var(*variable));
+                    substitution.get(&variable).copied().unwrap_or(variable)
+                })
+                .collect()
+        };
+        let key = MonomorphKey::new(definition, types.clone(), vec![]);
+        if let Some(&id) = self.cache.get(&key) {
+            return Ok(id);
+        }
+        let id = self.reserve(key);
+        self.finish(
+            id,
+            Decl::Global {
+                name: if types.is_empty() {
+                    *name
+                } else {
+                    crate::mangle::mangle_name(*name, &types)
+                },
+                typevars: vec![],
+                ty: ty.subst(&substitution),
+            },
+        );
+        Ok(id)
     }
 
-    /// The mangled names of all functions newly created by monomorphization
-    /// (i.e., specialized versions of generic functions). Excludes entry
-    /// points and any pre-existing non-generic functions.
-    pub fn instantiated_names(&self) -> impl Iterator<Item = Name> + '_ {
-        self.instantiations.values().copied()
-    }
-
-    /// Get the mangled name for a specific instantiation, if it exists
-    pub fn get_instantiation(&self, key: &MonomorphKey) -> Option<Name> {
-        self.instantiations.get(key).copied()
-    }
-
-    /// Get the full rewrite map for all instantiations
-    pub fn get_rewrite_map(&self) -> &HashMap<MonomorphKey, Name> {
-        &self.instantiations
+    fn instantiate_function(
+        &mut self,
+        definition: DefId,
+        types: Vec<TypeID>,
+        sizes: Vec<i32>,
+        source: &CheckedFunction,
+        decls: &DeclTable<CheckedFunction>,
+    ) -> Result<InstanceId, String> {
+        let key = MonomorphKey::new(definition, types.clone(), sizes.clone());
+        if let Some(&id) = self.cache.get(&key) {
+            return Ok(id);
+        }
+        let substitution: Instance = source
+            .typevars
+            .iter()
+            .zip(&types)
+            .map(|(variable, ty)| (mk_type(Type::Var(*variable)), *ty))
+            .collect();
+        let size_bindings: HashMap<_, _> = source
+            .size_vars
+            .iter()
+            .map(|parameter| parameter.symbol)
+            .zip(sizes)
+            .collect();
+        self.recursion.check(&key, source.name)?;
+        self.recursion.begin_instantiation(key.clone());
+        let id = self.reserve(key);
+        // Whole-body copies retain local indices. Their containing InstanceId
+        // supplies the distinct owner; no occurrence or binding remap is needed.
+        let mut function = source.clone();
+        function.name = instance_symbol(source, &types, &size_bindings, &substitution, decls);
+        function.typevars.clear();
+        function.size_vars.clear();
+        function.ret = subst_size_vars(function.ret.subst(&substitution), &size_bindings);
+        function.arena.substitute(&substitution);
+        substitute_body_sizes(&mut function.arena, &size_bindings, &source.size_vars);
+        let roots = function.requires.iter().copied().chain(function.body);
+        let result = self
+            .process_body(&mut function.arena, roots, &function.size_vars, decls)
+            .map_err(|error| format!("{} in '{}'", error, function.name));
+        self.recursion.end_instantiation();
+        result?;
+        self.finish(id, Decl::Func(function));
+        Ok(id)
     }
 }
 
-/// Substitute `ArraySize::Var(N)` → `Known(n)` in a type using the size bindings.
+/// Symbols are a backend/diagnostic concern, never a specialization key.
+fn instance_symbol(
+    source: &CheckedFunction,
+    types: &[TypeID],
+    sizes: &HashMap<Name, i32>,
+    substitution: &Instance,
+    decls: &DeclTable<CheckedFunction>,
+) -> Name {
+    if source.typevars.is_empty() && source.size_vars.is_empty() {
+        let overloads = decls.find(source.name).iter().filter(|declaration| {
+            matches!(declaration, Decl::Func(function) if function.typevars.is_empty())
+        }).count();
+        return if overloads > 1 {
+            crate::mangle::mangle_overload(source.name, &source.param_types())
+        } else {
+            source.name
+        };
+    }
+    let mut name = crate::mangle::mangle_name(source.name, types).to_string();
+    for parameter in &source.size_vars {
+        name.push_str(&format!(
+            "${}",
+            sizes.get(&parameter.symbol).copied().unwrap_or(0)
+        ));
+    }
+    let overloads = decls
+        .find(source.name)
+        .iter()
+        .filter(|declaration| {
+            matches!(declaration, Decl::Func(function) if !function.typevars.is_empty()
+            && function.typevars.len() == source.typevars.len())
+        })
+        .count();
+    if overloads > 1 {
+        let parameters: Vec<_> = source
+            .param_types()
+            .iter()
+            .map(|ty| ty.subst(substitution))
+            .collect();
+        let suffix = crate::mangle::mangle_name(Name::str(""), &parameters);
+        name.push_str(&format!("#{}", suffix));
+    }
+    Name::new(name)
+}
+
+fn infer_type_arguments(function: &CheckedFunction, solved: TypeID) -> Result<Vec<TypeID>, String> {
+    if function.typevars.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut fresh_index = 1000;
+    let mut fresh_substitution = Instance::new();
+    let fresh = function
+        .ty()
+        .fresh_aux(&mut fresh_index, &mut fresh_substitution);
+    let mut substitution = Instance::new();
+    if !unify(fresh, solved, &mut substitution) {
+        return Err(format!("Cannot infer type arguments for {}", function.name));
+    }
+    Ok(function
+        .typevars
+        .iter()
+        .map(|variable| {
+            let ty = mk_type(Type::Var(*variable));
+            find(
+                fresh_substitution.get(&ty).copied().unwrap_or(ty),
+                &substitution,
+            )
+        })
+        .collect())
+}
+
 fn subst_size_vars(ty: TypeID, bindings: &HashMap<Name, i32>) -> TypeID {
+    if bindings.is_empty() {
+        return ty;
+    }
     match &*ty {
-        Type::Array(elem, ArraySize::Var(name)) => {
-            let elem2 = subst_size_vars(*elem, bindings);
-            let size = bindings
-                .get(name)
-                .copied()
-                .map(ArraySize::Known)
-                .unwrap_or_else(|| ArraySize::Var(*name));
-            mk_type(Type::Array(elem2, size))
-        }
-        Type::Array(elem, sz) => mk_type(Type::Array(subst_size_vars(*elem, bindings), sz.clone())),
-        Type::Tuple(vs) => mk_type(Type::Tuple(
-            vs.iter().map(|t| subst_size_vars(*t, bindings)).collect(),
+        Type::Array(element, size) => mk_type(Type::Array(
+            subst_size_vars(*element, bindings),
+            match size {
+                ArraySize::Var(name) => bindings
+                    .get(name)
+                    .copied()
+                    .map(ArraySize::Known)
+                    .unwrap_or_else(|| size.clone()),
+                _ => size.clone(),
+            },
         )),
-        Type::Func(a, b) => mk_type(Type::Func(
-            subst_size_vars(*a, bindings),
-            subst_size_vars(*b, bindings),
+        Type::Slice(element) => mk_type(Type::Slice(subst_size_vars(*element, bindings))),
+        Type::Reference(element) => mk_type(Type::Reference(subst_size_vars(*element, bindings))),
+        Type::Tuple(types) => mk_type(Type::Tuple(
+            types
+                .iter()
+                .map(|ty| subst_size_vars(*ty, bindings))
+                .collect(),
         )),
-        Type::Name(n, ps) => mk_type(Type::Name(
-            *n,
-            ps.iter().map(|t| subst_size_vars(*t, bindings)).collect(),
+        Type::Func(domain, result) => mk_type(Type::Func(
+            subst_size_vars(*domain, bindings),
+            subst_size_vars(*result, bindings),
+        )),
+        Type::Name(name, types) => mk_type(Type::Name(
+            *name,
+            types
+                .iter()
+                .map(|ty| subst_size_vars(*ty, bindings))
+                .collect(),
         )),
         _ => ty,
     }
 }
 
-/// Replace `Expr::Id(N)` with `Expr::Int(n, None)` for each size var binding, across all arena slots.
-fn substitute_size_var_exprs(arena: &mut ExprArena, bindings: &HashMap<Name, i32>) {
-    for slot in arena.exprs.iter_mut() {
-        if let Expr::Id(name) = slot {
-            if let Some(&val) = bindings.get(name) {
-                *slot = Expr::Int(val as i64, None);
+fn substitute_body_sizes(
+    body: &mut CheckedBody,
+    bindings: &HashMap<Name, i32>,
+    parameters: &[SizeParameter],
+) {
+    if bindings.is_empty() {
+        return;
+    }
+    let values: HashMap<_, _> = parameters
+        .iter()
+        .filter_map(|parameter| {
+            bindings
+                .get(&parameter.symbol)
+                .map(|value| (parameter.local, *value))
+        })
+        .collect();
+    for id in 0..body.len() {
+        let mut kind = body[id].clone();
+        match &mut kind {
+            Expr::Id(Reference::SizeParameter(local)) => {
+                if let Some(value) = values.get(local) {
+                    kind = Expr::Int(i64::from(*value), None);
+                }
             }
+            Expr::TypeApp(_, types) => {
+                for ty in types {
+                    *ty = subst_size_vars(*ty, bindings);
+                }
+            }
+            Expr::AsTy(_, ty) => *ty = subst_size_vars(*ty, bindings),
+            Expr::Let(_, _, Some(ty)) | Expr::Var(_, _, Some(ty)) => {
+                *ty = subst_size_vars(*ty, bindings)
+            }
+            _ => {}
+        }
+        body.replace(id, kind, subst_size_vars(body.ty(id), bindings));
+    }
+    for local in &mut body.locals {
+        local.ty = subst_size_vars(local.ty, bindings);
+    }
+    for requirement in &mut body.requirements {
+        for ty in &mut requirement.type_args {
+            *ty = subst_size_vars(*ty, bindings);
+        }
+        for member in &mut requirement.members {
+            member.signature = subst_size_vars(member.signature, bindings);
         }
     }
 }
 
-/// Walk a type pair (generic param type vs concrete arg type) to extract size var bindings.
 fn infer_size_bindings_pair(generic: TypeID, concrete: TypeID, out: &mut HashMap<Name, i32>) {
     match (&*generic, &*concrete) {
-        (Type::Array(ge, ArraySize::Var(name)), Type::Array(ce, ArraySize::Known(n)))
-            if *n != 0 =>
-        {
-            out.insert(*name, *n);
-            infer_size_bindings_pair(*ge, *ce, out);
+        (
+            Type::Array(generic, ArraySize::Var(name)),
+            Type::Array(concrete, ArraySize::Known(size)),
+        ) if *size != 0 => {
+            out.insert(*name, *size);
+            infer_size_bindings_pair(*generic, *concrete, out);
         }
-        (Type::Array(ge, _), Type::Array(ce, _)) => infer_size_bindings_pair(*ge, *ce, out),
-        (Type::Tuple(gs), Type::Tuple(cs)) => {
-            for (g, c) in gs.iter().zip(cs.iter()) {
-                infer_size_bindings_pair(*g, *c, out);
+        (Type::Array(generic, _), Type::Array(concrete, _)) => {
+            infer_size_bindings_pair(*generic, *concrete, out)
+        }
+        (Type::Tuple(generic), Type::Tuple(concrete)) => {
+            for (generic, concrete) in generic.iter().zip(concrete) {
+                infer_size_bindings_pair(*generic, *concrete, out);
             }
         }
-        (Type::Func(ga, gb), Type::Func(ca, cb)) => {
-            infer_size_bindings_pair(*ga, *ca, out);
-            infer_size_bindings_pair(*gb, *cb, out);
+        (Type::Func(gd, gr), Type::Func(cd, cr)) => {
+            infer_size_bindings_pair(*gd, *cd, out);
+            infer_size_bindings_pair(*gr, *cr, out);
         }
         _ => {}
     }
 }
 
-/// Infer size var bindings for a call to `target` given the solved types of the argument expressions.
 fn infer_size_bindings(
-    target: &FuncDecl,
-    arg_ids: &[ExprID],
-    caller: &FuncDecl,
+    target: &CheckedFunction,
+    args: &[ExprID],
+    caller: &CheckedBody,
 ) -> HashMap<Name, i32> {
-    let mut out = HashMap::new();
-    for (param, &arg_id) in target.params.iter().zip(arg_ids.iter()) {
-        if let Some(param_ty) = param.ty {
-            let concrete_ty = caller.types[arg_id];
-            infer_size_bindings_pair(param_ty, concrete_ty, &mut out);
-        }
+    let mut bindings = HashMap::new();
+    for (parameter, &argument) in target.params.iter().zip(args) {
+        infer_size_bindings_pair(
+            target.arena.local(parameter.local).ty,
+            caller.ty(argument),
+            &mut bindings,
+        );
     }
-    out
+    bindings
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn mk_simple_func(name: &str, typevars: Vec<&str>) -> FuncDecl {
-        let mut arena = ExprArena::new();
-        let body_expr = arena.add(Expr::Int(0, None), test_loc());
+    fn checked(source: &str) -> CheckedProgram {
+        let mut compiler = Compiler::new();
+        compiler.quiet = true;
+        assert!(compiler.parse(source, "checked-specialization.lyte"));
+        assert!(compiler.check(), "{:?}", compiler.last_errors);
+        compiler.checked_program().unwrap().clone()
+    }
 
-        FuncDecl {
-            name: Name::str(name),
-            typevars: typevars.iter().map(|s| Name::str(s)).collect(),
-            size_vars: vec![],
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: mk_type(Type::Void),
-            body: Some(body_expr),
-            arena,
-            types: vec![mk_type(Type::Int32)],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        }
+    fn specialize(source: &str) -> SpecializedProgram {
+        MonomorphPass::new()
+            .monomorphize(&checked(source), Name::str("main"))
+            .unwrap()
+    }
+
+    fn targets(function: &CheckedFunction) -> Vec<InstanceId> {
+        function
+            .arena
+            .nodes()
+            .iter()
+            .filter_map(|node| match node.kind {
+                Expr::Id(Reference::Instance(id)) => Some(id),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
-    fn test_monomorph_pass_creation() {
-        let pass = MonomorphPass::new();
-        assert_eq!(pass.instantiations.len(), 0);
-        assert_eq!(pass.out_decls.len(), 0);
-    }
-
-    #[test]
-    fn test_instantiate_simple_function() {
-        let mut pass = MonomorphPass::new();
-        let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
-
-        let type_args = vec![mk_type(Type::Int32)];
-        let result = pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls);
-
-        assert!(result.is_ok());
-        let mangled = result.unwrap();
-        assert_eq!(mangled, Name::str("id$i32"));
-        assert_eq!(pass.out_decls.len(), 1);
-    }
-
-    #[test]
-    fn test_instantiate_same_function_twice() {
-        let mut pass = MonomorphPass::new();
-        let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
-
-        let type_args = vec![mk_type(Type::Int32)];
-
-        // First instantiation
-        let result1 =
-            pass.instantiate_function(Name::str("id"), type_args.clone(), &generic_func, &decls);
-        assert!(result1.is_ok());
-
-        // Second instantiation - should reuse
-        let result2 = pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls);
-        assert!(result2.is_ok());
-        assert_eq!(result1.unwrap(), result2.unwrap());
-
-        // Should only have one specialized version
-        assert_eq!(pass.out_decls.len(), 1);
-    }
-
-    #[test]
-    fn test_instantiate_different_type_args() {
-        let mut pass = MonomorphPass::new();
-        let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
-
-        // id<i32>
-        let result1 = pass.instantiate_function(
-            Name::str("id"),
-            vec![mk_type(Type::Int32)],
-            &generic_func,
-            &decls,
-        );
-        assert!(result1.is_ok());
-        assert_eq!(result1.unwrap(), Name::str("id$i32"));
-
-        // id<bool>
-        let result2 = pass.instantiate_function(
-            Name::str("id"),
-            vec![mk_type(Type::Bool)],
-            &generic_func,
-            &decls,
-        );
-        assert!(result2.is_ok());
-        assert_eq!(result2.unwrap(), Name::str("id$bool"));
-
-        // Should have two specialized versions
-        assert_eq!(pass.out_decls.len(), 2);
-    }
-
-    #[test]
-    fn test_instantiate_multiple_type_params() {
-        let mut pass = MonomorphPass::new();
-        let generic_func = mk_simple_func("map", vec!["T0", "T1"]);
-        let decls = DeclTable::new(vec![]);
-
-        let type_args = vec![mk_type(Type::Int32), mk_type(Type::Bool)];
-        let result = pass.instantiate_function(Name::str("map"), type_args, &generic_func, &decls);
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Name::str("map$i32$bool"));
-    }
-
-    #[test]
-    fn test_process_expr_block() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        let mut arena = ExprArena::new();
-        let expr1 = arena.add(Expr::Int(1, None), test_loc());
-        let expr2 = arena.add(Expr::Int(2, None), test_loc());
-        let block = arena.add(Expr::Block(vec![expr1, expr2]), test_loc());
-
-        let mut fdecl = FuncDecl {
-            name: Name::str("test"),
-            typevars: Vec::new(),
-            size_vars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: mk_type(Type::Void),
-            body: Some(block),
-            arena,
-            types: vec![mk_type(Type::Void); 3],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let result = pass.process_expr(block, &mut fdecl, &decls);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_process_expr_binop() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        let mut arena = ExprArena::new();
-        let lhs = arena.add(Expr::Int(1, None), test_loc());
-        let rhs = arena.add(Expr::Int(2, None), test_loc());
-        let binop = arena.add(Expr::Binop(Binop::Plus, lhs, rhs), test_loc());
-
-        let mut fdecl = FuncDecl {
-            name: Name::str("test"),
-            typevars: Vec::new(),
-            size_vars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: mk_type(Type::Void),
-            body: Some(binop),
-            arena,
-            types: vec![mk_type(Type::Int32); 3],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let result = pass.process_expr(binop, &mut fdecl, &decls);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_process_expr_array_literal() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        let mut arena = ExprArena::new();
-        let elem1 = arena.add(Expr::Int(1, None), test_loc());
-        let elem2 = arena.add(Expr::Int(2, None), test_loc());
-        let array = arena.add(Expr::ArrayLiteral(vec![elem1, elem2]), test_loc());
-
-        let mut fdecl = FuncDecl {
-            name: Name::str("test"),
-            typevars: Vec::new(),
-            size_vars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: mk_type(Type::Void),
-            body: Some(array),
-            arena,
-            types: vec![mk_type(Type::Int32); 3],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let result = pass.process_expr(array, &mut fdecl, &decls);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_get_instantiation() {
-        let mut pass = MonomorphPass::new();
-        let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
-
-        let type_args = vec![mk_type(Type::Int32)];
-        let key = MonomorphKey::new(Name::str("id"), type_args.clone());
-
-        // Before instantiation
-        assert!(pass.get_instantiation(&key).is_none());
-
-        // After instantiation
-        pass.instantiate_function(Name::str("id"), type_args, &generic_func, &decls)
+    fn concrete_program_drops_fulfilled_interfaces_and_rejects_orphan_source_references() {
+        let mut source = checked("interface Identity<T> { identify(x: T) -> T } identify(x: i32) -> i32 { x } forward<T>(x: T) -> T where Identity<T> { identify(x) } main { forward(1) }");
+        let output = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
             .unwrap();
-        assert_eq!(pass.get_instantiation(&key), Some(Name::str("id$i32")));
-    }
-
-    #[test]
-    fn test_specialized_declarations() {
-        let mut pass = MonomorphPass::new();
-        let generic_func = mk_simple_func("id", vec!["T"]);
-        let decls = DeclTable::new(vec![]);
-
-        assert_eq!(pass.specialized_declarations().len(), 0);
-
-        pass.instantiate_function(
-            Name::str("id"),
-            vec![mk_type(Type::Int32)],
-            &generic_func,
-            &decls,
-        )
-        .unwrap();
-
-        assert_eq!(pass.specialized_declarations().len(), 1);
-    }
-
-    #[test]
-    fn test_type_substitution_in_specialized_func() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        // Create a generic function id<T>(x: T) -> T
-        let t_var = typevar("T");
-        let mut generic_func = mk_simple_func("id", vec!["T"]);
-        generic_func.params = vec![Param {
-            name: Name::str("x"),
-            ty: Some(t_var),
-        }];
-        generic_func.ret = t_var;
-
-        // Instantiate with i32
-        pass.instantiate_function(
-            Name::str("id"),
-            vec![mk_type(Type::Int32)],
-            &generic_func,
-            &decls,
-        )
-        .unwrap();
-
-        // Check the specialized declaration
-        let specialized = &pass.out_decls[0];
-        if let Decl::Func(fdecl) = specialized {
-            assert_eq!(fdecl.name, Name::str("id$i32"));
-            assert_eq!(fdecl.typevars.len(), 0); // No longer generic
-
-            // Check that return type was substituted
-            assert_eq!(*fdecl.ret, Type::Int32);
-
-            // Check that parameter type was substituted
-            assert_eq!(fdecl.params.len(), 1);
-            assert_eq!(*fdecl.params[0].ty.unwrap(), Type::Int32);
-        } else {
-            panic!("Expected function declaration");
-        }
-    }
-
-    #[test]
-    fn test_monomorphize_with_empty_decls() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        // A missing entry point is not an error — it's simply skipped.
-        let result = pass.monomorphize(&decls, Name::str("main"));
-        assert_eq!(result.unwrap().len(), 0);
-    }
-
-    #[test]
-    fn test_instantiate_with_nested_generic() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        // Create a generic function that works with nested types
-        let mut generic_func = mk_simple_func("process", vec!["T"]);
-        let t_var = typevar("T");
-        let array_of_t = mk_type(Type::Array(t_var, ArraySize::Known(10)));
-        generic_func.params = vec![Param {
-            name: Name::str("arr"),
-            ty: Some(array_of_t),
-        }];
-        generic_func.ret = t_var;
-
-        // Instantiate with i32 -> should create process$i32
-        let result = pass.instantiate_function(
-            Name::str("process"),
-            vec![mk_type(Type::Int32)],
-            &generic_func,
-            &decls,
+        assert!(!output
+            .decls
+            .decls
+            .iter()
+            .any(|decl| matches!(decl, Decl::Interface(_) | Decl::Macro(_))));
+        assert!(output
+            .functions()
+            .all(|(_, function)| function.arena.requirements.is_empty()));
+        let definition = source.decls.named_ids(Name::str("identify"))[0];
+        let ty = source.function(definition).unwrap().ty();
+        let mut records: Vec<_> = source.decls.records().collect();
+        let main = records
+            .iter_mut()
+            .find_map(|record| match &mut record.declaration {
+                Decl::Func(function) if function.name == Name::str("main") => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        main.arena.add(
+            Expr::Id(Reference::Functions(vec![definition])),
+            ty,
+            test_loc(),
         );
-
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Name::str("process$i32"));
-
-        // Check that the specialized version has the correct array type
-        let specialized = &pass.out_decls[0];
-        if let Decl::Func(fdecl) = specialized {
-            assert_eq!(fdecl.params.len(), 1);
-            if let Type::Array(elem_ty, size) = &*fdecl.params[0].ty.unwrap() {
-                assert_eq!(**elem_ty, Type::Int32);
-                assert_eq!(*size, ArraySize::Known(10));
-            } else {
-                panic!("Expected array type");
-            }
-        }
+        source.decls = DeclTable::from_records(records);
+        let error = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
+            .unwrap_err();
+        assert!(error.contains("Unresolved checked reference"), "{}", error);
     }
 
     #[test]
-    fn test_multiple_instantiations_same_function() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
+    fn size_parameter_diagnostic_names_do_not_control_substitution() {
+        let mut source = checked("probe<N>(a: [i32; N]) -> i32 { N } main { probe([1, 2, 3]) }");
+        let mut records: Vec<_> = source.decls.records().collect();
+        let probe = records
+            .iter_mut()
+            .find_map(|record| match &mut record.declaration {
+                Decl::Func(function) if function.name == Name::str("probe") => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let parameter = probe.size_vars[0];
+        assert_eq!(parameter.symbol, Name::str("N"));
+        probe.arena.locals[parameter.local.index()].name = Name::str("diagnostic_only");
+        source.decls = DeclTable::from_records(records);
+        let output = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
+            .unwrap();
+        let specialized = output.find_entry_point(Name::str("probe$3")).unwrap();
+        assert!(specialized
+            .arena
+            .nodes()
+            .iter()
+            .any(|node| node.kind == Expr::Int(3, None)));
+        assert_eq!(
+            specialized.param_types(),
+            vec![mk_type(Type::Array(
+                mk_type(Type::Int32),
+                ArraySize::Known(3)
+            ))]
+        );
+        assert_eq!(
+            specialized.arena.local(parameter.local).name,
+            Name::str("diagnostic_only")
+        );
+    }
 
-        let generic_func = mk_simple_func("id", vec!["T"]);
+    #[test]
+    fn nested_specialization_keeps_interface_selection_body_local() {
+        let source = checked("interface Printable<T> { to_int(x: T) -> i32 } to_int(x: i32) -> i32 { x } to_int(x: bool) -> i32 { if x { 1 } else { 0 } } nested<U>(x: U) -> i32 where Printable<U> { to_int(x) } show<T>(x: T) -> i32 where Printable<T> { let other = nested(true); to_int(x) } main { show(42) }");
+        let integer_implementation = source
+            .decls
+            .named_ids(Name::str("to_int"))
+            .into_iter()
+            .find(|definition| {
+                source.function(*definition).unwrap().param_types() == vec![mk_type(Type::Int32)]
+            })
+            .unwrap();
+        let output = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
+            .unwrap();
+        let show = output.find_entry_point(Name::str("show$i32")).unwrap();
+        assert!(targets(show)
+            .iter()
+            .any(|target| output.instances[target.index()].definition == integer_implementation));
+    }
 
-        // Create three different instantiations
-        let types = vec![
+    #[test]
+    fn global_assumptions_follow_the_concrete_storage_instance() {
+        let mut source = checked("var limit: i32 main {}");
+        let global = source.decls.named_ids(Name::str("limit"))[0];
+        let mut arena = CheckedBody::new();
+        let reference = arena.add(
+            Expr::Id(Reference::Global(global)),
             mk_type(Type::Int32),
-            mk_type(Type::Bool),
-            mk_type(Type::Float32),
-        ];
-
-        for ty in types {
-            pass.instantiate_function(Name::str("id"), vec![ty], &generic_func, &decls)
-                .unwrap();
-        }
-
-        // Should have 3 specialized versions
-        assert_eq!(pass.out_decls.len(), 3);
-        assert_eq!(pass.instantiations.len(), 3);
-    }
-
-    #[test]
-    fn test_instantiate_function_with_constraints() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        // Create a generic function with interface constraints
-        let mut generic_func = mk_simple_func("add", vec!["T"]);
-        generic_func.constraints = vec![InterfaceConstraint {
-            interface_name: Name::str("Addable"),
-            typevars: vec![Name::str("T")],
-        }];
-
-        let result = pass.instantiate_function(
-            Name::str("add"),
-            vec![mk_type(Type::Int32)],
-            &generic_func,
-            &decls,
+            test_loc(),
         );
-
-        assert!(result.is_ok());
-
-        // Check that constraints are preserved (they're on the original, not the specialized)
-        let specialized = &pass.out_decls[0];
-        if let Decl::Func(fdecl) = specialized {
-            // Specialized version should have constraints copied
-            assert_eq!(fdecl.constraints.len(), 1);
-            assert_eq!(fdecl.constraints[0].interface_name, Name::str("Addable"));
-        }
-    }
-
-    #[test]
-    fn test_instantiation_deduplication() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        let generic_func = mk_simple_func("id", vec!["T"]);
-        let type_args = vec![mk_type(Type::Int32)];
-
-        // First instantiation
-        let key1 = MonomorphKey::new(Name::str("id"), type_args.clone());
-        pass.instantiate_function(Name::str("id"), type_args.clone(), &generic_func, &decls)
-            .unwrap();
-
-        assert_eq!(pass.out_decls.len(), 1);
-
-        // Same instantiation again - should not create duplicate
-        pass.instantiate_function(Name::str("id"), type_args.clone(), &generic_func, &decls)
-            .unwrap();
-
-        assert_eq!(pass.out_decls.len(), 1);
-        assert!(pass.instantiations.contains_key(&key1));
-    }
-
-    #[test]
-    fn test_expr_traversal_coverage() {
-        let mut pass = MonomorphPass::new();
-        let decls = DeclTable::new(vec![]);
-
-        // Test If expression
-        let mut arena = ExprArena::new();
-        let cond = arena.add(Expr::True, test_loc());
-        let then_expr = arena.add(Expr::Int(1, None), test_loc());
-        let else_expr = arena.add(Expr::Int(2, None), test_loc());
-        let if_expr = arena.add(Expr::If(cond, then_expr, Some(else_expr)), test_loc());
-
-        let mut fdecl = FuncDecl {
-            name: Name::str("test"),
-            typevars: Vec::new(),
-            size_vars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: mk_type(Type::Void),
-            body: Some(if_expr),
-            arena,
-            types: vec![
-                mk_type(Type::Bool),
-                mk_type(Type::Int32),
-                mk_type(Type::Int32),
-                mk_type(Type::Int32),
-            ],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let result = pass.process_expr(if_expr, &mut fdecl, &decls);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_monomorphize_single_entry_point() {
-        let mut pass = MonomorphPass::new();
-
-        // Create a simple non-generic entry point function
-        // main() { 42 }
-        let mut arena = ExprArena::new();
-        let body_expr = arena.add(Expr::Int(42, None), test_loc());
-
-        let entry_func = FuncDecl {
-            name: Name::str("main"),
-            typevars: Vec::new(),
-            size_vars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: mk_type(Type::Int32),
-            body: Some(body_expr),
-            arena,
-            types: vec![mk_type(Type::Int32)],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(entry_func)]);
-
-        // Monomorphize starting from "main"
-        let result = pass.monomorphize(&decls, Name::str("main"));
-
-        assert!(result.is_ok());
-        let all_decls = result.unwrap();
-
-        // Should have 1 decl (just main, no specializations)
-        assert_eq!(all_decls.len(), 1);
-    }
-
-    #[test]
-    fn test_monomorphize_entry_point_calling_generic() {
-        let mut pass = MonomorphPass::new();
-
-        // Create a generic function id<T>(x: T) -> T { x }
-        let t_var = typevar("T");
-        let mut id_arena = ExprArena::new();
-        let id_param_expr = id_arena.add(Expr::Id(Name::str("x")), test_loc());
-
-        let id_func = FuncDecl {
-            name: Name::str("id"),
-            typevars: vec![Name::str("T")],
-            size_vars: vec![],
-            params: vec![Param {
-                name: Name::str("x"),
-                ty: Some(t_var),
-            }],
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: t_var,
-            body: Some(id_param_expr),
-            arena: id_arena,
-            types: vec![t_var],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        // Create entry point function that calls id(42)
-        // main() { id(42) }
-        let mut main_arena = ExprArena::new();
-        let arg_expr = main_arena.add(Expr::Int(42, None), test_loc());
-        let fn_expr = main_arena.add(Expr::Id(Name::str("id")), test_loc());
-        let call_expr = main_arena.add(Expr::Call(fn_expr, vec![arg_expr]), test_loc());
-
-        let i32_type = mk_type(Type::Int32);
-        let func_type = mk_type(Type::Func(tuple(vec![i32_type]), i32_type));
-
-        let main_func = FuncDecl {
-            name: Name::str("main"),
-            typevars: Vec::new(),
-            size_vars: Vec::new(),
-            params: Vec::new(),
-            constraints: Vec::new(),
-            requires: vec![],
-            ret: i32_type,
-            body: Some(call_expr),
-            arena: main_arena,
-            types: vec![i32_type, func_type, i32_type],
-            loc: test_loc(),
-            closure_vars: vec![],
-            is_extern: false,
-        };
-
-        let decls = DeclTable::new(vec![Decl::Func(id_func), Decl::Func(main_func)]);
-
-        // Monomorphize starting from "main"
-        let result = pass.monomorphize(&decls, Name::str("main"));
-
-        assert!(result.is_ok());
-        let all_decls = result.unwrap();
-
-        // Should have 2 decls: main, id$i32 (specialized)
-        assert_eq!(all_decls.len(), 2);
-
-        // Find the specialized version
-        let specialized_id = all_decls.iter().find(|d| {
-            if let Decl::Func(f) = d {
-                f.name.to_string().starts_with("id$")
-            } else {
-                false
-            }
+        let zero = arena.add(Expr::Int(0, None), mk_type(Type::Int32), test_loc());
+        let condition = arena.add(
+            Expr::Binop(Binop::Geq, reference, zero),
+            mk_type(Type::Bool),
+            test_loc(),
+        );
+        let mut records: Vec<_> = source.decls.records().collect();
+        records.push(DeclRecord {
+            definition: DefId(source.decls.definition_count() as u32),
+            declaration: Decl::Assume {
+                arena,
+                cond: condition,
+            },
+            members: vec![],
         });
+        source.decls = DeclTable::from_records(records);
+        let output = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
+            .unwrap();
+        let assumption = output
+            .decls
+            .decls
+            .iter()
+            .find_map(|declaration| match declaration {
+                Decl::Assume { arena, .. } => Some(arena),
+                _ => None,
+            })
+            .unwrap();
+        let Expr::Id(Reference::Instance(instance)) = assumption[reference] else {
+            panic!("assumption retained a generic-phase reference");
+        };
+        assert_eq!(output.instances[instance.index()].definition, global);
+        assert!(matches!(output.instance(instance), Decl::Global { .. }));
+    }
 
-        assert!(specialized_id.is_some());
-        if let Some(Decl::Func(fdecl)) = specialized_id {
-            // Should be specialized (no type variables)
-            assert_eq!(fdecl.typevars.len(), 0);
-            // Return type should be i32
-            assert_eq!(*fdecl.ret, Type::Int32);
-            // Name should start with "id$"
-            assert!(fdecl.name.to_string().starts_with("id$"));
-        } else {
-            panic!("Expected function declaration");
+    #[test]
+    fn recursive_calls_and_multiple_roots_share_the_reserved_instance() {
+        let program = checked("recur<T>(x: T, n: i32) -> T { if n > 0 { recur(x, n - 1) } else { x } } first { recur(1, 2) } second { recur(2, 3) }");
+        let output = MonomorphPass::new()
+            .monomorphize_multi(
+                &program,
+                &[
+                    Name::str("missing"),
+                    Name::str("first"),
+                    Name::str("second"),
+                ],
+            )
+            .unwrap();
+        let recur = output.instance_for_entry(Name::str("recur$i32")).unwrap();
+        assert_eq!(output.find(Name::str("recur$i32")).len(), 1);
+        assert!(targets(output.function_instance(recur).unwrap()).contains(&recur));
+        for name in ["first", "second"] {
+            let function = output.find_entry_point(Name::str(name)).unwrap();
+            assert!(targets(function).contains(&recur));
         }
+    }
 
-        assert_eq!(all_decls[0].pretty_print(), "id$i32(x: i32) → i32 x");
-        assert_eq!(all_decls[1].pretty_print(), "main() → i32 id$i32(42)");
+    #[test]
+    fn generic_global_storage_is_shared_across_function_instances() {
+        let source = checked("var pool<T>: [T; 4] use<T>(x: T) { let a = pool⟨T⟩ } main { use(1); use(true); let b = pool⟨i32⟩ }");
+        let definition = source.decls.named_ids(Name::str("pool"))[0];
+        let output = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
+            .unwrap();
+        let globals: Vec<_> = output
+            .instances
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| record.definition == definition)
+            .collect();
+        assert_eq!(globals.len(), 2);
+        let integer_global = globals
+            .iter()
+            .find(|(_, record)| record.type_args == vec![mk_type(Type::Int32)])
+            .unwrap()
+            .0;
+        let integer_global = InstanceId(integer_global as u32);
+        assert!(
+            targets(output.find_entry_point(Name::str("main")).unwrap()).contains(&integer_global)
+        );
+        assert!(
+            targets(output.find_entry_point(Name::str("use$i32")).unwrap())
+                .contains(&integer_global)
+        );
+    }
+
+    #[test]
+    fn local_function_references_never_reenter_overload_resolution() {
+        let output = specialize("bump(x: i32) -> i32 { x } bump(x: f32) -> f32 { x } inc(x: i32) -> i32 { x + 1 } main { let bump = inc; bump(0) }");
+        let main = output.find_entry_point(Name::str("main")).unwrap();
+        let binding = main
+            .arena
+            .locals
+            .iter()
+            .position(|local| local.name == Name::str("bump"))
+            .unwrap();
+        assert!(main
+            .arena
+            .nodes()
+            .iter()
+            .any(|node| node.kind == Expr::Id(Reference::Local(LocalId(binding as u32)))));
+        assert!(output.find(Name::str("bump$i32")).is_empty());
+        assert!(output.find(Name::str("bump$f32")).is_empty());
+    }
+
+    #[test]
+    fn size_substitution_respects_local_shadowing() {
+        let output = specialize("probe<N>(a: [i32; N]) { let size = N; if true { let N = 99; let local = N }; let again = N } main { probe([1,2,3]) }");
+        let function = output.find_entry_point(Name::str("probe$3")).unwrap();
+        assert_eq!(
+            function
+                .arena
+                .nodes()
+                .iter()
+                .filter(|node| node.kind == Expr::Int(3, None))
+                .count(),
+            2
+        );
+        assert!(function.arena.nodes().iter().any(|node| matches!(node.kind,
+            Expr::Id(Reference::Local(local)) if function.arena.local(local).name == Name::str("N"))));
+        assert!(!function
+            .arena
+            .nodes()
+            .iter()
+            .any(|node| matches!(node.kind, Expr::Id(Reference::SizeParameter(_)))));
+    }
+
+    #[test]
+    fn ordinary_generic_overload_diagnostics_are_preserved() {
+        let source = checked(
+            "choose<T>(x: T) -> i32 { 1 } choose<T>(x: [T; 2]) -> i32 { 2 } main { choose(1) }",
+        );
+        let error = MonomorphPass::new()
+            .monomorphize(&source, Name::str("main"))
+            .unwrap_err();
+        assert!(
+            error.contains("Cannot infer type arguments for choose"),
+            "{}",
+            error
+        );
     }
 }

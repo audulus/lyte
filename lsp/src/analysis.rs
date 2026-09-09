@@ -49,7 +49,7 @@ impl AnalysisState {
             compiler.parse(text, &path);
         }
 
-        compiler.check();
+        compiler.analyze();
         self.compiler = Some(compiler);
     }
 }

@@ -1,10 +1,12 @@
 // LLVM JIT backend for the Lyte compiler, using inkwell.
 // Mirrors the Cranelift JIT backend in jit.rs.
 
-use crate::decl::*;
+use crate::checked::{
+    CheckedBody as ExprArena, CheckedDecl as Decl, CheckedExpr as Expr,
+    CheckedFunction as FuncDecl, CheckedParam as Param, InstanceId, LocalId, Reference,
+    SpecializedProgram as DeclTable,
+};
 use crate::defs::*;
-use crate::expr::*;
-use crate::DeclTable;
 use crate::TypeID;
 
 use std::convert::TryFrom;
@@ -493,7 +495,7 @@ pub(crate) fn build_module<'ctx>(
         let Some(ep_decl) = decls.find_entry_point(ep_name) else {
             continue;
         };
-        state.compile_function(decls, ep_decl)?;
+        state.compile_function(decls, ep_decl, decls.instance_for_entry(ep_name))?;
     }
 
     if print_ir {
@@ -753,9 +755,9 @@ pub(crate) struct LLVMJITState<'ctx> {
     pub(crate) context: &'ctx Context,
     pub(crate) module: Module<'ctx>,
     pub(crate) builder: Builder<'ctx>,
-    pub(crate) globals: HashMap<Name, i32>,
+    pub(crate) globals: HashMap<InstanceId, i32>,
     pub(crate) globals_size: usize,
-    pub(crate) defined_functions: HashSet<Name>,
+    pub(crate) defined_functions: HashSet<InstanceId>,
     pub(crate) lambda_counter: usize,
     pub(crate) print_ir: bool,
     /// When true, skip emission of call-depth prologue/epilogue.
@@ -792,15 +794,15 @@ impl<'ctx> LLVMJITState<'ctx> {
 
     fn declare_globals(&mut self, decls: &DeclTable) {
         let mut offset: i32 = CANCEL_FLAG_RESERVED;
-        for decl in &decls.decls {
+        for (instance, decl) in decls.storage_instances() {
             match decl {
-                Decl::Global { name, ty, .. } => {
-                    self.globals.insert(*name, offset);
+                Decl::Global { ty, .. } => {
+                    self.globals.insert(instance, offset);
                     offset += ty.size(decls) as i32;
                 }
                 Decl::Func(f) if f.is_extern => {
                     // Extern functions get 16 bytes: {fn_ptr, context}
-                    self.globals.insert(f.name, offset);
+                    self.globals.insert(instance, offset);
                     offset += 16;
                 }
                 _ => {}
@@ -964,6 +966,7 @@ impl<'ctx> LLVMJITState<'ctx> {
         &mut self,
         decls: &DeclTable,
         decl: &FuncDecl,
+        instance: Option<InstanceId>,
     ) -> Result<FunctionValue<'ctx>, String> {
         // Build the LLVM function type (globals + closure + params → ret).
         let fn_type = build_fn_type(self.context, decl.domain(), decl.ret, true);
@@ -980,7 +983,9 @@ impl<'ctx> LLVMJITState<'ctx> {
         let body_id = match decl.body {
             Some(id) => id,
             None => {
-                self.defined_functions.insert(decl.name);
+                if let Some(instance) = instance {
+                    self.defined_functions.insert(instance);
+                }
                 return Ok(function);
             }
         };
@@ -1006,10 +1011,10 @@ impl<'ctx> LLVMJITState<'ctx> {
             None
         };
 
-        // Set up local variable map: name → alloca pointer.
-        let mut variables: HashMap<String, PointerValue<'ctx>> = HashMap::new();
-        let mut variable_types: HashMap<String, TypeID> = HashMap::new();
-        let mut let_bindings: HashSet<String> = HashSet::new();
+        // Set up local variable map: local identity → alloca pointer.
+        let mut variables: HashMap<LocalId, PointerValue<'ctx>> = HashMap::new();
+        let mut variable_types: HashMap<LocalId, TypeID> = HashMap::new();
+        let mut let_bindings: HashSet<LocalId> = HashSet::new();
 
         // Load closure variables (captured variables).
         for (i, cv) in decl.closure_vars.iter().enumerate() {
@@ -1033,18 +1038,23 @@ impl<'ctx> LLVMJITState<'ctx> {
             // Store the pointer in an alloca so we can use_var-style access.
             let alloca = self
                 .builder
-                .build_alloca(self.ptr_ty(), &cv.name.to_string())
+                .build_alloca(self.ptr_ty(), &decl.arena.local(*cv).name)
                 .unwrap();
             self.builder.build_store(alloca, var_ptr).unwrap();
-            variables.insert(cv.name.to_string(), alloca);
-            variable_types.insert(cv.name.to_string(), cv.ty);
+            variables.insert(*cv, alloca);
+            let declared = decl.arena.local(*cv).ty;
+            let storage = match *declared {
+                crate::Type::Reference(inner) => inner,
+                _ => declared,
+            };
+            variable_types.insert(*cv, storage);
             // closure vars are treated like var bindings (pointer-indirected)
         }
 
         // Function parameters → let bindings.
         for (i, param) in decl.params.iter().enumerate() {
             let param_val = params[param_idx + i];
-            let ty = param.ty.expect("param ty");
+            let ty = decl.arena.local(param.local).ty;
             let storage_ty = if let crate::Type::Reference(inner) = &*ty {
                 *inner
             } else {
@@ -1067,13 +1077,16 @@ impl<'ctx> LLVMJITState<'ctx> {
 
             let alloca = self
                 .builder
-                .build_alloca(ty.llvm_basic_type(self.context), &param.name.to_string())
+                .build_alloca(
+                    ty.llvm_basic_type(self.context),
+                    &decl.arena.local(param.local).name,
+                )
                 .unwrap();
             self.builder.build_store(alloca, param_val).unwrap();
-            variables.insert(param.name.to_string(), alloca);
-            variable_types.insert(param.name.to_string(), storage_ty);
+            variables.insert(param.local, alloca);
+            variable_types.insert(param.local, storage_ty);
             if !matches!(&*ty, crate::Type::Reference(_)) {
-                let_bindings.insert(param.name.to_string());
+                let_bindings.insert(param.local);
             }
         }
 
@@ -1125,29 +1138,22 @@ impl<'ctx> LLVMJITState<'ctx> {
         let called = trans.called_functions.clone();
         let pending = trans.pending_lambdas.clone();
 
-        self.defined_functions.insert(decl.name);
-
-        // Compile pending lambdas.
-        for lambda_decl in pending {
-            if !self.defined_functions.contains(&lambda_decl.name) {
-                self.compile_function(decls, &lambda_decl)?;
-            }
+        if let Some(instance) = instance {
+            self.defined_functions.insert(instance);
         }
 
-        // Compile called user functions.
-        for name in called {
-            if self.defined_functions.contains(&name) {
+        for lambda_decl in pending {
+            self.compile_function(decls, &lambda_decl, None)?;
+        }
+        for instance in called {
+            if self.defined_functions.contains(&instance) {
                 continue;
             }
-            let found = decls.find(name);
-            if found.is_empty() {
-                continue;
-            }
-            if let Decl::Func(d) = &found[0] {
-                if d.body.is_none() {
-                    continue;
-                }
-                self.compile_function(decls, d)?;
+            let function = decls
+                .function_instance(instance)
+                .expect("checked function instance");
+            if function.body.is_some() {
+                self.compile_function(decls, function, Some(instance))?;
             }
         }
 
@@ -1160,15 +1166,15 @@ impl<'ctx> LLVMJITState<'ctx> {
 struct FunctionTranslator<'a, 'ctx> {
     state: &'a mut LLVMJITState<'ctx>,
     function: FunctionValue<'ctx>,
-    /// name → alloca. For let-bindings the alloca holds the value directly.
+    /// local identity → alloca. For let-bindings the alloca holds the value directly.
     /// For var-bindings the alloca holds a pointer to the actual stack slot.
-    variables: HashMap<String, PointerValue<'ctx>>,
-    variable_types: HashMap<String, TypeID>,
-    let_bindings: HashSet<String>,
+    variables: HashMap<LocalId, PointerValue<'ctx>>,
+    variable_types: HashMap<LocalId, TypeID>,
+    let_bindings: HashSet<LocalId>,
     globals_base: PointerValue<'ctx>,
     output_ptr: Option<PointerValue<'ctx>>,
     decls: &'a DeclTable,
-    called_functions: HashSet<Name>,
+    called_functions: HashSet<InstanceId>,
     pending_lambdas: Vec<FuncDecl>,
     /// Stack of (continue_bb, break_bb) for nested loops.
     loop_stack: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
@@ -1452,21 +1458,19 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             .unwrap();
     }
 
-    /// Declare (alloca) a new variable. Returns the alloca pointer.
-    fn declare_var(&mut self, name: &str, ty: BasicTypeEnum<'ctx>) -> PointerValue<'ctx> {
-        if let Some(&ptr) = self.variables.get(name) {
-            return ptr;
-        }
-        let alloca = self.entry_alloca(ty, name);
-        self.variables.insert(name.to_string(), alloca);
-        alloca
-    }
-
     /// Get the address of a variable (for lvalue use or closure capture).
-    fn get_var_addr(&mut self, name: &str, _ty: crate::TypeID) -> PointerValue<'ctx> {
+    fn get_var_addr(&mut self, name: &LocalId, ty: crate::TypeID) -> PointerValue<'ctx> {
         if let Some(&alloca) = self.variables.get(name) {
             if self.let_bindings.contains(name) {
-                // let binding: alloca holds the value — alloca itself is the address.
+                // Aggregate values are addresses. The alloca contains their
+                // address, whereas a scalar's alloca is its actual storage.
+                if is_indirect(ty) {
+                    return self
+                        .builder()
+                        .build_load(self.ptr_ty(), alloca, "capture_storage")
+                        .unwrap()
+                        .into_pointer_value();
+                }
                 return alloca;
             } else {
                 // var binding: alloca holds a pointer to the slot.
@@ -1477,10 +1481,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     .into_pointer_value();
             }
         }
-        if let Some(&offset) = self.state.globals.get(&Name::new(name.to_string())) {
-            return self.ptr_at_offset(self.globals_base, offset as u64);
-        }
-        panic!("unknown variable in closure capture: {}", name)
+        panic!("unknown local in closure capture: {:?}", name)
     }
 
     /// Compute globals_base + byte_offset as a pointer.
@@ -1541,28 +1542,23 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     fn representation_type(&self, expr: ExprID, decl: &FuncDecl) -> crate::TypeID {
-        match &decl.arena.exprs[expr] {
-            Expr::Id(name) => self
+        match &decl.arena[expr] {
+            Expr::Id(Reference::Local(local)) => self
                 .variable_types
-                .get(name.as_str())
+                .get(local)
                 .copied()
-                .or_else(|| {
-                    self.decls.find(*name).iter().find_map(|decl| {
-                        if let crate::Decl::Global { ty, .. } = decl {
-                            Some(*ty)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or(decl.types[expr]),
+                .unwrap_or(decl.arena.local(*local).ty),
+            Expr::Id(Reference::Instance(instance)) => match self.decls.instance(*instance) {
+                Decl::Global { ty, .. } => *ty,
+                _ => decl.arena.ty(expr),
+            },
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl) {
                 crate::Type::Array(elem, _)
                 | crate::Type::Slice(elem)
                 | crate::Type::Reference(elem) => *elem,
-                _ => decl.types[expr],
+                _ => decl.arena.ty(expr),
             },
-            _ => decl.types[expr],
+            _ => decl.arena.ty(expr),
         }
     }
 
@@ -1701,11 +1697,11 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     /// Match `{ var = expr }` or `var = expr` — returns (var_name, rhs_id) if matched.
-    fn match_single_var_assign(arena: &ExprArena, expr_id: ExprID) -> Option<(Name, ExprID)> {
-        let expr = &arena.exprs[expr_id];
+    fn match_single_var_assign(arena: &ExprArena, expr_id: ExprID) -> Option<(LocalId, ExprID)> {
+        let expr = &arena[expr_id];
         let inner = if let Expr::Block(stmts) = expr {
             if stmts.len() == 1 {
-                &arena.exprs[stmts[0]]
+                &arena[stmts[0]]
             } else {
                 return None;
             }
@@ -1713,7 +1709,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             expr
         };
         if let Expr::Binop(Binop::Assign, lhs, rhs) = inner {
-            if let Expr::Id(name) = &arena.exprs[*lhs] {
+            if let Expr::Id(Reference::Local(name)) = &arena[*lhs] {
                 return Some((*name, *rhs));
             }
         }
@@ -1724,10 +1720,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl) -> PointerValue<'ctx> {
         match &decl.arena[expr] {
-            Expr::Id(name) => {
-                if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) {
-                        let ty = decl.types[expr];
+            Expr::Id(Reference::Local(name)) => {
+                if let Some(&alloca) = self.variables.get(name) {
+                    if self.let_bindings.contains(name) {
+                        let ty = decl.arena.ty(expr);
                         if ty.is_ptr() || matches!(&*ty, crate::Type::Slice(_)) {
                             // Pointer-type let binding (e.g. slice/array/struct param):
                             // alloca holds a pointer to the data, load it.
@@ -1739,7 +1735,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             alloca
                         }
                     } else {
-                        if let Some(ty) = self.variable_types.get(name.as_str()).copied() {
+                        if let Some(ty) = self.variable_types.get(name).copied() {
                             if ty.is_ptr() {
                                 self.builder()
                                     .build_load(ty.llvm_basic_type(self.ctx()), alloca, "var_addr")
@@ -1758,19 +1754,20 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                                 .into_pointer_value()
                         }
                     }
-                } else if let Some(&offset) = self.state.globals.get(name) {
-                    self.ptr_at_offset(self.globals_base, offset as u64)
                 } else {
                     panic!("JIT lvalue: unknown variable {:?}", name)
                 }
             }
+            Expr::Id(Reference::Instance(instance)) => {
+                self.ptr_at_offset(self.globals_base, self.state.globals[instance] as u64)
+            }
             Expr::Field(lhs_id, field_name) => {
-                let lhs_ty = decl.types[*lhs_id];
+                let lhs_ty = decl.arena.ty(*lhs_id);
                 let base_ptr = self.translate_lvalue(*lhs_id, decl);
                 self.compute_field_ptr(base_ptr, lhs_ty, field_name, decl)
             }
             Expr::ArrayIndex(lhs_id, idx_id) => {
-                let lhs_ty = decl.types[*lhs_id];
+                let lhs_ty = decl.arena.ty(*lhs_id);
                 let lhs_ptr = self.translate_lvalue(*lhs_id, decl);
                 let idx_val = self.translate_expr(*idx_id, decl).into_int_value();
                 self.compute_array_elem_ptr(lhs_ptr, lhs_ty, idx_val)
@@ -1785,9 +1782,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     /// isn't a place at all.
     fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl) -> Option<PointerValue<'ctx>> {
         match &decl.arena[expr] {
-            Expr::Id(name) => {
-                if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) {
+            Expr::Id(Reference::Local(name)) => {
+                if let Some(&alloca) = self.variables.get(name) {
+                    if self.let_bindings.contains(name) {
                         // The alloca holds the vector itself.
                         return Some(alloca);
                     }
@@ -1800,7 +1797,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                             .into_pointer_value(),
                     );
                 }
-                let offset = *self.state.globals.get(name)?;
+                None
+            }
+            Expr::Id(Reference::Instance(instance)) => {
+                let offset = *self.state.globals.get(instance)?;
                 Some(self.ptr_at_offset(self.globals_base, offset as u64))
             }
             Expr::Field(_, _) | Expr::ArrayIndex(_, _) => Some(self.translate_lvalue(expr, decl)),
@@ -1837,7 +1837,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     ) -> PointerValue<'ctx> {
         if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
             let struct_decl = self.decls.find(*struct_name);
-            if let crate::Decl::Struct(s) = &struct_decl[0] {
+            if let Decl::Struct(s) = &struct_decl[0] {
                 let inst: crate::Instance = s
                     .typevars
                     .iter()
@@ -1898,33 +1898,37 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         match &decl.arena[expr] {
             Expr::True => self.i8_ty().const_int(1, false).into(),
             Expr::False => self.i8_ty().const_int(0, false).into(),
-            Expr::Int(n, _) => match &*decl.types[expr] {
+            Expr::Int(n, _) => match &*decl.arena.ty(expr) {
                 crate::Type::Int8 => self.i8_ty().const_int(*n as u64, true).into(),
                 crate::Type::UInt32 => self.i32_ty().const_int(*n as u64, false).into(),
                 _ => self.i32_ty().const_int(*n as u64, true).into(),
             },
             Expr::Real(s, _) => {
                 let val: f64 = s.parse().expect("invalid float literal");
-                match &*decl.types[expr] {
+                match &*decl.arena.ty(expr) {
                     crate::Type::Float32 => self.state.f32_ty().const_float(val).into(),
                     _ => self.state.f64_ty().const_float(val).into(),
                 }
             }
             Expr::Char(c) => self.i8_ty().const_int(*c as u64, false).into(),
-            Expr::Id(name) => {
-                let ty = decl.types[expr];
-                if let Some(&alloca) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) || is_indirect(ty) {
+            Expr::Id(Reference::Local(name)) => {
+                let ty = decl.arena.ty(expr);
+                if let Some(&alloca) = self.variables.get(name) {
+                    if self.let_bindings.contains(name) || is_indirect(ty) {
                         // let binding or pointer type: load the value from the alloca.
                         self.builder()
-                            .build_load(ty.llvm_basic_type(self.ctx()), alloca, &**name)
+                            .build_load(
+                                ty.llvm_basic_type(self.ctx()),
+                                alloca,
+                                &decl.arena.local(*name).name,
+                            )
                             .unwrap()
                     } else {
                         let stored = self
                             .builder()
                             .build_load(self.ptr_ty(), alloca, "var_ptr")
                             .unwrap();
-                        if let Some(var_ty) = self.variable_types.get(name.as_str()).copied() {
+                        if let Some(var_ty) = self.variable_types.get(name).copied() {
                             if is_indirect(var_ty) {
                                 stored
                             } else {
@@ -1932,7 +1936,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                                     .build_load(
                                         ty.llvm_basic_type(self.ctx()),
                                         stored.into_pointer_value(),
-                                        &**name,
+                                        &decl.arena.local(*name).name,
                                     )
                                     .unwrap()
                             }
@@ -1941,27 +1945,31 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                                 .build_load(
                                     ty.llvm_basic_type(self.ctx()),
                                     stored.into_pointer_value(),
-                                    &**name,
+                                    &decl.arena.local(*name).name,
                                 )
                                 .unwrap()
                         }
                     }
-                } else if let Some(&offset) = self.state.globals.get(name) {
+                } else {
+                    panic!("missing local storage: {:?}", name)
+                }
+            }
+            Expr::Id(Reference::Instance(instance)) => {
+                let ty = decl.arena.ty(expr);
+                if let Some(&offset) = self.state.globals.get(instance) {
                     let addr = self.ptr_at_offset(self.globals_base, offset as u64);
-                    // Composite types (arrays, structs) are pointer-represented:
-                    // return the address, don't load.
                     if is_indirect(ty) {
                         addr.into()
                     } else {
                         self.builder()
-                            .build_load(ty.llvm_basic_type(self.ctx()), addr, &**name)
+                            .build_load(ty.llvm_basic_type(self.ctx()), addr, "global")
                             .unwrap()
                     }
                 } else {
-                    // Must be a function reference.
-                    self.translate_func_ref(name, &*ty)
+                    self.translate_func_ref(*instance, &*ty)
                 }
             }
+            Expr::Id(reference) => panic!("unresolved checked reference: {:?}", reference),
             Expr::Binop(op, lhs_id, rhs_id) => {
                 let (op, lhs, rhs) = (*op, *lhs_id, *rhs_id);
                 self.translate_binop(op, lhs, rhs, decl)
@@ -1976,7 +1984,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::Let(name, init_id, _) => {
                 let (name, init_id) = (*name, *init_id);
-                let ty = decl.types[expr];
+                let ty = decl.arena.local(name).ty;
                 let init_val = self.translate_expr(init_id, decl);
                 let init_val = self.wrap_for_expected_slice(init_val, ty, init_id, decl);
 
@@ -1992,36 +2000,39 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     let storage = self.entry_array_alloca(
                         self.i8_ty(),
                         sz as u64,
-                        &format!("{}_storage", name),
+                        &format!("{}_storage", decl.arena.local(name).name),
                     );
-                    let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
+                    let alloca =
+                        self.entry_alloca(self.ptr_ty().into(), &decl.arena.local(name).name);
                     self.builder().build_store(alloca, storage).unwrap();
-                    self.variables.insert(name.to_string(), alloca);
-                    self.variable_types.insert(name.to_string(), ty);
+                    self.variables.insert(name, alloca);
+                    self.variable_types.insert(name, ty);
                     // The binding owns storage now, exactly like a `var`, so it
                     // must not be treated as holding a value directly.
-                    self.let_bindings.remove(&name.to_string());
+                    self.let_bindings.remove(&name);
                     self.gen_copy(ty, storage, init_val);
                     return storage.into();
                 }
 
-                let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
+                let alloca =
+                    self.entry_alloca(ty.llvm_basic_type(self.ctx()), &decl.arena.local(name).name);
                 self.builder().build_store(alloca, init_val).unwrap();
-                self.variables.insert(name.to_string(), alloca);
-                self.variable_types.insert(name.to_string(), ty);
-                self.let_bindings.insert(name.to_string());
+                self.variables.insert(name, alloca);
+                self.variable_types.insert(name, ty);
+                self.let_bindings.insert(name);
                 init_val
             }
             Expr::Var(name, init_id, _) => {
                 let (name, init_id) = (*name, *init_id);
-                let ty = decl.types[expr];
+                let ty = decl.arena.local(name).ty;
                 let sz = ty.size(self.decls) as usize;
                 assert!(sz > 0, "var size must be > 0");
 
                 if !ty.is_ptr() || is_llvm_value_type(ty) {
                     // Scalar/vector var: use a single typed alloca (same as let bindings).
                     // This avoids double-indirection and lets LLVM promote to SSA.
-                    let alloca = self.entry_alloca(ty.llvm_basic_type(self.ctx()), &*name);
+                    let alloca = self
+                        .entry_alloca(ty.llvm_basic_type(self.ctx()), &decl.arena.local(name).name);
                     if let Some(init_id) = init_id {
                         let init_val = self.translate_expr(init_id, decl);
                         self.builder().build_store(alloca, init_val).unwrap();
@@ -2029,20 +2040,21 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         let zero = ty.llvm_basic_type(self.ctx()).const_zero();
                         self.builder().build_store(alloca, zero).unwrap();
                     }
-                    self.variables.insert(name.to_string(), alloca);
-                    self.variable_types.insert(name.to_string(), ty);
-                    self.let_bindings.insert(name.to_string());
+                    self.variables.insert(name, alloca);
+                    self.variable_types.insert(name, ty);
+                    self.let_bindings.insert(name);
                 } else {
                     // Pointer/struct var: allocate byte storage + ptr alloca.
                     let storage = self.entry_array_alloca(
                         self.i8_ty(),
                         sz as u64,
-                        &format!("{}_storage", name),
+                        &format!("{}_storage", decl.arena.local(name).name),
                     );
-                    let alloca = self.entry_alloca(self.ptr_ty().into(), &*name);
+                    let alloca =
+                        self.entry_alloca(self.ptr_ty().into(), &decl.arena.local(name).name);
                     self.builder().build_store(alloca, storage).unwrap();
-                    self.variables.insert(name.to_string(), alloca);
-                    self.variable_types.insert(name.to_string(), ty);
+                    self.variables.insert(name, alloca);
+                    self.variable_types.insert(name, ty);
 
                     if let Some(init_id) = init_id {
                         let init_val = self.translate_expr(init_id, decl);
@@ -2056,7 +2068,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::Field(lhs_id, field_name) => {
                 let (lhs_id, field_name) = (*lhs_id, *field_name);
-                let lhs_ty = decl.types[lhs_id];
+                let lhs_ty = decl.arena.ty(lhs_id);
                 // Handle .len.
                 if *field_name == "len" {
                     match &*lhs_ty {
@@ -2094,7 +2106,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
 
                 let lhs_val = self.translate_expr(lhs_id, decl).into_pointer_value();
-                let field_ty = decl.types[expr];
+                let field_ty = decl.arena.ty(expr);
                 let field_ptr = self.compute_field_ptr(lhs_val, lhs_ty, &field_name, decl);
                 if is_indirect(field_ty) {
                     field_ptr.into()
@@ -2106,7 +2118,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::ArrayIndex(lhs_id, rhs_id) => {
                 let (lhs_id, rhs_id) = (*lhs_id, *rhs_id);
-                let lhs_ty = decl.types[lhs_id];
+                let lhs_ty = decl.arena.ty(lhs_id);
 
                 // f32x4 element extraction: use extractelement
                 if matches!(*lhs_ty, crate::Type::Float32x4) {
@@ -2123,7 +2135,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let lhs_val = self.translate_expr(lhs_id, decl).into_pointer_value();
                 let rhs_val = self.translate_expr(rhs_id, decl).into_int_value();
                 let elem_ptr = self.compute_array_elem_ptr(lhs_val, lhs_ty, rhs_val);
-                let result_ty = decl.types[expr];
+                let result_ty = decl.arena.ty(expr);
                 if is_indirect(result_ty) {
                     elem_ptr.into()
                 } else {
@@ -2134,7 +2146,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::ArrayLiteral(elements) => {
                 let elements = elements.clone();
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
                 let elem_values: Vec<BasicValueEnum<'ctx>> = elements
                     .iter()
                     .map(|e| self.translate_expr(*e, decl))
@@ -2156,11 +2168,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 if exprs.is_empty() {
                     self.zero_i32()
                 } else {
-                    // Save variable scope — declarations inside this block
-                    // shadow outer names only for the duration of the block.
-                    let saved_vars = self.variables.clone();
-                    let saved_types = self.variable_types.clone();
-                    let saved_lets = self.let_bindings.clone();
+                    // Binding identities remain unambiguous across block boundaries.
                     let mut result = self.zero_i32();
                     for e in &exprs {
                         if self.is_block_terminated() {
@@ -2168,9 +2176,6 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         }
                         result = self.translate_expr(*e, decl);
                     }
-                    self.variables = saved_vars;
-                    self.variable_types = saved_types;
-                    self.let_bindings = saved_lets;
                     result
                 }
             }
@@ -2182,14 +2187,14 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     if let Some((var_name, new_val_id)) =
                         Self::match_single_var_assign(&decl.arena, then_id)
                     {
-                        let var_ty = decl.types[new_val_id];
+                        let var_ty = decl.arena.ty(new_val_id);
                         let is_scalar_float =
                             matches!(*var_ty, crate::Type::Float32 | crate::Type::Float64);
-                        if is_scalar_float && self.variables.contains_key(&var_name.to_string()) {
+                        if is_scalar_float && self.variables.contains_key(&var_name) {
                             let cond_raw = self.translate_expr(cond_id, decl).into_int_value();
                             let cond_val = self.to_i1(cond_raw);
-                            let alloca = self.variables[&var_name.to_string()];
-                            let is_let = self.let_bindings.contains(&var_name.to_string());
+                            let alloca = self.variables[&var_name];
+                            let is_let = self.let_bindings.contains(&var_name);
                             // Get the storage pointer.
                             let slot_ptr = if is_let {
                                 alloca
@@ -2216,9 +2221,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 // Determine if this if-else produces a value (both branches
                 // have the same concrete, non-void type).
-                let result_ty = decl.types[expr];
+                let result_ty = decl.arena.ty(expr);
                 let is_value = if let Some(else_expr_id) = else_id {
-                    let else_ty = decl.types[else_expr_id];
+                    let else_ty = decl.arena.ty(else_expr_id);
                     !matches!(
                         &*result_ty,
                         crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
@@ -2313,20 +2318,17 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let start_val = self.translate_expr(start, decl).into_int_value();
                 let end_val = self.translate_expr(end, decl).into_int_value();
 
-                // The loop variable is scoped to the loop: save the name-keyed
-                // state so an outer binding it shadows comes back at loop exit.
-                let saved_vars = self.variables.clone();
-                let saved_types = self.variable_types.clone();
-                let saved_lets = self.let_bindings.clone();
+                // The checked loop binding has its own local identity.
 
                 // Allocate loop counter in entry block.
-                let loop_alloca = self.entry_alloca(self.i32_ty().into(), &*var);
+                let loop_alloca =
+                    self.entry_alloca(self.i32_ty().into(), &decl.arena.local(var).name);
                 self.builder().build_store(loop_alloca, start_val).unwrap();
                 // Treat as let binding (holds value directly).
-                self.variables.insert(var.to_string(), loop_alloca);
+                self.variables.insert(var, loop_alloca);
                 self.variable_types
-                    .insert(var.to_string(), crate::types::mk_type(crate::Type::Int32));
-                self.let_bindings.insert(var.to_string());
+                    .insert(var, crate::types::mk_type(crate::Type::Int32));
+                self.let_bindings.insert(var);
 
                 let header_bb = self.append_bb("for_header");
                 let body_bb = self.append_bb("for_body");
@@ -2382,10 +2384,6 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.loop_stack.pop();
                 self.builder().position_at_end(exit_bb);
 
-                self.variables = saved_vars;
-                self.variable_types = saved_types;
-                self.let_bindings = saved_lets;
-
                 self.zero_i32()
             }
             Expr::Assume(_) => {
@@ -2395,7 +2393,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::Return(ret_id) => {
                 let ret_id = *ret_id;
                 let result = self.translate_expr(ret_id, decl);
-                let ret_ty = decl.types[ret_id];
+                let ret_ty = decl.arena.ty(ret_id);
 
                 if !self.state.no_recursion {
                     self.emit_call_depth_release();
@@ -2420,7 +2418,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::Tuple(elements) => {
                 let elements = elements.clone();
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
                 let elem_vals: Vec<BasicValueEnum<'ctx>> = elements
                     .iter()
                     .map(|e| self.translate_expr(*e, decl))
@@ -2445,11 +2443,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Expr::Enum(case_name) => {
                 let case_name = *case_name;
-                let index = if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
+                let index = if let crate::Type::Name(enum_name, _) = &*decl.arena.ty(expr) {
                     let enum_decls = self.decls.find(*enum_name);
-                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls
-                        .iter()
-                        .find(|d| matches!(d, crate::Decl::Enum { .. }))
+                    if let Some(Decl::Enum { cases, .. }) =
+                        enum_decls.iter().find(|d| matches!(d, Decl::Enum { .. }))
                     {
                         cases.iter().position(|c| *c == case_name).unwrap_or(0) as u64
                     } else {
@@ -2487,7 +2484,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::AsTy(src_id, target_ty) => {
                 let (src_id, target_ty) = (*src_id, *target_ty);
                 let val = self.translate_expr(src_id, decl);
-                let src_ty = decl.types[src_id];
+                let src_ty = decl.arena.ty(src_id);
                 self.translate_cast(val, src_ty, target_ty)
             }
             Expr::Break => {
@@ -2509,7 +2506,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Expr::StructLit(struct_name, fields) => {
                 let struct_name = *struct_name;
                 let fields: Vec<(Name, ExprID)> = fields.clone();
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
                 let sz = ty.size(self.decls) as u64;
                 let storage = self.entry_array_alloca(self.i8_ty(), sz, "struct_lit");
                 // Zero-initialize.
@@ -2521,7 +2518,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 if let crate::Type::Name(_, type_args) = &*ty {
                     let struct_decl = self.decls.find(struct_name);
-                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                    if let Decl::Struct(s) = &struct_decl[0] {
                         let inst: crate::Instance = s
                             .typevars
                             .iter()
@@ -2531,7 +2528,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         for (fname, fval) in &fields {
                             let val = self.translate_expr(*fval, decl);
                             let off = s.field_offset(fname, self.decls, &inst);
-                            let field_ty = decl.types[*fval];
+                            let field_ty = decl.arena.ty(*fval);
                             self.store_element(field_ty, storage, off as u64, val);
                         }
                     }
@@ -2542,7 +2539,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 // Fill-array expression: [value; size], e.g. [0; 5]
                 let value_expr = *value_expr;
                 let fill_value = self.translate_expr(value_expr, decl);
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
                 if let crate::Type::Array(elem_ty, sz) = &*ty {
                     let count = sz.known();
                     let elem_size = elem_ty.size(self.decls) as u64;
@@ -2572,7 +2569,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         decl: &FuncDecl,
     ) -> BasicValueEnum<'ctx> {
         let val = self.translate_expr(arg_id, decl);
-        let ty = decl.types[arg_id];
+        let ty = decl.arena.ty(arg_id);
         match op {
             Unop::Neg => match *ty {
                 crate::Type::Float32x4 => self
@@ -2610,7 +2607,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     ) -> BasicValueEnum<'ctx> {
         match op {
             Binop::Plus => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let is_float = matches!(*t, crate::Type::Float32 | crate::Type::Float64);
 
                 // f32x4: vector fadd
@@ -2626,13 +2623,13 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 // FMA: a*b + c
                 if is_float {
-                    if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena.exprs[lhs_id] {
+                    if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena[lhs_id] {
                         let a = self.translate_expr(ma, decl).into_float_value();
                         let b = self.translate_expr(mb, decl).into_float_value();
                         let c = self.translate_expr(rhs_id, decl).into_float_value();
                         return self.build_fma(a, b, c, t).into();
                     }
-                    if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena.exprs[rhs_id] {
+                    if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena[rhs_id] {
                         let c = self.translate_expr(lhs_id, decl).into_float_value();
                         let a = self.translate_expr(ma, decl).into_float_value();
                         let b = self.translate_expr(mb, decl).into_float_value();
@@ -2655,7 +2652,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Minus => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let is_float = matches!(*t, crate::Type::Float32 | crate::Type::Float64);
 
                 if matches!(*t, crate::Type::Float32x4) {
@@ -2670,7 +2667,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 // FMA: c - a*b => fma(-a, b, c)
                 if is_float {
-                    if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena.exprs[rhs_id] {
+                    if let Expr::Binop(Binop::Mult, ma, mb) = decl.arena[rhs_id] {
                         let c = self.translate_expr(lhs_id, decl).into_float_value();
                         let a = self.translate_expr(ma, decl).into_float_value();
                         let b = self.translate_expr(mb, decl).into_float_value();
@@ -2694,7 +2691,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Mult => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 if matches!(*t, crate::Type::Float32x4) {
                     let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
@@ -2721,7 +2718,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Div => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 if matches!(*t, crate::Type::Float32x4) {
                     let lhs = self.translate_expr(lhs_id, decl).into_vector_value();
@@ -2754,7 +2751,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Mod => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
@@ -2777,9 +2774,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
             Binop::Assign => {
                 // f32x4 field assignment: v.x = val → insert_element + store
-                if let Expr::Field(vec_id, field_name) = &decl.arena.exprs[lhs_id] {
+                if let Expr::Field(vec_id, field_name) = &decl.arena[lhs_id] {
                     let (vec_id, field_name) = (*vec_id, *field_name);
-                    let vec_ty = decl.types[vec_id];
+                    let vec_ty = decl.arena.ty(vec_id);
                     if matches!(*vec_ty, crate::Type::Float32x4) {
                         let lane: u64 = match &**field_name {
                             "x" | "r" => 0,
@@ -2798,9 +2795,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     }
                 }
                 // f32x4 element assignment: v[i] = val → insert_element + store
-                if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena.exprs[lhs_id] {
+                if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena[lhs_id] {
                     let (vec_id, idx_id) = (*vec_id, *idx_id);
-                    let vec_ty = decl.types[vec_id];
+                    let vec_ty = decl.arena.ty(vec_id);
                     if matches!(*vec_ty, crate::Type::Float32x4) {
                         // The lane index is in 0..4: the safety checker proves it,
                         // and no backend checks it at runtime.
@@ -2836,19 +2833,19 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             Binop::Equal => {
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 self.gen_eq(t, lhs, rhs)
             }
             Binop::NotEqual => {
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let eq = self.gen_eq(t, lhs, rhs).into_int_value();
                 let one = eq.get_type().const_int(1, false);
                 self.builder().build_xor(eq, one, "ne").unwrap().into()
             }
             Binop::Less => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
@@ -2885,7 +2882,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Greater => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
@@ -2922,7 +2919,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Leq => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
@@ -2959,7 +2956,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             }
             Binop::Geq => {
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 let lhs = self.translate_expr(lhs_id, decl);
                 let rhs = self.translate_expr(rhs_id, decl);
                 match *t {
@@ -3134,29 +3131,28 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         _call_expr_id: ExprID,
         decl: &FuncDecl,
     ) -> BasicValueEnum<'ctx> {
-        let is_builtin = if let Expr::Id(name) = &decl.arena[fn_id] {
-            is_builtin_name(name)
+        let is_builtin = if let Expr::Id(Reference::Instance(instance)) = &decl.arena[fn_id] {
+            is_builtin_name(&self.decls.instance_name(*instance))
         } else {
             false
         };
 
-        let fn_type = decl.types[fn_id];
+        let fn_type = decl.arena.ty(fn_id);
         if let crate::Type::Func(from, to) = *fn_type {
-            let param_types: Vec<crate::TypeID> = if let Expr::Id(callee_name) = &decl.arena[fn_id]
-            {
-                let callee_decls = self.decls.find(*callee_name);
-                if let Some(crate::Decl::Func(f)) = callee_decls.first() {
-                    f.param_types()
+            let param_types: Vec<crate::TypeID> =
+                if let Expr::Id(Reference::Instance(callee)) = &decl.arena[fn_id] {
+                    if let Some(f) = self.decls.function_instance(*callee) {
+                        f.param_types()
+                    } else if let crate::Type::Tuple(pts) = &*from {
+                        pts.clone()
+                    } else {
+                        vec![]
+                    }
                 } else if let crate::Type::Tuple(pts) = &*from {
                     pts.clone()
                 } else {
                     vec![]
-                }
-            } else if let crate::Type::Tuple(pts) = &*from {
-                pts.clone()
-            } else {
-                vec![]
-            };
+                };
 
             // Allocate output slot if returning via pointer.
             let output_slot: Option<PointerValue<'ctx>> = if returns_via_pointer(to) {
@@ -3168,8 +3164,9 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             };
 
             // f32x4 constructor and splat.
-            if let Expr::Id(name) = &decl.arena[fn_id] {
-                if **name == "f32x4" && arg_ids.len() == 4 {
+            if let Expr::Id(Reference::Instance(instance)) = &decl.arena[fn_id] {
+                let name = self.decls.instance_name(*instance);
+                if *name == "f32x4" && arg_ids.len() == 4 {
                     let vec_ty = self.ctx().f32_type().vec_type(4);
                     let mut vec = vec_ty.get_undef();
                     for (i, &arg_id) in arg_ids.iter().enumerate() {
@@ -3182,7 +3179,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     }
                     return vec.into();
                 }
-                if **name == "f32x4_splat" && arg_ids.len() == 1 {
+                if *name == "f32x4_splat" && arg_ids.len() == 1 {
                     let vec_ty = self.ctx().f32_type().vec_type(4);
                     let val = self.translate_expr(arg_ids[0], decl).into_float_value();
                     let mut vec = vec_ty.get_undef();
@@ -3198,14 +3195,15 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             }
 
             // Check for math builtin by name.
-            let math_intrinsic = if let Expr::Id(name) = &decl.arena[fn_id] {
-                self.llvm_intrinsic_name(name)
+            let math_intrinsic = if let Expr::Id(Reference::Instance(instance)) = &decl.arena[fn_id]
+            {
+                self.llvm_intrinsic_name(&self.decls.instance_name(*instance))
             } else {
                 None
             };
             let math_sym = if math_intrinsic.is_none() {
-                if let Expr::Id(name) = &decl.arena[fn_id] {
-                    self.math_builtin_name(name, from)
+                if let Expr::Id(Reference::Instance(instance)) = &decl.arena[fn_id] {
+                    self.math_builtin_name(&self.decls.instance_name(*instance), from)
                 } else {
                     None
                 }
@@ -3244,17 +3242,16 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 }
             } else if {
                 // Check for extern function.
-                if let Expr::Id(callee_name) = &decl.arena[fn_id] {
-                    let callee_decls = self.decls.find(*callee_name);
-                    callee_decls
-                        .first()
-                        .map_or(false, |d| matches!(d, crate::Decl::Func(f) if f.is_extern))
+                if let Expr::Id(Reference::Instance(callee)) = &decl.arena[fn_id] {
+                    self.decls
+                        .function_instance(*callee)
+                        .is_some_and(|function| function.is_extern)
                 } else {
                     false
                 }
             } {
                 // Extern function: load {fn_ptr, context} from globals buffer.
-                let callee_name = if let Expr::Id(n) = &decl.arena[fn_id] {
+                let callee_name = if let Expr::Id(Reference::Instance(n)) = &decl.arena[fn_id] {
                     *n
                 } else {
                     unreachable!()
@@ -3278,16 +3275,14 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     .into_pointer_value();
 
                 // Build function type with slices expanded to (ptr, i32).
-                let callee_decl = {
-                    let decls_found = self.decls.find(callee_name);
-                    match decls_found.first() {
-                        Some(crate::Decl::Func(f)) => f.clone(),
-                        _ => unreachable!(),
-                    }
-                };
+                let callee_decl = self
+                    .decls
+                    .function_instance(callee_name)
+                    .expect("extern instance")
+                    .clone();
                 let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = vec![self.ptr_ty().into()]; // context
                 for param in &callee_decl.params {
-                    let pty = param.ty.unwrap();
+                    let pty = callee_decl.arena.local(param.local).ty;
                     if matches!(&*pty, crate::Type::Slice(_)) {
                         param_tys.push(self.ptr_ty().into()); // data ptr
                         param_tys.push(self.i32_ty().into()); // len
@@ -3303,7 +3298,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
                 let mut args: Vec<BasicMetadataValueEnum<'ctx>> = vec![context.into()];
                 for (i, arg_id) in arg_ids.iter().enumerate() {
-                    let param_ty = callee_decl.params[i].ty.unwrap();
+                    let param_ty = callee_decl.arena.local(callee_decl.params[i].local).ty;
                     let arg_val = if matches!(&*param_ty, crate::Type::Reference(_)) {
                         self.translate_lvalue(*arg_id, decl).into()
                     } else {
@@ -3359,7 +3354,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             } else if is_builtin {
                 // assert / print / putc — load raw fn ptr from fat pointer and indirect call.
                 // assert needs globals as its first arg so it can trap via longjmp.
-                let is_assert = matches!(&decl.arena[fn_id], Expr::Id(n) if **n == "assert");
+                let is_assert = matches!(&decl.arena[fn_id], Expr::Id(Reference::Instance(instance)) if *self.decls.instance_name(*instance) == "assert");
                 let fat_ptr = self.translate_expr(fn_id, decl).into_pointer_value();
                 let fn_ptr_val = self
                     .builder()
@@ -3750,7 +3745,12 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
     }
 
     /// Translate a function reference (not a call), returning a fat pointer.
-    fn translate_func_ref(&mut self, name: &Name, ty: &crate::Type) -> BasicValueEnum<'ctx> {
+    fn translate_func_ref(
+        &mut self,
+        instance: InstanceId,
+        ty: &crate::Type,
+    ) -> BasicValueEnum<'ctx> {
+        let name = &self.decls.instance_name(instance);
         // Builtin raw function pointers.
         if *name == Name::str("assert") {
             // assert takes (globals: ptr, val: i8) so it can write trap_reason
@@ -3802,7 +3802,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 self.module()
                     .add_function(&**name, full_fn_ty, Some(Linkage::External))
             };
-            self.called_functions.insert(*name);
+            self.called_functions.insert(instance);
             let ptr = f.as_global_value().as_pointer_value();
             self.make_fat_ptr(ptr, None)
         } else {
@@ -3847,74 +3847,33 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
 
     fn translate_lambda(
         &mut self,
-        params: &[Param],
-        body: ExprID,
+        _params: &[Param],
+        _body: ExprID,
         expr_id: ExprID,
         decl: &FuncDecl,
     ) -> BasicValueEnum<'ctx> {
-        let lambda_ty = decl.types[expr_id];
+        let lambda_ty = decl.arena.ty(expr_id);
         if let crate::Type::Func(dom, rng) = *lambda_ty {
-            if let crate::Type::Tuple(param_types) = &*dom {
+            if let crate::Type::Tuple(_) = &*dom {
                 let id = self.state.lambda_counter;
                 self.state.lambda_counter += 1;
                 let lambda_name = Name::new(format!("__lambda_{}", id));
 
-                let lambda_params: Vec<Param> = params
-                    .iter()
-                    .zip(param_types.iter())
-                    .map(|(p, ty)| Param {
-                        name: p.name,
-                        ty: Some(*ty),
-                    })
-                    .collect();
-
-                // Collect free variables.
-                let param_names: HashSet<String> =
-                    params.iter().map(|p| p.name.to_string()).collect();
-                let free_vars = collect_free_var_names_llvm(
-                    body,
-                    &decl.arena,
-                    &param_names,
-                    &self.variables,
-                    &decl.types,
-                );
+                let lambda_decl = decl.extract_lambda(expr_id, lambda_name);
+                let free_vars = &lambda_decl.closure_vars;
 
                 // Build closure struct on stack.
                 let closure_ptr_val: PointerValue<'ctx> = if !free_vars.is_empty() {
                     let sz = (free_vars.len() * 8) as u64;
                     let clos_storage = self.entry_array_alloca(self.i8_ty(), sz, "closure");
-                    for (i, (name, ty)) in free_vars.iter().enumerate() {
-                        let var_ptr = self.get_var_addr(name, *ty);
+                    for (i, local) in free_vars.iter().enumerate() {
+                        let var_ptr = self.get_var_addr(local, decl.arena.local(*local).ty);
                         let slot = self.ptr_at_offset(clos_storage, i as u64 * 8);
                         self.builder().build_store(slot, var_ptr).unwrap();
                     }
                     clos_storage
                 } else {
                     self.ptr_ty().const_null()
-                };
-
-                let closure_vars: Vec<ClosureVar> = free_vars
-                    .iter()
-                    .map(|(n, ty)| ClosureVar {
-                        name: Name::new(n.clone()),
-                        ty: *ty,
-                    })
-                    .collect();
-
-                let lambda_decl = FuncDecl {
-                    name: lambda_name,
-                    typevars: vec![],
-                    size_vars: vec![],
-                    params: lambda_params,
-                    body: Some(body),
-                    ret: rng,
-                    constraints: vec![],
-                    requires: vec![],
-                    loc: decl.loc,
-                    arena: decl.arena.clone(),
-                    types: decl.types.clone(),
-                    closure_vars,
-                    is_extern: false,
                 };
 
                 self.pending_lambdas.push(lambda_decl);
@@ -3936,135 +3895,5 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         } else {
             panic!("lambda: expected function type")
         }
-    }
-}
-
-// ─── Free variable collection ───────────────────────────────────────────────────
-
-fn collect_free_var_names_llvm(
-    body: ExprID,
-    arena: &ExprArena,
-    exclude: &HashSet<String>,
-    local_vars: &HashMap<String, PointerValue<'_>>,
-    types: &[crate::TypeID],
-) -> Vec<(String, crate::TypeID)> {
-    let mut result = Vec::new();
-    let mut seen = HashSet::new();
-    collect_free_vars_rec_llvm(
-        body,
-        arena,
-        exclude,
-        local_vars,
-        types,
-        &mut result,
-        &mut seen,
-    );
-    result
-}
-
-fn collect_free_vars_rec_llvm(
-    expr: ExprID,
-    arena: &ExprArena,
-    exclude: &HashSet<String>,
-    local_vars: &HashMap<String, PointerValue<'_>>,
-    types: &[crate::TypeID],
-    result: &mut Vec<(String, crate::TypeID)>,
-    seen: &mut HashSet<String>,
-) {
-    match &arena[expr] {
-        Expr::Id(name) => {
-            let s = name.to_string();
-            if local_vars.contains_key(&s) && !exclude.contains(&s) && !seen.contains(&s) {
-                result.push((s.clone(), types[expr]));
-                seen.insert(s);
-            }
-        }
-        Expr::Call(fn_id, args) => {
-            collect_free_vars_rec_llvm(*fn_id, arena, exclude, local_vars, types, result, seen);
-            for a in args {
-                collect_free_vars_rec_llvm(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Binop(_, lhs, rhs) => {
-            collect_free_vars_rec_llvm(*lhs, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*rhs, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Unop(_, arg) => {
-            collect_free_vars_rec_llvm(*arg, arena, exclude, local_vars, types, result, seen)
-        }
-        Expr::Let(_, init, _) => {
-            collect_free_vars_rec_llvm(*init, arena, exclude, local_vars, types, result, seen)
-        }
-        Expr::Var(_, init, _) => {
-            if let Some(i) = init {
-                collect_free_vars_rec_llvm(*i, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::If(c, t, e) => {
-            collect_free_vars_rec_llvm(*c, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*t, arena, exclude, local_vars, types, result, seen);
-            if let Some(e) = e {
-                collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::While(c, b) => {
-            collect_free_vars_rec_llvm(*c, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*b, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::For {
-            start, end, body, ..
-        } => {
-            collect_free_vars_rec_llvm(*start, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*end, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Return(e) | Expr::Assume(e) => {
-            collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
-        }
-        Expr::Field(e, _) => {
-            collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
-        }
-        Expr::ArrayIndex(a, i) => {
-            collect_free_vars_rec_llvm(*a, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*i, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayLiteral(elems) => {
-            for e in elems {
-                collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Tuple(elems) => {
-            for e in elems {
-                collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::AsTy(e, _) => {
-            collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
-        }
-        Expr::Arena(e) => {
-            collect_free_vars_rec_llvm(*e, arena, exclude, local_vars, types, result, seen)
-        }
-        Expr::Array(t, s) => {
-            collect_free_vars_rec_llvm(*t, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec_llvm(*s, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Lambda { params, body } => {
-            let mut inner = exclude.clone();
-            for p in params {
-                inner.insert(p.name.to_string());
-            }
-            collect_free_vars_rec_llvm(*body, arena, &inner, local_vars, types, result, seen);
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                collect_free_vars_rec_llvm(*fval, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        _ => {}
     }
 }

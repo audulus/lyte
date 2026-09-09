@@ -1,15 +1,16 @@
 //! Stack-based code generator.
 //!
-//! This module translates a DeclTable into a StackProgram that can be
+//! This module translates a SpecializedProgram into a StackProgram that can be
 //! executed by a stack-based virtual machine. It mirrors the register-based
 //! VM codegen but emits stack IR instructions instead.
 
-use crate::decl::*;
+use crate::checked::{
+    CheckedExpr as Expr, CheckedFunction, InstanceId, LocalId, Reference, SpecializedProgram,
+};
+use crate::decl::Decl;
 use crate::defs::*;
-use crate::expr::*;
 use crate::stack_ir::*;
 use crate::types::*;
-use crate::DeclTable;
 use std::collections::{HashMap, HashSet};
 
 /// Loop context for break/continue support.
@@ -30,17 +31,8 @@ struct PendingCall {
     func_idx: u32,
     /// Index of the instruction within that function.
     instr_idx: usize,
-    /// Name of the function being called.
-    callee: Name,
-}
-
-/// A snapshot of a translator's name-keyed binding state. See
-/// `FunctionTranslator::save_bindings`.
-struct SavedBindings {
-    variables: HashMap<Name, LocalKind>,
-    variable_types: HashMap<Name, TypeID>,
-    captured_vars: HashSet<Name>,
-    captured_slots: HashMap<Name, u16>,
+    /// Concrete function instance being called.
+    callee: InstanceId,
 }
 
 /// How a local variable is stored.
@@ -59,14 +51,14 @@ pub struct StackCodegen {
     /// The program being built.
     program: StackProgram,
 
-    /// Map from function names to their indices in the program.
-    func_indices: HashMap<Name, u32>,
+    /// Map from function instances to their indices in the program.
+    func_indices: HashMap<InstanceId, u32>,
 
     /// Functions that have been compiled.
-    compiled_functions: HashSet<Name>,
+    compiled_functions: HashSet<InstanceId>,
 
     /// Functions that need to be compiled.
-    pending_functions: Vec<Name>,
+    pending_functions: Vec<InstanceId>,
 
     /// Calls that need to be patched after all functions are compiled.
     pending_calls: Vec<PendingCall>,
@@ -75,7 +67,7 @@ pub struct StackCodegen {
     pending_func_loads: Vec<PendingCall>,
 
     /// Global variable offsets.
-    globals: HashMap<Name, i32>,
+    globals: HashMap<InstanceId, i32>,
 
     /// Counter for generating unique lambda names.
     lambda_counter: usize,
@@ -109,31 +101,22 @@ impl StackCodegen {
     /// the JIT/LLVM backends, which lets the FFI layer write the stack
     /// interp's structural trap reason to `TRAP_REASON_OFFSET` so hosts
     /// can call `read_trap_reason(globals)` uniformly across backends.
-    fn declare_globals(&mut self, decls: &DeclTable) {
+    fn declare_globals(&mut self, decls: &SpecializedProgram) {
         let mut offset: i32 = crate::cancel::CANCEL_FLAG_RESERVED;
-        for decl in &decls.decls {
-            match decl {
-                Decl::Global {
-                    name, typevars, ty, ..
-                } => {
-                    if typevars.is_empty() {
-                        self.globals.insert(*name, offset);
-                        offset += ty.size(decls) as i32;
-                    }
-                }
-                Decl::Func(f) if f.is_extern => {
-                    // Extern functions get 16 bytes: {fn_ptr, context}
-                    self.globals.insert(f.name, offset);
-                    offset += 16;
-                }
-                _ => {}
-            }
+        for (instance, decl) in decls.storage_instances() {
+            let size = match decl {
+                Decl::Global { ty, .. } => ty.size(decls) as i32,
+                Decl::Func(f) if f.is_extern => 16,
+                _ => continue,
+            };
+            self.globals.insert(instance, offset);
+            offset += size;
         }
         self.program.globals_size = offset as usize;
     }
 
-    /// Compile a DeclTable into a StackProgram.
-    pub fn compile(&mut self, decls: &DeclTable) -> Result<StackProgram, String> {
+    /// Compile a SpecializedProgram into a StackProgram.
+    pub fn compile(&mut self, decls: &SpecializedProgram) -> Result<StackProgram, String> {
         let main_name = Name::str("main");
         self.compile_multi(decls, &[main_name])
     }
@@ -144,31 +127,31 @@ impl StackCodegen {
     /// found show up in `program.entry_points`.
     pub fn compile_multi(
         &mut self,
-        decls: &DeclTable,
+        decls: &SpecializedProgram,
         entry_points: &[Name],
     ) -> Result<StackProgram, String> {
         self.declare_globals(decls);
 
         for &ep_name in entry_points {
-            if self.compiled_functions.contains(&ep_name) {
-                continue;
-            }
-            let Some(ep_decl) = decls.find_entry_point(ep_name) else {
+            let Some(instance) = decls.instance_for_entry(ep_name) else {
                 continue;
             };
-            self.compile_function(ep_decl, decls)?;
+            if self.compiled_functions.contains(&instance) {
+                continue;
+            }
+            let ep_decl = decls
+                .function_instance(instance)
+                .expect("entry is a function");
+            self.compile_function(ep_decl, decls, Some(instance))?;
 
             while let Some(name) = self.pending_functions.pop() {
                 if self.compiled_functions.contains(&name) {
                     continue;
                 }
-                let func_decls = decls.find(name);
-                if func_decls.is_empty() {
-                    continue;
-                }
-                if let Decl::Func(func_decl) = &func_decls[0] {
-                    self.compile_function(func_decl, decls)?;
-                }
+                let func_decl = decls
+                    .function_instance(name)
+                    .expect("call target is a function");
+                self.compile_function(func_decl, decls, Some(name))?;
             }
         }
 
@@ -177,7 +160,10 @@ impl StackCodegen {
         // stays at its default and the map is empty.
         let mut entry_set = false;
         for &ep_name in entry_points {
-            if let Some(&idx) = self.func_indices.get(&ep_name) {
+            if let Some(&idx) = decls
+                .instance_for_entry(ep_name)
+                .and_then(|id| self.func_indices.get(&id))
+            {
                 self.program.entry_points.insert(ep_name, idx);
                 if !entry_set {
                     self.program.entry = idx;
@@ -213,7 +199,12 @@ impl StackCodegen {
     }
 
     /// Compile a single function.
-    fn compile_function(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Result<u32, String> {
+    fn compile_function(
+        &mut self,
+        decl: &CheckedFunction,
+        decls: &SpecializedProgram,
+        instance: Option<InstanceId>,
+    ) -> Result<u32, String> {
         let mut func = StackFunction::new(&*decl.name);
         func.param_count = decl.params.len() as u8;
 
@@ -227,8 +218,10 @@ impl StackCodegen {
         translator.translate(&mut func);
 
         let idx = self.program.add_function(func);
-        self.func_indices.insert(decl.name, idx);
-        self.compiled_functions.insert(decl.name);
+        if let Some(instance) = instance {
+            self.func_indices.insert(instance, idx);
+            self.compiled_functions.insert(instance);
+        }
 
         // Collect pending calls.
         let calls_to_patch = std::mem::take(&mut translator.calls_to_patch);
@@ -256,7 +249,7 @@ impl StackCodegen {
         // Compile lambda functions and patch their indices.
         for lambda_decl in pending_lambdas {
             let lambda_name = lambda_decl.name;
-            let lambda_idx = self.compile_function(&lambda_decl, decls)?;
+            let lambda_idx = self.compile_function(&lambda_decl, decls, None)?;
             for &(instr_idx, patch_name) in &lambda_patches {
                 if patch_name == lambda_name {
                     if let StackOp::I64Const(ref mut value) =
@@ -275,7 +268,7 @@ impl StackCodegen {
 /// A call instruction that needs patching.
 struct CallToPatch {
     instr_idx: usize,
-    callee: Name,
+    callee: InstanceId,
 }
 
 /// Check if a type should be returned via output pointer (sret).
@@ -304,16 +297,13 @@ fn stack_extern_ret_type(ty: TypeID) -> StackExternRet {
 /// Translator for a single function body.
 struct FunctionTranslator<'a> {
     /// The function declaration being translated.
-    decl: &'a FuncDecl,
+    decl: &'a CheckedFunction,
 
     /// Declaration table for looking up types and functions.
-    decls: &'a DeclTable,
+    decls: &'a SpecializedProgram,
 
-    /// Map from variable names to their local storage kind.
-    variables: HashMap<Name, LocalKind>,
-
-    /// Declared representation type for local bindings.
-    variable_types: HashMap<Name, TypeID>,
+    /// Map from local identities to their local storage kind.
+    variables: HashMap<LocalId, LocalKind>,
 
     /// Next available scalar local slot.
     next_scalar: u16,
@@ -322,7 +312,7 @@ struct FunctionTranslator<'a> {
     next_memory_slot: u16,
 
     /// Functions that are called and need to be compiled.
-    pending_functions: &'a mut Vec<Name>,
+    pending_functions: &'a mut Vec<InstanceId>,
 
     /// Counter for generating unique lambda names.
     lambda_counter: &'a mut usize,
@@ -330,8 +320,8 @@ struct FunctionTranslator<'a> {
     /// Calls that need patching.
     calls_to_patch: Vec<CallToPatch>,
 
-    /// Lambda FuncDecls extracted from this function body, to be compiled afterward.
-    pending_lambdas: Vec<FuncDecl>,
+    /// Lambda CheckedFunctions extracted from this function body, to be compiled afterward.
+    pending_lambdas: Vec<CheckedFunction>,
 
     /// I64Const instructions that need to be patched with lambda function indices.
     lambda_patches: Vec<(usize, Name)>,
@@ -340,7 +330,7 @@ struct FunctionTranslator<'a> {
     func_load_patches: Vec<CallToPatch>,
 
     /// Global variable offsets.
-    globals: &'a HashMap<Name, i32>,
+    globals: &'a HashMap<InstanceId, i32>,
 
     /// Memory slot for the sret output pointer (if returning ptr type).
     output_ptr_slot: Option<u16>,
@@ -352,14 +342,14 @@ struct FunctionTranslator<'a> {
     loop_stack: Vec<LoopContext>,
 
     /// Variables captured from an enclosing scope (double indirection).
-    captured_vars: HashSet<Name>,
+    captured_vars: HashSet<LocalId>,
 
     /// Names a lambda in this function mentions. Shared with the closure by
     /// address, so they must be memory-backed from the start.
-    lambda_referenced: HashSet<Name>,
+    lambda_referenced: HashSet<LocalId>,
 
     /// Memory slot indices for captured variables (stores pointer-to-storage).
-    captured_slots: HashMap<Name, u16>,
+    captured_slots: HashMap<LocalId, u16>,
 
     /// True when the current expression's result will be discarded.
     void_ctx: bool,
@@ -371,17 +361,17 @@ struct FunctionTranslator<'a> {
 
 impl<'a> FunctionTranslator<'a> {
     fn new(
-        decl: &'a FuncDecl,
-        decls: &'a DeclTable,
-        pending_functions: &'a mut Vec<Name>,
+        decl: &'a CheckedFunction,
+        decls: &'a SpecializedProgram,
+        pending_functions: &'a mut Vec<InstanceId>,
         lambda_counter: &'a mut usize,
-        globals: &'a HashMap<Name, i32>,
+        globals: &'a HashMap<InstanceId, i32>,
     ) -> Self {
         Self {
             decl,
             decls,
             variables: HashMap::new(),
-            variable_types: HashMap::new(),
+
             next_scalar: 0,
             next_memory_slot: 0,
             pending_functions,
@@ -395,7 +385,7 @@ impl<'a> FunctionTranslator<'a> {
             has_returned: false,
             loop_stack: Vec::new(),
             captured_vars: HashSet::new(),
-            lambda_referenced: decl.names_referenced_in_lambdas(),
+            lambda_referenced: decl.captured_locals(),
             captured_slots: HashMap::new(),
             void_ctx: false,
             elidable_lets: crate::copy_elision::elidable_let_copies(decl),
@@ -420,7 +410,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Get the type of an expression.
     fn expr_type(&self, expr: ExprID) -> TypeID {
-        self.decl.types[expr]
+        self.decl.arena.ty(expr)
     }
 
     /// Get the type that determines how an expression is represented at runtime.
@@ -428,21 +418,15 @@ impl<'a> FunctionTranslator<'a> {
     /// A call site can solve an array expression as a slice, while codegen still
     /// has an array address and must explicitly build the slice fat pointer.
     fn representation_type(&self, expr: ExprID) -> TypeID {
-        match &self.decl.arena.exprs[expr] {
-            Expr::Id(name) => self
-                .variable_types
-                .get(name)
-                .copied()
-                .or_else(|| {
-                    self.decls.find(*name).iter().find_map(|decl| {
-                        if let Decl::Global { ty, .. } = decl {
-                            Some(*ty)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or_else(|| self.expr_type(expr)),
+        match &self.decl.arena[expr] {
+            Expr::Id(Reference::Local(local)) => {
+                let ty = self.decl.arena.local(*local).ty;
+                match &*ty {
+                    Type::Reference(inner) => *inner,
+                    _ => ty,
+                }
+            }
+            Expr::Id(Reference::Instance(instance)) => self.decls.instance(*instance).ty(),
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id) {
                 Type::Array(elem, _) | Type::Slice(elem) | Type::Reference(elem) => *elem,
                 _ => self.expr_type(expr),
@@ -490,15 +474,14 @@ impl<'a> FunctionTranslator<'a> {
         let param_offset = if has_sret { 1u16 } else { 0u16 };
         for (i, param) in self.decl.params.iter().enumerate() {
             let param_slot = param_offset + i as u16;
-            let ty = param.ty.expect("parameter must have type");
+            let ty = self.decl.arena.local(param.local).ty;
 
-            if let Type::Reference(inner) = &*ty {
+            if let Type::Reference(_) = &*ty {
                 while self.next_scalar <= param_slot {
                     self.alloc_scalar();
                 }
                 self.variables
-                    .insert(param.name, LocalKind::Reference(param_slot));
-                self.variable_types.insert(param.name, *inner);
+                    .insert(param.local, LocalKind::Reference(param_slot));
             } else if !self.is_ptr_type(&ty) {
                 // Scalar parameter: already in local slot param_slot by calling convention.
                 // Just make sure our allocator accounts for it.
@@ -506,8 +489,7 @@ impl<'a> FunctionTranslator<'a> {
                     self.alloc_scalar();
                 }
                 self.variables
-                    .insert(param.name, LocalKind::Scalar(param_slot));
-                self.variable_types.insert(param.name, ty);
+                    .insert(param.local, LocalKind::Scalar(param_slot));
             } else {
                 // Pointer-represented parameters are passed as addresses.
                 // Keep the address value directly, matching the JIT/LLVM ABI.
@@ -515,8 +497,21 @@ impl<'a> FunctionTranslator<'a> {
                     self.alloc_scalar();
                 }
                 self.variables
-                    .insert(param.name, LocalKind::Scalar(param_slot));
-                self.variable_types.insert(param.name, ty);
+                    .insert(param.local, LocalKind::Scalar(param_slot));
+            }
+        }
+
+        // Capture creation can occur on only one branch. Addressable scalar
+        // parameters therefore need initialized storage before control flow splits.
+        for (i, param) in self.decl.params.iter().enumerate() {
+            let ty = self.decl.arena.local(param.local).ty;
+            if self.lambda_referenced.contains(&param.local) && !self.is_ptr_type(&ty) {
+                let mem_slot = self.alloc_memory(self.vm_type_size(&ty));
+                func.emit(StackOp::LocalAddr(mem_slot));
+                self.emit_local_get(&ty, param_offset + i as u16, func);
+                self.emit_store_op(&ty, func);
+                self.variables
+                    .insert(param.local, LocalKind::Memory(mem_slot));
             }
         }
 
@@ -539,12 +534,10 @@ impl<'a> FunctionTranslator<'a> {
                 let addr_local = self.alloc_scalar();
                 func.emit(StackOp::LocalSet(addr_local));
                 // Save for later access.
-                self.captured_vars.insert(cv.name);
-                self.captured_slots.insert(cv.name, addr_local);
+                self.captured_vars.insert(*cv);
+                self.captured_slots.insert(*cv, addr_local);
                 // Also register in variables so nested closures can find this capture.
-                self.variables
-                    .insert(cv.name, LocalKind::Scalar(addr_local));
-                self.variable_types.insert(cv.name, cv.ty);
+                self.variables.insert(*cv, LocalKind::Scalar(addr_local));
             }
         }
 
@@ -617,27 +610,11 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate an expression in void context (result will be discarded).
     /// Only optimizes specific expression types known to be safe.
     fn translate_void(&mut self, expr: ExprID, func: &mut StackFunction) {
-        match &self.decl.arena.exprs[expr].clone() {
-            // Var: the fusion pass already eliminates the i64.const 0 + drop pattern.
-            // Just translate normally and let the caller drop.
-            Expr::Var(..) => {
-                self.translate_expr(expr, func);
-                func.emit(StackOp::Drop);
-            }
-            // Let: translate then drop the result. The let expression's
-            // type is the initializer type, so f32 lets leave the value
-            // on the f-window and need DropF — an int Drop here leaks the
-            // f-window value and eventually overflows the float spill.
-            Expr::Let(..) => {
-                self.translate_expr(expr, func);
-                let ty = self.expr_type(expr);
-                if matches!(&*ty, Type::Float32) {
-                    func.emit(StackOp::DropF);
-                } else if matches!(&*ty, Type::Float64) {
-                    func.emit(StackOp::DropD);
-                } else {
-                    func.emit(StackOp::Drop);
-                }
+        match &self.decl.arena[expr].clone() {
+            // Declarations have no language value. Lower their storage effects
+            // directly, without materializing an operand-stack placeholder.
+            Expr::Let(..) | Expr::Var(..) => {
+                self.translate_expr_inner(expr, func, true);
             }
             // An f32x4 assignment in statement position: void context is
             // what lets translate_assign send the vector ops straight at
@@ -658,13 +635,9 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Block(exprs) => {
                 let exprs = exprs.clone();
                 if !exprs.is_empty() {
-                    let saved_vars = self.variables.clone();
-                    let saved_types = self.variable_types.clone();
                     for &expr_id in exprs.iter() {
                         self.translate_void(expr_id, func);
                     }
-                    self.variables = saved_vars;
-                    self.variable_types = saved_types;
                 }
             }
             // If in void context: no need to produce a value on both branches.
@@ -728,14 +701,20 @@ impl<'a> FunctionTranslator<'a> {
         // restored the caller's TOS window from memory, but with the
         // no-spill op_call/op_return design any trailing value leaves
         // the callee's final depth unbalanced and leaks into the caller.
+        let declaration = matches!(self.decl.arena[expr], Expr::Let(..) | Expr::Var(..))
+            && matches!(&*self.expr_type(expr), Type::Void);
         let old_void_ctx = self.void_ctx;
-        self.void_ctx = void_ctx;
+        self.void_ctx = void_ctx || declaration;
         self.translate_expr_inner_body(expr, func);
         self.void_ctx = old_void_ctx;
+        if declaration && !void_ctx {
+            // Generic expression composition uses one inert value for void.
+            func.emit(StackOp::I64Const(0));
+        }
     }
 
     fn translate_expr_inner_body(&mut self, expr: ExprID, func: &mut StackFunction) {
-        match &self.decl.arena.exprs[expr].clone() {
+        match &self.decl.arena[expr].clone() {
             Expr::Int(n, _) => {
                 func.emit(StackOp::I64Const(*n));
             }
@@ -788,13 +767,13 @@ impl<'a> FunctionTranslator<'a> {
                 func.emit(StackOp::LocalAddr(mem_slot));
             }
 
-            Expr::Id(name) => {
-                self.translate_id(*name, expr, func);
+            Expr::Id(reference) => {
+                self.translate_id(reference, expr, func);
             }
 
             Expr::Enum(case_name) => {
                 let case_name = *case_name;
-                let index = if let Type::Name(enum_name, _) = &*self.decl.types[expr] {
+                let index = if let Type::Name(enum_name, _) = &*self.decl.arena.ty(expr) {
                     let enum_decls = self.decls.find(*enum_name);
                     if let Some(Decl::Enum { cases, .. }) =
                         enum_decls.iter().find(|d| matches!(d, Decl::Enum { .. }))
@@ -830,7 +809,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Let(name, init, _) => {
                 let name = *name;
                 let init = *init;
-                let ty = self.expr_type(expr);
+                let ty = self.decl.arena.local(name).ty;
 
                 if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(&name) {
                     // Captured by a lambda: memory-backed from the start.
@@ -841,9 +820,9 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalAddr(mem_slot));
                     self.emit_local_get(&ty, tmp, func);
                     self.emit_store_op(&ty, func);
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
-                    self.variable_types.insert(name, ty);
+
                     if !self.void_ctx {
                         self.emit_local_get(&ty, tmp, func);
                     }
@@ -856,9 +835,8 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         self.emit_local_tee(&ty, local, func);
                     }
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Scalar(local));
-                    self.variable_types.insert(name, ty);
                 } else if crate::copy_elision::is_value_aggregate(&ty)
                     && !self.elidable_lets.contains(&expr)
                 {
@@ -875,9 +853,9 @@ impl<'a> FunctionTranslator<'a> {
                     func.emit(StackOp::LocalAddr(mem_slot));
                     func.emit(StackOp::LocalGet(tmp));
                     func.emit(StackOp::MemCopy(size));
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
-                    self.variable_types.insert(name, ty);
+
                     if !self.void_ctx {
                         func.emit(StackOp::LocalAddr(mem_slot));
                     }
@@ -891,16 +869,15 @@ impl<'a> FunctionTranslator<'a> {
                     } else {
                         func.emit(StackOp::LocalTee(local));
                     }
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Scalar(local));
-                    self.variable_types.insert(name, ty);
                 }
             }
 
             Expr::Var(name, init, _) => {
                 let name = *name;
                 let init = *init;
-                let ty = self.expr_type(expr);
+                let ty = self.decl.arena.local(name).ty;
 
                 if !self.is_ptr_type(&ty) && self.lambda_referenced.contains(&name) {
                     // Captured by a lambda: memory-backed from the start.
@@ -917,9 +894,8 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalAddr(mem_slot));
                         func.emit(StackOp::MemZero(size));
                     }
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
-                    self.variable_types.insert(name, ty);
                 } else if !self.is_ptr_type(&ty) {
                     let local = self.alloc_scalar();
                     if let Some(init_id) = init {
@@ -934,9 +910,8 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::I64Const(0));
                         func.emit(StackOp::LocalSet(local));
                     }
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Scalar(local));
-                    self.variable_types.insert(name, ty);
                 } else {
                     let size = self.vm_type_size(&ty);
                     let mem_slot = self.alloc_memory(size);
@@ -945,9 +920,9 @@ impl<'a> FunctionTranslator<'a> {
                         // own storage — no temp, no 16-byte copy.
                         if matches!(&*ty, Type::Float32x4) && self.f32x4_slot_form(init_id) {
                             self.emit_f32x4_into_slot(init_id, mem_slot, func);
-                            self.shadow_outer_binding(&name);
+
                             self.variables.insert(name, LocalKind::Memory(mem_slot));
-                            self.variable_types.insert(name, ty);
+
                             if !self.void_ctx {
                                 func.emit(StackOp::I64Const(0));
                             }
@@ -957,9 +932,9 @@ impl<'a> FunctionTranslator<'a> {
                             self.emit_f32x4_operands(init_id, func);
                             func.emit(StackOp::LocalAddr(mem_slot));
                             func.emit(store_op);
-                            self.shadow_outer_binding(&name);
+
                             self.variables.insert(name, LocalKind::Memory(mem_slot));
-                            self.variable_types.insert(name, ty);
+
                             if !self.void_ctx {
                                 func.emit(StackOp::I64Const(0));
                             }
@@ -976,9 +951,8 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::LocalAddr(mem_slot));
                         func.emit(StackOp::MemZero(size));
                     }
-                    self.shadow_outer_binding(&name);
+
                     self.variables.insert(name, LocalKind::Memory(mem_slot));
-                    self.variable_types.insert(name, ty);
                 }
                 // Var expressions produce void; push 0 only if result is needed.
                 if !self.void_ctx {
@@ -993,7 +967,6 @@ impl<'a> FunctionTranslator<'a> {
                         func.emit(StackOp::I64Const(0));
                     }
                 } else {
-                    let saved = self.save_bindings();
                     for (i, &expr_id) in exprs.iter().enumerate() {
                         if i < exprs.len() - 1 {
                             // Intermediate expressions: void context.
@@ -1006,7 +979,6 @@ impl<'a> FunctionTranslator<'a> {
                             self.translate_expr(expr_id, func);
                         }
                     }
-                    self.restore_bindings(saved);
                 }
             }
 
@@ -1158,11 +1130,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.translate_cast(*expr_id, *target_ty, func);
             }
 
-            Expr::Lambda { params, body } => {
-                let params = params.clone();
-                let body = *body;
-                self.translate_lambda(&params, body, expr, func);
-            }
+            Expr::Lambda { .. } => self.translate_lambda(expr, func),
 
             Expr::Assume(_) => {
                 // No-op: assume is only used by the safety checker.
@@ -1174,120 +1142,68 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             Expr::TypeApp(_, _) | Expr::Macro(_, _) | Expr::Error => {
-                func.emit(StackOp::I64Const(0));
+                unreachable!("unresolved expression in specialized body")
             }
         }
-    }
-
-    /// Forget everything known about an outer binding of `name`, so a new
-    /// binding that shadows it is a clean rebinding. Reads consult
-    /// `captured_vars` before `variables`, so a leftover entry sends them
-    /// through the enclosing scope's indirection instead of to this binding.
-    /// Block scope saves and restores these, so the outer binding's state
-    /// comes back at block exit.
-    fn shadow_outer_binding(&mut self, name: &Name) {
-        self.captured_vars.remove(name);
-        self.captured_slots.remove(name);
-    }
-
-    /// Snapshot every name-keyed binding fact, to be restored when the scope
-    /// that shadowed it ends. Blocks and `for` loops both need this: a binding
-    /// made inside one must stop being visible when it ends, and an outer
-    /// binding of the same name must come back.
-    fn save_bindings(&self) -> SavedBindings {
-        SavedBindings {
-            variables: self.variables.clone(),
-            variable_types: self.variable_types.clone(),
-            captured_vars: self.captured_vars.clone(),
-            captured_slots: self.captured_slots.clone(),
-        }
-    }
-
-    fn restore_bindings(&mut self, saved: SavedBindings) {
-        self.variables = saved.variables;
-        self.variable_types = saved.variable_types;
-        self.captured_vars = saved.captured_vars;
-        self.captured_slots = saved.captured_slots;
     }
 
     /// Translate an identifier reference.
-    fn translate_id(&mut self, name: Name, expr: ExprID, func: &mut StackFunction) {
+    fn translate_id(&mut self, reference: &Reference, expr: ExprID, func: &mut StackFunction) {
         let ty = self.expr_type(expr);
-
-        // Captured closure variable (double indirection).
-        if self.captured_vars.contains(&name) {
-            let addr_local = *self.captured_slots.get(&name).unwrap();
-            // Load the pointer to the captured variable's storage.
-            func.emit(StackOp::LocalGet(addr_local));
-            // Aggregates and slices are represented by their address, and the
-            // captured pointer already is that address — dereferencing it would
-            // yield the first word of the value.
-            if !self.is_ptr_type(&ty) {
-                // Load the value through the pointer.
-                self.emit_load(&ty, func);
-            }
-            return;
-        }
-
-        // Local variable.
-        if let Some(&kind) = self.variables.get(&name) {
-            match kind {
-                LocalKind::Scalar(slot) => {
-                    self.emit_local_get(&ty, slot, func);
-                }
-                LocalKind::Reference(slot) => {
-                    func.emit(StackOp::LocalGet(slot));
+        match reference {
+            Reference::Local(local) => {
+                if let Some(&addr_local) = self.captured_slots.get(local) {
+                    func.emit(StackOp::LocalGet(addr_local));
                     if !self.is_ptr_type(&ty) {
                         self.emit_load(&ty, func);
                     }
+                    return;
                 }
-                LocalKind::Memory(slot) => {
-                    if self.is_ptr_type(&ty) {
-                        // Pointer types: push address.
+                match self.variables[local] {
+                    LocalKind::Scalar(slot) => self.emit_local_get(&ty, slot, func),
+                    LocalKind::Reference(slot) => {
+                        func.emit(StackOp::LocalGet(slot));
+                        if !self.is_ptr_type(&ty) {
+                            self.emit_load(&ty, func);
+                        }
+                    }
+                    LocalKind::Memory(slot) => {
                         func.emit(StackOp::LocalAddr(slot));
-                    } else {
-                        // Scalar in memory slot: load value.
-                        func.emit(StackOp::LocalAddr(slot));
-                        self.emit_load(&ty, func);
+                        if !self.is_ptr_type(&ty) {
+                            self.emit_load(&ty, func);
+                        }
                     }
                 }
             }
-            return;
-        }
-
-        // Global variable.
-        if let Some(&offset) = self.globals.get(&name) {
-            func.emit(StackOp::GlobalAddr(offset));
-            if !self.is_ptr_type(&ty) {
-                self.emit_load(&ty, func);
+            Reference::Instance(instance) => {
+                if let Some(&offset) = self.globals.get(instance) {
+                    func.emit(StackOp::GlobalAddr(offset));
+                    if !self.is_ptr_type(&ty) {
+                        self.emit_load(&ty, func);
+                    }
+                    return;
+                }
+                assert!(
+                    self.decls.function_instance(*instance).is_some(),
+                    "reference must name storage or a function"
+                );
+                let mem_slot = self.alloc_memory(16);
+                func.emit(StackOp::LocalAddr(mem_slot));
+                let instr_idx = func.pos();
+                func.emit(StackOp::I64Const(0));
+                self.pending_functions.push(*instance);
+                self.func_load_patches.push(CallToPatch {
+                    instr_idx,
+                    callee: *instance,
+                });
+                func.emit(StackOp::Store64);
+                func.emit(StackOp::LocalAddr(mem_slot));
+                func.emit(StackOp::I64Const(0));
+                func.emit(StackOp::Store64Off(8));
+                func.emit(StackOp::LocalAddr(mem_slot));
             }
-            return;
+            _ => unreachable!("non-concrete reference in specialized body"),
         }
-
-        // Function reference — build fat pointer {func_idx, 0}.
-        if let Type::Func(_, _) = &*ty {
-            let mem_slot = self.alloc_memory(16);
-            // Store func_idx at offset 0.
-            func.emit(StackOp::LocalAddr(mem_slot));
-            let instr_idx = func.pos();
-            func.emit(StackOp::I64Const(0)); // placeholder
-            self.pending_functions.push(name);
-            self.func_load_patches.push(CallToPatch {
-                instr_idx,
-                callee: name,
-            });
-            func.emit(StackOp::Store64);
-            // Store closure_ptr = 0 at offset 8.
-            func.emit(StackOp::LocalAddr(mem_slot));
-            func.emit(StackOp::I64Const(0));
-            func.emit(StackOp::Store64Off(8));
-            // Push fat pointer address.
-            func.emit(StackOp::LocalAddr(mem_slot));
-            return;
-        }
-
-        // Unknown: push 0.
-        func.emit(StackOp::I64Const(0));
     }
 
     /// The store-form vector op for an f32x4-producing expression, or
@@ -1303,7 +1219,7 @@ impl<'a> FunctionTranslator<'a> {
         if !matches!(&*self.expr_type(expr), Type::Float32x4) {
             return None;
         }
-        match &self.decl.arena.exprs[expr] {
+        match &self.decl.arena[expr] {
             Expr::Binop(op, lhs_id, _) => {
                 if !matches!(&*self.expr_type(*lhs_id), Type::Float32x4) {
                     return None;
@@ -1327,9 +1243,10 @@ impl<'a> FunctionTranslator<'a> {
                 if self.holds_fat_pointer(*fn_id) {
                     return None;
                 }
-                let Expr::Id(name) = &self.decl.arena.exprs[*fn_id] else {
+                let Expr::Id(Reference::Instance(instance)) = &self.decl.arena[*fn_id] else {
                     return None;
                 };
+                let name = self.decls.instance_name(*instance);
                 match (name.as_str(), arg_ids.len()) {
                     ("f32x4", 4) => Some(StackOp::F32x4BuildStore),
                     ("f32x4_splat", 1) => Some(StackOp::F32x4SplatStore),
@@ -1354,7 +1271,7 @@ impl<'a> FunctionTranslator<'a> {
         if self.get_memory_slot(expr).is_some() {
             return true;
         }
-        match &self.decl.arena.exprs[expr] {
+        match &self.decl.arena[expr] {
             Expr::Binop(op, lhs_id, rhs_id) => {
                 matches!(op, Binop::Plus | Binop::Minus | Binop::Mult | Binop::Div)
                     && self.f32x4_slot_form(*lhs_id)
@@ -1367,7 +1284,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// The operands of `expr` if it is an f32x4 multiplication.
     fn f32x4_mul_operands(&self, expr: ExprID) -> Option<(ExprID, ExprID)> {
-        match &self.decl.arena.exprs[expr] {
+        match &self.decl.arena[expr] {
             Expr::Binop(Binop::Mult, lhs_id, rhs_id)
                 if matches!(&*self.expr_type(expr), Type::Float32x4) =>
             {
@@ -1402,7 +1319,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             return;
         }
-        match &self.decl.arena.exprs[expr] {
+        match &self.decl.arena[expr] {
             Expr::Binop(op, lhs_id, rhs_id) => {
                 let (op, lhs_id, rhs_id) = (*op, *lhs_id, *rhs_id);
                 // `a * b + c`, `c + a * b` and `a * b - c` each collapse to
@@ -1453,7 +1370,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Push the operands of an expression [`Self::f32x4_store_op`]
     /// accepted, leaving the destination address to the caller.
     fn emit_f32x4_operands(&mut self, expr: ExprID, func: &mut StackFunction) {
-        match &self.decl.arena.exprs[expr] {
+        match &self.decl.arena[expr] {
             Expr::Binop(_, lhs_id, rhs_id) => {
                 let (lhs_id, rhs_id) = (*lhs_id, *rhs_id);
                 self.translate_expr(lhs_id, func);
@@ -1576,14 +1493,12 @@ impl<'a> FunctionTranslator<'a> {
                 Type::UInt32 | Type::UInt8 => func.emit(StackOp::ULt),
                 _ => func.emit(StackOp::ILt),
             },
-            Binop::Greater => {
-                match &*ty {
-                    Type::Float32 => func.emit(StackOp::FGtF),
-                    Type::Float64 => func.emit(StackOp::DGtD),
-                    Type::UInt32 | Type::UInt8 => func.emit(StackOp::UGt),
-                    _ => func.emit(StackOp::IGt),
-                }
-            }
+            Binop::Greater => match &*ty {
+                Type::Float32 => func.emit(StackOp::FGtF),
+                Type::Float64 => func.emit(StackOp::DGtD),
+                Type::UInt32 | Type::UInt8 => func.emit(StackOp::UGt),
+                _ => func.emit(StackOp::IGt),
+            },
             Binop::Leq => match &*ty {
                 Type::Float32 => func.emit(StackOp::FLeF),
                 Type::Float64 => func.emit(StackOp::DLeD),
@@ -1608,7 +1523,7 @@ impl<'a> FunctionTranslator<'a> {
         let lhs_ty = self.representation_type(lhs_id);
 
         // Check for captured variable assignment (double indirection).
-        if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
+        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[lhs_id] {
             let name = *name;
             if self.captured_vars.contains(&name) {
                 self.translate_expr(rhs_id, func);
@@ -1632,7 +1547,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Direct scalar local assignment.
-        if let Expr::Id(name) = &self.decl.arena.exprs[lhs_id] {
+        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[lhs_id] {
             let name = *name;
             if let Some(&LocalKind::Scalar(slot)) = self.variables.get(&name) {
                 // Try to emit a register-form `locals[slot] = a OP b` op
@@ -1652,7 +1567,7 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Slice store: a[i] = rhs where a is a slice of 32-bit elements.
-        if let Expr::ArrayIndex(arr_id, idx_id) = &self.decl.arena.exprs[lhs_id] {
+        if let Expr::ArrayIndex(arr_id, idx_id) = &self.decl.arena[lhs_id] {
             let arr_id = *arr_id;
             let idx_id = *idx_id;
             let arr_ty = self.representation_type(arr_id);
@@ -1777,7 +1692,7 @@ impl<'a> FunctionTranslator<'a> {
 
         // For Func type field assignment, only copy func_idx (8 bytes).
         if matches!(&*lhs_ty, Type::Func(_, _)) {
-            if matches!(&self.decl.arena.exprs[lhs_id], Expr::Field(_, _)) {
+            if matches!(&self.decl.arena[lhs_id], Expr::Field(_, _)) {
                 // rhs is a fat pointer address; load func_idx and store.
                 func.emit(StackOp::Load64); // load func_idx from value (which is fat ptr addr)
                 func.emit(StackOp::Store64);
@@ -1796,7 +1711,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// If this expr is an Id that resolves to a memory-backed local, return the slot index.
     fn get_memory_slot(&self, expr: ExprID) -> Option<u16> {
-        if let Expr::Id(name) = &self.decl.arena.exprs[expr] {
+        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[expr] {
             if let Some(LocalKind::Memory(slot)) = self.variables.get(name) {
                 return Some(*slot);
             }
@@ -1806,7 +1721,7 @@ impl<'a> FunctionTranslator<'a> {
 
     /// If this expr is an Id that resolves to a scalar local, return the local index.
     fn get_scalar_local(&self, expr: ExprID) -> Option<u16> {
-        if let Expr::Id(name) = &self.decl.arena.exprs[expr] {
+        if let Expr::Id(Reference::Local(name)) = &self.decl.arena[expr] {
             if let Some(LocalKind::Scalar(local)) = self.variables.get(name) {
                 return Some(*local);
             }
@@ -1825,7 +1740,7 @@ impl<'a> FunctionTranslator<'a> {
         rhs_id: ExprID,
         func: &mut StackFunction,
     ) -> bool {
-        let (op, lhs, rhs) = match &self.decl.arena.exprs[rhs_id] {
+        let (op, lhs, rhs) = match &self.decl.arena[rhs_id] {
             Expr::Binop(op, lhs, rhs) => (*op, *lhs, *rhs),
             _ => return false,
         };
@@ -1858,8 +1773,8 @@ impl<'a> FunctionTranslator<'a> {
 
     /// Translate an lvalue expression. Pushes the address onto the stack.
     fn translate_lvalue(&mut self, expr: ExprID, func: &mut StackFunction) {
-        match &self.decl.arena.exprs[expr].clone() {
-            Expr::Id(name) => {
+        match &self.decl.arena[expr].clone() {
+            Expr::Id(Reference::Local(name)) => {
                 let name = *name;
                 if let Some(&kind) = self.variables.get(&name) {
                     match kind {
@@ -1878,11 +1793,12 @@ impl<'a> FunctionTranslator<'a> {
                             func.emit(StackOp::LocalAddr(slot));
                         }
                     }
-                } else if let Some(&offset) = self.globals.get(&name) {
-                    func.emit(StackOp::GlobalAddr(offset));
                 } else {
-                    func.emit(StackOp::I64Const(0));
+                    unreachable!("checked local must have storage");
                 }
+            }
+            Expr::Id(Reference::Instance(instance)) => {
+                func.emit(StackOp::GlobalAddr(self.globals[instance]));
             }
 
             Expr::Field(lhs_id, name) => {
@@ -2004,8 +1920,9 @@ impl<'a> FunctionTranslator<'a> {
         }
 
         // Check for builtin functions.
-        if let Expr::Id(name) = &self.decl.arena.exprs[fn_id] {
-            let name = *name;
+        if let Expr::Id(Reference::Instance(instance)) = &self.decl.arena[fn_id] {
+            let instance = *instance;
+            let name = self.decls.instance_name(instance);
 
             if *name == "print" {
                 if let Some(&arg_id) = arg_ids.first() {
@@ -2207,14 +2124,12 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             // Extern function calls.
-            if let Expr::Id(callee_name) = &self.decl.arena.exprs[fn_id] {
-                let callee_name = *callee_name;
-                let callee_decls = self.decls.find(callee_name);
-                if let Some(Decl::Func(f)) = callee_decls.first() {
+            {
+                if let Some(f) = self.decls.function_instance(instance) {
                     if f.is_extern {
                         let globals_offset = *self
                             .globals
-                            .get(&callee_name)
+                            .get(&instance)
                             .expect("extern function not in globals");
 
                         // For extern calls, push C-level args. Slices expand
@@ -2222,7 +2137,7 @@ impl<'a> FunctionTranslator<'a> {
                         let mut c_arg_count: u8 = 0;
                         for (i, arg_id) in arg_ids.iter().enumerate() {
                             let arg = *arg_id;
-                            let param_ty = f.params[i].ty.unwrap();
+                            let param_ty = f.arena.local(f.params[i].local).ty;
                             if matches!(&*param_ty, Type::Slice(_)) {
                                 self.translate_expr(arg, func);
                                 match &*self.representation_type(arg) {
@@ -2297,8 +2212,7 @@ impl<'a> FunctionTranslator<'a> {
 
             // Get callee param types for slice coercion.
             let param_types: Vec<TypeID> = {
-                let callee_decls = self.decls.find(name);
-                if let Some(Decl::Func(f)) = callee_decls.first() {
+                if let Some(f) = self.decls.function_instance(instance) {
                     f.param_types()
                 } else {
                     vec![]
@@ -2339,7 +2253,7 @@ impl<'a> FunctionTranslator<'a> {
                 arg_ids.len() as u8
             };
 
-            self.pending_functions.push(name);
+            self.pending_functions.push(instance);
             let instr_idx = func.pos();
             func.emit(StackOp::Call {
                 func: 0,
@@ -2348,7 +2262,7 @@ impl<'a> FunctionTranslator<'a> {
             });
             self.calls_to_patch.push(CallToPatch {
                 instr_idx,
-                callee: name,
+                callee: instance,
             });
 
             // If sret, push the output address as the result.
@@ -2422,21 +2336,13 @@ impl<'a> FunctionTranslator<'a> {
     /// rather than naming a function declaration. Such calls go through
     /// `translate_closure_call` instead of the direct-call path.
     fn holds_fat_pointer(&self, fn_id: ExprID) -> bool {
-        let Expr::Id(name) = &self.decl.arena.exprs[fn_id] else {
-            return false;
-        };
-        if self.variables.contains_key(name) {
-            return true;
+        match &self.decl.arena[fn_id] {
+            Expr::Id(Reference::Local(_)) => true,
+            Expr::Id(Reference::Instance(id)) => {
+                matches!(self.decls.instance(*id), Decl::Global { .. })
+            }
+            _ => false,
         }
-        // Extern functions live in globals memory too, but they are called
-        // through the direct-call path.
-        self.globals.contains_key(name)
-            && matches!(&*self.expr_type(fn_id), Type::Func(_, _))
-            && !self
-                .decls
-                .find(*name)
-                .iter()
-                .any(|d| matches!(d, Decl::Func(f) if f.is_extern))
     }
 
     /// Parameter types of a callee reached through a fat pointer, taken from
@@ -2603,7 +2509,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Translate a for loop.
     fn translate_for(
         &mut self,
-        var: Name,
+        var: LocalId,
         start_id: ExprID,
         end_id: ExprID,
         body_id: ExprID,
@@ -2621,13 +2527,10 @@ impl<'a> FunctionTranslator<'a> {
         let end_local = self.alloc_scalar();
         func.emit(StackOp::LocalSet(end_local));
 
-        // The counter is a scalar bound to `var` for the duration of the loop.
-        // Shadowing an outer binding has to forget the outer binding's
-        // name-keyed state, and the snapshot brings it back at loop exit, where
-        // the loop variable is out of scope again.
-        let saved = self.save_bindings();
+        // The checked loop binding has its own local identity.
+
         let int_ty = mk_type(Type::Int32);
-        self.shadow_outer_binding(&var);
+
         let counter_mem = if self.lambda_referenced.contains(&var) {
             // A lambda shares the counter by address, so it needs memory of
             // its own, allocated up front the way `let` and `var` do it.
@@ -2642,7 +2545,6 @@ impl<'a> FunctionTranslator<'a> {
             self.variables.insert(var, LocalKind::Scalar(loop_var));
             None
         };
-        self.variable_types.insert(var, int_ty);
 
         let loop_start = func.pos();
 
@@ -2672,7 +2574,6 @@ impl<'a> FunctionTranslator<'a> {
 
         // Execute body in void context.
         self.translate_void(body_id, func);
-        self.restore_bindings(saved);
 
         // Increment position (continue target).
         let increment_pos = func.pos();
@@ -2989,122 +2890,63 @@ impl<'a> FunctionTranslator<'a> {
     }
 
     /// Translate a lambda expression.
-    fn translate_lambda(
-        &mut self,
-        params: &[Param],
-        body: ExprID,
-        expr: ExprID,
-        func: &mut StackFunction,
-    ) {
-        let lambda_ty = self.expr_type(expr);
-        if let Type::Func(dom, rng) = &*lambda_ty {
-            if let Type::Tuple(param_types) = &**dom {
-                let id = *self.lambda_counter;
-                *self.lambda_counter += 1;
-                let lambda_name = Name::new(format!("__lambda_{}", id));
+    fn translate_lambda(&mut self, expr: ExprID, func: &mut StackFunction) {
+        let id = *self.lambda_counter;
+        *self.lambda_counter += 1;
+        let lambda_name = Name::new(format!("__lambda_{}", id));
 
-                let lambda_params: Vec<Param> = params
-                    .iter()
-                    .zip(param_types.iter())
-                    .map(|(p, ty)| Param {
-                        name: p.name,
-                        ty: Some(*ty),
-                    })
-                    .collect();
+        let lambda_decl = self.decl.extract_lambda(expr, lambda_name);
+        let free_vars = &lambda_decl.closure_vars;
 
-                // Compute free variables captured from the enclosing scope.
-                let param_names: HashSet<String> =
-                    params.iter().map(|p| p.name.to_string()).collect();
-                let free_vars = collect_free_var_names(
-                    body,
-                    &self.decl.arena,
-                    &param_names,
-                    &self.variables,
-                    &self.decl.types,
-                );
-
-                // Build closure struct if there are captures.
-                let has_captures = !free_vars.is_empty();
-                let closure_mem_slot = if has_captures {
-                    let n = free_vars.len();
-                    let slot = self.alloc_memory((n * 8) as u32);
-                    for (i, (name, _ty)) in free_vars.iter().enumerate() {
-                        let var_name = Name::new(name.clone());
-                        func.emit(StackOp::LocalAddr(slot));
-                        self.emit_var_address(&var_name, func);
-                        func.emit(StackOp::Store64Off((i * 8) as i32));
-                    }
-                    Some(slot)
-                } else {
-                    None
-                };
-
-                let closure_vars: Vec<ClosureVar> = free_vars
-                    .iter()
-                    .map(|(name, ty)| ClosureVar {
-                        name: Name::new(name.clone()),
-                        ty: *ty,
-                    })
-                    .collect();
-
-                let lambda_decl = FuncDecl {
-                    name: lambda_name,
-                    typevars: vec![],
-                    size_vars: vec![],
-                    params: lambda_params,
-                    body: Some(body),
-                    ret: *rng,
-                    constraints: vec![],
-                    requires: vec![],
-                    loc: self.decl.loc,
-                    arena: self.decl.arena.clone(),
-                    types: self.decl.types.clone(),
-                    closure_vars,
-                    is_extern: false,
-                };
-
-                self.pending_lambdas.push(lambda_decl);
-
-                // Build fat pointer {func_idx, closure_ptr}.
-                let fat_slot = self.alloc_memory(16);
-                // Store func_idx.
-                func.emit(StackOp::LocalAddr(fat_slot));
-                let instr_idx = func.pos();
-                func.emit(StackOp::I64Const(0)); // placeholder
-                self.lambda_patches.push((instr_idx, lambda_name));
-                func.emit(StackOp::Store64);
-                // Store closure_ptr.
-                func.emit(StackOp::LocalAddr(fat_slot));
-                if let Some(closure_slot) = closure_mem_slot {
-                    func.emit(StackOp::LocalAddr(closure_slot));
-                } else {
-                    func.emit(StackOp::I64Const(0));
-                }
-                func.emit(StackOp::Store64Off(8));
-                // Push fat pointer address.
-                func.emit(StackOp::LocalAddr(fat_slot));
-            } else {
-                panic!(
-                    "stack codegen lambda: expected tuple domain type, got {:?}",
-                    dom
-                );
+        // Build closure struct if there are captures.
+        let has_captures = !free_vars.is_empty();
+        let closure_mem_slot = if has_captures {
+            let n = free_vars.len();
+            let slot = self.alloc_memory((n * 8) as u32);
+            for (i, var_name) in free_vars.iter().enumerate() {
+                func.emit(StackOp::LocalAddr(slot));
+                self.emit_var_address(var_name, func);
+                func.emit(StackOp::Store64Off((i * 8) as i32));
             }
+            Some(slot)
         } else {
-            panic!(
-                "stack codegen lambda: expected function type, got {:?}",
-                lambda_ty
-            );
+            None
+        };
+
+        self.pending_lambdas.push(lambda_decl);
+
+        // Build fat pointer {func_idx, closure_ptr}.
+        let fat_slot = self.alloc_memory(16);
+        // Store func_idx.
+        func.emit(StackOp::LocalAddr(fat_slot));
+        let instr_idx = func.pos();
+        func.emit(StackOp::I64Const(0)); // placeholder
+        self.lambda_patches.push((instr_idx, lambda_name));
+        func.emit(StackOp::Store64);
+        // Store closure_ptr.
+        func.emit(StackOp::LocalAddr(fat_slot));
+        if let Some(closure_slot) = closure_mem_slot {
+            func.emit(StackOp::LocalAddr(closure_slot));
+        } else {
+            func.emit(StackOp::I64Const(0));
         }
+        func.emit(StackOp::Store64Off(8));
+        // Push fat pointer address.
+        func.emit(StackOp::LocalAddr(fat_slot));
     }
 
     /// Get the address of a variable for closure capture.
-    fn emit_var_address(&mut self, name: &Name, func: &mut StackFunction) {
+    fn emit_var_address(&mut self, name: &LocalId, func: &mut StackFunction) {
         if self.captured_vars.contains(name) {
             // Already captured from an enclosing scope: follow indirection.
             let addr_local = *self.captured_slots.get(name).unwrap();
             func.emit(StackOp::LocalGet(addr_local));
         } else if let Some(&kind) = self.variables.get(name) {
             match kind {
+                LocalKind::Scalar(slot) if self.is_ptr_type(&self.decl.arena.local(*name).ty) => {
+                    // Aggregate and fat-pointer values already hold their storage address.
+                    func.emit(StackOp::LocalGet(slot));
+                }
                 LocalKind::Scalar(slot) => {
                     // Scalar: need to spill to memory so we have a stable address.
                     let mem_slot = self.alloc_memory(8);
@@ -3123,7 +2965,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
         } else {
-            func.emit(StackOp::I64Const(0));
+            unreachable!("checked capture local {:?} has no storage", name);
         }
     }
 
@@ -3288,149 +3130,5 @@ impl<'a> FunctionTranslator<'a> {
             let actual_ty = self.representation_type(actual_expr);
             self.emit_wrap_as_slice(actual_ty, func);
         }
-    }
-}
-
-/// Collect free variable names referenced in a lambda body that come from the enclosing scope.
-fn collect_free_var_names(
-    body: ExprID,
-    arena: &ExprArena,
-    exclude: &HashSet<String>,
-    local_vars: &HashMap<Name, LocalKind>,
-    types: &[TypeID],
-) -> Vec<(String, TypeID)> {
-    let mut result = Vec::new();
-    let mut seen = HashSet::new();
-    collect_free_vars_rec(
-        body,
-        arena,
-        exclude,
-        local_vars,
-        types,
-        &mut result,
-        &mut seen,
-    );
-    result
-}
-
-fn collect_free_vars_rec(
-    expr: ExprID,
-    arena: &ExprArena,
-    exclude: &HashSet<String>,
-    local_vars: &HashMap<Name, LocalKind>,
-    types: &[TypeID],
-    result: &mut Vec<(String, TypeID)>,
-    seen: &mut HashSet<String>,
-) {
-    match &arena[expr] {
-        Expr::TypeApp(_, _) => {}
-        Expr::Id(name) => {
-            let s = name.to_string();
-            if local_vars.contains_key(name) && !exclude.contains(&s) && !seen.contains(&s) {
-                result.push((s.clone(), types[expr]));
-                seen.insert(s);
-            }
-        }
-        Expr::Call(fn_id, args) => {
-            collect_free_vars_rec(*fn_id, arena, exclude, local_vars, types, result, seen);
-            for a in args {
-                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Binop(_, lhs, rhs) => {
-            collect_free_vars_rec(*lhs, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Unop(_, arg) => {
-            collect_free_vars_rec(*arg, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Let(_, init, _) => {
-            collect_free_vars_rec(*init, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Var(_, init, _) => {
-            if let Some(init_id) = init {
-                collect_free_vars_rec(*init_id, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::If(cond, then, else_) => {
-            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*then, arena, exclude, local_vars, types, result, seen);
-            if let Some(e) = else_ {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::While(cond, body) => {
-            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::For {
-            start, end, body, ..
-        } => {
-            collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Return(e) | Expr::Assume(e) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Field(e, _) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayIndex(arr, idx) => {
-            collect_free_vars_rec(*arr, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*idx, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayLiteral(elems) | Expr::Tuple(elems) => {
-            for e in elems {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::AsTy(e, _) | Expr::Arena(e) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Array(ty_expr, size_expr) => {
-            collect_free_vars_rec(*ty_expr, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*size_expr, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Lambda { params, body } => {
-            let mut inner_exclude = exclude.clone();
-            for p in params {
-                inner_exclude.insert(p.name.to_string());
-            }
-            collect_free_vars_rec(
-                *body,
-                arena,
-                &inner_exclude,
-                local_vars,
-                types,
-                result,
-                seen,
-            );
-        }
-        Expr::Macro(_, args) => {
-            for a in args {
-                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Int(_, _)
-        | Expr::Real(_, _)
-        | Expr::String(_)
-        | Expr::Char(_)
-        | Expr::True
-        | Expr::False
-        | Expr::Enum(_)
-        | Expr::Break
-        | Expr::Continue
-        | Expr::Error => {}
     }
 }

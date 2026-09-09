@@ -1,6 +1,6 @@
 use crate::analysis::{self, AnalysisState};
 use lsp_types::*;
-use lyte::{Decl, Expr, ExprID, FuncDecl, Name};
+use lyte::{BodyAnalysis, Decl, Expr, ExprID, FuncDecl, Name};
 
 pub fn handle_hover(state: &AnalysisState, params: &HoverParams) -> Option<Hover> {
     let compiler = state.compiler()?;
@@ -13,14 +13,18 @@ pub fn handle_hover(state: &AnalysisState, params: &HoverParams) -> Option<Hover
     let line = pos.line + 1;
     let col = pos.character + 1;
 
-    let decls = compiler.decls();
+    let analysis = compiler.source_analysis()?;
+    let decls = analysis.declarations();
 
-    for decl in &decls.decls {
+    for (index, decl) in decls.decls.iter().enumerate() {
         if let Decl::Func(func) = decl {
             if func.loc.file != file_name {
                 continue;
             }
-            if let Some(info) = hover_in_func(func, file_name, line, col) {
+            let Some(body) = analysis.body(decls.id_at(index)) else {
+                continue;
+            };
+            if let Some(info) = hover_in_func(func, body, file_name, line, col) {
                 return Some(Hover {
                     contents: HoverContents::Markup(MarkupContent {
                         kind: MarkupKind::Markdown,
@@ -35,25 +39,29 @@ pub fn handle_hover(state: &AnalysisState, params: &HoverParams) -> Option<Hover
     None
 }
 
-fn hover_in_func(func: &FuncDecl, file: Name, line: u32, col: u32) -> Option<String> {
+fn hover_in_func(
+    func: &FuncDecl,
+    body: &BodyAnalysis,
+    file: Name,
+    line: u32,
+    col: u32,
+) -> Option<String> {
     let (id, _) = find_expr_at(func, file, line, col)?;
-
-    if let Some(&ty) = func.types.get(id) {
-        let type_str = ty.pretty_print();
-        let label = match &func.arena.exprs[id] {
-            Expr::Id(name) => format!("{}", name),
-            Expr::Field(_, name) => format!(".{}", name),
-            _ => String::new(),
-        };
-
-        if label.is_empty() {
-            Some(format!("```lyte\n{}\n```", type_str))
-        } else {
-            Some(format!("```lyte\n{}: {}\n```", label, type_str))
+    let facts = body.expression(id)?;
+    let (ty, label) = match &func.arena[id] {
+        Expr::Id(name) | Expr::TypeApp(name, _) => (facts.ty?, name.to_string()),
+        Expr::Let(..) | Expr::Var(..) => {
+            let local = body.local(facts.binding?)?;
+            (local.ty?, local.name.to_string())
         }
+        Expr::Field(_, name) => (facts.ty?, format!(".{}", name)),
+        _ => (facts.ty?, String::new()),
+    };
+    Some(if label.is_empty() {
+        format!("```lyte\n{}\n```", ty.pretty_print())
     } else {
-        None
-    }
+        format!("```lyte\n{}: {}\n```", label, ty.pretty_print())
+    })
 }
 
 /// Find the expression in a function whose location best matches the cursor.
@@ -67,7 +75,7 @@ pub fn find_expr_at(
     let mut best_id: Option<ExprID> = None;
     let mut best_col: u32 = 0;
 
-    for (id, loc) in func.arena.locs.iter().enumerate() {
+    for (id, &loc) in func.arena.locs.iter().enumerate() {
         if loc.file == file && loc.line == line && loc.col <= col && loc.col >= best_col {
             best_col = loc.col;
             best_id = Some(id);

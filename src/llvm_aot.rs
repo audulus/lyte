@@ -26,11 +26,9 @@
 //     is emitted that calls the internal mangled function with the appropriate
 //     globals_ptr + null closure_ptr prefix.
 
-use crate::decl::*;
-use crate::llvm_jit::{
-    build_module, run_default_passes, AotConfig, LLVMJITState,
-};
-use crate::{DeclTable, Name};
+use crate::checked::{CheckedDecl as Decl, SpecializedProgram as DeclTable};
+use crate::llvm_jit::{build_module, run_default_passes, AotConfig, LLVMJITState};
+use crate::Name;
 
 use inkwell::context::Context;
 use inkwell::module::Linkage;
@@ -167,7 +165,8 @@ pub fn compile_aot(
         print_ir,
         // AOT requires no_recursion: the call-depth check refers to a Rust
         // trap helper that isn't available at link time.
-        /* no_recursion */ true,
+        /* no_recursion */
+        true,
         Some(AotConfig {
             prefix: prefix.to_string(),
         }),
@@ -261,8 +260,8 @@ fn collect_entries(decls: &DeclTable, entry_points: &[Name]) -> Result<Vec<AotEn
         };
         let mut params = Vec::new();
         for p in &f.params {
-            let ty = p.ty.expect("param ty");
-            let pname = p.name.to_string();
+            let ty = f.arena.local(p.local).ty;
+            let pname = f.arena.local(p.local).name.to_string();
             if let crate::Type::Slice(inner) = &*ty {
                 let elem_c = c_type_for(*inner);
                 params.push((pname.clone(), format!("const {}*", elem_c)));
@@ -322,7 +321,7 @@ fn c_type_for(ty: crate::TypeID) -> String {
 fn collect_globals(decls: &DeclTable, globals_size: usize) -> AotGlobalsLayout {
     let mut offset: i32 = crate::cancel::CANCEL_FLAG_RESERVED;
     let mut entries = Vec::new();
-    for decl in &decls.decls {
+    for (_, decl) in decls.storage_instances() {
         match decl {
             Decl::Global { name, ty, .. } => {
                 let size = ty.size(decls);
@@ -398,8 +397,12 @@ fn emit_wrapper(
     if entry.returns_via_ptr {
         idx += 1;
     }
-    let user_param_tys: Vec<_> =
-        inner_ty.get_param_types().iter().skip(idx).copied().collect();
+    let user_param_tys: Vec<_> = inner_ty
+        .get_param_types()
+        .iter()
+        .skip(idx)
+        .copied()
+        .collect();
 
     // Wrapper signature: (state, ...user_params, [out_ptr]?).
     let mut param_tys: Vec<BasicMetadataTypeEnum<'_>> = vec![ptr_ty.into()];
@@ -460,11 +463,7 @@ fn emit_wrapper(
 
 // ─── Weak hooks ────────────────────────────────────────────────────────────────
 
-fn emit_weak_hooks(
-    state: &mut LLVMJITState<'_>,
-    prefix: &str,
-    public: &mut HashSet<String>,
-) {
+fn emit_weak_hooks(state: &mut LLVMJITState<'_>, prefix: &str, public: &mut HashSet<String>) {
     let asserts_sym = format!("{}_assert", prefix);
     let print_sym = format!("{}_print_i32", prefix);
     let putc_sym = format!("{}_putc", prefix);
@@ -480,14 +479,11 @@ fn emit_weak_hooks(
 
     // Find a previously-declared abort, or declare it now.
     let abort_ty = void_ty.fn_type(&[], false);
-    let abort_fn = state
-        .module
-        .get_function("abort")
-        .unwrap_or_else(|| {
-            state
-                .module
-                .add_function("abort", abort_ty, Some(Linkage::External))
-        });
+    let abort_fn = state.module.get_function("abort").unwrap_or_else(|| {
+        state
+            .module
+            .add_function("abort", abort_ty, Some(Linkage::External))
+    });
 
     // <prefix>_assert — default aborts on cond == 0.
     {
@@ -609,12 +605,11 @@ fn set_internal_linkage(state: &mut LLVMJITState<'_>, public_names: &HashSet<Str
     // external so the host linker resolves them from the system libraries.
     let libm_externs: &[&str] = &[
         "sinf", "cosf", "tanf", "asinf", "acosf", "atanf", "sinhf", "coshf", "tanhf", "asinhf",
-        "acoshf", "atanhf", "logf", "expf", "exp2f", "log10f", "log2f", "sqrtf", "fabsf",
-        "floorf", "ceilf", "powf", "atan2f", "fminf", "fmaxf", "sin", "cos", "tan", "asin",
-        "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "log", "exp", "exp2",
-        "log10", "log2", "sqrt", "fabs", "floor", "ceil", "pow", "atan2", "fmin", "fmax",
-        "__isnanf", "__isnand", "__isinff", "__isinfd", "memcmp", "memcpy", "memmove", "memset",
-        "abort",
+        "acoshf", "atanhf", "logf", "expf", "exp2f", "log10f", "log2f", "sqrtf", "fabsf", "floorf",
+        "ceilf", "powf", "atan2f", "fminf", "fmaxf", "sin", "cos", "tan", "asin", "acos", "atan",
+        "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "log", "exp", "exp2", "log10", "log2",
+        "sqrt", "fabs", "floor", "ceil", "pow", "atan2", "fmin", "fmax", "__isnanf", "__isnand",
+        "__isinff", "__isinfd", "memcmp", "memcpy", "memmove", "memset", "abort",
     ];
 
     let mut func = state.module.get_first_function();
@@ -665,17 +660,32 @@ fn build_header(
     let _ = writeln!(s, "extern \"C\" {{");
     let _ = writeln!(s, "#endif");
     let _ = writeln!(s);
-    let _ = writeln!(s, "// State buffer ----------------------------------------------------------");
-    let _ = writeln!(s, "#define {}_STATE_SIZE ((size_t){})", upper, globals.state_size);
+    let _ = writeln!(
+        s,
+        "// State buffer ----------------------------------------------------------"
+    );
+    let _ = writeln!(
+        s,
+        "#define {}_STATE_SIZE ((size_t){})",
+        upper, globals.state_size
+    );
     let _ = writeln!(
         s,
         "#define {}_TRAP_REASON_OFFSET ((size_t){})",
         upper,
         crate::cancel::TRAP_REASON_OFFSET
     );
-    let _ = writeln!(s, "#define {}_JMPBUF_OFFSET ((size_t){})", upper, crate::cancel::JMPBUF_OFFSET);
+    let _ = writeln!(
+        s,
+        "#define {}_JMPBUF_OFFSET ((size_t){})",
+        upper,
+        crate::cancel::JMPBUF_OFFSET
+    );
     let _ = writeln!(s);
-    let _ = writeln!(s, "// Trap reason codes -----------------------------------------------------");
+    let _ = writeln!(
+        s,
+        "// Trap reason codes -----------------------------------------------------"
+    );
     let _ = writeln!(s, "#define {}_TRAP_NONE             0u", upper);
     let _ = writeln!(s, "#define {}_TRAP_CANCELLED        1u", upper);
     let _ = writeln!(s, "#define {}_TRAP_STACK_OVERFLOW   2u", upper);
@@ -683,8 +693,16 @@ fn build_header(
     let _ = writeln!(s);
 
     // Globals
-    let _ = writeln!(s, "// Globals (compile-time layout) ----------------------------------------");
-    let _ = writeln!(s, "#define {}_GLOBAL_COUNT ((size_t){})", upper, globals.entries.len());
+    let _ = writeln!(
+        s,
+        "// Globals (compile-time layout) ----------------------------------------"
+    );
+    let _ = writeln!(
+        s,
+        "#define {}_GLOBAL_COUNT ((size_t){})",
+        upper,
+        globals.entries.len()
+    );
     for g in &globals.entries {
         let safe = sanitize_macro_name(&g.name);
         let kind = match g.kind {
@@ -700,8 +718,20 @@ fn build_header(
             o = g.offset,
             ty = g.type_str
         );
-        let _ = writeln!(s, "#define {U}_SIZE_{N}   ((size_t){sz})", U = upper, N = safe, sz = g.size);
-        let _ = writeln!(s, "#define {U}_KIND_{N}   ((int){k})", U = upper, N = safe, k = kind);
+        let _ = writeln!(
+            s,
+            "#define {U}_SIZE_{N}   ((size_t){sz})",
+            U = upper,
+            N = safe,
+            sz = g.size
+        );
+        let _ = writeln!(
+            s,
+            "#define {U}_KIND_{N}   ((int){k})",
+            U = upper,
+            N = safe,
+            k = kind
+        );
     }
     let _ = writeln!(s);
 
@@ -710,12 +740,18 @@ fn build_header(
     // so the duplication overhead is negligible, and it avoids needing a
     // matching .c file or a per-program data section in the .o.
     let struct_name = aot_meta_struct_name(prefix);
-    let _ = writeln!(s, "// Runtime metadata table (introspection by name) ----------------------");
+    let _ = writeln!(
+        s,
+        "// Runtime metadata table (introspection by name) ----------------------"
+    );
     let _ = writeln!(s, "typedef struct {} {{", struct_name);
     let _ = writeln!(s, "    const char* name;");
     let _ = writeln!(s, "    size_t offset;");
     let _ = writeln!(s, "    size_t size;");
-    let _ = writeln!(s, "    int kind; // 0=scalar, 1=slice (data+len fat pointer), 2=extern fn");
+    let _ = writeln!(
+        s,
+        "    int kind; // 0=scalar, 1=slice (data+len fat pointer), 2=extern fn"
+    );
     let _ = writeln!(s, "    const char* type_string;");
     let _ = writeln!(s, "}} {};", struct_name);
     let _ = writeln!(s);
@@ -756,7 +792,10 @@ fn build_header(
 
     // Slice/extern helpers as static inlines so the host doesn't need them in
     // every .o.
-    let _ = writeln!(s, "// Helpers ------------------------------------------------------------");
+    let _ = writeln!(
+        s,
+        "// Helpers ------------------------------------------------------------"
+    );
     let _ = writeln!(
         s,
         "static inline void {p}_bind_slice(void* state, size_t offset, const void* data, int32_t len) {{",
@@ -789,7 +828,10 @@ fn build_header(
     let _ = writeln!(s);
 
     // Entry points
-    let _ = writeln!(s, "// Entry points -------------------------------------------------------");
+    let _ = writeln!(
+        s,
+        "// Entry points -------------------------------------------------------"
+    );
     for e in entries {
         let _ = write!(s, "{} {}_{}(void* state", e.ret, prefix, e.name);
         for (pname, pty) in &e.params {
@@ -803,8 +845,14 @@ fn build_header(
     let _ = writeln!(s);
 
     // Hooks
-    let _ = writeln!(s, "// Weak host hooks (override to customize) -----------------------------");
-    let _ = writeln!(s, "// All have no-op / abort defaults provided by the compiled object.");
+    let _ = writeln!(
+        s,
+        "// Weak host hooks (override to customize) -----------------------------"
+    );
+    let _ = writeln!(
+        s,
+        "// All have no-op / abort defaults provided by the compiled object."
+    );
     let _ = writeln!(s, "void {p}_assert(void* state, int8_t cond);", p = prefix);
     let _ = writeln!(s, "void {p}_print_i32(int32_t value);", p = prefix);
     let _ = writeln!(s, "void {p}_putc(int32_t codepoint);", p = prefix);
@@ -824,7 +872,13 @@ fn aot_meta_struct_name(prefix: &str) -> String {
 
 fn sanitize_macro_name(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c.to_ascii_uppercase() } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -859,7 +913,9 @@ mod tests {
         let mut compiler = Compiler::new();
         compiler.parse("var counter: i32\ninit { counter = 10 }\n", ".");
         assert!(compiler.check());
-        let decls = compiler.decls();
+        compiler.set_entry_points(&["init"]);
+        compiler.specialize().unwrap();
+        let decls = compiler.specialized_program().unwrap();
 
         assert!(collect_entries(decls, &[Name::str("init")]).is_ok());
 

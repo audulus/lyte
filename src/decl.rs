@@ -21,17 +21,6 @@ pub struct InterfaceConstraint {
     pub typevars: Vec<Name>,
 }
 
-/// A variable captured by a closure.
-///
-/// Closures always capture by address: the closure struct stores a pointer to
-/// the variable's stack slot.  For `var` bindings the slot already exists; for
-/// `let` bindings the JIT allocates a fresh slot and copies the value there.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct ClosureVar {
-    pub name: Name,
-    pub ty: TypeID,
-}
-
 /// Function declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FuncDecl {
@@ -67,16 +56,6 @@ pub struct FuncDecl {
     /// Expression arena for the function body.
     pub arena: ExprArena,
 
-    /// Solved types from the type checker.
-    pub types: Vec<TypeID>,
-
-    /// Variables captured from the enclosing scope (non-empty for closures).
-    ///
-    /// At runtime the JIT passes a `closure_ptr` pointing to a contiguous
-    /// array of `i64` slots, one per entry here.  Each slot holds the address
-    /// of the captured variable's storage.
-    pub closure_vars: Vec<ClosureVar>,
-
     /// True if this is an extern function provided by the host.
     /// Extern functions have no body and are called indirectly through
     /// a {fn_ptr, context} pair stored in the globals buffer.
@@ -84,37 +63,6 @@ pub struct FuncDecl {
 }
 
 impl FuncDecl {
-    /// Every name mentioned anywhere inside a lambda body in this function.
-    ///
-    /// A `var` that a lambda captures is shared by address, so it has to live
-    /// in memory. A backend that would otherwise keep a scalar in a register
-    /// must skip that promotion for these names — de-promoting later, at the
-    /// point of capture, puts the spill wherever the lambda happens to sit,
-    /// and inside a loop that spill re-runs every iteration and clobbers the
-    /// variable with a stale value.
-    pub fn names_referenced_in_lambdas(&self) -> std::collections::HashSet<Name> {
-        fn collect(
-            expr: ExprID,
-            arena: &ExprArena,
-            result: &mut std::collections::HashSet<Name>,
-        ) {
-            if let Expr::Id(name) = &arena[expr] {
-                result.insert(*name);
-            }
-            for sub in arena[expr].subexprs() {
-                collect(sub, arena, result);
-            }
-        }
-
-        let mut result = std::collections::HashSet::new();
-        for expr in &self.arena.exprs {
-            if let Expr::Lambda { body, .. } = expr {
-                collect(*body, &self.arena, &mut result);
-            }
-        }
-        result
-    }
-
     /// Get the types of the function parameters.
     pub fn param_types(&self) -> Vec<TypeID> {
         self.params
@@ -154,7 +102,9 @@ impl FuncDecl {
                         .map(|(p, a)| (p.name, *a))
                         .collect();
 
-                    let body = mac.body.expect("macro must have a body");
+                    let body = mac
+                        .body
+                        .ok_or_else(|| (loc, format!("macro '{}' has no body", name)))?;
                     let new_body = copy_expr(body, &mac.arena, &mut self.arena, &subst);
 
                     self.arena.exprs[i] = self.arena.exprs[new_body].clone();
@@ -185,7 +135,12 @@ impl StructDecl {
         None
     }
 
-    pub fn field_offset(&self, name: &Name, decls: &DeclTable, inst: &Instance) -> i32 {
+    pub fn field_offset<F: FunctionInfo>(
+        &self,
+        name: &Name,
+        decls: &DeclarationList<F>,
+        inst: &Instance,
+    ) -> i32 {
         let mut off = 0;
         for field in &self.fields {
             if field.name == *name {
@@ -200,18 +155,18 @@ impl StructDecl {
 /// Provides a set of functions that some type variables
 /// must satisfy.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct Interface {
+pub struct Interface<F = FuncDecl> {
     pub name: Name,
     pub typevars: Vec<Name>,
-    pub funcs: Vec<FuncDecl>,
+    pub funcs: Vec<F>,
     pub loc: Loc,
 }
 
 /// Top-level declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Decl {
-    Func(FuncDecl),
-    Macro(FuncDecl),
+pub enum Decl<F: FunctionInfo = FuncDecl> {
+    Func(F),
+    Macro(F),
     Struct(StructDecl),
     Enum {
         name: Name,
@@ -222,18 +177,18 @@ pub enum Decl {
         typevars: Vec<Name>,
         ty: TypeID,
     },
-    Interface(Interface),
+    Interface(Interface<F>),
     Const {
         name: Name,
         value: i64,
     },
     Assume {
-        arena: ExprArena,
+        arena: F::Arena,
         cond: ExprID,
     },
 }
 
-impl Decl {
+impl<F: FunctionInfo> Decl<F> {
     pub fn find_field(&self, name: &Name) -> Option<Field> {
         if let Decl::Struct(st) = self {
             st.find_field(name)
@@ -252,11 +207,11 @@ pub fn find_field(fields: &[Field], name: Name) -> Option<Field> {
     None
 }
 
-impl Decl {
+impl<F: FunctionInfo> Decl<F> {
     pub fn name(&self) -> Name {
         match self {
-            Decl::Func(FuncDecl { name, .. }) => *name,
-            Decl::Macro(FuncDecl { name, .. }) => *name,
+            Decl::Func(function) => function.name(),
+            Decl::Macro(function) => function.name(),
             Decl::Struct(StructDecl { name, .. }) => *name,
             Decl::Enum { name, .. } => *name,
             Decl::Global { name, .. } => *name,
@@ -265,7 +220,9 @@ impl Decl {
             Decl::Assume { .. } => Name::str("__assume"),
         }
     }
+}
 
+impl Decl {
     /// Pretty-print a declaration in lyte syntax.
     ///
     /// This method formats a declaration as it would appear in lyte source code,
@@ -469,8 +426,6 @@ mod tests {
             requires: vec![],
             loc: test_loc(),
             arena: ExprArena::new(),
-            types: vec![],
-            closure_vars: vec![],
             is_extern: false,
         };
 
@@ -498,8 +453,6 @@ mod tests {
             requires: vec![],
             loc: test_loc(),
             arena,
-            types: vec![],
-            closure_vars: vec![],
             is_extern: false,
         };
 
@@ -557,8 +510,6 @@ mod tests {
                 requires: vec![],
                 loc: test_loc(),
                 arena: ExprArena::new(),
-                types: vec![],
-                closure_vars: vec![],
                 is_extern: false,
             }],
             loc: test_loc(),
@@ -618,13 +569,37 @@ mod tests {
             requires: vec![],
             loc: test_loc(),
             arena,
-            types: vec![],
-            closure_vars: vec![],
             is_extern: false,
         };
 
         let decl = Decl::Func(func);
         let output = decl.pretty_print();
         assert_eq!(output, "increment(x: i32) → i32 {\n    x + 1\n}");
+    }
+}
+
+/// Information shared by source signatures and checked definitions. Body access
+/// deliberately is not part of this interface.
+pub trait FunctionInfo: Clone + std::fmt::Debug + Eq + std::hash::Hash {
+    type Arena: Clone + std::fmt::Debug + Eq + std::hash::Hash;
+    fn name(&self) -> Name;
+    fn ty(&self) -> TypeID;
+    /// Checked functions always have signatures; source declarations may still
+    /// be missing parameter annotations during recovery.
+    fn try_ty(&self) -> Option<TypeID> {
+        Some(self.ty())
+    }
+}
+
+impl FunctionInfo for FuncDecl {
+    type Arena = ExprArena;
+    fn name(&self) -> Name {
+        self.name
+    }
+    fn ty(&self) -> TypeID {
+        self.ty()
+    }
+    fn try_ty(&self) -> Option<TypeID> {
+        self.annotated_ty()
     }
 }

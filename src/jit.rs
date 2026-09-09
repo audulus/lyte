@@ -2,11 +2,11 @@
 // Pulled from https://github.com/bytecodealliance/cranelift-jit-demo
 
 use crate::cancel::*;
-use crate::decl::*;
+use crate::checked::{
+    CheckedDecl as Decl, CheckedExpr as Expr, CheckedFunction as FuncDecl, InstanceId, LocalId,
+    Reference, SpecializedProgram as DeclTable,
+};
 use crate::defs::*;
-use crate::expr::*;
-use crate::DeclTable;
-use crate::Instance;
 use crate::TypeID;
 extern crate cranelift_codegen;
 use core::panic;
@@ -93,10 +93,10 @@ pub struct JIT {
     /// functions.
     module: JITModule,
 
-    defined_functions: HashSet<Name>,
+    defined_functions: HashSet<InstanceId>,
 
     /// Global variable offsets from base pointer.
-    globals: HashMap<Name, i32>,
+    globals: HashMap<InstanceId, i32>,
 
     /// Total size of global memory needed.
     globals_size: usize,
@@ -187,7 +187,8 @@ impl JIT {
             let Some(ep_decl) = decls.find_entry_point(ep_name) else {
                 continue;
             };
-            let id = self.compile_function(decls, ep_decl)?;
+            let instance = decls.instance_for_entry(ep_name).unwrap();
+            let id = self.compile_function(decls, ep_decl, Some(instance))?;
             func_ids.push((ep_name, id));
         }
 
@@ -208,6 +209,7 @@ impl JIT {
         &mut self,
         decls: &DeclTable,
         decl: &FuncDecl,
+        instance: Option<InstanceId>,
     ) -> Result<cranelift_module::FuncId, String> {
         if decl.body.is_none() {
             return Err(format!("function '{}' has no body", decl.name));
@@ -254,11 +256,13 @@ impl JIT {
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
 
-        self.defined_functions.insert(decl.name);
+        if let Some(instance) = instance {
+            self.defined_functions.insert(instance);
+        }
 
         // Compile lambda functions extracted from this function's body.
         for lambda_decl in pending_lambdas {
-            self.compile_function(decls, &lambda_decl)?;
+            self.compile_function(decls, &lambda_decl, None)?;
         }
 
         // Compile any called functions that haven't already been defined.
@@ -267,20 +271,16 @@ impl JIT {
                 continue;
             }
 
-            let found = decls.find(name);
-            assert!(!found.is_empty(), "called function '{}' not found", name);
-            let decl = if let Decl::Func(d) = &found[0] {
-                d
-            } else {
-                panic!()
-            };
+            let decl = decls
+                .function_instance(name)
+                .expect("checked callee instance");
 
             // Skip builtins — they have no body and are called via raw function pointers.
             if decl.body.is_none() {
                 continue;
             }
 
-            self.compile_function(decls, decl)?;
+            self.compile_function(decls, decl, Some(name))?;
         }
 
         Ok(id)
@@ -289,15 +289,15 @@ impl JIT {
     fn declare_globals(&mut self, decls: &DeclTable) {
         // Reserve the first CANCEL_FLAG_RESERVED bytes for the cancel flag at offset 0.
         let mut offset: i32 = CANCEL_FLAG_RESERVED;
-        for decl in &decls.decls {
+        for (instance, decl) in decls.storage_instances() {
             match decl {
-                Decl::Global { name, ty, .. } => {
-                    self.globals.insert(*name, offset);
+                Decl::Global { ty, .. } => {
+                    self.globals.insert(instance, offset);
                     offset += ty.size(decls) as i32;
                 }
                 Decl::Func(f) if f.is_extern => {
                     // Extern functions get 16 bytes: {fn_ptr, context}
-                    self.globals.insert(f.name, offset);
+                    self.globals.insert(instance, offset);
                     offset += 16;
                 }
                 _ => {}
@@ -311,7 +311,7 @@ impl JIT {
         decls: &DeclTable,
         decl: &FuncDecl,
         has_globals: bool,
-    ) -> (HashSet<Name>, Vec<FuncDecl>) {
+    ) -> (HashSet<InstanceId>, Vec<FuncDecl>) {
         // Translate into cranelift IR.
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -378,32 +378,35 @@ impl JIT {
                         .builder
                         .ins()
                         .load(I64, MemFlags::new(), closure_ptr_val, (i * 8) as i32);
-                let var = trans.declare_variable(&cv.name.to_string(), I64);
+                let var = trans.declare_variable(cv, I64);
                 trans.builder.def_var(var, var_ptr);
-                trans.variable_types.insert(cv.name.to_string(), cv.ty);
+                let declared = decl.arena.local(*cv).ty;
+                let storage = match *declared {
+                    crate::Type::Reference(inner) => inner,
+                    _ => declared,
+                };
+                trans.variable_types.insert(*cv, storage);
                 // NOT added to let_bindings → acts as a var binding (accessed through the pointer).
             }
         }
 
         // Add variables for the function parameters and define them with block param values.
         for (i, param) in decl.params.iter().enumerate() {
-            let param_ty = param.ty.expect("expected type");
+            let param_ty = decl.arena.local(param.local).ty;
             let ty = if matches!(&*param_ty, crate::Type::Reference(_)) {
                 I64
             } else {
                 param_ty.cranelift_type()
             };
-            let var = trans.declare_variable(&param.name, ty);
+            let var = trans.declare_variable(&param.local, ty);
             trans.builder.def_var(var, block_params[i + param_idx]);
             if let crate::Type::Reference(inner) = &*param_ty {
-                trans.variable_types.insert(param.name.to_string(), *inner);
-                trans.let_bindings.remove(&param.name.to_string());
+                trans.variable_types.insert(param.local, *inner);
+                trans.let_bindings.remove(&param.local);
             } else {
-                trans
-                    .variable_types
-                    .insert(param.name.to_string(), param_ty);
+                trans.variable_types.insert(param.local, param_ty);
                 // Function parameters are like let bindings - they hold values directly.
-                trans.let_bindings.insert(param.name.to_string());
+                trans.let_bindings.insert(param.local);
             }
         }
 
@@ -540,27 +543,24 @@ fn fn_sig(module: &JITModule, from: crate::TypeID, to: crate::TypeID) -> Signatu
 
 struct FunctionTranslator<'a> {
     builder: FunctionBuilder<'a>,
-    variables: HashMap<String, Variable>,
-    variable_types: HashMap<String, TypeID>,
+    variables: HashMap<LocalId, Variable>,
+    variable_types: HashMap<LocalId, TypeID>,
     module: &'a mut JITModule,
 
     /// Next variable index.
     next_index: usize,
 
-    /// For generating code for generics.
-    current_instance: Instance,
-
-    called_functions: HashSet<Name>,
+    called_functions: HashSet<InstanceId>,
 
     /// Lambda functions extracted from this function body, to be compiled afterward.
     pending_lambdas: Vec<FuncDecl>,
 
     /// Tracks which variables are `let` bindings (hold values directly)
     /// vs `var` bindings (hold pointers to stack slots).
-    let_bindings: HashSet<String>,
+    let_bindings: HashSet<LocalId>,
 
     /// Global variable offsets from base pointer.
-    globals: &'a HashMap<Name, i32>,
+    globals: &'a HashMap<InstanceId, i32>,
 
     /// Base pointer for globals (passed as first param to main).
     globals_base: Option<Value>,
@@ -584,14 +584,14 @@ struct FunctionTranslator<'a> {
     /// Names referenced from inside a lambda body in the function being
     /// translated. Such a variable is captured by address, so it has to live in
     /// memory even when its type would otherwise be kept in a register.
-    lambda_referenced: HashSet<String>,
+    lambda_referenced: HashSet<LocalId>,
 }
 
 impl<'a> FunctionTranslator<'a> {
     fn new(
         builder: FunctionBuilder<'a>,
         module: &'a mut JITModule,
-        globals: &'a HashMap<Name, i32>,
+        globals: &'a HashMap<InstanceId, i32>,
         globals_base: Option<Value>,
         output_ptr: Option<Value>,
         lambda_counter: &'a mut usize,
@@ -603,7 +603,6 @@ impl<'a> FunctionTranslator<'a> {
             variable_types: HashMap::new(),
             module,
             next_index: 0,
-            current_instance: Instance::new(),
             called_functions: HashSet::new(),
             pending_lambdas: Vec::new(),
             let_bindings: HashSet::new(),
@@ -620,7 +619,7 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_fn(&mut self, decl: &FuncDecl, decls: &DeclTable) -> Value {
         self.elidable_lets = crate::copy_elision::elidable_let_copies(decl);
-        self.lambda_referenced = names_referenced_in_lambdas(decl);
+        self.lambda_referenced = decl.captured_locals();
 
         // With --no-recursion the safety checker has proved the call graph
         // is a DAG, so the counter traffic is unnecessary.
@@ -750,7 +749,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Check that a value about to be passed to an if-else merge block matches
     /// the type the merge block param was declared with.
     ///
-    /// The two are derived independently: the param from `decl.types`, the
+    /// The two are derived independently: the param from the checked result type, the
     /// value from codegen. They disagree when an expression kind is typed
     /// non-void by the checker but returns a placeholder here (see issue #22,
     /// where a `var` declaration was typed f32 but yielded `iconst(I32, 0)`).
@@ -777,26 +776,18 @@ impl<'a> FunctionTranslator<'a> {
 
     fn translate_lvalue(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Value {
         match &decl.arena[expr] {
-            Expr::Id(name) => {
-                if let Some(variable) = self.variables.get(&**name) {
-                    self.builder.use_var(*variable)
-                } else if let Some(&offset) = self.globals.get(name) {
-                    // Global variable - compute address from base + offset.
-                    let base = self.globals_base.expect("globals_base not set");
-                    self.builder.ins().iadd_imm(base, offset as i64)
-                } else {
-                    panic!(
-                        "JIT: unknown lvalue variable {:?} (not local or global)",
-                        name
-                    );
-                }
+            Expr::Id(Reference::Local(local)) => self.builder.use_var(self.variables[local]),
+            Expr::Id(Reference::Instance(instance)) => {
+                let offset = self.globals[instance];
+                let base = self.globals_base.expect("globals_base not set");
+                self.builder.ins().iadd_imm(base, offset as i64)
             }
             Expr::Field(lhs, name) => {
-                let lhs_ty = decl.types[*lhs];
+                let lhs_ty = decl.arena.ty(*lhs);
                 let lhs_value = self.translate_lvalue(*lhs, decl, decls);
                 if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);
-                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                    if let Decl::Struct(s) = &struct_decl[0] {
                         let inst: crate::Instance = s
                             .typevars
                             .iter()
@@ -817,7 +808,7 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Expr::ArrayIndex(lhs, rhs) => {
-                let lhs_ty = decl.types[*lhs];
+                let lhs_ty = decl.arena.ty(*lhs);
                 let lhs_val = self.translate_lvalue(*lhs, decl, decls);
                 let rhs_val = self.translate_expr(*rhs, decl, decls);
                 let (elem_ty, is_sl) = match &*lhs_ty {
@@ -855,36 +846,32 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Int(imm, _) => self
                 .builder
                 .ins()
-                .iconst(decl.types[expr].cranelift_type(), *imm),
+                .iconst(decl.arena.ty(expr).cranelift_type(), *imm),
             Expr::Real(s, _) => {
                 let val: f64 = s.parse().expect("invalid float literal");
-                match &*decl.types[expr] {
+                match &*decl.arena.ty(expr) {
                     crate::Type::Float32 => self.builder.ins().f32const(val as f32),
                     _ => self.builder.ins().f64const(val),
                 }
             }
             Expr::Char(c) => self.builder.ins().iconst(I8, *c as i64),
-            Expr::Id(name) => {
-                let ty = &decl.types[expr];
-                if let Some(variable) = self.variables.get(&**name) {
-                    let val = self.builder.use_var(*variable);
-                    // Let bindings hold values directly; var bindings hold pointers.
-                    // f32x4 is pointer-typed but lives in a register, so a var
-                    // binding holding one still has to be loaded.
-                    if self.let_bindings.contains(&**name) || is_indirect(*ty) {
-                        val
-                    } else {
-                        self.builder
-                            .ins()
-                            .load(ty.cranelift_type(), MemFlags::new(), val, 0)
-                    }
-                } else if let Some(&offset) = self.globals.get(name) {
-                    // Global variable - compute address from base + offset.
+            Expr::Id(Reference::Local(local)) => {
+                let ty = decl.arena.ty(expr);
+                let val = self.builder.use_var(self.variables[local]);
+                if self.let_bindings.contains(local) || is_indirect(ty) {
+                    val
+                } else {
+                    self.builder
+                        .ins()
+                        .load(ty.cranelift_type(), MemFlags::new(), val, 0)
+                }
+            }
+            Expr::Id(Reference::Instance(instance)) => {
+                let ty = decl.arena.ty(expr);
+                if let Some(&offset) = self.globals.get(instance) {
                     let base = self.globals_base.expect("globals_base not set");
                     let addr = self.builder.ins().iadd_imm(base, offset as i64);
-                    // Composite types (arrays, structs) are pointer-represented:
-                    // return the address, don't load. f32x4 is a value type — load it.
-                    if is_indirect(*ty) {
+                    if is_indirect(ty) {
                         addr
                     } else {
                         self.builder
@@ -892,9 +879,10 @@ impl<'a> FunctionTranslator<'a> {
                             .load(ty.cranelift_type(), MemFlags::new(), addr, 0)
                     }
                 } else {
-                    self.translate_func(name, &*ty)
+                    self.translate_func(*instance, &*ty, decls)
                 }
             }
+            Expr::Id(reference) => panic!("unresolved checked reference: {:?}", reference),
             Expr::Binop(op, lhs_id, rhs_id) => {
                 self.translate_binop(*op, *lhs_id, *rhs_id, decl, decls)
             }
@@ -902,15 +890,17 @@ impl<'a> FunctionTranslator<'a> {
             Expr::Call(fn_id, arg_ids) => {
                 // Determine if this is a builtin (assert/print) which has a raw fn_ptr
                 // and no globals/closure parameters, vs a user function with a fat pointer.
-                let is_builtin = if let Expr::Id(name) = &decl.arena[*fn_id] {
-                    is_builtin_name(name)
-                } else {
-                    false
-                };
+                let is_builtin =
+                    if let Expr::Id(Reference::Instance(instance)) = &decl.arena[*fn_id] {
+                        is_builtin_name(&decls.instance_name(*instance))
+                    } else {
+                        false
+                    };
 
                 // f32x4 constructor and splat — emit inline vector construction.
-                if let Expr::Id(name) = &decl.arena[*fn_id] {
-                    if **name == "f32x4" && arg_ids.len() == 4 {
+                if let Expr::Id(Reference::Instance(instance)) = &decl.arena[*fn_id] {
+                    let name = decls.instance_name(*instance);
+                    if *name == "f32x4" && arg_ids.len() == 4 {
                         let x = self.translate_expr(arg_ids[0], decl, decls);
                         let y = self.translate_expr(arg_ids[1], decl, decls);
                         let z = self.translate_expr(arg_ids[2], decl, decls);
@@ -921,13 +911,13 @@ impl<'a> FunctionTranslator<'a> {
                         let vec = self.builder.ins().insertlane(vec, w, 3);
                         return vec;
                     }
-                    if **name == "f32x4_splat" && arg_ids.len() == 1 {
+                    if *name == "f32x4_splat" && arg_ids.len() == 1 {
                         let x = self.translate_expr(arg_ids[0], decl, decls);
                         return self.builder.ins().splat(F32X4, x);
                     }
                 }
 
-                if let crate::Type::Func(from, to) = *(decl.types[*fn_id]) {
+                if let crate::Type::Func(from, to) = *(decl.arena.ty(*fn_id)) {
                     // If return type is pointer, allocate stack space and pass as first arg.
                     let output_slot = if returns_via_pointer(to) {
                         let size = to.size(decls) as u32;
@@ -947,9 +937,8 @@ impl<'a> FunctionTranslator<'a> {
                     // Use the declaration (not the solved call-site type) because
                     // the solver may retain Array types where the callee expects Slice.
                     let param_types: Vec<crate::TypeID> =
-                        if let Expr::Id(callee_name) = &decl.arena[*fn_id] {
-                            let callee_decls = decls.find(*callee_name);
-                            if let Some(crate::Decl::Func(f)) = callee_decls.first() {
+                        if let Expr::Id(Reference::Instance(callee)) = &decl.arena[*fn_id] {
+                            if let Some(f) = decls.function_instance(*callee) {
                                 f.param_types()
                             } else if let crate::Type::Tuple(pts) = &*from {
                                 pts.clone()
@@ -963,21 +952,22 @@ impl<'a> FunctionTranslator<'a> {
                         };
 
                     // Check if this is a math builtin that can use a direct call.
-                    let math_sym = if let Expr::Id(name) = &decl.arena[*fn_id] {
-                        math_builtin_symbol(name)
-                    } else {
-                        None
-                    };
+                    let math_sym =
+                        if let Expr::Id(Reference::Instance(instance)) = &decl.arena[*fn_id] {
+                            math_builtin_symbol(&decls.instance_name(*instance))
+                        } else {
+                            None
+                        };
 
                     // Check if this is an extern function call.
-                    let is_extern_fn = if let Expr::Id(callee_name) = &decl.arena[*fn_id] {
-                        let callee_decls = decls.find(*callee_name);
-                        callee_decls
-                            .first()
-                            .map_or(false, |d| matches!(d, crate::Decl::Func(f) if f.is_extern))
-                    } else {
-                        false
-                    };
+                    let is_extern_fn =
+                        if let Expr::Id(Reference::Instance(callee)) = &decl.arena[*fn_id] {
+                            decls
+                                .function_instance(*callee)
+                                .is_some_and(|function| function.is_extern)
+                        } else {
+                            false
+                        };
 
                     let call = if let Some(sym) = math_sym {
                         // Math builtin: use a direct call via declared function.
@@ -998,18 +988,16 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().call(local_callee, &args)
                     } else if is_extern_fn {
                         // Extern function: indirect call through {fn_ptr, context} in globals.
-                        let callee_name = if let Expr::Id(n) = &decl.arena[*fn_id] {
-                            *n
-                        } else {
-                            unreachable!()
-                        };
-                        let callee_decl = {
-                            let decls_found = decls.find(callee_name);
-                            match decls_found.first() {
-                                Some(crate::Decl::Func(f)) => f.clone(),
-                                _ => unreachable!(),
-                            }
-                        };
+                        let callee_name =
+                            if let Expr::Id(Reference::Instance(n)) = &decl.arena[*fn_id] {
+                                *n
+                            } else {
+                                unreachable!()
+                            };
+                        let callee_decl = decls
+                            .function_instance(callee_name)
+                            .expect("extern instance")
+                            .clone();
                         let globals_offset = *self
                             .globals
                             .get(&callee_name)
@@ -1029,7 +1017,7 @@ impl<'a> FunctionTranslator<'a> {
                         let mut sig = self.module.make_signature();
                         sig.params.push(AbiParam::new(I64)); // context
                         for param in &callee_decl.params {
-                            let pty = param.ty.unwrap();
+                            let pty = callee_decl.arena.local(param.local).ty;
                             if matches!(&*pty, crate::Type::Slice(_)) {
                                 sig.params.push(AbiParam::new(I64)); // data ptr
                                 sig.params.push(AbiParam::new(I32)); // len
@@ -1045,7 +1033,7 @@ impl<'a> FunctionTranslator<'a> {
 
                         let mut args = vec![context];
                         for (i, arg_id) in arg_ids.iter().enumerate() {
-                            let param_ty = callee_decl.params[i].ty.unwrap();
+                            let param_ty = callee_decl.arena.local(callee_decl.params[i].local).ty;
                             let arg_val = if matches!(&*param_ty, crate::Type::Reference(_)) {
                                 self.translate_lvalue(*arg_id, decl, decls)
                             } else {
@@ -1095,7 +1083,7 @@ impl<'a> FunctionTranslator<'a> {
                         // it can write trap_reason and longjmp on failure.
                         let is_assert = matches!(
                             &decl.arena[*fn_id],
-                            Expr::Id(name) if **name == "assert"
+                            Expr::Id(Reference::Instance(instance)) if *decls.instance_name(*instance) == "assert"
                         );
                         let f = self.translate_expr(*fn_id, decl, decls);
                         let mut args = vec![];
@@ -1168,12 +1156,12 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     panic!(
                         "JIT call: expected function type, got {:?}",
-                        decl.types[*fn_id]
+                        decl.arena.ty(*fn_id)
                     );
                 }
             }
             Expr::Let(name, init, _) => {
-                let ty = &decl.types[expr];
+                let ty = &decl.arena.local(*name).ty;
                 let init_val = self.translate_expr(*init, decl, decls);
                 let init_val = self.wrap_for_expected_slice(init_val, *ty, *init, decl, decls);
 
@@ -1196,31 +1184,30 @@ impl<'a> FunctionTranslator<'a> {
                     let addr = self.builder.ins().stack_addr(I64, slot, 0);
                     self.builder.def_var(var, addr);
                     self.gen_copy(*ty, addr, init_val, decls);
-                    self.variable_types.insert(name.to_string(), *ty);
+                    self.variable_types.insert(*name, *ty);
                     // The binding owns a stack slot now, exactly like a `var`,
                     // so it must not be treated as holding a value directly.
-                    self.let_bindings.remove(&name.to_string());
+                    self.let_bindings.remove(&*name);
                     return addr;
                 }
 
                 let var = self.declare_variable(name, ty.cranelift_type());
                 self.builder.def_var(var, init_val);
-                self.variable_types.insert(name.to_string(), *ty);
-                self.let_bindings.insert(name.to_string());
+                self.variable_types.insert(*name, *ty);
+                self.let_bindings.insert(*name);
                 init_val
             }
             Expr::Var(name, init, _) => {
-                let ty = &decl.types[expr];
-                // Remove from let_bindings in case this var shadows a let binding
-                // (e.g., a for-loop counter with the same name).
-                self.let_bindings.remove(&name.to_string());
+                let ty = &decl.arena.local(*name).ty;
+                // This storage is addressed through a pointer.
+                self.let_bindings.remove(&*name);
 
                 // f32x4: treat as value type (like a let binding) so it lives in
                 // a Cranelift variable (F32X4) rather than a pointer to a stack slot.
                 // A variable a lambda captures is shared by address, so it has to
                 // stay in memory for writes on either side to be visible.
                 if matches!(**ty, crate::types::Type::Float32x4)
-                    && !self.lambda_referenced.contains(&name.to_string())
+                    && !self.lambda_referenced.contains(&*name)
                 {
                     let var = self.declare_variable(name, F32X4);
                     let init_val = if let Some(init_id) = init {
@@ -1230,13 +1217,13 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().splat(F32X4, zero)
                     };
                     self.builder.def_var(var, init_val);
-                    self.variable_types.insert(name.to_string(), *ty);
-                    self.let_bindings.insert(name.to_string());
+                    self.variable_types.insert(*name, *ty);
+                    self.let_bindings.insert(*name);
                     return init_val;
                 }
 
                 let var = self.declare_variable(name, I64);
-                self.variable_types.insert(name.to_string(), *ty);
+                self.variable_types.insert(*name, *ty);
 
                 let sz = ty.size(decls) as u32;
                 if sz == 0 {
@@ -1270,7 +1257,7 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.ins().iconst(I32, 0)
             }
             Expr::StructLit(struct_name, fields) => {
-                let ty = &decl.types[expr];
+                let ty = &decl.arena.ty(expr);
                 let sz = ty.size(decls) as u32;
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
@@ -1283,7 +1270,7 @@ impl<'a> FunctionTranslator<'a> {
 
                 if let crate::Type::Name(_, type_args) = &**ty {
                     let struct_decl = decls.find(*struct_name);
-                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                    if let Decl::Struct(s) = &struct_decl[0] {
                         let inst: crate::Instance = s
                             .typevars
                             .iter()
@@ -1293,7 +1280,7 @@ impl<'a> FunctionTranslator<'a> {
                         for (fname, fval) in fields {
                             let val = self.translate_expr(*fval, decl, decls);
                             let off = s.field_offset(fname, decls, &inst);
-                            let field_ty = &decl.types[*fval];
+                            let field_ty = &decl.arena.ty(*fval);
                             let field_addr = self.builder.ins().iadd_imm(addr, off as i64);
                             if is_indirect(*field_ty) {
                                 self.gen_copy(*field_ty, field_addr, val, decls);
@@ -1308,7 +1295,7 @@ impl<'a> FunctionTranslator<'a> {
                 addr
             }
             Expr::Field(lhs, name) => {
-                let lhs_ty = decl.types[*lhs];
+                let lhs_ty = decl.arena.ty(*lhs);
                 // Handle array.len / slice.len.
                 if **name == "len" {
                     match &*lhs_ty {
@@ -1338,7 +1325,7 @@ impl<'a> FunctionTranslator<'a> {
                 let lhs_val = self.translate_expr(*lhs, decl, decls);
                 if let crate::Type::Name(struct_name, type_args) = &*lhs_ty {
                     let struct_decl = decls.find(*struct_name);
-                    if let crate::Decl::Struct(s) = &struct_decl[0] {
+                    if let Decl::Struct(s) = &struct_decl[0] {
                         let inst: crate::Instance = s
                             .typevars
                             .iter()
@@ -1346,7 +1333,7 @@ impl<'a> FunctionTranslator<'a> {
                             .map(|(tv, ty)| (crate::types::mk_type(crate::Type::Var(*tv)), *ty))
                             .collect();
                         let off = s.field_offset(name, decls, &inst);
-                        let field_ty = &decl.types[expr];
+                        let field_ty = &decl.arena.ty(expr);
                         // Arrays are stored inline, so return the address of the field
                         if is_indirect(*field_ty) {
                             let off_val = self.builder.ins().iconst(I64, off as i64);
@@ -1370,7 +1357,7 @@ impl<'a> FunctionTranslator<'a> {
                     for i in 0..index {
                         off += elem_types[i].size(decls) as i32;
                     }
-                    let field_ty = &decl.types[expr];
+                    let field_ty = &decl.arena.ty(expr);
                     if is_indirect(*field_ty) {
                         let off_val = self.builder.ins().iconst(I64, off as i64);
                         self.builder.ins().iadd(lhs_val, off_val)
@@ -1388,13 +1375,13 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Expr::ArrayIndex(lhs, rhs) => {
-                let lhs_ty = decl.types[*lhs];
+                let lhs_ty = decl.arena.ty(*lhs);
 
                 // f32x4 element extraction
                 if matches!(*lhs_ty, crate::types::Type::Float32x4) {
                     let vec = self.translate_expr(*lhs, decl, decls);
                     // Try constant lane index
-                    if let Expr::Int(n, _) = &decl.arena.exprs[*rhs] {
+                    if let Expr::Int(n, _) = &decl.arena[*rhs] {
                         return self.builder.ins().extractlane(vec, *n as u8);
                     }
                     // Dynamic index: spill to stack and load
@@ -1434,7 +1421,7 @@ impl<'a> FunctionTranslator<'a> {
                     .imul_imm(rhs_val, elem_ty.size(decls) as i64);
                 let off = self.builder.ins().uextend(I64, off);
                 let p = self.builder.ins().iadd(data_ptr, off);
-                let result_ty = decl.types[expr];
+                let result_ty = decl.arena.ty(expr);
                 if is_indirect(result_ty) {
                     // Composite types (arrays, structs, tuples) are represented
                     // as pointers — return the address directly.
@@ -1450,7 +1437,7 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|e| self.translate_expr(*e, decl, decls))
                     .collect();
 
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
 
                 if let crate::Type::Array(elem_ty, _) = &*ty {
                     let element_size = elem_ty.size(decls) as u32;
@@ -1477,14 +1464,14 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     panic!(
                         "JIT array literal: expected array type, got {:?}",
-                        decl.types[expr]
+                        decl.arena.ty(expr)
                     );
                 }
             }
             Expr::Array(value_expr, _size_expr) => {
                 // Fill-array expression: [value; size], e.g. [0; 5]
                 let fill_value = self.translate_expr(*value_expr, decl, decls);
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
 
                 if let crate::Type::Array(elem_ty, sz) = &*ty {
                     let count = sz.known();
@@ -1509,7 +1496,7 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     panic!(
                         "JIT array fill: expected array type, got {:?}",
-                        decl.types[expr]
+                        decl.arena.ty(expr)
                     );
                 }
             }
@@ -1517,11 +1504,7 @@ impl<'a> FunctionTranslator<'a> {
                 if exprs.is_empty() {
                     self.builder.ins().iconst(I32, 0)
                 } else {
-                    // Save variable scope — variables declared inside this block
-                    // shadow outer names only for the duration of the block.
-                    let saved_vars = self.variables.clone();
-                    let saved_types = self.variable_types.clone();
-                    let saved_lets = self.let_bindings.clone();
+                    // Binding identities remain unambiguous across block boundaries.
                     let mut result = None;
                     for expr in exprs {
                         result = Some(self.translate_expr(*expr, decl, decls));
@@ -1530,9 +1513,6 @@ impl<'a> FunctionTranslator<'a> {
                             break;
                         }
                     }
-                    self.variables = saved_vars;
-                    self.variable_types = saved_types;
-                    self.let_bindings = saved_lets;
                     result.unwrap()
                 }
             }
@@ -1548,13 +1528,13 @@ impl<'a> FunctionTranslator<'a> {
                 // `merge_ty` is Some exactly when it does, so it doubles as the
                 // "produces a value" flag — keeping a separate boolean around
                 // risks the two drifting apart.
-                let result_ty = decl.types[expr];
+                let result_ty = decl.arena.ty(expr);
                 let produces_value = match else_id {
                     Some(else_expr_id) => {
                         !matches!(
                             &*result_ty,
                             crate::Type::Void | crate::Type::Anon(_) | crate::Type::Var(_)
-                        ) && result_ty == decl.types[*else_expr_id]
+                        ) && result_ty == decl.arena.ty(*else_expr_id)
                     }
                     None => false,
                 };
@@ -1628,18 +1608,14 @@ impl<'a> FunctionTranslator<'a> {
                 let start_val = self.translate_expr(*start, decl, decls);
                 let end_val = self.translate_expr(*end, decl, decls);
 
-                // The loop variable is scoped to the loop: save the name-keyed
-                // state so an outer binding it shadows comes back at loop exit.
-                let saved_vars = self.variables.clone();
-                let saved_types = self.variable_types.clone();
-                let saved_lets = self.let_bindings.clone();
+                // The checked loop binding has its own local identity.
 
                 // Create a variable for the loop counter.
                 let loop_var = self.declare_variable(var, I32);
                 self.builder.def_var(loop_var, start_val);
                 self.variable_types
-                    .insert(var.to_string(), crate::types::mk_type(crate::Type::Int32));
-                self.let_bindings.insert(var.to_string());
+                    .insert(*var, crate::types::mk_type(crate::Type::Int32));
+                self.let_bindings.insert(*var);
 
                 // Create blocks for header, body, latch, and exit.
                 let header_block = self.builder.create_block();
@@ -1696,10 +1672,6 @@ impl<'a> FunctionTranslator<'a> {
                 self.builder.switch_to_block(exit_block);
                 self.builder.seal_block(exit_block);
 
-                self.variables = saved_vars;
-                self.variable_types = saved_types;
-                self.let_bindings = saved_lets;
-
                 self.builder.ins().iconst(I32, 0)
             }
             Expr::Assume(_) => {
@@ -1708,7 +1680,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::Return(expr_id) => {
                 let result = self.translate_expr(*expr_id, decl, decls);
-                let ret_ty = decl.types[*expr_id];
+                let ret_ty = decl.arena.ty(*expr_id);
 
                 if !self.no_recursion {
                     self.emit_call_depth_release();
@@ -1811,7 +1783,7 @@ impl<'a> FunctionTranslator<'a> {
                     .map(|e| self.translate_expr(*e, decl, decls))
                     .collect();
 
-                let ty = decl.types[expr];
+                let ty = decl.arena.ty(expr);
 
                 if let crate::Type::Tuple(elem_types) = &*ty {
                     // Calculate total size.
@@ -1839,37 +1811,20 @@ impl<'a> FunctionTranslator<'a> {
                 } else {
                     panic!(
                         "JIT tuple expression: expected tuple type, got {:?}",
-                        decl.types[expr]
+                        decl.arena.ty(expr)
                     );
                 }
             }
-            Expr::Lambda { params, body } => {
-                let lambda_ty = decl.types[expr];
+            Expr::Lambda { .. } => {
+                let lambda_ty = decl.arena.ty(expr);
                 if let crate::Type::Func(dom, rng) = *lambda_ty {
-                    if let crate::Type::Tuple(param_types) = &*dom {
+                    if let crate::Type::Tuple(_) = &*dom {
                         let id = *self.lambda_counter;
                         *self.lambda_counter += 1;
                         let lambda_name = Name::new(format!("__lambda_{}", id));
 
-                        let lambda_params: Vec<Param> = params
-                            .iter()
-                            .zip(param_types.iter())
-                            .map(|(p, ty)| Param {
-                                name: p.name,
-                                ty: Some(*ty),
-                            })
-                            .collect();
-
-                        // Compute free variables captured from the enclosing scope.
-                        let param_names: std::collections::HashSet<String> =
-                            params.iter().map(|p| p.name.to_string()).collect();
-                        let free_vars = collect_free_var_names(
-                            *body,
-                            &decl.arena,
-                            &param_names,
-                            &self.variables,
-                            &decl.types,
-                        );
+                        let lambda_decl = decl.extract_lambda(expr, lambda_name);
+                        let free_vars = &lambda_decl.closure_vars;
 
                         // Allocate a closure struct on the stack; each slot holds the address
                         // of one captured variable's storage.
@@ -1882,8 +1837,9 @@ impl<'a> FunctionTranslator<'a> {
                                 key: None,
                             });
                             let closure_addr = self.builder.ins().stack_addr(I64, slot, 0);
-                            for (i, (name, ty)) in free_vars.iter().enumerate() {
-                                let var_ptr = self.get_var_address(name, *ty, decls);
+                            for (i, local) in free_vars.iter().enumerate() {
+                                let var_ptr =
+                                    self.get_var_address(local, decl.arena.local(*local).ty, decls);
                                 self.builder.ins().store(
                                     MemFlags::new(),
                                     var_ptr,
@@ -1894,30 +1850,6 @@ impl<'a> FunctionTranslator<'a> {
                             closure_addr
                         } else {
                             self.builder.ins().iconst(I64, 0)
-                        };
-
-                        let closure_vars: Vec<ClosureVar> = free_vars
-                            .iter()
-                            .map(|(name, ty)| ClosureVar {
-                                name: Name::new(name.clone()),
-                                ty: *ty,
-                            })
-                            .collect();
-
-                        let lambda_decl = FuncDecl {
-                            name: lambda_name,
-                            typevars: vec![],
-                            size_vars: vec![],
-                            params: lambda_params,
-                            body: Some(*body),
-                            ret: rng,
-                            constraints: vec![],
-                            requires: vec![],
-                            loc: decl.loc,
-                            arena: decl.arena.clone(),
-                            types: decl.types.clone(),
-                            closure_vars,
-                            is_extern: false,
                         };
 
                         self.pending_lambdas.push(lambda_decl);
@@ -1957,7 +1889,7 @@ impl<'a> FunctionTranslator<'a> {
             }
             Expr::AsTy(expr_id, target_ty) => {
                 let val = self.translate_expr(*expr_id, decl, decls);
-                let src_ty = decl.types[*expr_id];
+                let src_ty = decl.arena.ty(*expr_id);
                 match (&*src_ty, &**target_ty) {
                     (crate::Type::Int32, crate::Type::Float32) => {
                         self.builder.ins().fcvt_from_sint(F32, val)
@@ -1995,11 +1927,10 @@ impl<'a> FunctionTranslator<'a> {
                 }
             }
             Expr::Enum(case_name) => {
-                let index = if let crate::Type::Name(enum_name, _) = &*decl.types[expr] {
+                let index = if let crate::Type::Name(enum_name, _) = &*decl.arena.ty(expr) {
                     let enum_decls = decls.find(*enum_name);
-                    if let Some(crate::Decl::Enum { cases, .. }) = enum_decls
-                        .iter()
-                        .find(|d| matches!(d, crate::Decl::Enum { .. }))
+                    if let Some(Decl::Enum { cases, .. }) =
+                        enum_decls.iter().find(|d| matches!(d, Decl::Enum { .. }))
                     {
                         cases.iter().position(|c| c == case_name).unwrap_or(0) as i64
                     } else {
@@ -2053,12 +1984,12 @@ impl<'a> FunctionTranslator<'a> {
         unop: Unop,
         arg_id: ExprID,
         decl: &FuncDecl,
-        decls: &crate::DeclTable,
+        decls: &DeclTable,
     ) -> Value {
         let v = self.translate_expr(arg_id, decl, decls);
         match unop {
             Unop::Neg => {
-                let t = decl.types[arg_id];
+                let t = decl.arena.ty(arg_id);
                 match *t {
                     crate::types::Type::Float32
                     | crate::types::Type::Float64
@@ -2076,7 +2007,7 @@ impl<'a> FunctionTranslator<'a> {
     /// Compute the natural alignment of a type for use with Cranelift memory
     /// operations. Cranelift requires that alignment ≤ greatest_divisible_power_of_two(size),
     /// so we base alignment on the element type rather than the total size.
-    fn type_align(t: &crate::TypeID, decls: &crate::DeclTable) -> u8 {
+    fn type_align(t: &crate::TypeID, decls: &DeclTable) -> u8 {
         let size = t.size(decls) as u64;
         if size == 0 {
             return 1;
@@ -2096,7 +2027,7 @@ impl<'a> FunctionTranslator<'a> {
             crate::Type::Name(name, vars) => {
                 let decl = decls.find(*name);
                 if decl.len() == 1 {
-                    if let crate::decl::Decl::Struct(sdecl) = &decl[0] {
+                    if let Decl::Struct(sdecl) = &decl[0] {
                         let inst: crate::Instance = sdecl
                             .typevars
                             .iter()
@@ -2133,7 +2064,7 @@ impl<'a> FunctionTranslator<'a> {
         slot: cranelift::codegen::ir::StackSlot,
         offset: i32,
         value: Value,
-        decls: &crate::DeclTable,
+        decls: &DeclTable,
     ) {
         if is_indirect(elem_ty) {
             let dst = self.builder.ins().iadd_imm(addr, offset as i64);
@@ -2143,7 +2074,7 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &crate::DeclTable) {
+    fn gen_copy(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &DeclTable) {
         if is_indirect(t) {
             let size = t.size(decls) as u64;
             let align = Self::type_align(&t, decls);
@@ -2162,7 +2093,7 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn gen_zero(&mut self, t: crate::TypeID, dst: Value, decls: &crate::DeclTable) {
+    fn gen_zero(&mut self, t: crate::TypeID, dst: Value, decls: &DeclTable) {
         let size = t.size(decls) as u32;
         let zero = self.builder.ins().iconst(I8, 0);
         // Store zero byte-by-byte for the size of the type
@@ -2173,13 +2104,7 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn gen_eq(
-        &mut self,
-        t: crate::TypeID,
-        dst: Value,
-        src: Value,
-        decls: &crate::DeclTable,
-    ) -> Value {
+    fn gen_eq(&mut self, t: crate::TypeID, dst: Value, src: Value, decls: &DeclTable) -> Value {
         if let crate::types::Type::Slice(elem) = &*t {
             let elem_size = elem.size(decls) as i64;
             return self.gen_slice_eq(dst, src, elem_size);
@@ -2239,13 +2164,13 @@ impl<'a> FunctionTranslator<'a> {
         lhs_id: ExprID,
         rhs_id: ExprID,
         decl: &FuncDecl,
-        decls: &crate::DeclTable,
+        decls: &DeclTable,
     ) -> Value {
         match binop {
             Binop::Plus => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Int32
@@ -2261,7 +2186,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Minus => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Int32
@@ -2277,7 +2202,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Mult => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 match *t {
                     crate::types::Type::Int32
                     | crate::types::Type::UInt32
@@ -2292,7 +2217,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Div => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 match *t {
                     crate::types::Type::Int32
                     | crate::types::Type::UInt32
@@ -2307,7 +2232,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Mod => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 match *t {
                     crate::types::Type::Int32
                     | crate::types::Type::UInt32
@@ -2321,7 +2246,7 @@ impl<'a> FunctionTranslator<'a> {
                 // f32x4 field assignment: v.x = val → insertlane
                 if let Expr::Field(vec_id, field_name) = &decl.arena[lhs_id] {
                     let (vec_id, field_name) = (*vec_id, *field_name);
-                    let vec_ty = decl.types[vec_id];
+                    let vec_ty = decl.arena.ty(vec_id);
                     if matches!(*vec_ty, crate::types::Type::Float32x4) {
                         let lane: u8 = match &**field_name {
                             "x" | "r" => 0,
@@ -2339,11 +2264,11 @@ impl<'a> FunctionTranslator<'a> {
                 // f32x4 element assignment: v[i] = val → insertlane
                 if let Expr::ArrayIndex(vec_id, idx_id) = &decl.arena[lhs_id] {
                     let (vec_id, idx_id) = (*vec_id, *idx_id);
-                    let vec_ty = decl.types[vec_id];
+                    let vec_ty = decl.arena.ty(vec_id);
                     if matches!(*vec_ty, crate::types::Type::Float32x4) {
                         // The lane index is in 0..4: the safety checker proves it,
                         // and no backend checks it at runtime.
-                        if let Expr::Int(n, _) = &decl.arena.exprs[idx_id] {
+                        if let Expr::Int(n, _) = &decl.arena[idx_id] {
                             let lane = lane_index(*n);
                             let storage = self.f32x4_storage(vec_id, decl, decls);
                             let rhs = self.translate_expr(rhs_id, decl, decls);
@@ -2367,8 +2292,8 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().store(MemFlags::new(), rhs, ptr, 0);
                         return rhs;
                     }
-                    if let Expr::Id(name) = &decl.arena[lhs_id] {
-                        if let Some(&var) = self.variables.get(&**name) {
+                    if let Expr::Id(Reference::Local(name)) = &decl.arena[lhs_id] {
+                        if let Some(&var) = self.variables.get(name) {
                             self.builder.def_var(var, rhs);
                             return rhs;
                         }
@@ -2387,13 +2312,13 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Equal => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
                 self.gen_eq(t, lhs, rhs, decls)
             }
             Binop::NotEqual => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Bool
@@ -2416,7 +2341,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Less => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Int32 | crate::types::Type::Int8 => {
@@ -2434,7 +2359,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Greater => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Int32 | crate::types::Type::Int8 => {
@@ -2453,7 +2378,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Leq => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Int32 | crate::types::Type::Int8 => self
@@ -2473,7 +2398,7 @@ impl<'a> FunctionTranslator<'a> {
             Binop::Geq => {
                 let lhs = self.translate_expr(lhs_id, decl, decls);
                 let rhs = self.translate_expr(rhs_id, decl, decls);
-                let t = decl.types[lhs_id];
+                let t = decl.arena.ty(lhs_id);
 
                 match *t {
                     crate::types::Type::Int32 | crate::types::Type::Int8 => self
@@ -2520,7 +2445,13 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.ins().call_indirect(sref, f_ptr, &vec![value]);
     }
 
-    fn translate_func(&mut self, name: &Name, ty: &crate::Type) -> Value {
+    fn translate_func(
+        &mut self,
+        instance: InstanceId,
+        ty: &crate::Type,
+        decls: &DeclTable,
+    ) -> Value {
+        let name = &decls.instance_name(instance);
         if *name == Name::str("assert") {
             return self
                 .builder
@@ -2557,7 +2488,7 @@ impl<'a> FunctionTranslator<'a> {
                 .expect("problem declaring function");
             let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-            self.called_functions.insert(*name);
+            self.called_functions.insert(instance);
 
             let fn_ptr = self.builder.ins().func_addr(I64, local_callee);
 
@@ -2592,14 +2523,15 @@ impl<'a> FunctionTranslator<'a> {
     /// a variable, or when the expression isn't a place at all.
     fn f32x4_storage(&mut self, expr: ExprID, decl: &FuncDecl, decls: &DeclTable) -> Option<Value> {
         match &decl.arena[expr] {
-            Expr::Id(name) => {
-                if let Some(&var) = self.variables.get(&**name) {
-                    if self.let_bindings.contains(&**name) {
-                        return None;
-                    }
-                    return Some(self.builder.use_var(var));
+            Expr::Id(Reference::Local(local)) => {
+                if self.let_bindings.contains(local) {
+                    None
+                } else {
+                    Some(self.builder.use_var(self.variables[local]))
                 }
-                let offset = *self.globals.get(name)?;
+            }
+            Expr::Id(Reference::Instance(instance)) => {
+                let offset = *self.globals.get(instance)?;
                 let base = self.globals_base.expect("globals_base not set");
                 Some(self.builder.ins().iadd_imm(base, offset as i64))
             }
@@ -2627,8 +2559,8 @@ impl<'a> FunctionTranslator<'a> {
             self.builder.ins().store(MemFlags::new(), new_vec, ptr, 0);
             return;
         }
-        if let Expr::Id(name) = &decl.arena[vec_id] {
-            if let Some(&var) = self.variables.get(&**name) {
+        if let Expr::Id(Reference::Local(name)) = &decl.arena[vec_id] {
+            if let Some(&var) = self.variables.get(name) {
                 let vec = self.builder.use_var(var);
                 let new_vec = self.builder.ins().insertlane(vec, value, lane);
                 self.builder.def_var(var, new_vec);
@@ -2658,8 +2590,8 @@ impl<'a> FunctionTranslator<'a> {
             self.builder.ins().store(MemFlags::new(), value, addr, 0);
             return;
         }
-        if let Expr::Id(name) = &decl.arena[vec_id] {
-            if let Some(&var) = self.variables.get(&**name) {
+        if let Expr::Id(Reference::Local(name)) = &decl.arena[vec_id] {
+            if let Some(&var) = self.variables.get(name) {
                 let vec = self.builder.use_var(var);
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
@@ -2685,16 +2617,17 @@ impl<'a> FunctionTranslator<'a> {
     /// Returns the address of a variable's storage for use in a closure struct.
     /// For var bindings the variable already holds a pointer; for let bindings
     /// a fresh stack slot is allocated and the value is copied into it.
-    fn get_var_address(
-        &mut self,
-        name: &str,
-        ty: crate::TypeID,
-        decls: &crate::DeclTable,
-    ) -> Value {
+    fn get_var_address(&mut self, name: &LocalId, ty: crate::TypeID, decls: &DeclTable) -> Value {
         if let Some(&var) = self.variables.get(name) {
             if self.let_bindings.contains(name) {
                 // let binding: allocate a slot, copy the value in, capture the slot address.
                 let val = self.builder.use_var(var);
+                // An aggregate value is already represented by its storage
+                // address; capturing it must keep that address, not spill the
+                // pointer as if it were the aggregate's first element.
+                if is_indirect(ty) {
+                    return val;
+                }
                 let sz = ty.size(decls) as u32;
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
@@ -2709,22 +2642,14 @@ impl<'a> FunctionTranslator<'a> {
                 // var binding: variable holds a pointer to the stack slot directly.
                 self.builder.use_var(var)
             }
-        } else if let Some(&offset) = self.globals.get(&Name::new(name.to_string())) {
-            let base = self.globals_base.expect("globals_base not set");
-            self.builder.ins().iadd_imm(base, offset as i64)
         } else {
-            panic!("unknown variable in closure capture: {}", name)
+            panic!("unknown local in closure capture: {:?}", name)
         }
     }
 
     /// Wraps a sized array value in a slice fat pointer {data_ptr, len} on the stack.
     /// If the value is already a slice, returns it as-is.
-    fn wrap_as_slice(
-        &mut self,
-        val: Value,
-        actual_ty: crate::TypeID,
-        _decls: &crate::DeclTable,
-    ) -> Value {
+    fn wrap_as_slice(&mut self, val: Value, actual_ty: crate::TypeID, _decls: &DeclTable) -> Value {
         match &*actual_ty {
             crate::Type::Slice(_) => {
                 // Already a slice fat pointer, pass through.
@@ -2759,28 +2684,23 @@ impl<'a> FunctionTranslator<'a> {
         &self,
         expr: ExprID,
         decl: &FuncDecl,
-        decls: &crate::DeclTable,
+        decls: &DeclTable,
     ) -> crate::TypeID {
-        match &decl.arena.exprs[expr] {
-            Expr::Id(name) => self
+        match &decl.arena[expr] {
+            Expr::Id(Reference::Local(local)) => self
                 .variable_types
-                .get(name.as_str())
+                .get(local)
                 .copied()
-                .or_else(|| {
-                    decls.find(*name).iter().find_map(|decl| {
-                        if let crate::Decl::Global { ty, .. } = decl {
-                            Some(*ty)
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or(decl.types[expr]),
+                .unwrap_or(decl.arena.local(*local).ty),
+            Expr::Id(Reference::Instance(instance)) => match decls.instance(*instance) {
+                Decl::Global { ty, .. } => *ty,
+                _ => decl.arena.ty(expr),
+            },
             Expr::ArrayIndex(arr_id, _) => match &*self.representation_type(*arr_id, decl, decls) {
                 crate::Type::Array(elem, _) | crate::Type::Slice(elem) => *elem,
-                _ => decl.types[expr],
+                _ => decl.arena.ty(expr),
             },
-            _ => decl.types[expr],
+            _ => decl.arena.ty(expr),
         }
     }
 
@@ -2790,7 +2710,7 @@ impl<'a> FunctionTranslator<'a> {
         expected_ty: crate::TypeID,
         actual_expr: ExprID,
         decl: &FuncDecl,
-        decls: &crate::DeclTable,
+        decls: &DeclTable,
     ) -> Value {
         if matches!(&*expected_ty, crate::Type::Slice(_)) {
             let actual_ty = self.representation_type(actual_expr, decl, decls);
@@ -2800,180 +2720,12 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
-    fn declare_variable(&mut self, name: &String, ty: Type) -> Variable {
-        // Always create a fresh Cranelift variable — even if a variable with
-        // the same name exists, this declaration shadows it.
+    fn declare_variable(&mut self, name: &LocalId, ty: Type) -> Variable {
+        // Allocate storage for this checked binding.
         let var = self.builder.declare_var(ty);
-        self.variables.insert(name.into(), var);
+        self.variables.insert(*name, var);
         self.next_index += 1;
         var
-    }
-}
-
-/// Every name mentioned inside a lambda body anywhere in `decl`, including
-/// nested lambdas. An over-approximation of what the function's lambdas
-/// capture: a name shadowed by a lambda parameter is included too, which only
-/// costs the enclosing variable its register representation.
-fn names_referenced_in_lambdas(decl: &FuncDecl) -> HashSet<String> {
-    decl.names_referenced_in_lambdas()
-        .iter()
-        .map(|n| n.to_string())
-        .collect()
-}
-
-/// Collect the names (and their types) of free variables referenced in `body`
-/// that are present in `local_vars` but not in `exclude` (the lambda's own params).
-/// Returns each name at most once.
-fn collect_free_var_names(
-    body: crate::ExprID,
-    arena: &crate::ExprArena,
-    exclude: &std::collections::HashSet<String>,
-    local_vars: &HashMap<String, Variable>,
-    types: &[crate::TypeID],
-) -> Vec<(String, crate::TypeID)> {
-    let mut result = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    collect_free_vars_rec(
-        body,
-        arena,
-        exclude,
-        local_vars,
-        types,
-        &mut result,
-        &mut seen,
-    );
-    result
-}
-
-fn collect_free_vars_rec(
-    expr: crate::ExprID,
-    arena: &crate::ExprArena,
-    exclude: &std::collections::HashSet<String>,
-    local_vars: &HashMap<String, Variable>,
-    types: &[crate::TypeID],
-    result: &mut Vec<(String, crate::TypeID)>,
-    seen: &mut std::collections::HashSet<String>,
-) {
-    match &arena[expr] {
-        Expr::TypeApp(_, _) => {} // Rewritten to Id by monomorphizer
-        Expr::Id(name) => {
-            let s = name.to_string();
-            if local_vars.contains_key(&s) && !exclude.contains(&s) && !seen.contains(&s) {
-                result.push((s.clone(), types[expr]));
-                seen.insert(s);
-            }
-        }
-        Expr::Call(fn_id, args) => {
-            collect_free_vars_rec(*fn_id, arena, exclude, local_vars, types, result, seen);
-            for a in args {
-                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Binop(_, lhs, rhs) => {
-            collect_free_vars_rec(*lhs, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*rhs, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Unop(_, arg) => {
-            collect_free_vars_rec(*arg, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Let(_, init, _) => {
-            collect_free_vars_rec(*init, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Var(_, init, _) => {
-            if let Some(init_id) = init {
-                collect_free_vars_rec(*init_id, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::If(cond, then, else_) => {
-            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*then, arena, exclude, local_vars, types, result, seen);
-            if let Some(e) = else_ {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::While(cond, body) => {
-            collect_free_vars_rec(*cond, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::For {
-            start, end, body, ..
-        } => {
-            collect_free_vars_rec(*start, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*end, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*body, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Return(e) | Expr::Assume(e) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Field(e, _) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayIndex(arr, idx) => {
-            collect_free_vars_rec(*arr, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*idx, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::ArrayLiteral(elems) => {
-            for e in elems {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::Tuple(elems) => {
-            for e in elems {
-                collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::AsTy(e, _) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Arena(e) => {
-            collect_free_vars_rec(*e, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Array(ty_expr, size_expr) => {
-            collect_free_vars_rec(*ty_expr, arena, exclude, local_vars, types, result, seen);
-            collect_free_vars_rec(*size_expr, arena, exclude, local_vars, types, result, seen);
-        }
-        Expr::Lambda { params, body } => {
-            // Nested lambda: add its params to the exclusion set.
-            let mut inner_exclude = exclude.clone();
-            for p in params {
-                inner_exclude.insert(p.name.to_string());
-            }
-            collect_free_vars_rec(
-                *body,
-                arena,
-                &inner_exclude,
-                local_vars,
-                types,
-                result,
-                seen,
-            );
-        }
-        Expr::Macro(_, args) => {
-            for a in args {
-                collect_free_vars_rec(*a, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, fval) in fields {
-                collect_free_vars_rec(*fval, arena, exclude, local_vars, types, result, seen);
-            }
-        }
-        // Terminal expressions — no sub-expressions.
-        Expr::Int(_, _)
-        | Expr::Real(_, _)
-        | Expr::String(_)
-        | Expr::Char(_)
-        | Expr::True
-        | Expr::False
-        | Expr::Enum(_)
-        | Expr::Break
-        | Expr::Continue
-        | Expr::Error => {}
     }
 }
 
