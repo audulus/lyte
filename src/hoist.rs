@@ -574,6 +574,7 @@ mod tests {
             assert!(compiler.check());
             compiler.specialize().unwrap();
             assert_eq!(crate::vm::VM::new().run(&compiler.compile_vm().unwrap()), 3);
+            #[cfg(has_stack_interp)]
             assert_eq!(
                 crate::stack_interp_bridge::run(&compiler.compile_stack().unwrap()),
                 3

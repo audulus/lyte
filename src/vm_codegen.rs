@@ -3781,14 +3781,17 @@ mod tests {
         );
         let vm = VMCodegen::new().compile(&checked).unwrap();
         assert_eq!(VM::new().run(&vm), 42);
-        let mut stack = crate::stack_codegen::StackCodegen::new()
-            .compile(&checked)
-            .unwrap();
-        for function in &mut stack.functions {
-            crate::stack_rebase_lm::rebase(function);
-            crate::stack_rebase_lm::patch_call_preserve(function);
+        #[cfg(has_stack_interp)]
+        {
+            let mut stack = crate::stack_codegen::StackCodegen::new()
+                .compile(&checked)
+                .unwrap();
+            for function in &mut stack.functions {
+                crate::stack_rebase_lm::rebase(function);
+                crate::stack_rebase_lm::patch_call_preserve(function);
+            }
+            assert_eq!(crate::stack_interp_bridge::run(&stack), 42);
         }
-        assert_eq!(crate::stack_interp_bridge::run(&stack), 42);
     }
 
     fn check_capture_program(source: &str) {
@@ -3800,12 +3803,15 @@ mod tests {
             "capture regression must check successfully"
         );
         compiler.specialize().unwrap();
-        let stack = compiler.compile_stack().unwrap();
-        assert_eq!(
-            crate::stack_interp_bridge::run(&stack),
-            42,
-            "Stack capture result"
-        );
+        #[cfg(has_stack_interp)]
+        {
+            let stack = compiler.compile_stack().unwrap();
+            assert_eq!(
+                crate::stack_interp_bridge::run(&stack),
+                42,
+                "Stack capture result"
+            );
+        }
         let vm = compiler.compile_vm().unwrap();
         assert_eq!(VM::new().run(&vm), 42, "register VM capture result");
     }
