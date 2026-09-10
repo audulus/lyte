@@ -967,6 +967,9 @@ impl StackVM {
                 }
 
                 StackOp::Nop => {}
+                // The gateway's ordinary loop follows immediately. The Rust
+                // interpreter executes that retained implementation directly.
+                StackOp::NativeLoop(_) => {}
 
                 // Fused superinstructions — not executed by the Rust VM.
                 _ => unimplemented!("fused op {:?} not supported in Rust stack VM", op),

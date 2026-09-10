@@ -38,6 +38,155 @@ impl StackExternRet {
     }
 }
 
+/// Scalar interpretation shared by all native loop bodies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeScalar {
+    F32,
+    F64,
+}
+
+/// Guarded native execution of a retained bytecode loop. Invalid ranges or
+/// unsupported overlap fall through; completion skips the body through `done`.
+/// Counter and carried values are published before polling. Operand windows
+/// survive both completion and fallback.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NativeLoopKernel {
+    pub scalar: NativeScalar,
+    pub counter: u16,
+    pub end: u16,
+    pub done: i32,
+    pub spans: NativeStreamSlots,
+    pub body: NativeStreamBody,
+}
+
+/// Pointer and signed length slots for one indexed input/output stream pair.
+/// Exact alias is supported; partially overlapping accessed spans use bytecode.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NativeStreamSlots {
+    pub input: u16,
+    pub output: u16,
+    pub input_len: u16,
+    pub output_len: u16,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NativeStreamBody<C = u16> {
+    /// An ordered, precompiled graph from the shared pointwise catalog. Only
+    /// the recipe's coefficient prefix is live; unused entries are padding.
+    Pointwise {
+        recipe: crate::pointwise::RecipeId,
+        coefficients: [C; crate::pointwise::MAX_COEFFICIENTS],
+    },
+    /// Ordered `input * feed + state * feedback`, followed by an indexed store.
+    OnePole { feed: C, feedback: C, state: u16 },
+    /// Ordered direct-form-I biquad. Coefficients are b0, b1, b2, a1, a2;
+    /// carried states are x1, x2, y1, y2.
+    Biquad {
+        coefficients: [C; 5],
+        states: [u16; 4],
+    },
+}
+
+impl<C> NativeStreamBody<C> {
+    /// Resolve coefficient representations without changing carried state slots.
+    pub fn map_coefficients<D>(self, mut map: impl FnMut(C) -> D) -> NativeStreamBody<D> {
+        match self {
+            Self::Pointwise {
+                recipe,
+                coefficients,
+            } => NativeStreamBody::Pointwise {
+                recipe,
+                coefficients: coefficients.map(map),
+            },
+            Self::OnePole {
+                feed,
+                feedback,
+                state,
+            } => NativeStreamBody::OnePole {
+                feed: map(feed),
+                feedback: map(feedback),
+                state,
+            },
+            Self::Biquad {
+                coefficients,
+                states,
+            } => NativeStreamBody::Biquad {
+                coefficients: coefficients.map(map),
+                states,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod native_coordinate_tests {
+    use super::*;
+
+    fn gateway(done: i32) -> StackOp {
+        StackOp::NativeLoop(NativeLoopKernel {
+            scalar: NativeScalar::F32,
+            counter: 0,
+            end: 1,
+            done,
+            spans: NativeStreamSlots {
+                input: 2,
+                output: 3,
+                input_len: 4,
+                output_len: 4,
+            },
+            body: NativeStreamBody::Pointwise {
+                recipe: crate::pointwise::AFFINE,
+                coefficients: [5, 6, 0, 0],
+            },
+        })
+    }
+
+    #[test]
+    fn inlining_remaps_native_success_edge() {
+        let mut callee = StackFunction::new("constant_add");
+        callee.ops = vec![
+            StackOp::I64Const(1),
+            StackOp::I64Const(2),
+            StackOp::IAdd,
+            StackOp::Return,
+        ];
+        let call = StackOp::Call {
+            func: 1,
+            args: 0,
+            preserve: 0,
+        };
+        let mut caller = StackFunction::new("native_caller");
+        caller.local_count = 4;
+        caller.ops = vec![call.clone(), gateway(1), call, StackOp::ReturnVoid];
+        let mut program = StackProgram::new();
+        program.add_function(caller);
+        program.add_function(callee);
+
+        crate::stack_inline::inline_trivial(&mut program);
+
+        let caller = &program.functions[0];
+        assert_eq!(caller.ops[3], gateway(3));
+        assert_eq!(caller.ops[7], StackOp::ReturnVoid);
+        assert_eq!(crate::stack_depth::stack_delta(&caller.ops[3]), 0);
+    }
+
+    #[test]
+    fn compaction_remaps_native_success_edge() {
+        let mut function = StackFunction::new("native_compaction");
+        function.ops = vec![
+            StackOp::Nop,
+            gateway(2),
+            StackOp::Nop,
+            StackOp::Nop,
+            StackOp::ReturnVoid,
+        ];
+
+        crate::stack_optimize::optimize(&mut function);
+
+        assert_eq!(function.ops, vec![gateway(0), StackOp::ReturnVoid]);
+    }
+}
+
 /// Stack IR instruction.
 ///
 /// All values on the operand stack are 64-bit (i64/f64/pointer).
@@ -259,6 +408,8 @@ pub enum StackOp {
     FusedAddrLoad32Off(u16, i32),
     /// locals[dst] = locals[src] + imm. Pop 0, push 0.
     FusedGetAddImmSet(u16, i32, u16),
+    /// Native whole-loop gateway; preserves all operand windows.
+    NativeLoop(NativeLoopKernel),
     /// if !(locals[a] < locals[b]) jump. Pop 0, push 0.
     FusedGetGetILtJumpIfZero(u16, u16, i32),
     /// if any packed `(idx < len)` check fails, jump. Pop 0, push 0.
@@ -868,6 +1019,40 @@ impl fmt::Display for StackOp {
             StackOp::FusedAddrLoad32Off(s, o) => write!(f, "fused.addr_load32off {} {}", s, o),
             StackOp::FusedGetAddImmSet(s, v, d) => {
                 write!(f, "fused.get_addimm_set {} {} {}", s, v, d)
+            }
+            StackOp::NativeLoop(kernel) => {
+                let width = match kernel.scalar {
+                    NativeScalar::F32 => "f32",
+                    NativeScalar::F64 => "f64",
+                };
+                let spans = &kernel.spans;
+                match &kernel.body {
+                    NativeStreamBody::Pointwise {
+                        recipe,
+                        coefficients,
+                    } => {
+                        write!(f, "pointwise_{}_{} counter={} end={} input={} output={} coefficients={:?} input_len={} output_len={} done={}",
+                                recipe.recipe().name, width, kernel.counter, kernel.end, spans.input, spans.output,
+                                &coefficients[..recipe.recipe().coefficient_count()], spans.input_len, spans.output_len, kernel.done)
+                    }
+                    NativeStreamBody::OnePole {
+                        feed,
+                        feedback,
+                        state,
+                    } => {
+                        write!(f, "one_pole_{} counter={} end={} input={} output={} feed={} feedback={} state={} input_len={} output_len={} done={}",
+                                width, kernel.counter, kernel.end, spans.input, spans.output,
+                                feed, feedback, state, spans.input_len, spans.output_len, kernel.done)
+                    }
+                    NativeStreamBody::Biquad {
+                        coefficients,
+                        states,
+                    } => {
+                        write!(f, "biquad_{} counter={} end={} input={} output={} coefficients={:?} states={:?} input_len={} output_len={} done={}",
+                                width, kernel.counter, kernel.end, spans.input, spans.output,
+                                coefficients, states, spans.input_len, spans.output_len, kernel.done)
+                    }
+                }
             }
             StackOp::FusedGetGetILtJumpIfZero(a, b, o) => {
                 write!(f, "fused.get_get_ilt_jiz {} {} {}", a, b, o)
