@@ -119,6 +119,50 @@ libtool -static -o "$BUILD_DIR/liblyte-ios-sim.a" \
     "$CARGO_TARGET_DIR/$IOS_SIM_TARGET/release/liblyte.a" \
     "$SIM_FFI"
 
+# Guard: every object merged into a slice must have a minimum OS no newer
+# than the deployment target. The Rust code honours MACOSX_DEPLOYMENT_TARGET,
+# but the Homebrew llvm@18 / zstd / libffi archives are prebuilt bottles whose
+# minimum OS is whatever macOS built them. A bottle from a newer macOS makes
+# every consumer that links at the deployment target warn "was built for
+# newer 'macOS' version", and can reference symbols the older OS lacks.
+# Args: <archive> <platform name as otool prints it> <max allowed version>
+check_min_os() {
+    local archive="$1" platform="$2" max="$3"
+    local objs
+    # otool prints one LC_BUILD_VERSION (or LC_VERSION_MIN_*) block per
+    # object; the object name precedes each block as "archive(object):".
+    objs=$(otool -l "$archive" | awk -v max="$max" -v plat="$platform" '
+        function newer(a, b,   x, y, n, i) {
+            n = split(a, x, "."); split(b, y, ".")
+            for (i = 1; i <= n; i++) {
+                if ((x[i]+0) > (y[i]+0)) return 1
+                if ((x[i]+0) < (y[i]+0)) return 0
+            }
+            return 0
+        }
+        /^[^ ].*\):$/ { obj = $0; sub(/:$/, "", obj); sub(/^.*\(/, "", obj); sub(/\)$/, "", obj) }
+        /^ *platform / { p = $2 }
+        /^ *minos / { if (newer($2, max)) print obj " minos " $2 }
+        /^ *version / && p == "" { if (newer($2, max)) print obj " version " $2 }
+        /^ *cmd / { p = "" }
+    ')
+    if [ -n "$objs" ]; then
+        echo "Error: $archive contains objects built for $platform newer than $max:" >&2
+        echo "$objs" | head -20 >&2
+        local n
+        n=$(echo "$objs" | wc -l | tr -d ' ')
+        echo "($n objects total)" >&2
+        echo "Homebrew bottles are built for the macOS that installed them; build on macOS $max or older." >&2
+        exit 1
+    fi
+}
+
+echo "Checking minimum OS versions..."
+check_min_os "$BUILD_DIR/liblyte-arm64.a" macOS "$MACOSX_DEPLOYMENT_TARGET"
+check_min_os "$BUILD_DIR/liblyte-x86_64.a" macOS "$MACOSX_DEPLOYMENT_TARGET"
+check_min_os "$BUILD_DIR/liblyte-ios.a" iOS "$IPHONEOS_DEPLOYMENT_TARGET"
+check_min_os "$BUILD_DIR/liblyte-ios-sim.a" iOS "$IPHONEOS_DEPLOYMENT_TARGET"
+
 echo "Creating macOS universal static library..."
 lipo -create \
     "$BUILD_DIR/liblyte-arm64.a" \
