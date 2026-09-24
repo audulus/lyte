@@ -154,19 +154,45 @@ done
 # Each bitcode object is compiled in place. -O2 matters: the IR was already
 # optimized by the release build, but code generation quality (register
 # allocation, scheduling) still follows the level given here.
+#
+# Not every member is bitcode: assembly sources (the x86_64 BLAKE3 kernels in
+# libLLVMSupport) are already Mach-O objects and are kept as they are. The
+# minimum-OS check in build-xcframework.sh covers them. Anything that is
+# neither bitcode nor Mach-O, or that fails to compile, aborts the run: a
+# dropped object surfaces much later as undefined symbols in a consumer.
 convert_one() {
-    local obj="$1"
-    mv "$obj" "$obj.bc"
-    "$CLANG" -x ir -c -O2 -target "$ARCH-apple-macosx$MINOS" -Wno-override-module \
-        "$obj.bc" -o "$obj"
-    rm -f "$obj.bc"
+    local obj="$1" magic
+    magic="$(xxd -p -l 4 "$obj")"
+    case "$magic" in
+        dec0170b|4243c0de)  # bitcode wrapper / raw bitcode
+            mv "$obj" "$obj.bc" \
+              && "$CLANG" -x ir -c -O2 -target "$ARCH-apple-macosx$MINOS" -Wno-override-module \
+                     "$obj.bc" -o "$obj" \
+              && rm -f "$obj.bc" \
+              || { echo "prepare-llvm: failed to compile $obj" >&2; return 1; }
+            ;;
+        cffaedfe|cefaedfe)  # Mach-O 64/32-bit: already native
+            ;;
+        *)
+            echo "prepare-llvm: $obj is neither bitcode nor Mach-O (magic $magic)" >&2
+            return 1
+            ;;
+    esac
 }
 export -f convert_one
 export CLANG ARCH MINOS
 if ! xargs -P "$JOBS" -n 1 bash -c 'convert_one "$0"' < "$LIST"; then
-    log "bitcode compilation failed"
+    log "object conversion failed"
     exit 1
 fi
+
+# Belt and braces: every listed object must still exist and be Mach-O.
+while IFS= read -r obj; do
+    if [ ! -f "$obj" ] || ! xxd -p -l 4 "$obj" | grep -qE '^(cffaedfe|cefaedfe)$'; then
+        log "missing or non-native object after conversion: $obj"
+        exit 1
+    fi
+done < "$LIST"
 
 log "repacking archives"
 for dir in "$WORK"/objs/*/; do
