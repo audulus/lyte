@@ -13,9 +13,12 @@ echo ""
 
 # Build lyte in release mode (with LLVM if available)
 echo "Building lyte (release)..."
-export LLVM_SYS_180_PREFIX="$(brew --prefix llvm@18 2>/dev/null)"
-export LIBRARY_PATH="${LIBRARY_PATH:+$LIBRARY_PATH:}$(brew --prefix zstd 2>/dev/null)/lib"
-if [ -n "$LLVM_SYS_180_PREFIX" ] && cargo build -p lyte-cli --release --features llvm --quiet 2>/dev/null; then
+if [ "$(uname -s)" = "Darwin" ] && [ -z "${LLVM_SYS_191_PREFIX:-}" ]; then
+    # The official LLVM 19 release binaries, prepared by ci/prepare-llvm.sh.
+    export LLVM_SYS_191_PREFIX="$("$(dirname "$0")/../ci/prepare-llvm.sh" "$(uname -m)" 2>/dev/null || true)"
+fi
+export LIBRARY_PATH="${LIBRARY_PATH:+$LIBRARY_PATH:}${LLVM_SYS_191_PREFIX:-/nonexistent}/lib"
+if [ -n "${LLVM_SYS_191_PREFIX:-}" ] && cargo build -p lyte-cli --release --features llvm --quiet 2>/dev/null; then
     HAS_LLVM=1
 else
     echo "  (LLVM feature not available, building without it)"

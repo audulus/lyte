@@ -37,15 +37,6 @@ permissions:
 
 jobs:
   xcframework:
-    # Pinned to macOS 15, not macos-latest. The macOS slices statically merge
-    # Homebrew's prebuilt llvm@18, zstd and libffi, and Homebrew bottles are
-    # compiled with a minimum OS equal to the machine that built them. On a
-    # macOS 26 runner that means every LLVM object is marked minos 26.0, which
-    # makes consumers linking at 15.0 emit "was built for newer 'macOS'
-    # version" warnings and risks pulling in symbols absent on macOS 15. The
-    # Sequoia bottles are marked 15.0, matching MACOSX_DEPLOYMENT_TARGET in
-    # build-xcframework.sh, and that script fails the build if any merged
-    # object exceeds it.
     runs-on: macos-15
 
     env:
@@ -90,16 +81,15 @@ jobs:
         # binary in lockstep.
         echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-    - name: Install arm64 LLVM 18 and libffi
-      run: brew install llvm@18 libffi
-
-    - name: Install x86_64 Homebrew, LLVM 18 and libffi
-      # GitHub macOS runners are arm64. The xcframework's macOS x86_64
-      # slice is built with cross-compiled LLVM, which requires a native
-      # x86_64 llvm-config + libs, so install an independent Intel Homebrew
-      # under /usr/local via Rosetta. See the script for why this no longer
-      # uses Homebrew's install.sh.
-      run: ci/install-x86_64-homebrew.sh llvm@18 libffi
+    - name: Cache LLVM
+      # The official LLVM release binaries, converted to native static
+      # prefixes for both macOS arches by ci/prepare-llvm.sh (a few minutes
+      # of download and compilation). Keyed on the script, which pins the
+      # versions and checksums.
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Caches/lyte/llvm/*-native-*
+        key: llvm-native-${{ runner.os }}-${{ hashFiles('ci/prepare-llvm.sh') }}
 
     - name: Build xcframework
       run: ./build-xcframework.sh

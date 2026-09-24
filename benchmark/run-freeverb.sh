@@ -26,12 +26,9 @@ ITERATIONS="${2:-10000}"
 LYTE_FILE="tests/cases/freeverb.lyte"
 HARNESS_SRC="benchmark/freeverb_bench.c"
 
-LLVM_PREFIX="$(brew --prefix llvm@18 2>/dev/null || true)"
-if [ -z "$LLVM_PREFIX" ] || [ ! -d "$LLVM_PREFIX" ]; then
-    echo "Error: llvm@18 not found. Install with: brew install llvm@18" >&2
-    exit 1
-fi
-export LLVM_SYS_180_PREFIX="$LLVM_PREFIX"
+# The official LLVM 19 release binaries, prepared by ci/prepare-llvm.sh.
+LLVM_PREFIX="$(ci/prepare-llvm.sh "$(uname -m)")"
+export LLVM_SYS_191_PREFIX="$LLVM_PREFIX"
 export LIBRARY_PATH="${LIBRARY_PATH:+$LIBRARY_PATH:}$LLVM_PREFIX/lib"
 
 echo "Building liblyte.dylib (release, --features llvm)..."

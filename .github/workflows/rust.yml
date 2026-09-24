@@ -58,33 +58,27 @@ jobs:
 
   build-macos:
 
-    # macos-15, not macos-latest: this job also builds the xcframework, whose
-    # build script rejects Homebrew bottles with a minimum OS above the
-    # deployment target. See .github/workflows/release.yml.
     runs-on: macos-15
 
     steps:
     - uses: actions/checkout@v5
-    - name: Install arm64 LLVM 18 and libffi
-      run: brew install llvm@18 libffi
+    - name: Cache LLVM
+      # See the same step in release.yml.
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Caches/lyte/llvm/*-native-*
+        key: llvm-native-${{ runner.os }}-${{ hashFiles('ci/prepare-llvm.sh') }}
+    - name: Prepare LLVM 19 (official release binaries)
+      run: echo "LLVM_SYS_191_PREFIX=$(ci/prepare-llvm.sh arm64)" >> "$GITHUB_ENV"
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run tests
       run: cargo test --workspace --verbose
     - name: Build with LLVM
-      env:
-        LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
-        LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
       run: cargo build -p lyte -p lyte-cli --features llvm --verbose
     - name: Run tests with LLVM
-      env:
-        LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
-        LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
       run: cargo test -p lyte -p lyte-cli --features llvm --verbose
     - name: Run freeverb FFI benchmark
-      env:
-        LLVM_SYS_180_PREFIX: /opt/homebrew/opt/llvm@18
-        LIBRARY_PATH: /opt/homebrew/opt/llvm@18/lib
       run: |
         ./benchmark/run-freeverb.sh 3 10000 | tee freeverb_output.txt
     - name: Post freeverb results to job summary
@@ -94,12 +88,6 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
         cat freeverb_output.txt >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
-    - name: Install x86_64 Homebrew, LLVM 18 and libffi
-      # The xcframework's macOS x86_64 slice is built with cross-compiled
-      # LLVM, which requires a native x86_64 llvm-config + libs, so install
-      # an independent Intel Homebrew under /usr/local via Rosetta. See the
-      # script for why this no longer uses Homebrew's install.sh.
-      run: ci/install-x86_64-homebrew.sh llvm@18 libffi
     - name: Build xcframework
       run: ./build-xcframework.sh
     - name: Install Lua and LuaJIT
@@ -154,17 +142,17 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      LLVM_SYS_180_PREFIX: /usr/lib/llvm-18
-      LIBRARY_PATH: /usr/lib/llvm-18/lib
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19
+      LIBRARY_PATH: /usr/lib/llvm-19/lib
 
     steps:
     - uses: actions/checkout@v5
-    - name: Install LLVM 18
+    - name: Install LLVM 19
       run: |
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main"
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/llvm.gpg
+        echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get update
-        sudo apt-get install -y llvm-18-dev libpolly-18-dev libzstd-dev
+        sudo apt-get install -y llvm-19-dev libpolly-19-dev libzstd-dev
     - name: Build with LLVM
       run: cargo build -p lyte -p lyte-cli --features llvm --verbose
     - name: Run tests with LLVM

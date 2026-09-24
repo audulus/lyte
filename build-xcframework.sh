@@ -3,10 +3,15 @@
 #
 # Prerequisites:
 #   rustup target add aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim
+#   Xcode command line tools, Rosetta (for the x86_64 LLVM tools), and
+#   network access to fetch the official LLVM release binaries on first run
+#   (see ci/prepare-llvm.sh).
 #
 # Usage: ./build-xcframework.sh
 
 set -euo pipefail
+
+cd "$(dirname "$0")"
 
 # Defensive: a globally-set LIBRARY_PATH leaks into host build scripts and
 # can break cross-arch builds (e.g. host build scripts linking against the
@@ -14,7 +19,8 @@ set -euo pipefail
 # to scope library search paths instead, so we clear any inherited value.
 unset LIBRARY_PATH
 
-# Set deployment targets to suppress linker version mismatch warnings.
+# Deployment targets for the Rust code, and (via ci/prepare-llvm.sh) for the
+# LLVM and zstd objects merged into the macOS slices. Checked below.
 export MACOSX_DEPLOYMENT_TARGET="15.0"
 export IPHONEOS_DEPLOYMENT_TARGET="16.0"
 
@@ -38,42 +44,29 @@ rm -f $XCFRAMEWORK.zip
 # Ensure targets are installed
 rustup target add "$MACOS_ARM_TARGET" "$MACOS_X86_TARGET" "$IOS_TARGET" "$IOS_SIM_TARGET"
 
-# Homebrew prefixes: arm64 brew at /opt/homebrew, x86_64 brew at /usr/local.
-# Both are needed because llvm-sys/inkwell require a native llvm-config per
-# target arch, and the linker needs arch-matched libzstd / libffi static libs.
-ARM64_BREW="$(/opt/homebrew/bin/brew --prefix 2>/dev/null || true)"
-X86_BREW="$(arch -x86_64 /usr/local/bin/brew --prefix 2>/dev/null || true)"
-
-if [ -z "$ARM64_BREW" ] || [ ! -d "$ARM64_BREW/opt/llvm@18" ]; then
-    echo "Error: arm64 LLVM 18 not found. Install with: brew install llvm@18" >&2
-    exit 1
-fi
-if [ -z "$X86_BREW" ] || [ ! -d "$X86_BREW/opt/llvm@18" ]; then
-    echo "Error: x86_64 LLVM 18 not found. Install with:" >&2
-    echo "    arch -x86_64 /usr/local/bin/brew install llvm@18 zstd libffi" >&2
-    exit 1
-fi
-
-ARM64_LLVM="$ARM64_BREW/opt/llvm@18"
-X86_LLVM="$X86_BREW/opt/llvm@18"
+# LLVM for the macOS slices comes from the official LLVM release binaries,
+# turned into a native static prefix (with a zstd built from source) by
+# ci/prepare-llvm.sh; see that script for the details. The x86_64 prefix
+# is used under Rosetta, since its llvm-config is an x86_64 binary.
+ARM64_LLVM="$(ci/prepare-llvm.sh arm64)"
+X86_LLVM="$(ci/prepare-llvm.sh x86_64)"
 echo "Using arm64 LLVM from $ARM64_LLVM"
 echo "Using x86_64 LLVM from $X86_LLVM"
 
 # Library search paths are passed per-target via CARGO_TARGET_<TRIPLE>_RUSTFLAGS
-# so they only affect the final-crate link and not the host build scripts
-# (which still need arm64 system libs from the host toolchain).
-ARM64_LINK_FLAGS="-L native=$ARM64_LLVM/lib -L native=$ARM64_BREW/opt/zstd/lib -L native=$ARM64_BREW/lib"
-X86_LINK_FLAGS="-L native=$X86_LLVM/lib -L native=$X86_BREW/opt/zstd/lib -L native=$X86_BREW/opt/libffi/lib -L native=$X86_BREW/lib"
+# so they only affect the final-crate link and not the host build scripts.
+ARM64_LINK_FLAGS="-L native=$ARM64_LLVM/lib"
+X86_LINK_FLAGS="-L native=$X86_LLVM/lib"
 
 echo "Building for macOS ($MACOS_ARM_TARGET) with LLVM..."
 env \
-    LLVM_SYS_180_PREFIX="$ARM64_LLVM" \
+    LLVM_SYS_191_PREFIX="$ARM64_LLVM" \
     CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="$ARM64_LINK_FLAGS" \
     cargo rustc --release --features llvm --target "$MACOS_ARM_TARGET" --crate-type staticlib
 
 echo "Building for macOS ($MACOS_X86_TARGET) with LLVM..."
 env \
-    LLVM_SYS_180_PREFIX="$X86_LLVM" \
+    LLVM_SYS_191_PREFIX="$X86_LLVM" \
     CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="$X86_LINK_FLAGS" \
     cargo rustc --release --features llvm --target "$MACOS_X86_TARGET" --crate-type staticlib
 
@@ -95,17 +88,17 @@ find_libffi() {
 # Merge static dependencies into each target library so the xcframework is self-contained.
 echo "Merging static dependencies..."
 
-# macOS ARM64: merge LLVM deps (zstd, ffi) from the arm64 brew.
+# macOS: LLVM's zstd dependency is linked as a plain -lzstd, so rustc does not
+# bundle it into the staticlib; merge it from the LLVM prefix. LLVM's other
+# system libraries (z, xml2, m) come from the macOS SDK and are linked by the
+# Swift package. libffi is bundled by the libffi-sys crate.
 libtool -static -o "$BUILD_DIR/liblyte-arm64.a" \
     "$CARGO_TARGET_DIR/$MACOS_ARM_TARGET/release/liblyte.a" \
-    "$ARM64_BREW/opt/zstd/lib/libzstd.a" \
-    "$ARM64_BREW/opt/libffi/lib/libffi.a"
+    "$ARM64_LLVM/lib/libzstd.a"
 
-# macOS x86_64: merge LLVM deps (zstd, ffi) from the x86_64 brew.
 libtool -static -o "$BUILD_DIR/liblyte-x86_64.a" \
     "$CARGO_TARGET_DIR/$MACOS_X86_TARGET/release/liblyte.a" \
-    "$X86_BREW/opt/zstd/lib/libzstd.a" \
-    "$X86_BREW/opt/libffi/lib/libffi.a"
+    "$X86_LLVM/lib/libzstd.a"
 
 # iOS: merge cross-compiled libffi
 IOS_FFI=$(find_libffi "$IOS_TARGET")
@@ -120,11 +113,12 @@ libtool -static -o "$BUILD_DIR/liblyte-ios-sim.a" \
     "$SIM_FFI"
 
 # Guard: every object merged into a slice must have a minimum OS no newer
-# than the deployment target. The Rust code honours MACOSX_DEPLOYMENT_TARGET,
-# but the Homebrew llvm@18 / zstd / libffi archives are prebuilt bottles whose
-# minimum OS is whatever macOS built them. A bottle from a newer macOS makes
-# every consumer that links at the deployment target warn "was built for
-# newer 'macOS' version", and can reference symbols the older OS lacks.
+# than the deployment target. The Rust code honours MACOSX_DEPLOYMENT_TARGET
+# and ci/prepare-llvm.sh compiles LLVM and zstd for it, but a prebuilt
+# library from elsewhere (as the Homebrew bottles used to be) carries the
+# minimum OS of whatever built it. An object above the deployment target
+# makes every consumer that links at that target warn "was built for newer
+# 'macOS' version", and can reference symbols the older OS lacks.
 # Args: <archive> <platform name as otool prints it> <max allowed version>
 check_min_os() {
     local archive="$1" platform="$2" max="$3"
@@ -152,7 +146,7 @@ check_min_os() {
         local n
         n=$(echo "$objs" | wc -l | tr -d ' ')
         echo "($n objects total)" >&2
-        echo "Homebrew bottles are built for the macOS that installed them; build on macOS $max or older." >&2
+        echo "Every merged library must be built for $platform $max or older." >&2
         exit 1
     fi
 }

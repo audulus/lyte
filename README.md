@@ -40,22 +40,20 @@ cargo test --workspace
 
 ### LLVM JIT Backend (Optional)
 
-Lyte includes an optional LLVM JIT backend alongside the default Cranelift backend. To use it, you need LLVM 18 installed:
+Lyte includes an optional LLVM JIT backend alongside the default Cranelift backend. It needs LLVM 19.
+
+On macOS, LLVM comes from the [official LLVM release binaries](https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.7), not Homebrew. `ci/prepare-llvm.sh` downloads them (about 1.3 GB per architecture), compiles their LTO bitcode archives to native code, and prints a prefix for `llvm-sys`. The first run takes a few minutes; the result is cached under `~/Library/Caches/lyte/llvm`.
 
 ```bash
-# macOS (Homebrew)
-brew install llvm@18
-
 # Build with LLVM support (requires the "llvm" feature)
-LLVM_SYS_180_PREFIX=/opt/homebrew/opt/llvm@18 LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" \
-  cargo build --features llvm
+export LLVM_SYS_191_PREFIX="$(ci/prepare-llvm.sh arm64)"
+cargo build --features llvm
 
 # Run a file with the LLVM backend
-LLVM_SYS_180_PREFIX=/opt/homebrew/opt/llvm@18 LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH" \
-  cargo run -p lyte-cli --features llvm -- hello.lyte -l
+cargo run -p lyte-cli --features llvm -- hello.lyte -l
 ```
 
-On Linux, install LLVM 18 via your package manager (e.g. `apt install llvm-18-dev libzstd-dev`) and set `LLVM_SYS_180_PREFIX` to the install prefix (e.g. `/usr/lib/llvm-18`).
+`./test.sh` does this for you. On Linux, install LLVM 19 via your package manager (e.g. `apt install llvm-19-dev libpolly-19-dev libzstd-dev`) and set `LLVM_SYS_191_PREFIX` to the install prefix (e.g. `/usr/lib/llvm-19`).
 
 ## Language Tour
 
@@ -455,7 +453,7 @@ deleted so the version can be re-run, and `main` was never touched.
 If `main` moves while the xcframework is building, the workflow aborts before
 publishing rather than tagging sources the binary was not built from. Re-run it.
 
-The xcframework is self-contained — LLVM dependencies (zstd, ffi) are statically linked into the ARM64 macOS library. Swift consumers only need system libraries (libc++, libz, libcurses).
+The xcframework is self-contained: LLVM and its zstd dependency are statically linked into both macOS slices, built from the official LLVM 19 release binaries by `ci/prepare-llvm.sh` for the deployment target in `build-xcframework.sh`. Swift consumers only need system libraries (libc++, libz, libcurses), which `Package.swift` links.
 
 ## Architecture
 
