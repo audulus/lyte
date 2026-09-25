@@ -453,7 +453,7 @@ deleted so the version can be re-run, and `main` was never touched.
 If `main` moves while the xcframework is building, the workflow aborts before
 publishing rather than tagging sources the binary was not built from. Re-run it.
 
-The xcframework is self-contained: LLVM and its zstd dependency are statically linked into both macOS slices, built from the official LLVM 19 release binaries by `ci/prepare-llvm.sh` for the deployment target in `build-xcframework.sh`. Swift consumers only need system libraries (libc++, libz, libcurses), which `Package.swift` links.
+The xcframework is self-contained: LLVM and its zstd dependency are statically linked into both macOS slices, built from the official LLVM 19 release binaries by `ci/prepare-llvm.sh` for the deployment target in `build-xcframework.sh`. Swift consumers only need system libraries (libc++, libz, libcurses, and on macOS libffi), which `Package.swift` links.
 
 ## Architecture
 

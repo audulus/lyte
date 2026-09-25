@@ -21,6 +21,8 @@ let package = Package(
                 .linkedLibrary("c++"),
                 .linkedLibrary("z"),
                 .linkedLibrary("curses"),
+                // The macOS slices use the system libffi (see Cargo.toml).
+                .linkedLibrary("ffi", .when(platforms: [.macOS])),
             ]
         ),
         .testTarget(
