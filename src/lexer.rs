@@ -104,6 +104,12 @@ pub struct Lexer {
     /// Current token.
     pub tok: Token,
 
+    /// Newlines consumed while lexing the current token (the newline of an
+    /// `Endl`, or raw newlines inside a string literal). Applied to `loc.line`
+    /// when the next token is lexed, so the current token keeps the line it
+    /// started on.
+    pub pending_lines: u32,
+
     /// Location of the current token.
     pub loc: Loc,
 }
@@ -119,6 +125,7 @@ impl Lexer {
             i: 0,
             line_start: 0,
             tok: Token::Error,
+            pending_lines: 0,
             loc: Loc {
                 file: Name::new(file.into()),
                 line: 1,
@@ -135,16 +142,18 @@ impl Lexer {
         self.loc.col = (self.i - self.line_start + 1) as u32;
         self.i += 1;
         self.line_start = self.i;
+        self.pending_lines = 1;
     }
 
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
         let n = bytes.len();
 
-        // The previous token was a newline: move on to the next line.
-        if self.tok == Token::Endl {
-            self.loc.line += 1;
+        // The previous token consumed newlines: move on to the next line.
+        if self.pending_lines > 0 {
+            self.loc.line += self.pending_lines;
             self.loc.col = 1;
+            self.pending_lines = 0;
         }
 
         // Skip whitespace.
@@ -309,6 +318,10 @@ impl Lexer {
                         _ => return Token::Error,
                     }
                 } else {
+                    if bytes[self.i] == b'\n' {
+                        self.pending_lines += 1;
+                        self.line_start = self.i + 1;
+                    }
                     s.push(bytes[self.i] as char);
                 }
                 self.i += 1;
@@ -548,6 +561,18 @@ mod tests {
         assert_eq!(
             located("x // note\ny"),
             vec![(id("x"), 1, 1), (Endl, 1, 10), (id("y"), 2, 1)]
+        );
+
+        // Raw newlines inside a string literal advance the line for the
+        // tokens that follow; the string itself keeps its opening line.
+        assert_eq!(
+            located("\"a\nbc\" x\n y"),
+            vec![
+                (String(Name::str("a\nbc")), 1, 1),
+                (id("x"), 2, 5),
+                (Endl, 2, 6),
+                (id("y"), 3, 2),
+            ]
         );
 
         // End right after a newline is on the new line.

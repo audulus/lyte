@@ -474,6 +474,7 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                     let saved_line_start = cx.lex.line_start;
                     let saved_tok = cx.lex.tok.clone();
                     let saved_loc = cx.lex.loc;
+                    let saved_pending_lines = cx.lex.pending_lines;
                     cx.next();
                     if cx.lex.tok == Token::Colon {
                         // Struct literal: Name(field: value, ...)
@@ -504,6 +505,7 @@ fn parse_postfix(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext
                         cx.lex.line_start = saved_line_start;
                         cx.lex.tok = saved_tok;
                         cx.lex.loc = saved_loc;
+                        cx.lex.pending_lines = saved_pending_lines;
                         let args = parse_exprlist(arena, typevars, cx);
                         expect(Token::Rparen, cx);
                         e = arena.add(Expr::Call(e, args), call_loc);
