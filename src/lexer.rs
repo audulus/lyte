@@ -104,7 +104,7 @@ pub struct Lexer {
     /// Current token.
     pub tok: Token,
 
-    /// Current source code location (file and line, col computed on demand).
+    /// Location of the current token.
     pub loc: Loc,
 }
 
@@ -502,6 +502,61 @@ mod tests {
 
     fn id(s: &str) -> Token {
         Token::Id(Name::new(s.into()))
+    }
+
+    /// Lexes `code` and returns each token with its (line, col).
+    fn located(code: &str) -> Vec<(Token, u32, u32)> {
+        let mut lex = Lexer::new(code, "test_lexer");
+        let mut out = vec![];
+        lex.next();
+        while lex.tok != Token::End {
+            out.push((lex.tok.clone(), lex.loc.line, lex.loc.col));
+            lex.next();
+        }
+        out
+    }
+
+    #[test]
+    fn test_token_locations() {
+        use Token::*;
+
+        // Endl sits at the newline on the line it ends; the line advances
+        // for the following token.
+        assert_eq!(
+            located("foo(\n  x"),
+            vec![
+                (id("foo"), 1, 1),
+                (Lparen, 1, 4),
+                (Endl, 1, 5),
+                (id("x"), 2, 3)
+            ]
+        );
+
+        // Consecutive newlines, including blank lines with whitespace.
+        assert_eq!(
+            located("a\n\n  \nb"),
+            vec![
+                (id("a"), 1, 1),
+                (Endl, 1, 2),
+                (Endl, 2, 1),
+                (Endl, 3, 3),
+                (id("b"), 4, 1)
+            ]
+        );
+
+        // A comment ends with its newline on the comment's line.
+        assert_eq!(
+            located("x // note\ny"),
+            vec![(id("x"), 1, 1), (Endl, 1, 10), (id("y"), 2, 1)]
+        );
+
+        // End right after a newline is on the new line.
+        let mut lex = Lexer::new("x\n", "test_lexer");
+        lex.next();
+        lex.next();
+        assert_eq!((lex.tok, lex.loc.line, lex.loc.col), (Endl, 1, 2));
+        lex.next();
+        assert_eq!((lex.tok, lex.loc.line, lex.loc.col), (End, 2, 1));
     }
 
     #[test]
