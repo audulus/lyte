@@ -545,10 +545,7 @@ impl Compiler {
         self.last_errors.clear();
         self.last_parse_errors.clear();
         for err in &tree.errors {
-            let msg = format!(
-                "{}:{}: {}",
-                err.location.file, err.location.line, err.message
-            );
+            let msg = format_error(err.location, &err.message);
             if !self.quiet {
                 println!("{}", msg);
             }

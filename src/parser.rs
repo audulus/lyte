@@ -43,7 +43,6 @@ fn expect_id(cx: &mut ParseContext) -> Name {
         name
     } else {
         let message = format!("expected identifier, got {:?}", cx.lex.tok);
-        println!("{:?}", message);
         cx.err(message);
         cx.next();
         Name::new("".to_string())
