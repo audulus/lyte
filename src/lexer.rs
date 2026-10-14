@@ -127,17 +127,25 @@ impl Lexer {
         }
     }
 
-    /// Handle a newline: increment line and update line_start.
+    /// Handle a newline. The resulting `Endl` token is located at the newline
+    /// itself, on the line it terminates, so errors like "expected Rparen,
+    /// got Endl" point at the end of the offending line. The line counter is
+    /// advanced when the token after the `Endl` is lexed.
     fn handle_newline(&mut self) {
+        self.loc.col = (self.i - self.line_start + 1) as u32;
         self.i += 1;
-        self.loc.line += 1;
         self.line_start = self.i;
-        self.loc.col = 1;
     }
 
     fn _next(&mut self) -> Token {
         let bytes = self.code.as_bytes();
         let n = bytes.len();
+
+        // The previous token was a newline: move on to the next line.
+        if self.tok == Token::Endl {
+            self.loc.line += 1;
+            self.loc.col = 1;
+        }
 
         // Skip whitespace.
         while self.i < n && bytes[self.i].is_ascii_whitespace() {
