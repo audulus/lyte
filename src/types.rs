@@ -132,6 +132,22 @@ impl TypeID {
         ) || self.extern_returns_via_pointer()
     }
 
+    /// Whether a type can be an extern function parameter on every backend.
+    /// Scalars are passed by value, a slice expands to (data pointer, i32
+    /// length) and a reference is a thin pointer. This is the set libffi
+    /// marshals in the VM; the other backends accept at least this much.
+    pub fn is_supported_extern_param(self) -> bool {
+        matches!(
+            &*self,
+            Type::Bool
+                | Type::Int32
+                | Type::Float32
+                | Type::Float64
+                | Type::Slice(_)
+                | Type::Reference(_)
+        )
+    }
+
     /// Returns true if this type contains any unresolved type variable (Anon or Var).
     pub fn contains_var(self) -> bool {
         match &*self {

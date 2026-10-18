@@ -125,6 +125,7 @@ void lyte_globals_bind_slice(uint8_t* globals, size_t offset, const void* data, 
 /// The offset should come from lyte_program_get_global_offset for an extern function.
 /// The host function must use C calling conventions with a prepended void* context parameter.
 /// For example, `extern fn foo(i32) -> f32` expects: float (*)(void* ctx, int32_t)
+/// Parameters may be bool, i32, f32, f64, a slice or a reference (a thin pointer).
 /// A slice parameter expands to a data pointer followed by an int32_t length:
 /// `extern fn send(buf: [i8]) -> bool` expects: bool (*)(void* ctx, const int8_t* data, int32_t len)
 /// Scalar results (bool, i32, f32, f64) are returned by value. Every other

@@ -1,0 +1,14 @@
+// Test: extern function parameters may only use types every backend can marshal.
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/extern_fn_param_type.lyte:10:20: extern function parameter 'p' has unsupported type Pt (supported: bool, i32, f32, f64, slices, references)
+//     extern fn host_draw(p: Pt, scale: f32)
+//                        ^
+
+struct Pt { x: f32, y: f32 }
+
+extern fn host_draw(p: Pt, scale: f32)
+
+fn main() {
+    host_draw(Pt(1.0, 2.0), 3.0)
+}
