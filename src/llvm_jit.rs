@@ -1286,6 +1286,17 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
         alloca
     }
 
+    /// A 16-byte aligned byte buffer for a by-pointer call result. Extern
+    /// hosts store through this pointer as `int32_t*`/`float*`/`double*`, and
+    /// C requires natural alignment for those stores.
+    fn aligned_ret_slot(&self, size: u64) -> PointerValue<'ctx> {
+        let slot = self.entry_array_alloca(self.i8_ty(), size, "ret_slot");
+        if let Some(inst) = slot.as_instruction() {
+            inst.set_alignment(16).expect("alloca alignment");
+        }
+        slot
+    }
+
     /// Create an array alloca in the entry block.
     fn entry_array_alloca(
         &self,
@@ -3161,8 +3172,7 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
             // Allocate output slot if returning via pointer.
             let output_slot: Option<PointerValue<'ctx>> = if returns_via_pointer(to) {
                 let sz = to.size(self.decls) as u64;
-                let slot = self.entry_array_alloca(self.i8_ty(), sz, "ret_slot");
-                Some(slot)
+                Some(self.aligned_ret_slot(sz))
             } else {
                 None
             };
@@ -3295,7 +3305,20 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         param_tys.push(pty.llvm_basic_type(self.ctx()).into());
                     }
                 }
-                let extern_fn_ty = if *to == crate::Type::Void || returns_via_pointer(to) {
+                // Tuples, structs, arrays, enums and f32x4 come back through a
+                // trailing output pointer and the C function returns void. The
+                // sret slot above already covers the indirect types; f32x4 is
+                // a vector value here so it gets its own slot.
+                let extern_out = if to.extern_returns_via_pointer() {
+                    param_tys.push(self.ptr_ty().into()); // output pointer
+                    Some(
+                        output_slot
+                            .unwrap_or_else(|| self.aligned_ret_slot(to.size(self.decls) as u64)),
+                    )
+                } else {
+                    None
+                };
+                let extern_fn_ty = if *to == crate::Type::Void || extern_out.is_some() {
                     self.ctx().void_type().fn_type(&param_tys, false)
                 } else {
                     to.llvm_basic_type(self.ctx()).fn_type(&param_tys, false)
@@ -3345,12 +3368,22 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                         args.push(arg_val.into());
                     }
                 }
+                if let Some(slot) = extern_out {
+                    args.push(slot.into());
+                }
                 let call = self
                     .builder()
                     .build_indirect_call(extern_fn_ty, fn_ptr, &args, "extern_call")
                     .unwrap();
-                if let Some(slot) = output_slot {
-                    slot.into()
+                if let Some(slot) = extern_out {
+                    if is_llvm_value_type(to) {
+                        // f32x4: reload the vector the host wrote.
+                        self.builder()
+                            .build_load(to.llvm_basic_type(self.ctx()), slot, "extern_vec")
+                            .unwrap()
+                    } else {
+                        slot.into()
+                    }
                 } else {
                     call.try_as_basic_value()
                         .basic()

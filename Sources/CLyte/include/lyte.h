@@ -125,6 +125,16 @@ void lyte_globals_bind_slice(uint8_t* globals, size_t offset, const void* data, 
 /// The offset should come from lyte_program_get_global_offset for an extern function.
 /// The host function must use C calling conventions with a prepended void* context parameter.
 /// For example, `extern fn foo(i32) -> f32` expects: float (*)(void* ctx, int32_t)
+/// A slice parameter expands to a data pointer followed by an int32_t length:
+/// `extern fn send(buf: [i8]) -> bool` expects: bool (*)(void* ctx, const int8_t* data, int32_t len)
+/// Scalar results (bool, i32, f32, f64) are returned by value. Every other
+/// result is written through a trailing output pointer and the function
+/// returns void. The pointer is 16-byte aligned and the layout is the Lyte
+/// layout with no padding:
+///   tuple/struct/array: `extern fn pair() -> (i32, i32)` expects: void (*)(void* ctx, int32_t* out)
+///   enum (i32 discriminant): `extern fn mode() -> Mode` expects: void (*)(void* ctx, int32_t* out)
+///   f32x4 (four floats): `extern fn vec() -> f32x4` expects: void (*)(void* ctx, float* out)
+/// This rule is identical on every backend (JIT, LLVM, VM, stack).
 /// Pass NULL for context if the function doesn't need state.
 void lyte_globals_bind_extern(uint8_t* globals, size_t offset, const void* func_ptr, void* context);
 

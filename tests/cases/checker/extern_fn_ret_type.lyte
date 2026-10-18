@@ -1,0 +1,12 @@
+// Test: extern functions may only return types every backend can marshal.
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/checker/extern_fn_ret_type.lyte:8:20: extern functions cannot return i8 (supported: void, bool, i32, f32, f64, f32x4, tuples, structs, arrays, enums)
+//     extern fn host_byte() -> i8
+//                        ^
+
+extern fn host_byte() -> i8
+
+fn main() {
+    var b = host_byte()
+}

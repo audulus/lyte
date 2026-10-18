@@ -931,10 +931,13 @@ impl<'a> FunctionTranslator<'a> {
                     // If return type is pointer, allocate stack space and pass as first arg.
                     let output_slot = if returns_via_pointer(to) {
                         let size = to.size(decls) as u32;
+                        // 16-byte aligned: an extern host writes through
+                        // this pointer as int32_t*/float*/double*, and C
+                        // requires natural alignment for those stores.
                         let slot = self.builder.create_sized_stack_slot(StackSlotData {
                             kind: StackSlotKind::ExplicitSlot,
                             size,
-                            align_shift: 0,
+                            align_shift: 4,
                             key: None,
                         });
                         let addr = self.builder.ins().stack_addr(I64, slot, 0);
@@ -979,6 +982,10 @@ impl<'a> FunctionTranslator<'a> {
                         false
                     };
 
+                    // An extern `f32x4` result is written through memory (see
+                    // `TypeID::extern_returns_via_pointer`) but lives in a
+                    // vector register here, so the call branch reloads it.
+                    let mut extern_vec_result: Option<Value> = None;
                     let call = if let Some(sym) = math_sym {
                         // Math builtin: use a direct call via declared function.
                         let sig = fn_sig(&self.module, from, to);
@@ -1037,10 +1044,29 @@ impl<'a> FunctionTranslator<'a> {
                                 sig.params.push(AbiParam::new(pty.cranelift_type()));
                             }
                         }
-                        if !matches!(&*callee_decl.ret, crate::Type::Void) {
-                            sig.returns
-                                .push(AbiParam::new(callee_decl.ret.cranelift_type()));
-                        }
+                        // Tuples, structs, arrays, enums and f32x4 come back
+                        // through a trailing output pointer and the C function
+                        // returns void. The sret slot above already covers the
+                        // indirect types; f32x4 needs its own since it is a
+                        // register value everywhere else in this backend.
+                        let extern_out = if to.extern_returns_via_pointer() {
+                            sig.params.push(AbiParam::new(I64)); // output pointer
+                            Some(output_slot.unwrap_or_else(|| {
+                                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                                    kind: StackSlotKind::ExplicitSlot,
+                                    size: to.size(decls) as u32,
+                                    align_shift: 4,
+                                    key: None,
+                                });
+                                self.builder.ins().stack_addr(I64, slot, 0)
+                            }))
+                        } else {
+                            if !matches!(&*callee_decl.ret, crate::Type::Void) {
+                                sig.returns
+                                    .push(AbiParam::new(callee_decl.ret.cranelift_type()));
+                            }
+                            None
+                        };
                         sig.call_conv = cranelift_codegen::isa::CallConv::SystemV;
 
                         let mut args = vec![context];
@@ -1087,8 +1113,16 @@ impl<'a> FunctionTranslator<'a> {
                                 args.push(arg_val);
                             }
                         }
+                        if let Some(addr) = extern_out {
+                            args.push(addr);
+                        }
                         let sref = self.builder.import_signature(sig);
-                        self.builder.ins().call_indirect(sref, fn_ptr, &args)
+                        let call = self.builder.ins().call_indirect(sref, fn_ptr, &args);
+                        if let (Some(addr), crate::Type::Float32x4) = (extern_out, &*to) {
+                            extern_vec_result =
+                                Some(self.builder.ins().load(F32X4, MemFlags::new(), addr, 0));
+                        }
+                        call
                     } else if is_builtin {
                         // Other builtins (assert, print, putc): indirect call.
                         // assert needs the globals pointer as the first arg so
@@ -1158,7 +1192,9 @@ impl<'a> FunctionTranslator<'a> {
                         self.builder.ins().call_indirect(sref, fn_ptr, &args)
                     };
 
-                    if let Some(addr) = output_slot {
+                    if let Some(vec) = extern_vec_result {
+                        vec
+                    } else if let Some(addr) = output_slot {
                         addr
                     } else if let Some(result) = self.builder.inst_results(call).first() {
                         *result

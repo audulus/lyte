@@ -1,0 +1,21 @@
+// Test: extern functions may return tuples, structs, arrays, enums and
+// f32x4; the host writes the result through a trailing output pointer.
+// args: --check
+
+struct Pt { x: i32, y: i32 }
+enum Mode { Off, On }
+
+extern fn host_pair(x: i32) -> (i32, i32)
+extern fn host_pt(x: i32) -> Pt
+extern fn host_arr(x: i32) -> [i32; 2]
+extern fn host_mode() -> Mode
+extern fn host_vec() -> f32x4
+
+fn main() -> i32 {
+    var p = host_pair(3)
+    var q = host_pt(3)
+    var a = host_arr(3)
+    var m = host_mode()
+    var v = host_vec()
+    p.0 + p.1 + q.x + a[1] + (v[0] as i32) + (if m == .On { 1 } else { 0 })
+}

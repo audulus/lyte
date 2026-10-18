@@ -2217,6 +2217,17 @@ impl<'a> FunctionTranslator<'a> {
                             .get(&callee_name)
                             .expect("extern function not in globals");
 
+                        // Aggregate results (tuples, structs, arrays) come back
+                        // through a trailing output pointer and the C function
+                        // returns void.
+                        let ret_ty = self.expr_type(call_expr);
+                        let output_slot = if ret_ty.extern_returns_via_pointer() {
+                            let size = ret_ty.size(self.decls) as u32;
+                            Some(self.alloc_memory(size))
+                        } else {
+                            None
+                        };
+
                         // For extern calls, push C-level args. Slices expand
                         // to (data_ptr, i32 len) at the host boundary.
                         let mut c_arg_count: u8 = 0;
@@ -2258,21 +2269,32 @@ impl<'a> FunctionTranslator<'a> {
                                 c_arg_count += 1;
                             }
                         }
+                        if let Some(slot) = output_slot {
+                            func.emit(StackOp::LocalAddr(slot));
+                            c_arg_count += 1;
+                        }
                         assert!(
                             c_arg_count <= 8,
                             "stack extern call has too many C-level arguments"
                         );
-                        let ret_ty = self.expr_type(call_expr);
                         func.emit(StackOp::CallExtern {
                             globals_offset,
                             args: c_arg_count,
-                            ret: stack_extern_ret_type(ret_ty),
+                            ret: if output_slot.is_some() {
+                                StackExternRet::Void
+                            } else {
+                                stack_extern_ret_type(ret_ty)
+                            },
                         });
                         // Bridge the return value back to the window the
                         // surrounding codegen expects. The extern handler
                         // pushes a zero placeholder for void returns so
                         // translate_call's +1 invariant still holds.
-                        if matches!(&*ret_ty, Type::Float32) {
+                        if let Some(slot) = output_slot {
+                            // Replace the placeholder with the result address.
+                            func.emit(StackOp::Drop);
+                            func.emit(StackOp::LocalAddr(slot));
+                        } else if matches!(&*ret_ty, Type::Float32) {
                             func.emit(StackOp::BitsToFF);
                         } else if matches!(&*ret_ty, Type::Float64) {
                             func.emit(StackOp::BitsToDD);

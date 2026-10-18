@@ -106,6 +106,32 @@ impl TypeID {
         Self(Intern::new(ty))
     }
 
+    /// Whether an extern function result crosses the C boundary through a
+    /// trailing output pointer instead of a return register.
+    ///
+    /// This is the single definition of the host ABI rule: every backend
+    /// consults it, so a host function written against `lyte.h` works the
+    /// same on the JIT, LLVM, VM and stack backends. Tuples, structs, arrays
+    /// and enums are written through the pointer in Lyte layout. `f32x4`
+    /// also goes through the pointer (four floats) because vector return
+    /// registers are not portable across platforms or libffi.
+    pub fn extern_returns_via_pointer(self) -> bool {
+        matches!(
+            &*self,
+            Type::Tuple(_) | Type::Array(_, _) | Type::Name(_, _) | Type::Float32x4
+        )
+    }
+
+    /// Whether a type can be the result of an extern function on every
+    /// backend. The scalar set is what libffi marshals in the VM; anything
+    /// in `extern_returns_via_pointer` is handed back through memory.
+    pub fn is_supported_extern_return(self) -> bool {
+        matches!(
+            &*self,
+            Type::Void | Type::Bool | Type::Int32 | Type::Float32 | Type::Float64
+        ) || self.extern_returns_via_pointer()
+    }
+
     /// Returns true if this type contains any unresolved type variable (Anon or Var).
     pub fn contains_var(self) -> bool {
         match &*self {
