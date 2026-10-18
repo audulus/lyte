@@ -2766,4 +2766,274 @@ mod tests {
             "send() was not called"
         );
     }
+
+    // ---- By-pointer results from extern functions ----
+    //
+    // An extern that returns a tuple, struct, array, enum or f32x4 receives a
+    // trailing output pointer and returns void (`TypeID::extern_returns_via_pointer`):
+    //   extern fn host_pair(x: i32) -> (i32, i32)
+    //   void host_pair(void* ctx, int32_t x, int32_t* out)
+    // The same host function must work on every backend, so each case below
+    // runs the identical program and host on all of them.
+
+    /// Compile `prelude` + `code` and bind `host` to the single extern.
+    fn extern_compiler(prelude: &str, code: &str) -> Compiler {
+        let mut compiler = Compiler::new();
+        compiler.parse(prelude, "<prelude>");
+        compiler.parse(code, "test.lyte");
+        assert!(compiler.check(), "type check failed");
+        compiler.specialize().expect("specialize failed");
+        compiler
+    }
+
+    /// Offset of the single extern function in the globals buffer.
+    fn extern_offset(compiler: &Compiler) -> usize {
+        compiler
+            .globals_info_with_offset(crate::cancel::CANCEL_FLAG_RESERVED as usize)
+            .iter()
+            .find(|g| g.4)
+            .expect("no extern global found")
+            .1
+    }
+
+    fn run_extern_vm(prelude: &str, code: &str, host: *const u8) -> i32 {
+        let compiler = extern_compiler(prelude, code);
+        let vm_program = compiler.compile_vm().expect("VM compile failed");
+        let globals_size = vm_program.globals_size;
+        assert_eq!(vm_program.extern_funcs.len(), 1);
+        // The C signature ends with the output pointer and returns void.
+        assert_eq!(
+            vm_program.extern_funcs[0].param_types.last(),
+            Some(&crate::vm::ExternType::Ptr)
+        );
+        assert_eq!(
+            vm_program.extern_funcs[0].ret_type,
+            crate::vm::ExternType::Void
+        );
+
+        let linked = crate::vm::LinkedProgram::from_program(&vm_program);
+        let mut vm = crate::vm::VM::new();
+        let mut globals = vec![0u8; globals_size];
+        let offset = vm_program.extern_funcs[0].globals_offset as usize;
+        unsafe {
+            crate::ffi::lyte_globals_bind_extern(
+                globals.as_mut_ptr(),
+                offset,
+                host,
+                std::ptr::null_mut(),
+            );
+        }
+        let func_idx = *vm_program.entry_points.get(&Name::str("main")).unwrap();
+        let result = unsafe {
+            vm.call_with_external_globals(
+                &linked,
+                &vm_program,
+                func_idx,
+                globals.as_mut_ptr(),
+                globals_size,
+            )
+        };
+        result as i32
+    }
+
+    #[cfg(has_stack_interp)]
+    fn run_extern_stack(prelude: &str, code: &str, host: *const u8) -> i32 {
+        let compiler = extern_compiler(prelude, code);
+        let stack_program = compiler.compile_stack().expect("stack VM compile failed");
+        let globals_size = stack_program.globals_size;
+        let offset = extern_offset(&compiler);
+        let mut backend = crate::stack_interp_bridge::StackBackend::new(&stack_program);
+        let mut globals = vec![0u8; globals_size];
+        unsafe {
+            crate::ffi::lyte_globals_bind_extern(
+                globals.as_mut_ptr(),
+                offset,
+                host,
+                std::ptr::null_mut(),
+            );
+        }
+        let func_idx = *stack_program.entry_points.get(&Name::str("main")).unwrap();
+        backend.call_entry(func_idx, globals.as_mut_ptr()) as i32
+    }
+
+    /// Run a native entry point with the extern bound; shared by the
+    /// Cranelift and LLVM runners.
+    #[cfg(any(feature = "cranelift", feature = "llvm"))]
+    unsafe fn call_native_entry(
+        main_ptr: *const u8,
+        globals_size: usize,
+        offset: usize,
+        host: *const u8,
+    ) -> i32 {
+        extern "C" {
+            fn setjmp(env: *mut u8) -> i32;
+        }
+        let mut globals = vec![0u8; globals_size];
+        crate::ffi::lyte_globals_bind_extern(
+            globals.as_mut_ptr(),
+            offset,
+            host,
+            std::ptr::null_mut(),
+        );
+        crate::cancel::set_cancel_callback(globals.as_mut_ptr(), None, std::ptr::null_mut());
+        let jmp_buf_ptr = globals.as_mut_ptr().add(crate::cancel::JMPBUF_OFFSET);
+        if setjmp(jmp_buf_ptr) == 0 {
+            type Entry = fn(*mut u8, *mut u8) -> i32;
+            let code_fn = mem::transmute::<_, Entry>(main_ptr);
+            code_fn(globals.as_mut_ptr(), std::ptr::null_mut())
+        } else {
+            panic!("execution was cancelled unexpectedly");
+        }
+    }
+
+    #[cfg(feature = "cranelift")]
+    fn run_extern_cranelift(prelude: &str, code: &str, host: *const u8) -> i32 {
+        let compiler = extern_compiler(prelude, code);
+        let (map, globals_size, jit) = compiler.jit_multi().unwrap();
+        let main_ptr = *map.get(&Name::str("main")).unwrap();
+        let offset = extern_offset(&compiler);
+        let result = unsafe { call_native_entry(main_ptr, globals_size, offset, host) };
+        jit.free_memory();
+        result
+    }
+
+    #[cfg(feature = "llvm")]
+    fn run_extern_llvm(prelude: &str, code: &str, host: *const u8) -> i32 {
+        let compiler = extern_compiler(prelude, code);
+        let llvm_prog = {
+            let jit = crate::llvm_jit::LLVMJIT::new();
+            let entry_points = vec![Name::str("main")];
+            jit.compile_only(&compiler.decls, &entry_points)
+                .expect("LLVM compile failed")
+        };
+        let main_ptr = *llvm_prog.entry_points.get(&Name::str("main")).unwrap();
+        let offset = extern_offset(&compiler);
+        unsafe { call_native_entry(main_ptr as *const u8, llvm_prog.globals_size, offset, host) }
+    }
+
+    /// Assert that every enabled backend produces `expected` for the same
+    /// program bound to the same host function.
+    fn assert_extern_all_backends(prelude: &str, code: &str, host: *const u8, expected: i32) {
+        assert_eq!(run_extern_vm(prelude, code, host), expected, "VM backend");
+        #[cfg(has_stack_interp)]
+        assert_eq!(
+            run_extern_stack(prelude, code, host),
+            expected,
+            "stack backend"
+        );
+        #[cfg(feature = "cranelift")]
+        assert_eq!(
+            run_extern_cranelift(prelude, code, host),
+            expected,
+            "Cranelift backend"
+        );
+        #[cfg(feature = "llvm")]
+        assert_eq!(
+            run_extern_llvm(prelude, code, host),
+            expected,
+            "LLVM backend"
+        );
+    }
+
+    /// Host for any two-i32 aggregate: writes (x + 1, x * 2).
+    unsafe extern "C" fn host_pair(_ctx: *mut u8, x: i32, out: *mut i32) {
+        *out = x + 1;
+        *out.add(1) = x * 2;
+    }
+
+    #[test]
+    fn test_extern_fn_tuple_return() {
+        assert_extern_all_backends(
+            "extern fn host_pair(x: i32) -> (i32, i32)",
+            r#"
+            fn main() -> i32 {
+                var p = host_pair(3)
+                p.0 * 10 + p.1
+            }
+            "#,
+            host_pair as *const u8,
+            46,
+        );
+    }
+
+    #[test]
+    fn test_extern_fn_struct_return() {
+        assert_extern_all_backends(
+            r#"
+            struct Pt { x: i32, y: i32 }
+            extern fn host_pt(x: i32) -> Pt
+            "#,
+            r#"
+            fn main() -> i32 {
+                var p = host_pt(3)
+                p.x * 10 + p.y
+            }
+            "#,
+            host_pair as *const u8,
+            46,
+        );
+    }
+
+    #[test]
+    fn test_extern_fn_array_return() {
+        assert_extern_all_backends(
+            "extern fn host_arr(x: i32) -> [i32; 2]",
+            r#"
+            fn main() -> i32 {
+                var a = host_arr(3)
+                a[0] * 10 + a[1]
+            }
+            "#,
+            host_pair as *const u8,
+            46,
+        );
+    }
+
+    /// Enum host: the i32 discriminant goes through the output pointer too,
+    /// so a host returning it by value would leave the slot uninitialized.
+    unsafe extern "C" fn host_mode(_ctx: *mut u8, out: *mut i32) {
+        *out = 2; // Mode.Blue
+    }
+
+    #[test]
+    fn test_extern_fn_enum_return() {
+        assert_extern_all_backends(
+            r#"
+            enum Mode { Red, Green, Blue }
+            extern fn host_mode() -> Mode
+            "#,
+            r#"
+            fn main() -> i32 {
+                var m = host_mode()
+                if m == .Blue { 7 } else { 0 }
+            }
+            "#,
+            host_mode as *const u8,
+            7,
+        );
+    }
+
+    /// f32x4 host: four floats through the output pointer on every backend,
+    /// never a vector return register.
+    unsafe extern "C" fn host_vec(_ctx: *mut u8, out: *mut f32) {
+        *out = 1.0;
+        *out.add(1) = 2.0;
+        *out.add(2) = 3.0;
+        *out.add(3) = 4.0;
+    }
+
+    #[test]
+    fn test_extern_fn_f32x4_return() {
+        assert_extern_all_backends(
+            "extern fn host_vec() -> f32x4",
+            r#"
+            fn main() -> i32 {
+                var v = host_vec()
+                (v[0] as i32) * 1000 + (v[1] as i32) * 100 + (v[2] as i32) * 10 + (v[3] as i32)
+            }
+            "#,
+            host_vec as *const u8,
+            1234,
+        );
+    }
 }

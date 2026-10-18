@@ -1087,6 +1087,41 @@ impl Checker {
             });
         }
 
+        // Extern parameters and results must be marshallable by every
+        // backend, otherwise the VM panics in codegen on types the JIT
+        // happily passes as pointers.
+        if func_decl.is_extern {
+            for param in &func_decl.params {
+                if let Some(ty) = param.ty {
+                    if !ty.is_supported_extern_param() {
+                        self.errors.push(TypeError {
+                            location: func_decl.loc,
+                            message: format!(
+                                "extern function parameter '{}' has unsupported type {} (supported: bool, i32, f32, f64, slices, references)",
+                                *param.name,
+                                ty.pretty_print()
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        // Slices and references were already rejected as results above; this
+        // catches function types and the narrow integers libffi has no
+        // return slot for.
+        if func_decl.is_extern
+            && !type_contains_bad_borrow(func_decl.ret)
+            && !func_decl.ret.is_supported_extern_return()
+        {
+            self.errors.push(TypeError {
+                location: func_decl.loc,
+                message: format!(
+                    "extern functions cannot return {} (supported: void, bool, i32, f32, f64, f32x4, tuples, structs, arrays, enums)",
+                    func_decl.ret.pretty_print()
+                ),
+            });
+        }
+
         let n = func_decl.arena.exprs.len();
         self.types.resize(n, mk_type(Type::Void));
         self.visited.clear();

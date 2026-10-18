@@ -2578,8 +2578,30 @@ impl<'a> FunctionTranslator<'a> {
                         for p in &f.params {
                             c_param_types.extend(type_to_extern_types(p.ty.unwrap()));
                         }
-                        let ret_types = type_to_extern_types(f.ret);
-                        let ret_type = ret_types[0];
+                        // Aggregate results (tuples, structs, arrays) come back
+                        // through a trailing output pointer and the C function
+                        // returns void.
+                        let output_slot = if f.ret.extern_returns_via_pointer() {
+                            c_param_types.push(crate::vm::ExternType::Ptr);
+                            Some(self.alloc_local(f.ret.size(self.decls) as u32))
+                        } else {
+                            None
+                        };
+                        // libffi marshalling has a fixed argument budget that
+                        // includes the context pointer. Catch it here rather
+                        // than panicking on the first call at runtime.
+                        assert!(
+                            c_param_types.len() + 1 <= crate::vm::MAX_EXTERN_ARGS,
+                            "extern function {} has too many C-level arguments ({} including context; max {})",
+                            f.name,
+                            c_param_types.len() + 1,
+                            crate::vm::MAX_EXTERN_ARGS
+                        );
+                        let ret_type = if output_slot.is_some() {
+                            crate::vm::ExternType::Void
+                        } else {
+                            type_to_extern_types(f.ret)[0]
+                        };
                         self.extern_funcs.push(crate::vm::ExternFuncInfo {
                             globals_offset,
                             param_types: c_param_types.clone(),
@@ -2640,12 +2662,31 @@ impl<'a> FunctionTranslator<'a> {
                                 c_arg_count += 1;
                             }
                         }
+                        if let Some(slot) = output_slot {
+                            let addr_reg = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr {
+                                dst: addr_reg,
+                                slot,
+                            });
+                            c_arg_count += 1;
+                        }
 
                         func.emit(Opcode::CallExtern {
                             args_start,
                             arg_count: c_arg_count,
                             globals_offset,
                         });
+
+                        // An aggregate result lives in the output slot; hand
+                        // back its address like a regular sret call does.
+                        if let Some(slot) = output_slot {
+                            let addr_reg = self.alloc_reg();
+                            func.emit(Opcode::LocalAddr {
+                                dst: addr_reg,
+                                slot,
+                            });
+                            return addr_reg;
+                        }
 
                         let result_reg = self.alloc_reg();
                         func.emit(Opcode::Move {

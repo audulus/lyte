@@ -321,7 +321,7 @@ pub(crate) mod tags {
 }
 
 /// Maximum number of C-level arguments for an extern function (including context).
-const MAX_EXTERN_ARGS: usize = 16;
+pub(crate) const MAX_EXTERN_ARGS: usize = 16;
 
 /// Maximum call stack depth before the VM traps with "call stack overflow".
 /// Must be a hard cap — an unbounded Vec would grow until OOM.
