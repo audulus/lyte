@@ -3574,11 +3574,30 @@ impl<'a> FunctionTranslator<'a> {
             (Type::Float64, Type::Float32) => {
                 func.emit(Opcode::F64ToF32 { dst, src });
             }
-            (Type::Int32, Type::Int8) | (Type::UInt32, Type::Int8) => {
+            (Type::Int32 | Type::UInt32 | Type::UInt8, Type::Int8) => {
                 func.emit(Opcode::I32ToI8 { dst, src });
             }
             (Type::Int8, Type::Int32) => {
                 func.emit(Opcode::I8ToI32 { dst, src });
+            }
+            (Type::Int8, Type::UInt32) => {
+                // Sign-extend to 32 bits, then keep the low 32 bits as u32.
+                func.emit(Opcode::I8ToI32 { dst, src });
+                func.emit(Opcode::I64ToU32 { dst, src: dst });
+            }
+            (Type::Int32 | Type::UInt32 | Type::Int8, Type::UInt8)
+            | (Type::UInt8, Type::Int32 | Type::UInt32) => {
+                // u8 lives in a register as its zero-extended byte value.
+                let mask = self.alloc_reg();
+                func.emit(Opcode::LoadImm {
+                    dst: mask,
+                    value: 0xFF,
+                });
+                func.emit(Opcode::And {
+                    dst,
+                    a: src,
+                    b: mask,
+                });
             }
             (Type::Int32, Type::UInt32) | (Type::UInt32, Type::Int32) => {
                 // Same size, just reinterpret — mask to u32.
@@ -3699,7 +3718,12 @@ impl<'a> FunctionTranslator<'a> {
     /// Emit a load instruction based on type.
     fn emit_load(&self, ty: &TypeID, dst: Reg, addr: Reg, func: &mut VMFunction) {
         match &**ty {
-            Type::Bool | Type::Int8 | Type::UInt8 => {
+            Type::Int8 => {
+                // Load8 zero-extends; i8 lives in a register sign-extended.
+                func.emit(Opcode::Load8 { dst, addr });
+                func.emit(Opcode::I8ToI32 { dst, src: dst });
+            }
+            Type::Bool | Type::UInt8 => {
                 func.emit(Opcode::Load8 { dst, addr });
             }
             Type::Int32 | Type::UInt32 | Type::Float32 => {
@@ -3724,7 +3748,12 @@ impl<'a> FunctionTranslator<'a> {
         func: &mut VMFunction,
     ) {
         match &**ty {
-            Type::Bool | Type::Int8 | Type::UInt8 => {
+            Type::Int8 => {
+                let addr = self.emit_offset_addr(base, offset, func);
+                func.emit(Opcode::Load8 { dst, addr });
+                func.emit(Opcode::I8ToI32 { dst, src: dst });
+            }
+            Type::Bool | Type::UInt8 => {
                 let addr = self.emit_offset_addr(base, offset, func);
                 func.emit(Opcode::Load8 { dst, addr });
             }

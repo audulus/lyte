@@ -82,6 +82,10 @@ fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
             cx.next();
             Type::Int8
         }
+        Token::UInt8 => {
+            cx.next();
+            Type::UInt8
+        }
         Token::Int32 => {
             cx.next();
             Type::Int32
@@ -1314,6 +1318,7 @@ mod tests {
         let func = mk_type(Type::Func(tup, int8));
         test_type("void", mk_type(Type::Void));
         test_type("i8", int8);
+        test_type("u8", mk_type(Type::UInt8));
         test_type("i32", int32);
         test_type("⟨T⟩", typevar("T"));
         test_type("typevar T", typevar("T"));

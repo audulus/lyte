@@ -52,6 +52,7 @@ pub enum Token {
     Void,
     Bool,
     Int8,
+    UInt8,
     Int32,
     UInt32,
     Int64,
@@ -200,6 +201,7 @@ impl Lexer {
                 "while" => Token::While,
                 "void" => Token::Void,
                 "i8" => Token::Int8,
+                "u8" => Token::UInt8,
                 "i32" => Token::Int32,
                 "u32" => Token::UInt32,
                 "f32" => Token::Float32,
@@ -646,6 +648,7 @@ mod tests {
         assert_eq!(tokens("1.0u"), vec![InvalidNumberSuffix(Name::str("u"))]);
         assert_eq!(tokens("void"), vec![Void]);
         assert_eq!(tokens("i8"), vec![Int8]);
+        assert_eq!(tokens("u8"), vec![UInt8]);
         assert_eq!(tokens("i32"), vec![Int32]);
         assert_eq!(tokens("⟨"), vec![Lmath]);
         assert_eq!(tokens("⟩"), vec![Rmath]);

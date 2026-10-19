@@ -155,6 +155,7 @@ impl Default for Checker {
 impl Checker {
     pub fn new() -> Self {
         let int8 = mk_type(Type::Int8);
+        let uint8 = mk_type(Type::UInt8);
         let int32: TypeID = mk_type(Type::Int32);
         let uint32: TypeID = mk_type(Type::UInt32);
         let types = [Type::Int32, Type::UInt32, Type::Float32, Type::Float64];
@@ -176,6 +177,9 @@ impl Checker {
             neg_overloads.push(func(t, t));
         }
 
+        // i8: relational comparisons only (no arithmetic; widen to i32 for that)
+        rel_overloads.push(func(tuple(vec![int8, int8]), b));
+
         // f32x4: arithmetic and negation, but not relational comparisons
         let f32x4 = mk_type(Type::Float32x4);
         let f32x4_pair = tuple(vec![f32x4, f32x4]);
@@ -187,6 +191,14 @@ impl Checker {
         let cast_overloads = vec![
             func(int8, int32),
             func(int32, int8),
+            func(uint8, int32),
+            func(int32, uint8),
+            func(uint8, uint32),
+            func(uint32, uint8),
+            func(int8, uint8),
+            func(uint8, int8),
+            func(int8, uint32),
+            func(uint32, int8),
             func(int32, uint32),
             func(uint32, int32),
             func(int32, float32),

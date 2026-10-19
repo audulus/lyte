@@ -76,7 +76,8 @@ Note for Lua users: Lua lets one variable hold different kinds of values over ti
 | `f32` | A decimal number (float) | `3.14`, `-0.5`, `1.0` |
 | `bool` | True or false | `true`, `false` |
 | `str` | Text (a string in quotes) | `"hello"` |
-| `i8` | A very small whole number, used for individual characters | `65` (the letter `A`) |
+| `i8` | A very small whole number from -128 to 127, used for individual characters. Supports comparisons and casts but not arithmetic | `65` (the letter `A`) |
+| `u8` | A small whole number from 0 to 255 (an unsigned byte). Like `i8`, it supports casts and equality but not arithmetic or ordering | `(200 as u8)`, `(255 as u8)` |
 | `u32` | A whole number that cannot be negative (unsigned) | `42`, `0` |
 
 Single characters can also be written with single quotes: `'a'`, `'Z'`, `'\n'` (newline). This is called a character literal.
@@ -1326,7 +1327,8 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 | `f32` | Decimal number |
 | `bool` | `true` or `false` |
 | `str` | Text in double quotes |
-| `i8` | Very small whole number (used for characters) |
+| `i8` | Very small whole number, -128 to 127 (used for characters; comparisons and casts, no arithmetic) |
+| `u8` | Unsigned byte, 0 to 255 (casts only; no arithmetic or comparison) |
 | `u32` | Whole number, cannot be negative |
 | `f64` | Higher-precision decimal — present in the language but may not apply in Audulus |
 
