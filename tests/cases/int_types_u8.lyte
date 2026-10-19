@@ -1,0 +1,44 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // u8 holds the full 0..255 range, unlike i8.
+    var a: u8
+    a = 200 as u8
+    assert(a as i32 == 200)
+    assert(a as u32 == 200u32)
+
+    var b: u8
+    b = 255 as u8
+    assert(b as i32 == 255)
+
+    // Narrowing wraps to the low byte.
+    assert((300 as u8) as i32 == 44)
+    assert(((0 - 1) as u8) as i32 == 255)
+    assert((256u32 as u8) as i32 == 0)
+
+    // u8 round-trips through memory as an unsigned byte.
+    var bytes: [u8; 4]
+    bytes[0] = 128 as u8
+    bytes[1] = 255 as u8
+    bytes[2] = 1 as u8
+    bytes[3] = 0 as u8
+    var sum = 0
+    var i = 0
+    while i < 4 {
+        sum = sum + bytes[i] as i32
+        i = i + 1
+    }
+    assert(sum == 384)
+
+    // Equality between u8 values.
+    assert(bytes[1] == b)
+}

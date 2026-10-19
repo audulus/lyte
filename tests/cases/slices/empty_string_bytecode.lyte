@@ -13,19 +13,20 @@
 //      8: IMul { dst: 4, a: 2, b: 3 }
 //      9: IAdd { dst: 2, a: 1, b: 4 }
 //     10: Load8 { dst: 3, addr: 2 }
-//     11: LoadImm { dst: 2, value: 0 }
-//     12: I32ToI8 { dst: 4, src: 2 }
-//     13: IEq { dst: 2, a: 3, b: 4 }
-//     14: Assert { src: 2 }
-//     15: LocalAddr { dst: 2, slot: 2 }
-//     16: LoadImm { dst: 3, value: 0 }
-//     17: Store8Off { base: 2, offset: 0, src: 3 }
-//     18: MemEq { dst: 3, a: 1, b: 2, size: 1 }
-//     19: Assert { src: 3 }
-//     20: LoadImm { dst: 1, value: 0 }
-//     21: Move { dst: 0, src: 1 }
-//     22: RestoreRegs { start_reg: 1, count: 4, slot: 32 }
-//     23: Return
+//     11: I8ToI32 { dst: 3, src: 3 }
+//     12: LoadImm { dst: 2, value: 0 }
+//     13: I32ToI8 { dst: 4, src: 2 }
+//     14: IEq { dst: 2, a: 3, b: 4 }
+//     15: Assert { src: 2 }
+//     16: LocalAddr { dst: 2, slot: 2 }
+//     17: LoadImm { dst: 3, value: 0 }
+//     18: Store8Off { base: 2, offset: 0, src: 3 }
+//     19: MemEq { dst: 3, a: 1, b: 2, size: 1 }
+//     20: Assert { src: 3 }
+//     21: LoadImm { dst: 1, value: 0 }
+//     22: Move { dst: 0, src: 1 }
+//     23: RestoreRegs { start_reg: 1, count: 4, slot: 32 }
+//     24: Return
 
 main {
     var s = ""

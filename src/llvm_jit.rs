@@ -3122,12 +3122,17 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 .build_float_cast(val.into_float_value(), self.state.f32_ty(), "fdemote")
                 .unwrap()
                 .into(),
-            (crate::Type::Int8, crate::Type::Int32) => self
+            (crate::Type::Int8, crate::Type::Int32 | crate::Type::UInt32) => self
                 .builder()
                 .build_int_s_extend(val.into_int_value(), self.i32_ty(), "sext")
                 .unwrap()
                 .into(),
-            (crate::Type::Int32, crate::Type::Int8) => self
+            (crate::Type::UInt8, crate::Type::Int32 | crate::Type::UInt32) => self
+                .builder()
+                .build_int_z_extend(val.into_int_value(), self.i32_ty(), "zext")
+                .unwrap()
+                .into(),
+            (crate::Type::Int32 | crate::Type::UInt32, crate::Type::Int8 | crate::Type::UInt8) => self
                 .builder()
                 .build_int_truncate(val.into_int_value(), self.i8_ty(), "trunc")
                 .unwrap()

@@ -2025,8 +2025,16 @@ impl<'a> FunctionTranslator<'a> {
                     (crate::Type::Float64, crate::Type::Float32) => {
                         self.builder.ins().fdemote(F32, val)
                     }
-                    (crate::Type::Int8, crate::Type::Int32) => self.builder.ins().sextend(I32, val),
-                    (crate::Type::Int32, crate::Type::Int8) => self.builder.ins().ireduce(I8, val),
+                    (crate::Type::Int8, crate::Type::Int32 | crate::Type::UInt32) => {
+                        self.builder.ins().sextend(I32, val)
+                    }
+                    (crate::Type::UInt8, crate::Type::Int32 | crate::Type::UInt32) => {
+                        self.builder.ins().uextend(I32, val)
+                    }
+                    (
+                        crate::Type::Int32 | crate::Type::UInt32,
+                        crate::Type::Int8 | crate::Type::UInt8,
+                    ) => self.builder.ins().ireduce(I8, val),
                     _ => val,
                 }
             }

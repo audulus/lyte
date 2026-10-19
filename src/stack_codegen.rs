@@ -3001,6 +3001,21 @@ impl<'a> FunctionTranslator<'a> {
             (Type::Float64, Type::Float32) => func.emit(StackOp::F64ToF32D),
             (Type::Int32, Type::Int8) | (Type::UInt32, Type::Int8) => func.emit(StackOp::I32ToI8),
             (Type::Int8, Type::Int32) => func.emit(StackOp::I8ToI32),
+            (Type::Int8, Type::UInt32) => {
+                func.emit(StackOp::I8ToI32);
+                func.emit(StackOp::I64ToU32);
+            }
+            (Type::Int8, Type::UInt8) | (Type::UInt8, Type::Int8) => {
+                // Same sign-extended byte form on this backend.
+            }
+            // This backend's Load8 sign-extends, so a u8 is kept in its
+            // sign-extended byte form like i8 (that keeps `==` consistent
+            // between loaded and cast values) and masked when widened.
+            (Type::Int32 | Type::UInt32, Type::UInt8) => func.emit(StackOp::I32ToI8),
+            (Type::UInt8, Type::Int32 | Type::UInt32) => {
+                func.emit(StackOp::I64Const(0xFF));
+                func.emit(StackOp::And);
+            }
             (Type::Int32, Type::UInt32) | (Type::UInt32, Type::Int32) => {
                 func.emit(StackOp::I64ToU32)
             }

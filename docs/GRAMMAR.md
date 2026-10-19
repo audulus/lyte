@@ -27,7 +27,7 @@ keyword      = "if" | "else" | "while" | "for" | "in" | "return"
              | "var" | "let" | "fn" | "struct" | "enum" | "macro"
              | "interface" | "where" | "arena" | "as"
              | "true" | "false"
-             | "void" | "bool" | "i8" | "i32" | "u32" | "f32" | "f64" ;
+             | "void" | "bool" | "i8" | "u8" | "i32" | "u32" | "f32" | "f64" ;
 
 (* Operators and punctuation *)
 (* ->  or  U+2192 (→)          arrow
@@ -48,7 +48,7 @@ keyword      = "if" | "else" | "while" | "for" | "in" | "return"
 type         = basic_type { "->" basic_type } ;
 
 basic_type   = "void" | "bool"
-             | "i8" | "i32" | "u32" | "f32" | "f64"
+             | "i8" | "u8" | "i32" | "u32" | "f32" | "f64"
              | "⟨" id "⟩"
              | "typevar" id
              | "[" type "]"                        (* slice *)

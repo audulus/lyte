@@ -1,0 +1,43 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    let neg = (0 - 1) as i8
+    let small = 5 as i8
+    let big = 100 as i8
+
+    // Signed ordering on i8.
+    assert(neg < small)
+    assert(big > small)
+    assert(neg <= neg)
+    assert(big >= small)
+    assert('a' < 'b')
+
+    // A negative i8 loaded from memory equals and orders like a cast one.
+    var bytes: [i8; 2]
+    bytes[0] = (0 - 128) as i8
+    bytes[1] = 127 as i8
+    assert(bytes[0] == (0 - 128) as i8)
+    assert(bytes[0] < bytes[1])
+    assert(bytes[0] < 0 as i8)
+
+    // i8 <-> u8 reinterpret the byte.
+    assert((neg as u8) as i32 == 255)
+    assert(((200 as u8) as i8) as i32 == -56)
+
+    // i8 <-> u32 sign-extend then reinterpret.
+    assert((neg as u32) == 4294967295u32)
+    assert(((4294967295u32 as i8) as i32) == -1)
+}
