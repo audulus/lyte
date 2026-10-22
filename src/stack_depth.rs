@@ -98,6 +98,7 @@ pub fn stack_delta(op: &StackOp) -> i32 {
         | StackOp::I32ToI8
         | StackOp::I8ToI32
         | StackOp::I64ToU32
+        | StackOp::I64ToI32
         | StackOp::Load8
         | StackOp::Load32
         | StackOp::Load64

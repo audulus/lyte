@@ -192,7 +192,7 @@ impl<'a> Gen<'a> {
             0 => "a".into(),
             1 => "b".into(),
             2 => {
-                let ops = ["+", "-", "*"];
+                let ops = ["+", "-", "*", "&", "|", "~"];
                 let op = ops[self.next() as usize % ops.len()];
                 let l = self.gen_simple_expr(depth - 1);
                 let r = self.gen_simple_expr(depth - 1);
@@ -221,9 +221,10 @@ impl<'a> Gen<'a> {
             // Variable reference — int only (20%)
             2..=4 => self.gen_int_var(vars),
 
-            // Binary arithmetic (20%) — no division to avoid safety errors
+            // Binary arithmetic and bitwise ops (20%) — no division or
+            // shifts, to avoid safety errors and runaway magnitudes
             5..=7 => {
-                let ops = ["+", "-", "*"];
+                let ops = ["+", "-", "*", "&", "|", "~"];
                 let op = ops[self.next() as usize % ops.len()];
                 let l = self.gen_expr(vars, has_func, depth - 1);
                 let r = self.gen_expr(vars, has_func, depth - 1);

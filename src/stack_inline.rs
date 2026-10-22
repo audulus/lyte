@@ -72,7 +72,7 @@ fn is_safe_to_inline(op: &StackOp) -> bool {
         StackOp::Shl | StackOp::Shr | StackOp::UShr |
         StackOp::I32ToF64 |
         StackOp::F64ToI32 | StackOp::F32ToF64 | StackOp::F64ToF32 |
-        StackOp::I32ToI8 | StackOp::I8ToI32 | StackOp::I64ToU32 |
+        StackOp::I32ToI8 | StackOp::I8ToI32 | StackOp::I64ToU32 | StackOp::I64ToI32 |
         StackOp::I64Const(_) | StackOp::F32Const(_) | StackOp::F64Const(_) |
         // F-window f32 variants are also pure (no side effects outside
         // their own window / spill buffer).

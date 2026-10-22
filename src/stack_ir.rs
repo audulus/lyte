@@ -120,6 +120,8 @@ pub enum StackOp {
     I32ToI8,
     I8ToI32,
     I64ToU32,
+    /// Sign-extend the low 32 bits (normalize an i32 after a left shift).
+    I64ToI32,
 
     // === Memory loads (pop addr, push value) ===
     Load8,
@@ -792,6 +794,7 @@ impl fmt::Display for StackOp {
             StackOp::I32ToI8 => write!(f, "convert.i32_to_i8"),
             StackOp::I8ToI32 => write!(f, "convert.i8_to_i32"),
             StackOp::I64ToU32 => write!(f, "convert.i64_to_u32"),
+            StackOp::I64ToI32 => write!(f, "convert.i64_to_i32"),
             StackOp::Load8 => write!(f, "i8.load"),
             StackOp::Load32 => write!(f, "i32.load"),
             StackOp::Load64 => write!(f, "i64.load"),

@@ -34,9 +34,10 @@ keyword      = "if" | "else" | "while" | "for" | "in" | "return"
    ..                           range
    ==  !=  <=  >=  <  >        comparison
    ||  &&                       logical
-   +  -  *  /  ^  !            arithmetic / unary
+   +  -  *  /  %  ^  !         arithmetic / unary
+   &  |  ~  <<  >>             bitwise (binary ~ is xor; prefix ~ is complement)
    =                            assignment
-   |                            lambda param delimiter
+   |                            lambda param delimiter (bitwise or in binary position)
    .  :  ,  ;  @               misc punctuation
    ⟨ ⟩                         math-angle typevar delimiters (U+27E8, U+27E9)
    ⋅                            alternate multiply (U+22C5)                    *)
@@ -72,7 +73,11 @@ if_expr      = expr block [ "else" ( "if" if_expr | block ) ] ;
 assign       = equality { "=" equality } ;
 equality     = logic { ( "==" | "!=" ) logic } ;
 logic        = relation { ( "||" | "&&" ) relation } ;
-relation     = sum { ( "<" | ">" | "<=" | ">=" ) sum } ;
+relation     = bitor { ( "<" | ">" | "<=" | ">=" ) bitor } ;
+bitor        = bitxor { "|" bitxor } ;
+bitxor       = bitand { "~" bitand } ;
+bitand       = shift { "&" shift } ;
+shift        = sum { ( "<<" | ">>" ) sum } ;
 sum          = term { ( "+" | "-" ) term } ;
 term         = power { ( "*" | "/" ) power } ;
 power        = factor { "^" factor } ;
@@ -80,6 +85,7 @@ power        = factor { "^" factor } ;
 factor       = "-" factor
              | "+" factor
              | "!" factor
+             | "~" factor
              | postfix ;
 
 postfix      = atom { "(" [ exprlist ] ")"         (* function call *)
@@ -170,8 +176,12 @@ caselist     = id { "," id } ;
 | 2          | `\|\|` `&&`        | Left          |
 | 3          | `==` `!=`          | Left          |
 | 4          | `<` `>` `<=` `>=`  | Left          |
-| 5          | `+` `-`            | Left          |
-| 6          | `*` `/` `%`        | Left          |
-| 7          | `^`                | Left          |
-| 8          | `-` `+` `!` (unary)| Right (prefix)|
-| 9          | `()` `[]` `.` `:` `as` | Left (postfix) |
+| 5          | `\|` (bitwise or) | Left          |
+| 6          | `~` (bitwise xor)  | Left          |
+| 7          | `&` (bitwise and)  | Left          |
+| 8          | `<<` `>>`          | Left          |
+| 9          | `+` `-`            | Left          |
+| 10         | `*` `/` `%`        | Left          |
+| 11         | `^`                | Left          |
+| 12         | `-` `+` `!` `~` (unary)| Right (prefix)|
+| 13         | `()` `[]` `.` `:` `as` | Left (postfix) |

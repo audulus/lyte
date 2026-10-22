@@ -1,0 +1,21 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // `i & 7` lies in [0, 7], so the index is in bounds without a requires
+    var buf: [i32; 8]
+    var i = 0
+    while i < 100 {
+        buf[i & 7] = i
+        i = i + 1
+    }
+    assert(buf[3] == 99)
+    assert(buf[4] == 92)
+
+    // a right shift of a non-negative value can't grow it
+    var j = 7
+    assert(buf[j >> 1] == 99)
+}

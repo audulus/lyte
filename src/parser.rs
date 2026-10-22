@@ -63,9 +63,20 @@ fn parse_typelist(typevars: &[Name], cx: &mut ParseContext) -> Vec<TypeID> {
         cx.next();
     }
 
-    expect(Token::Greater, cx);
+    expect_close_angle(cx);
 
     r
+}
+
+/// Consumes the `>` that closes a type or typevar list. The lexer turns the
+/// tail of a nested `Foo<Bar<T>>` into a single `>>` shift token, so split
+/// that back into two `>`: consume one here and leave the other pending.
+fn expect_close_angle(cx: &mut ParseContext) {
+    if cx.lex.tok == Token::Rshift {
+        cx.lex.tok = Token::Greater;
+    } else {
+        expect(Token::Greater, cx);
+    }
 }
 
 fn parse_basic_type(typevars: &[Name], cx: &mut ParseContext) -> TypeID {
@@ -272,6 +283,11 @@ fn binop(tok: &Token, lhs: ExprID, rhs: ExprID) -> Expr {
         Token::Power => Binop::Pow,
         Token::Or => Binop::Or,
         Token::And => Binop::And,
+        Token::Ampersand => Binop::BitAnd,
+        Token::Pipe => Binop::BitOr,
+        Token::Tilde => Binop::BitXor,
+        Token::Lshift => Binop::Shl,
+        Token::Rshift => Binop::Shr,
         _ => {
             unreachable!("expected binary operator token, got {:?}", tok)
         }
@@ -379,7 +395,7 @@ fn parse_eq(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> 
 }
 
 fn parse_rel(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
-    let mut lhs = parse_sum(arena, typevars, cx);
+    let mut lhs = parse_bitor(arena, typevars, cx);
 
     while cx.lex.tok == Token::Leq
         || cx.lex.tok == Token::Geq
@@ -389,7 +405,54 @@ fn parse_rel(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) ->
         let t = cx.lex.tok.clone();
         let loc = cx.lex.loc;
         cx.next();
-        let rhs = parse_sum(arena, typevars, cx);
+        let rhs = parse_bitor(arena, typevars, cx);
+
+        lhs = arena.add(binop(&t, lhs, rhs), loc)
+    }
+
+    lhs
+}
+
+// Bitwise operators sit between the comparisons and the arithmetic, as in
+// Rust and Lua: `a & b == 0` is `(a & b) == 0`, and `x << 2 + 1` is
+// `x << (2 + 1)`. Lowest to highest: `|`, `~`, `&`, `<<` `>>`.
+fn parse_bitor(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    parse_left_assoc(arena, typevars, cx, &[Token::Pipe], parse_bitxor)
+}
+
+fn parse_bitxor(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    parse_left_assoc(arena, typevars, cx, &[Token::Tilde], parse_bitand)
+}
+
+fn parse_bitand(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    parse_left_assoc(arena, typevars, cx, &[Token::Ampersand], parse_shift)
+}
+
+fn parse_shift(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext) -> ExprID {
+    parse_left_assoc(
+        arena,
+        typevars,
+        cx,
+        &[Token::Lshift, Token::Rshift],
+        parse_sum,
+    )
+}
+
+/// One left-associative precedence level: `next { op next }` for any of `ops`.
+fn parse_left_assoc(
+    arena: &mut ExprArena,
+    typevars: &[Name],
+    cx: &mut ParseContext,
+    ops: &[Token],
+    next: fn(&mut ExprArena, &[Name], &mut ParseContext) -> ExprID,
+) -> ExprID {
+    let mut lhs = next(arena, typevars, cx);
+
+    while token_in(&cx.lex.tok, ops) {
+        let t = cx.lex.tok.clone();
+        let loc = cx.lex.loc;
+        cx.next();
+        let rhs = next(arena, typevars, cx);
 
         lhs = arena.add(binop(&t, lhs, rhs), loc)
     }
@@ -455,6 +518,13 @@ fn parse_factor(arena: &mut ExprArena, typevars: &[Name], cx: &mut ParseContext)
             cx.next();
             let e = parse_factor(arena, typevars, cx);
             arena.add(Expr::Unop(Unop::Not, e), cx.lex.loc)
+        }
+        Token::Tilde => {
+            // Report at the operator, not past the end of the operand.
+            let loc = cx.lex.loc;
+            cx.next();
+            let e = parse_factor(arena, typevars, cx);
+            arena.add(Expr::Unop(Unop::BitNot, e), loc)
         }
         _ => parse_postfix(arena, typevars, cx),
     }
@@ -936,7 +1006,7 @@ fn parse_typevar_list(cx: &mut ParseContext) -> Vec<Name> {
         cx.next();
     }
 
-    expect(Token::Greater, cx);
+    expect_close_angle(cx);
 
     r
 }

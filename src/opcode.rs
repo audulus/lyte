@@ -511,6 +511,13 @@ pub enum Opcode {
         src: Reg,
     },
 
+    /// Sign-extend the low 32 bits: normalizes an i32 after a left shift,
+    /// since registers hold i32 values sign-extended to 64 bits.
+    I64ToI32 {
+        dst: Reg,
+        src: Reg,
+    },
+
     // ============ Memory Operations ============
     /// Load 8-bit value from memory: dst = mem[addr]
     Load8 {
@@ -1063,6 +1070,7 @@ impl Opcode {
             | Opcode::I32ToI8 { dst, .. }
             | Opcode::I8ToI32 { dst, .. }
             | Opcode::I64ToU32 { dst, .. }
+            | Opcode::I64ToI32 { dst, .. }
             | Opcode::Load8 { dst, .. }
             | Opcode::Load32 { dst, .. }
             | Opcode::Load64 { dst, .. }
@@ -1236,6 +1244,7 @@ impl Opcode {
             | Opcode::I32ToI8 { dst, .. }
             | Opcode::I8ToI32 { dst, .. }
             | Opcode::I64ToU32 { dst, .. }
+            | Opcode::I64ToI32 { dst, .. }
             | Opcode::Load8 { dst, .. }
             | Opcode::Load32 { dst, .. }
             | Opcode::Load64 { dst, .. }
@@ -1393,7 +1402,8 @@ impl Opcode {
             | Opcode::F64ToF32 { src, .. }
             | Opcode::I32ToI8 { src, .. }
             | Opcode::I8ToI32 { src, .. }
-            | Opcode::I64ToU32 { src, .. } => *src == reg,
+            | Opcode::I64ToU32 { src, .. }
+            | Opcode::I64ToI32 { src, .. } => *src == reg,
 
             Opcode::Load8 { addr, .. }
             | Opcode::Load32 { addr, .. }
@@ -1669,7 +1679,8 @@ impl Opcode {
             | Opcode::F64ToF32 { src, .. }
             | Opcode::I32ToI8 { src, .. }
             | Opcode::I8ToI32 { src, .. }
-            | Opcode::I64ToU32 { src, .. } => {
+            | Opcode::I64ToU32 { src, .. }
+            | Opcode::I64ToI32 { src, .. } => {
                 if *src == old {
                     *src = new;
                 }
@@ -1986,7 +1997,8 @@ impl Opcode {
             | Opcode::F64ToF32 { src, .. }
             | Opcode::I32ToI8 { src, .. }
             | Opcode::I8ToI32 { src, .. }
-            | Opcode::I64ToU32 { src, .. } => f(*src),
+            | Opcode::I64ToU32 { src, .. }
+            | Opcode::I64ToI32 { src, .. } => f(*src),
             Opcode::Load8 { addr, .. }
             | Opcode::Load32 { addr, .. }
             | Opcode::Load64 { addr, .. } => f(*addr),
@@ -2268,7 +2280,8 @@ impl Opcode {
             | Opcode::F64ToF32 { dst, src }
             | Opcode::I32ToI8 { dst, src }
             | Opcode::I8ToI32 { dst, src }
-            | Opcode::I64ToU32 { dst, src } => {
+            | Opcode::I64ToU32 { dst, src }
+            | Opcode::I64ToI32 { dst, src } => {
                 *dst = map[*dst as usize];
                 *src = map[*src as usize];
             }

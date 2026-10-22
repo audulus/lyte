@@ -2609,6 +2609,10 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                 let one = v.get_type().const_int(1, false);
                 self.builder().build_and(not, one, "not1").unwrap().into()
             }
+            Unop::BitNot => {
+                let v = val.into_int_value();
+                self.builder().build_not(v, "bnot").unwrap().into()
+            }
         }
     }
 
@@ -3027,6 +3031,38 @@ impl<'a, 'ctx> FunctionTranslator<'a, 'ctx> {
                     .build_int_z_extend(result, self.ctx().i8_type(), "or_zext")
                     .unwrap()
                     .into()
+            }
+            Binop::BitAnd | Binop::BitOr | Binop::BitXor => {
+                let lhs = self.translate_expr(lhs_id, decl).into_int_value();
+                let rhs = self.translate_expr(rhs_id, decl).into_int_value();
+                let b = self.builder();
+                match op {
+                    Binop::BitAnd => b.build_and(lhs, rhs, "band").unwrap().into(),
+                    Binop::BitOr => b.build_or(lhs, rhs, "bor").unwrap().into(),
+                    _ => b.build_xor(lhs, rhs, "bxor").unwrap().into(),
+                }
+            }
+            Binop::Shl | Binop::Shr => {
+                let t = decl.types[lhs_id];
+                let lhs = self.translate_expr(lhs_id, decl).into_int_value();
+                let rhs = self.translate_expr(rhs_id, decl).into_int_value();
+                // LLVM shifts by >= the bit width are poison; mask the amount
+                // to the operand width like the other backends do.
+                let bits = lhs.get_type().get_bit_width();
+                let mask = rhs.get_type().const_int((bits - 1) as u64, false);
+                let b = self.builder();
+                let amount = b.build_and(rhs, mask, "shamt").unwrap();
+                match (op, &*t) {
+                    (Binop::Shl, _) => b.build_left_shift(lhs, amount, "shl").unwrap().into(),
+                    (_, crate::Type::UInt32) => b
+                        .build_right_shift(lhs, amount, false, "lshr")
+                        .unwrap()
+                        .into(),
+                    _ => b
+                        .build_right_shift(lhs, amount, true, "ashr")
+                        .unwrap()
+                        .into(),
+                }
             }
             Binop::Pow => {
                 // pow is handled as a call — should have been rewritten.

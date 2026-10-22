@@ -132,7 +132,7 @@ main {
 
 ### Operator Overloading
 
-Define `__add`, `__sub`, `__mul`, etc. for custom types:
+Define `__add`, `__sub`, `__mul`, `__div`, `__mod`, or the bitwise `__and`, `__or`, `__xor`, `__shl`, `__shr` for custom types:
 
 ```rust
 __add(lhs: Point, rhs: Point) -> Point {

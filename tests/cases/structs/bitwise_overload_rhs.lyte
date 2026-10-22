@@ -1,0 +1,24 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+
+struct Flags {
+    bits: i32
+}
+
+// the struct operand is on the right-hand side
+__and(a: i32, b: Flags) -> i32 {
+    return a & b.bits
+}
+
+__shl(a: i32, b: Flags) -> i32 {
+    return a << b.bits
+}
+
+main {
+    var f: Flags
+    f.bits = 6
+    assert((3 & f) == 2)
+    assert((1 << f) == 64)
+}

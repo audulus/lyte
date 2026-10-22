@@ -299,8 +299,8 @@ fn rewrite_qualified_enums(arena: &mut ExprArena, decls: &DeclTable) {
 }
 
 /// After type-checking, rewrite `Binop(op, lhs, rhs)` into
-/// `Call(__add/__sub/__mul/__div, [lhs, rhs])` when the operand type is a
-/// named (struct) type. The checker resolves the overload through its Or
+/// `Call(__add/__sub/__mul/__div/__and/..., [lhs, rhs])` when the operand
+/// type is a named (struct) type. The checker resolves the overload through its Or
 /// constraint, but the JIT/VM only handle primitive types in binop codegen.
 ///
 /// Float `%` is rewritten the same way: no backend has a primitive float
@@ -309,14 +309,18 @@ fn rewrite_overloaded_binops(fdecl: &mut FuncDecl) {
     let n = fdecl.arena.exprs.len();
     for i in 0..n {
         if let Expr::Binop(op, lhs, rhs) = fdecl.arena.exprs[i].clone() {
-            if !op.arithmetic() {
+            if !op.arithmetic() && !op.bitwise() {
                 continue;
             }
             let lhs_ty = fdecl.types[lhs];
+            let rhs_ty = fdecl.types[rhs];
             let is_float_mod = op == Binop::Mod && matches!(*lhs_ty, Type::Float32 | Type::Float64);
-            if matches!(*lhs_ty, Type::Name(_, _)) || is_float_mod {
+            // The named type may be on either side: `__shl(i32, Flags)` is
+            // as legitimate an overload as `__shl(Flags, i32)`.
+            let has_named =
+                matches!(*lhs_ty, Type::Name(_, _)) || matches!(*rhs_ty, Type::Name(_, _));
+            if has_named || is_float_mod {
                 let result_ty = fdecl.types[i];
-                let rhs_ty = fdecl.types[rhs];
                 // Build the function type: (lhs_ty, rhs_ty) -> result_ty
                 let fn_ty = func(tuple(vec![lhs_ty, rhs_ty]), result_ty);
 

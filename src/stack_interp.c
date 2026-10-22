@@ -501,6 +501,9 @@ HANDLER(op_i8_to_i32) {
 HANDLER(op_i64_to_u32) {
     t0 = t0 & 0xFFFFFFFF; NEXT();
 }
+HANDLER(op_i64_to_i32) {
+    t0 = (uint64_t)(int64_t)(int32_t)t0; NEXT();
+}
 
 // --- Memory loads (unary: transform t0) ---
 

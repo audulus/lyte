@@ -28,6 +28,18 @@ pub struct Checker {
     /// primitive float remainder instruction.
     mod_overloads: Vec<TypeID>,
 
+    /// Overloads for `&`, `|` and `~` (xor) with built-in types: i32 and u32,
+    /// same type on both sides.
+    bit_overloads: Vec<TypeID>,
+
+    /// Overloads for `<<` and `>>`. The result has the type of the left
+    /// operand; the shift amount may be i32 or u32 so that an unsuffixed
+    /// literal works with a u32 value.
+    shift_overloads: Vec<TypeID>,
+
+    /// Overloads for the bitwise complement `~x`: i32 and u32.
+    bitnot_overloads: Vec<TypeID>,
+
     /// Overloads for casting.
     cast_overloads: Vec<TypeID>,
 
@@ -180,6 +192,18 @@ impl Checker {
         // i8: relational comparisons only (no arithmetic; widen to i32 for that)
         rel_overloads.push(func(tuple(vec![int8, int8]), b));
 
+        // Bitwise operators: integers only.
+        let mut bit_overloads = vec![];
+        let mut shift_overloads = vec![];
+        let mut bitnot_overloads = vec![];
+        for t in [int32, uint32] {
+            bit_overloads.push(func(tuple(vec![t, t]), t));
+            bitnot_overloads.push(func(t, t));
+            for amount in [int32, uint32] {
+                shift_overloads.push(func(tuple(vec![t, amount]), t));
+            }
+        }
+
         // f32x4: arithmetic and negation, but not relational comparisons
         let f32x4 = mk_type(Type::Float32x4);
         let f32x4_pair = tuple(vec![f32x4, f32x4]);
@@ -219,6 +243,9 @@ impl Checker {
             vars: vec![],
             arith_overloads,
             mod_overloads,
+            bit_overloads,
+            shift_overloads,
+            bitnot_overloads,
             rel_overloads,
             neg_overloads,
             cast_overloads,
@@ -309,29 +336,15 @@ impl Checker {
                     return ty;
                 }
 
-                let argt = self.check_expr(arg, arena, decls);
-                let ft = self.fresh();
-                let alts: Vec<_> = self
-                    .neg_overloads
-                    .iter()
-                    .map(|t| Alt {
-                        ty: *t,
-                        interfaces: vec![],
-                    })
-                    .collect();
-
-                self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], None));
-
-                let r = self.fresh();
-
-                self.eq(
-                    func(argt, r),
-                    ft,
-                    arena.locs[id],
+                let overloads = self.neg_overloads.clone();
+                self.check_unary_overload(
+                    id,
+                    arg,
+                    &overloads,
                     "no match for unary negation",
-                );
-
-                r
+                    arena,
+                    decls,
+                )
             }
             Unop::Not => {
                 let argt = self.check_expr(arg, arena, decls);
@@ -344,7 +357,48 @@ impl Checker {
 
                 mk_type(Type::Bool)
             }
+            Unop::BitNot => {
+                let overloads = self.bitnot_overloads.clone();
+                self.check_unary_overload(
+                    id,
+                    arg,
+                    &overloads,
+                    "bitwise complement requires an integer",
+                    arena,
+                    decls,
+                )
+            }
         }
+    }
+
+    /// Types a prefix operator against a list of built-in `(T) -> T`
+    /// overloads via an Or constraint.
+    fn check_unary_overload(
+        &mut self,
+        id: ExprID,
+        arg: ExprID,
+        overloads: &[TypeID],
+        message: &str,
+        arena: &ExprArena,
+        decls: &DeclTable,
+    ) -> TypeID {
+        let argt = self.check_expr(arg, arena, decls);
+        let ft = self.fresh();
+        let alts: Vec<_> = overloads
+            .iter()
+            .map(|t| Alt {
+                ty: *t,
+                interfaces: vec![],
+            })
+            .collect();
+
+        self.add_constraint(Constraint::Or(ft, alts, arena.locs[id], None));
+
+        let r = self.fresh();
+
+        self.eq(func(argt, r), ft, arena.locs[id], message);
+
+        r
     }
 
     fn check_binop(
@@ -370,13 +424,17 @@ impl Checker {
             self.eq(at, bt, arena.locs[id], "assignment requires matching types");
 
             at
-        } else if op.arithmetic() {
+        } else if op.arithmetic() || op.bitwise() {
             let ft = self.fresh();
 
             let mut alts = vec![];
 
             let builtins = if op == Binop::Mod {
                 &self.mod_overloads
+            } else if op.shift() {
+                &self.shift_overloads
+            } else if op.bitwise() {
+                &self.bit_overloads
             } else {
                 &self.arith_overloads
             };
@@ -412,7 +470,11 @@ impl Checker {
                 func(tuple(vec![at, bt]), r),
                 ft,
                 arena.locs[id],
-                "no match for arithmetic operator",
+                if op.bitwise() {
+                    "no match for bitwise operator (integers only)"
+                } else {
+                    "no match for arithmetic operator"
+                },
             );
 
             r

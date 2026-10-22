@@ -572,6 +572,11 @@ pub fn format_binop(op: Binop) -> &'static str {
         Binop::Geq => ">=",
         Binop::And => "&&",
         Binop::Or => "||",
+        Binop::BitAnd => "&",
+        Binop::BitOr => "|",
+        Binop::BitXor => "~",
+        Binop::Shl => "<<",
+        Binop::Shr => ">>",
     }
 }
 
@@ -579,6 +584,7 @@ fn format_unop(op: Unop) -> &'static str {
     match op {
         Unop::Neg => "-",
         Unop::Not => "!",
+        Unop::BitNot => "~",
     }
 }
 

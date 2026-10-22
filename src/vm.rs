@@ -317,6 +317,7 @@ pub(crate) mod tags {
     pub const F32X4_MUL: u8 = 172;
     pub const F32X4_DIV: u8 = 173;
     pub const F32X4_NEG: u8 = 174; // AB: A=dst, B=src
+    pub const I64_TO_I32: u8 = 175; // AB: A=dst, B=src (sign-extend low 32 bits)
     pub const CALL_EXTERN: u8 = 160; // AD: A=args_start|arg_count, D=extern_index
 }
 
@@ -695,6 +696,7 @@ impl LinkedProgram {
             Opcode::I32ToI8 { dst, src } => PackedOp::abc(tags::I32_TO_I8, r(dst), r(src), 0),
             Opcode::I8ToI32 { dst, src } => PackedOp::abc(tags::I8_TO_I32, r(dst), r(src), 0),
             Opcode::I64ToU32 { dst, src } => PackedOp::abc(tags::I64_TO_U32, r(dst), r(src), 0),
+            Opcode::I64ToI32 { dst, src } => PackedOp::abc(tags::I64_TO_I32, r(dst), r(src), 0),
             // Memory — AB or ABC
             Opcode::Load8 { dst, addr } => PackedOp::abc(tags::LOAD8, r(dst), r(addr), 0),
             Opcode::Load32 { dst, addr } => PackedOp::abc(tags::LOAD32, r(dst), r(addr), 0),
@@ -1706,6 +1708,9 @@ impl VM {
                     }
                     tags::I64_TO_U32 => {
                         set_i64!(op.a(), (get_i64!(op.b()) as u32) as i64);
+                    }
+                    tags::I64_TO_I32 => {
+                        set_i64!(op.a(), (get_i64!(op.b()) as i32) as i64);
                     }
 
                     // Memory operations
