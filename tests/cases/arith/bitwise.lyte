@@ -1,0 +1,89 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+// assert(true)
+
+main {
+    // and / or / xor on i32 (`^` is power, so xor is `~` as in Lua)
+    assert((12 & 10) == 8)
+    assert((12 | 10) == 14)
+    assert((12 ~ 10) == 6)
+
+    // prefix ~ is the bitwise complement
+    assert(~0 == -1)
+    assert(~5 == -6)
+    assert(~0u == 4294967295u)
+
+    // shifts: >> keeps the sign on i32 and shifts in zeros on u32
+    assert(1 << 4 == 16)
+    assert(1 << 31 < 0)
+    assert((1 << 31) >> 31 == -1)
+    assert(-16 >> 2 == -4)
+    assert(256 >> 4 == 16)
+    assert(1u << 31 == 2147483648u)
+    assert(2147483648u >> 31 == 1u)
+    assert(4294967295u >> 28 == 15u)
+
+    // the shift amount may be i32 or u32; the result takes the lhs type
+    assert(1 << 3u == 8)
+    assert(1u << 3 == 8u)
+
+    // shift amounts are taken modulo 32
+    var n = 33
+    assert(1 << n == 2)
+    assert(1u << n == 2u)
+    assert(-8 >> n == -4)
+
+    // precedence: bitwise below arithmetic, above comparison;
+    // & binds tighter than ~, which binds tighter than |
+    assert(1 << 2 + 1 == 8)
+    assert(6 & 3 == 2)
+    assert(1 | 2 ~ 2 == 1)
+    assert(1 ~ 3 & 2 == 3)
+
+    // pack a MIDI 2.0 note-on (0x40903C00) and take it apart again
+    let w = (64u << 24) | (144u << 16) | (60u << 8)
+    assert(w == 1083194368u)
+    assert(w >> 24 == 64u)
+    assert((w >> 16) & 255u == 144u)
+    assert((w >> 8) & 255u == 60u)
+    assert(w & 255u == 0u)
+
+    // through variables and assignment
+    var x = 255
+    x = x & 15
+    x = x | 32
+    x = x ~ 1
+    assert(x == 46)
+    var mask = ~0u
+    mask = mask >> 16
+    assert(mask == 65535u)
+}

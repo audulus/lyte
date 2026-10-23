@@ -1,0 +1,14 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+
+struct Wrapper<T> {
+    value: T
+}
+
+main {
+    // the closing `>>` of a nested type argument list is not a shift
+    var w: Wrapper<Wrapper<i32>>
+    w.value.value = 3
+    assert(w.value.value << 1 == 6)
+}

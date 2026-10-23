@@ -1859,6 +1859,55 @@ impl<'a> FunctionTranslator<'a> {
                 }
             },
 
+            // Registers hold i32 values sign-extended and u32 values
+            // zero-extended to 64 bits; and/or/xor preserve either form.
+            Binop::BitAnd => {
+                func.emit(Opcode::And {
+                    dst,
+                    a: lhs,
+                    b: rhs,
+                });
+            }
+            Binop::BitOr => {
+                func.emit(Opcode::Or {
+                    dst,
+                    a: lhs,
+                    b: rhs,
+                });
+            }
+            Binop::BitXor => {
+                func.emit(Opcode::Xor {
+                    dst,
+                    a: lhs,
+                    b: rhs,
+                });
+            }
+
+            Binop::Shl => {
+                let b = self.shift_amount(rhs_id, rhs, func);
+                func.emit(Opcode::Shl { dst, a: lhs, b });
+                // The 64-bit shift carries into the high word; re-normalize.
+                match &*ty {
+                    Type::UInt32 => {
+                        func.emit(Opcode::I64ToU32 { dst, src: dst });
+                    }
+                    _ => {
+                        func.emit(Opcode::I64ToI32 { dst, src: dst });
+                    }
+                }
+            }
+            Binop::Shr => {
+                let b = self.shift_amount(rhs_id, rhs, func);
+                match &*ty {
+                    Type::UInt32 => {
+                        func.emit(Opcode::UShr { dst, a: lhs, b });
+                    }
+                    _ => {
+                        func.emit(Opcode::Shr { dst, a: lhs, b });
+                    }
+                }
+            }
+
             Binop::Equal => match &*ty {
                 Type::Float32 => {
                     func.emit(Opcode::FEq {
@@ -2363,9 +2412,38 @@ impl<'a> FunctionTranslator<'a> {
                     b: one,
                 });
             }
+            Unop::BitNot => {
+                func.emit(Opcode::Not { dst, src: arg });
+                if matches!(&*ty, Type::UInt32) {
+                    // Keep the u32 zero-extended in its register.
+                    func.emit(Opcode::I64ToU32 { dst, src: dst });
+                }
+            }
         }
 
         dst
+    }
+
+    /// Shift amounts are taken modulo 32 on every backend. The VM shifts
+    /// 64-bit registers, so mask the amount unless it's a literal in range.
+    fn shift_amount(&mut self, rhs_id: ExprID, rhs: Reg, func: &mut VMFunction) -> Reg {
+        if let Expr::Int(n, _) = &self.decl.arena.exprs[rhs_id] {
+            if (0..32).contains(n) {
+                return rhs;
+            }
+        }
+        let mask = self.alloc_reg();
+        func.emit(Opcode::LoadImm {
+            dst: mask,
+            value: 31,
+        });
+        let amount = self.alloc_reg();
+        func.emit(Opcode::And {
+            dst: amount,
+            a: rhs,
+            b: mask,
+        });
+        amount
     }
 
     /// Translate a function call.

@@ -1,0 +1,15 @@
+// args: --check
+// expected stdout:
+// ❌ ../tests/cases/arith/bitwise_type_error.lyte:14:17: no matching operator '&' for argument types (f32, f32) -> ?2
+//         var x = 1.5 & 2.0
+//                     ^
+// ❌ ../tests/cases/arith/bitwise_type_error.lyte:14:17: ambiguous constraint: (f32, f32) → ?2 == (f32, f32) → ?2
+//         var x = 1.5 & 2.0
+//                     ^
+// ❌ ../tests/cases/arith/bitwise_type_error.lyte:14:5: ambiguous constraint: ?2 == ?2
+//         var x = 1.5 & 2.0
+//         ^
+
+main {
+    var x = 1.5 & 2.0
+}

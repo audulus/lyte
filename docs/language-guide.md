@@ -459,6 +459,8 @@ Lyte lets you define exactly what `+`, `-`, `*`, and other operators mean for yo
 
 Note for Lua users: this is similar in spirit to Lua metatables. Names like `__add` and `__mul` will probably look familiar.
 
+Each overloadable operator has a fixed function name: `+` is `__add`, `-` is `__sub`, `*` is `__mul`, `/` is `__div`, `%` is `__mod`, and the bitwise operators `&`, `|`, `~`, `<<` and `>>` are `__and`, `__or`, `__xor`, `__shl` and `__shr`.
+
 You do it by defining special functions with names like `__add`, `__sub`, `__mul`:
 
 ```lyte
@@ -1367,6 +1369,9 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 | `+`, `-`, `*`, `/` | Arithmetic |
 | `%` | Modulo (remainder after division) |
 | `^` | Power (raise to an exponent) |
+| `&`, `\|`, `~` | Bitwise and / or / xor (integers only) |
+| `<<`, `>>` | Shift left / right (integers only) |
+| `~` (prefix) | Bitwise complement (flip every bit) |
 | `==`, `!=` | Equality / inequality |
 | `<`, `>`, `<=`, `>=` | Comparison |
 | `&&` | And |
@@ -1378,6 +1383,18 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 
 **Power (`^`)** raises a number to an exponent. For example, `2 ^ 8` is 256 (2 multiplied by itself 8 times).
 
+**Bitwise operators** work on `i32` and `u32` values bit by bit. `&`, `|` and `~` are and, or and exclusive-or; `<<` and `>>` shift left and right. Because `^` already means power in Lyte, exclusive-or is written with `~`, as in Lua, and a prefix `~` flips every bit (`~0u` is `4294967295u`). Both sides of `&`, `|` and `~` must have the same type; a shift amount may be `i32` or `u32` and the result has the type of the value being shifted. `>>` on an `i32` keeps the sign (an arithmetic shift) and on a `u32` shifts in zeros. Shift amounts are taken modulo 32.
+
+```lyte
+// pack a MIDI 2.0 note-on into a 32-bit word and take it apart again
+let word = (64u << 24) | (144u << 16) | (60u << 8)
+let status = (word >> 16) & 255u      // 144
+let note = (word >> 8) & 255u         // 60
+let flags = 5 ~ 1                     // 4: flip bit 0 of 5
+```
+
+Bitwise operators bind looser than arithmetic but tighter than comparisons, so `x & 7 == 0` means `(x & 7) == 0` and `n << 1 + 1` means `n << 2`. The safety checker understands `&` with a non-negative mask: `buf[i & 1023]` is accepted as in bounds for a 1024-element `buf` without a `requires` clause.
+
 ### Operator precedence
 
 When you write an expression with multiple operators, Lyte follows a defined order for which operations happen first. This is called **operator precedence**. The following table is taken directly from the official Lyte grammar, from lowest priority (evaluated last) to highest (evaluated first):
@@ -1388,11 +1405,15 @@ When you write an expression with multiple operators, Lyte follows a defined ord
 | 2 | `\|\|` `&&` | Logical and/or |
 | 3 | `==` `!=` | Equality checks |
 | 4 | `<` `>` `<=` `>=` | Comparisons |
-| 5 | `+` `-` | Addition and subtraction |
-| 6 | `*` `/` `%` | Multiplication, division, modulo |
-| 7 | `^` | Power / exponent |
-| 8 | `-` `+` `!` (prefix) | Unary operators (negation, not) |
-| 9 — highest | `()` `[]` `.` `as` | Function calls, indexing, field access, type conversion |
+| 5 | `\|` | Bitwise or |
+| 6 | `~` | Bitwise xor |
+| 7 | `&` | Bitwise and |
+| 8 | `<<` `>>` | Shifts |
+| 9 | `+` `-` | Addition and subtraction |
+| 10 | `*` `/` `%` | Multiplication, division, modulo |
+| 11 | `^` | Power / exponent |
+| 12 | `-` `+` `!` `~` (prefix) | Unary operators (negation, not, complement) |
+| 13 — highest | `()` `[]` `.` `as` | Function calls, indexing, field access, type conversion |
 
 The following examples are taken directly from Lyte's test suite, so they are confirmed correct:
 

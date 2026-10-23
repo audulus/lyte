@@ -980,6 +980,45 @@ impl SafetyChecker {
                     return lhs_range; // divisor spans zero — can't narrow
                 }
 
+                if *op == Binop::BitAnd {
+                    let lhs_range = self.check_expr(*lhs, decl, decls);
+                    let rhs_range = self.check_expr(*rhs, decl, decls);
+                    // `x & m` with m >= 0 lies in [0, m] whatever x is, since
+                    // it can only clear bits of m. So `buf[i & 1023]` is in
+                    // bounds for a 1024-element buffer. With both operands
+                    // non-negative the tighter bound applies.
+                    let mut max: Option<i64> = None;
+                    if lhs_range.min >= 0 {
+                        max = Some(lhs_range.max);
+                    }
+                    if rhs_range.min >= 0 {
+                        max = Some(max.map_or(rhs_range.max, |m| m.min(rhs_range.max)));
+                    }
+                    if let Some(max) = max {
+                        return IndexInterval {
+                            min: 0,
+                            max,
+                            non_zero: false,
+                        };
+                    }
+                    return IndexInterval::default();
+                }
+
+                if *op == Binop::Shr {
+                    let lhs_range = self.check_expr(*lhs, decl, decls);
+                    self.check_expr(*rhs, decl, decls);
+                    // Shifting a non-negative value right can neither grow it
+                    // nor make it negative.
+                    if lhs_range.min >= 0 {
+                        return IndexInterval {
+                            min: 0,
+                            max: lhs_range.max,
+                            non_zero: false,
+                        };
+                    }
+                    return IndexInterval::default();
+                }
+
                 if *op == Binop::Assign {
                     self.check_expr(*lhs, decl, decls);
                     let rhs_range = self.check_expr(*rhs, decl, decls);

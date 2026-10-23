@@ -1,0 +1,40 @@
+// expected stdout:
+// compilation successful
+// assert(true)
+// assert(true)
+// assert(true)
+
+struct Flags {
+    bits: u32
+}
+
+__or(lhs: Flags, rhs: Flags) -> Flags {
+    var f: Flags
+    f.bits = lhs.bits | rhs.bits
+    return f
+}
+
+__and(lhs: Flags, rhs: Flags) -> Flags {
+    var f: Flags
+    f.bits = lhs.bits & rhs.bits
+    return f
+}
+
+__shl(lhs: Flags, n: i32) -> Flags {
+    var f: Flags
+    f.bits = lhs.bits << n
+    return f
+}
+
+main {
+    var a: Flags
+    a.bits = 1u
+    var b: Flags
+    b.bits = 4u
+    let c = a | b
+    assert(c.bits == 5u)
+    let d = c << 4
+    assert(d.bits == 80u)
+    let e = d & c
+    assert(e.bits == 0u)
+}

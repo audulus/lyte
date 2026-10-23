@@ -1986,6 +1986,14 @@ Lop_i8_to_i32:
     str     x2, [x20, x0, lsl #3]
     next
 
+Lop_i64_to_i32:
+    extract_a w0
+    extract_b w1
+    ldr     x2, [x20, x1, lsl #3]
+    sxtw    x2, w2                      // sign-extend low 32 bits to 64
+    str     x2, [x20, x0, lsl #3]
+    next
+
 Lop_i64_to_u32:
     extract_a w0
     extract_b w1
@@ -2257,8 +2265,9 @@ Ljump_table:
     .quad Lop_f32x4_mul         // 172: F32X4_MUL
     .quad Lop_f32x4_div         // 173: F32X4_DIV
     .quad Lop_f32x4_neg         // 174: F32X4_NEG
-    // 175-255: invalid
-    .fill 81, 8, 0             // will be Lop_invalid pointers
+    .quad Lop_i64_to_i32        // 175: I64_TO_I32
+    // 176-255: invalid
+    .fill 80, 8, 0             // will be Lop_invalid pointers
     // Actually we need the address of Lop_invalid, but .fill with a symbol
     // isn't possible. We handle this by checking tag < 156 in dispatch,
     // or just let the zero address fault (which is fine for invalid opcodes).

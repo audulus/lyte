@@ -1539,6 +1539,37 @@ impl<'a> FunctionTranslator<'a> {
                 }
                 _ => func.emit(StackOp::IRem),
             },
+            // Stack slots hold i32 values sign-extended and u32 values
+            // zero-extended to 64 bits; and/or/xor preserve either form.
+            Binop::BitAnd => func.emit(StackOp::And),
+            Binop::BitOr => func.emit(StackOp::Or),
+            Binop::BitXor => func.emit(StackOp::Xor),
+            Binop::Shl | Binop::Shr => {
+                // Shift amounts are taken modulo 32 on every backend. The
+                // stack VM shifts 64-bit values, so mask the amount unless
+                // it's a literal already in range.
+                let in_range = matches!(
+                    &self.decl.arena.exprs[rhs_id],
+                    Expr::Int(n, _) if (0..32).contains(n)
+                );
+                if !in_range {
+                    func.emit(StackOp::I64Const(31));
+                    func.emit(StackOp::And);
+                }
+                match (op, &*ty) {
+                    (Binop::Shl, Type::UInt32) => {
+                        func.emit(StackOp::Shl);
+                        func.emit(StackOp::I64ToU32);
+                    }
+                    (Binop::Shl, _) => {
+                        func.emit(StackOp::Shl);
+                        // The 64-bit shift carries into the high word.
+                        func.emit(StackOp::I64ToI32);
+                    }
+                    (_, Type::UInt32) => func.emit(StackOp::UShr),
+                    _ => func.emit(StackOp::Shr),
+                }
+            }
             Binop::Pow => match &*ty {
                 Type::Float32 => func.emit(StackOp::FPowF),
                 Type::Float64 => func.emit(StackOp::DPowD),
@@ -1986,6 +2017,13 @@ impl<'a> FunctionTranslator<'a> {
                 // Mask to 1 bit for boolean.
                 func.emit(StackOp::I64Const(1));
                 func.emit(StackOp::And);
+            }
+            Unop::BitNot => {
+                func.emit(StackOp::Not);
+                if matches!(&*ty, Type::UInt32) {
+                    // Keep the u32 zero-extended.
+                    func.emit(StackOp::I64ToU32);
+                }
             }
         }
     }

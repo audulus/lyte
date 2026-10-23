@@ -74,7 +74,10 @@
                 "match": "(?<![=!<>])=(?!=)"
             }, {
                 "name": "keyword.operator.arithmetic.lyte",
-                "match": "[+\\-*/]"
+                "match": "[+\\-*/%^]"
+            }, {
+                "name": "keyword.operator.bitwise.lyte",
+                "match": "<<|>>|[&~]"
             }, {
                 "name": "keyword.operator.comparison.lyte",
                 "match": "[<>]"

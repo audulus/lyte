@@ -406,6 +406,10 @@ impl StackVM {
                     let v = self.pop() as u32;
                     self.push(v as u64);
                 }
+                StackOp::I64ToI32 => {
+                    let v = self.pop() as i32;
+                    self.push(v as i64 as u64);
+                }
 
                 // === Memory loads ===
                 StackOp::Load8 => {

@@ -118,7 +118,8 @@ pub fn print_error_with_context(loc: Loc, message: &str) {
 pub enum Unop {
     Neg,
     Not,
-    // others?
+    /// Bitwise complement: `~x`.
+    BitNot,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -138,6 +139,16 @@ pub enum Binop {
     Geq,
     And,
     Or,
+    /// Bitwise and: `a & b`.
+    BitAnd,
+    /// Bitwise or: `a | b`.
+    BitOr,
+    /// Bitwise exclusive or: `a ~ b` (`^` is power).
+    BitXor,
+    /// Shift left: `a << b`.
+    Shl,
+    /// Shift right: `a >> b` (arithmetic for i32, logical for u32).
+    Shr,
 }
 
 impl Binop {
@@ -157,6 +168,20 @@ impl Binop {
             || self == Binop::Mod
     }
 
+    /// Bitwise operators, shifts included. Integer-only built-ins, but
+    /// overloadable for named types like the arithmetic operators.
+    pub fn bitwise(self) -> bool {
+        self == Binop::BitAnd
+            || self == Binop::BitOr
+            || self == Binop::BitXor
+            || self == Binop::Shl
+            || self == Binop::Shr
+    }
+
+    pub fn shift(self) -> bool {
+        self == Binop::Shl || self == Binop::Shr
+    }
+
     pub fn overload_name(self) -> &'static str {
         match self {
             Binop::Plus => "__add",
@@ -164,6 +189,11 @@ impl Binop {
             Binop::Mult => "__mul",
             Binop::Div => "__div",
             Binop::Mod => "__mod",
+            Binop::BitAnd => "__and",
+            Binop::BitOr => "__or",
+            Binop::BitXor => "__xor",
+            Binop::Shl => "__shl",
+            Binop::Shr => "__shr",
             _ => panic!(),
         }
     }

@@ -2114,6 +2114,7 @@ impl<'a> FunctionTranslator<'a> {
                 let bnot = self.builder.ins().bnot(v);
                 self.builder.ins().band_imm(bnot, 1)
             }
+            Unop::BitNot => self.builder.ins().bnot(v),
         }
     }
 
@@ -2358,6 +2359,28 @@ impl<'a> FunctionTranslator<'a> {
                     | crate::types::Type::Int8
                     | crate::types::Type::UInt8 => self.builder.ins().urem(lhs, rhs),
                     _ => unreachable!("type {:?} not supported for modulo", t),
+                }
+            }
+            Binop::BitAnd | Binop::BitOr | Binop::BitXor => {
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                match binop {
+                    Binop::BitAnd => self.builder.ins().band(lhs, rhs),
+                    Binop::BitOr => self.builder.ins().bor(lhs, rhs),
+                    _ => self.builder.ins().bxor(lhs, rhs),
+                }
+            }
+            Binop::Shl | Binop::Shr => {
+                // Cranelift masks the shift amount to the operand width, so
+                // `x << 33` on an i32 behaves like `x << 1`, matching the
+                // other backends.
+                let lhs = self.translate_expr(lhs_id, decl, decls);
+                let rhs = self.translate_expr(rhs_id, decl, decls);
+                let t = decl.types[lhs_id];
+                match (binop, &*t) {
+                    (Binop::Shl, _) => self.builder.ins().ishl(lhs, rhs),
+                    (_, crate::types::Type::UInt32) => self.builder.ins().ushr(lhs, rhs),
+                    _ => self.builder.ins().sshr(lhs, rhs),
                 }
             }
             Binop::Assign => {

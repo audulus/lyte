@@ -107,6 +107,7 @@ extern "C" {
     fn op_i32_to_i8();
     fn op_i8_to_i32();
     fn op_i64_to_u32();
+    fn op_i64_to_i32();
     fn op_load8();
     fn op_load32();
     fn op_load64();
@@ -438,6 +439,7 @@ fn handler_for(op: &StackOp) -> *const () {
         StackOp::I32ToI8 => op_i32_to_i8 as *const (),
         StackOp::I8ToI32 => op_i8_to_i32 as *const (),
         StackOp::I64ToU32 => op_i64_to_u32 as *const (),
+        StackOp::I64ToI32 => op_i64_to_i32 as *const (),
         StackOp::Load8 => op_load8 as *const (),
         StackOp::Load32 => op_load32 as *const (),
         StackOp::Load64 => op_load64 as *const (),

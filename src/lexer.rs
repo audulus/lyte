@@ -78,6 +78,7 @@ pub enum Token {
     Fn,
     Underscore,
     Ampersand,
+    Tilde,
     Endl,
     For,
     In,
@@ -422,10 +423,14 @@ impl Lexer {
                 }
             }
             '@' => Token::At,
+            '~' => Token::Tilde,
             '<' => {
                 if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Leq
+                } else if self.i < n && bytes[self.i] == b'<' {
+                    self.i += 1;
+                    Token::Lshift
                 } else {
                     Token::Less
                 }
@@ -434,6 +439,9 @@ impl Lexer {
                 if self.i < n && bytes[self.i] == b'=' {
                     self.i += 1;
                     Token::Geq
+                } else if self.i < n && bytes[self.i] == b'>' {
+                    self.i += 1;
+                    Token::Rshift
                 } else {
                     Token::Greater
                 }
