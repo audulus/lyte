@@ -822,10 +822,11 @@ fn aot_meta_struct_name(prefix: &str) -> String {
     format!("{}_global_info", prefix)
 }
 
+/// The global's name as it appears in its `_OFFSET_`/`_SIZE_`/`_KIND_` macros.
+/// Case is kept: identifiers are case-sensitive and unique within a program,
+/// so `count` and `Count` must not map to one macro.
 fn sanitize_macro_name(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c.to_ascii_uppercase() } else { '_' })
-        .collect()
+    s.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect()
 }
 
 fn c_string_escape(s: &str) -> String {

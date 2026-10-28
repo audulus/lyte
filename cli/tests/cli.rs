@@ -105,9 +105,66 @@ fn aot_emits_arm64_ios_object_and_header() {
     assert!(header.contains("SMOKE_STATE_SIZE"), "missing state-size macro");
     assert!(header.contains("smoke_init"), "missing init wrapper decl");
     assert!(header.contains("smoke_phase"), "missing phase wrapper decl");
-    assert!(header.contains("SMOKE_OFFSET_FREQ"), "missing freq global offset");
+    assert!(header.contains("SMOKE_OFFSET_freq"), "missing freq global offset");
     assert!(header.contains("smoke_globals"), "missing metadata table");
     assert!(header.contains("smoke_assert"), "missing assert hook decl");
+}
+
+#[test]
+#[cfg(feature = "llvm")]
+fn aot_header_macros_keep_global_case() {
+    // Globals `r` and `R` are distinct, so their macros must be too. Uppercasing
+    // the name would redefine `CASE_OFFSET_R` (a -Wmacro-redefined warning in
+    // every TU that includes the header).
+    use std::io::Write;
+
+    let tmp = std::env::temp_dir().join("lyte_aot_case");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let src = tmp.join("case.lyte");
+    let mut f = std::fs::File::create(&src).unwrap();
+    writeln!(
+        f,
+        "var r: f32\n\
+         var R: f32\n\
+         \n\
+         init(a: f32, b: f32) {{\n\
+             r = a\n\
+             R = b\n\
+         }}\n\
+         \n\
+         sum() -> f32 {{\n\
+             return r + R\n\
+         }}"
+    )
+    .unwrap();
+    drop(f);
+
+    let status = std::process::Command::new(LYTE_BIN)
+        .arg(&src)
+        .arg("--no-recursion")
+        .arg("--entry")
+        .arg("init,sum")
+        .arg("--aot")
+        .arg(tmp.join("case.o"))
+        .status()
+        .expect("failed to invoke lyte");
+    assert!(status.success(), "--aot exited with {}", status);
+
+    let header = std::fs::read_to_string(tmp.join("case.h")).expect("read .h");
+    assert!(header.contains("#define CASE_OFFSET_r "), "missing macro for global r");
+    assert!(header.contains("#define CASE_OFFSET_R "), "missing macro for global R");
+    assert!(header.contains("{ \"r\","), "metadata table lost the real name r");
+    assert!(header.contains("{ \"R\","), "metadata table lost the real name R");
+
+    let mut defined = std::collections::HashSet::new();
+    for line in header.lines() {
+        if let Some(rest) = line.strip_prefix("#define ") {
+            let name = rest.split_whitespace().next().unwrap();
+            assert!(defined.insert(name), "macro {} defined twice", name);
+        }
+    }
 }
 
 #[test]
