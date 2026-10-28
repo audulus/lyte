@@ -169,6 +169,62 @@ fn aot_header_macros_keep_global_case() {
 
 #[test]
 #[cfg(feature = "llvm")]
+fn aot_header_macros_suffix_sanitized_name_collisions() {
+    // An overloaded extern is mangled to `send$f32`, which sanitizes to the
+    // same macro name as a global called `send_f32`. The repeat gets a `_2`
+    // suffix instead of redefining the first macro.
+    use std::io::Write;
+
+    let tmp = std::env::temp_dir().join("lyte_aot_overload");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let src = tmp.join("ovl.lyte");
+    let mut f = std::fs::File::create(&src).unwrap();
+    writeln!(
+        f,
+        "var send_f32: f32\n\
+         extern fn send(x: f32)\n\
+         extern fn send(x: i32)\n\
+         \n\
+         both(a: f32, b: i32) {{\n\
+             send_f32 = a\n\
+             send(a)\n\
+             send(b)\n\
+         }}"
+    )
+    .unwrap();
+    drop(f);
+
+    let status = std::process::Command::new(LYTE_BIN)
+        .arg(&src)
+        .arg("--no-recursion")
+        .arg("--entry")
+        .arg("both")
+        .arg("--aot")
+        .arg(tmp.join("ovl.o"))
+        .status()
+        .expect("failed to invoke lyte");
+    assert!(status.success(), "--aot exited with {}", status);
+
+    let header = std::fs::read_to_string(tmp.join("ovl.h")).expect("read .h");
+    assert!(header.contains("#define OVL_OFFSET_send_f32 "), "missing macro for the global");
+    assert!(header.contains("#define OVL_OFFSET_send_f32_2 "), "missing suffixed macro for the extern");
+    assert!(header.contains("#define OVL_OFFSET_send_i32 "), "missing macro for the other overload");
+    assert!(header.contains("{ \"send_f32\","), "metadata table lost the global");
+    assert!(header.contains("{ \"send$f32\","), "metadata table lost the mangled extern");
+
+    let mut defined = std::collections::HashSet::new();
+    for line in header.lines() {
+        if let Some(rest) = line.strip_prefix("#define ") {
+            let name = rest.split_whitespace().next().unwrap();
+            assert!(defined.insert(name), "macro {} defined twice", name);
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "llvm")]
 fn aot_two_objects_have_disjoint_public_symbols() {
     // Two .lyte programs that both define internal helpers and entry points
     // with the same names must produce link-disjoint .o files when given
