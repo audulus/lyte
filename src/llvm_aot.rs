@@ -685,8 +685,12 @@ fn build_header(
     // Globals
     let _ = writeln!(s, "// Globals (compile-time layout) ----------------------------------------");
     let _ = writeln!(s, "#define {}_GLOBAL_COUNT ((size_t){})", upper, globals.entries.len());
+    // Sanitizing can still merge names: an overloaded extern is mangled to
+    // `send$f32`, which becomes `send_f32`, the same as a global of that name.
+    // A repeat gets a numeric suffix; the metadata table keeps the real names.
+    let mut macro_names = std::collections::HashSet::new();
     for g in &globals.entries {
-        let safe = sanitize_macro_name(&g.name);
+        let safe = unique_macro_name(&g.name, &mut macro_names);
         let kind = match g.kind {
             AotGlobalKind::Scalar => 0,
             AotGlobalKind::Slice => 1,
@@ -822,10 +826,24 @@ fn aot_meta_struct_name(prefix: &str) -> String {
     format!("{}_global_info", prefix)
 }
 
+/// The global's name as it appears in its `_OFFSET_`/`_SIZE_`/`_KIND_` macros.
+/// Case is kept: identifiers are case-sensitive, so `count` and `Count` must
+/// not map to one macro.
 fn sanitize_macro_name(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c.to_ascii_uppercase() } else { '_' })
-        .collect()
+    s.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect()
+}
+
+/// `sanitize_macro_name`, made unique against `used` with a `_2`, `_3`, ...
+/// suffix for a name that repeats, such as an overloaded extern function.
+fn unique_macro_name(name: &str, used: &mut std::collections::HashSet<String>) -> String {
+    let base = sanitize_macro_name(name);
+    let mut candidate = base.clone();
+    let mut n = 2;
+    while !used.insert(candidate.clone()) {
+        candidate = format!("{base}_{n}");
+        n += 1;
+    }
+    candidate
 }
 
 fn c_string_escape(s: &str) -> String {
