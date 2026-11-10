@@ -59,6 +59,109 @@ intentionally want one control value for the whole block. If you are coming from
 
 ---
 
+## MIDI Input and Output
+
+Audulus supplies four MIDI functions to Lyte DSP nodes. Call them inside `process`; you do not need to declare or import them. MIDI messages are events with a position in the current block, rather than audio port samples.
+
+| Function | Use |
+|---|---|
+| `receive_midi()` | Read the next short MIDI 1.0 message as unsigned bytes. |
+| `send_midi(bytes)` | Send one MIDI byte message. |
+| `receive_ump()` | Read the next Universal MIDI Packet (UMP), preserving MIDI 2.0 data. |
+| `send_ump(words, frame)` | Send one UMP at a frame offset in this block. |
+
+### Read MIDI 1.0
+
+`receive_midi()` returns `bytes` (an array of three `u8` values), `count` (the number of valid bytes), and `frame` (the frame offset within this block). A count of `0` means no messages remain. Read until the count is zero so messages do not get left behind.
+
+This example passes audio through and forwards note-on messages on any channel with nonzero velocity:
+
+```lyte
+init {}
+
+process {
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+
+    var msg = receive_midi()
+    while msg.count > 0 {
+        if msg.count == 3 {
+            var status = msg.bytes[0] as i32
+            var kind = status & 240
+            var channel = status & 15
+            var note = msg.bytes[1] as i32
+            var velocity = msg.bytes[2] as i32
+            if kind == 144 && velocity > 0 {
+                send_midi([(144 + channel) as u8, note as u8, velocity as u8])
+            }
+        }
+        msg = receive_midi()
+    }
+}
+```
+
+The bytes are **unsigned**: a note-on status on channel 0 is `144` (`0x90`), and middle C is note `60`. Cast bytes to `i32` for integer calculations. The low four status bits identify channels `0`–`15` (displayed as channels 1–16 in many interfaces). A note-on with velocity zero means note-off; this example deliberately skips it and is a message-filter example, not a complete playable MIDI pass-through.
+
+`receive_midi()` translates incoming MIDI 2.0 events to MIDI 1.0 and does not deliver SysEx. Use `receive_ump()` when you need the original packet data.
+
+### Send MIDI bytes
+
+Inside `process`, a middle-C note-on on channel 0 with velocity 100 is:
+
+```lyte
+send_midi([144 as u8, 60 as u8, 100 as u8])
+```
+
+`send_midi` returns a `bool` indicating whether the message was handed to the MIDI output. It has no frame argument. Trigger a send when an event occurs; putting an unconditional note-on in `process` sends it again every block. A note generator also needs a corresponding note-off, for example `[128 as u8, 60 as u8, 0 as u8]`.
+
+### MIDI 2.0 and UMP
+
+`receive_ump()` returns `words` (an array of four `u32` values), `count` (the number of valid words, from 1 to 4), and `frame`. A count of `0` ends the read loop. Incoming MIDI 2.0 packets retain their data; legacy MIDI messages are wrapped as MIDI 1.0 UMPs.
+
+This complete example passes the MIDI input through at each message's original frame offset:
+
+```lyte
+init {}
+
+process {
+    for i in 0 .. frames {
+        output[i] = input[i]
+    }
+
+    var m = receive_ump()
+    while m.count > 0 {
+        send_ump(m.words, m.frame)
+        m = receive_ump()
+    }
+}
+```
+
+You can pass the entire four-word array to `send_ump`; it uses the packet type to determine the packet length and ignores trailing words. `frame` is relative to this processing block, with zero at its first sample. Preserve it when forwarding events to preserve their timing.
+
+To construct a MIDI 2.0 note-on, use unsigned words with shifts and masks. This sends note 60 in group 0, channel 0, at frame 0, with velocity 32768 (about half of the 16-bit range). Place this fragment inside `process` under your event trigger:
+
+```lyte
+var w0 = (4u << 28) | (9u << 20) | (0u << 16) | (60u << 8)
+var w1 = 32768u << 16
+send_ump([w0, w1], 0)
+```
+
+`4u` selects the MIDI 2.0 channel-voice packet type; `9u` selects note-on. The `u` suffix makes these `u32` values. To split out the fields again:
+
+```lyte
+var messageType = (w0 >> 28) & 15u
+var channel = (w0 >> 16) & 15u
+var note = (w0 >> 8) & 127u
+var velocity = (w1 >> 16) & 65535u
+```
+
+`send_ump` returns a `bool`; it can fail for an incomplete or unsupported packet, an unavailable output, or a packet that cannot be translated for a MIDI 1.0 destination. Its frame argument is clamped to the current block. `receive_midi` and `receive_ump` read independently, so reading one does not consume messages from the other. Forward through just one of them to avoid sending duplicate events.
+
+See [MIDI in Audulus](language-guide.md#21-midi-in-audulus) for the exact message types and API reference.
+
+---
+
 ## Using `sampleRate`
 
 `sampleRate` is a float. A common pattern is to compute `1.0 / sampleRate` once in

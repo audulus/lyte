@@ -26,6 +26,7 @@
 18. [Macros](#18-macros)
 19. [Common Errors](#19-common-errors)
 20. [Features in the Grammar Not Yet Covered](#20-features-in-the-grammar-not-yet-covered)
+21. [MIDI in Audulus](#21-midi-in-audulus)
 
 ---
 
@@ -78,6 +79,7 @@ Note for Lua users: Lua lets one variable hold different kinds of values over ti
 | `str` | Text (a string in quotes) | `"hello"` |
 | `i8` | A very small whole number from -128 to 127, used for individual characters. Supports comparisons and casts but not arithmetic | `65` (the letter `A`) |
 | `u8` | A small whole number from 0 to 255 (an unsigned byte). Like `i8`, it supports casts and equality but not arithmetic or ordering | `(200 as u8)`, `(255 as u8)` |
+| `u8` | An unsigned byte, used for MIDI bytes (0–255) | `144 as u8`, `60 as u8` |
 | `u32` | A whole number that cannot be negative (unsigned) | `42`, `0` |
 
 Single characters can also be written with single quotes: `'a'`, `'Z'`, `'\n'` (newline). This is called a character literal.
@@ -1331,6 +1333,7 @@ This example brings together structs, `f32` math, tuples, and functions — all 
 | `str` | Text in double quotes |
 | `i8` | Very small whole number, -128 to 127 (used for characters; comparisons and casts, no arithmetic) |
 | `u8` | Unsigned byte, 0 to 255 (casts only; no arithmetic or comparison) |
+| `u8` | Unsigned byte, 0–255 (MIDI bytes) |
 | `u32` | Whole number, cannot be negative |
 | `f64` | Higher-precision decimal — present in the language but may not apply in Audulus |
 
@@ -1952,6 +1955,57 @@ The official Lyte grammar file reveals a few features that exist in the language
 - `⋅` (a centered dot) can be used instead of `*` for multiplication
 
 These are cosmetic alternatives — the standard ASCII versions work just as well and are easier to type.
+
+---
+
+## 21. MIDI in Audulus
+
+These APIs are supplied by the **Audulus host** to Lyte DSP nodes. They are not standalone Lyte standard-library functions. Audulus declares the following types and functions automatically; do not redeclare them in your node:
+
+```lyte
+struct MidiMessage {
+    count: i32,
+    frame: i32,
+    bytes: [u8; 3]
+}
+
+struct UmpMessage {
+    count: i32,
+    frame: i32,
+    words: [u32; 4]
+}
+
+extern fn receive_midi() -> MidiMessage
+extern fn send_midi(buf: [u8]) -> bool
+extern fn receive_ump() -> UmpMessage
+extern fn send_ump(words: [u32], frame: i32) -> bool
+```
+
+### Receiving events
+
+Call a receive function repeatedly inside `process` until it returns `count == 0`. Each call advances to the next message in the current block. For `MidiMessage`, `count` measures **bytes** (1–3); for `UmpMessage`, it measures **32-bit words** (1–4). Only the first `count` entries are message data. Check the count before decoding fields that require multiple bytes or words.
+
+`frame` is the event's sample offset relative to the current processing block. Audio processing that responds to an event should apply it at that frame, rather than treating every event as if it happened at the start of the block.
+
+- `receive_midi()` exposes short MIDI 1.0 messages. MIDI 2.0 input is translated to MIDI 1.0; SysEx is not delivered by this API.
+- `receive_ump()` exposes Universal MIDI Packets without translating MIDI 2.0 down. It includes SysEx7 packets and wraps legacy MIDI input in MIDI 1.0 UMP words.
+- The two readers have independent cursors. Reading one does not drain the other; forwarding both can duplicate events.
+
+### Sending events
+
+`send_midi(buf)` sends the supplied unsigned bytes as one MIDI message. It has no frame argument. It returns `false` if the MIDI output is unavailable or the buffer is empty; `true` means the message was handed to the output callback, not that an external instrument acknowledged it.
+
+`send_ump(words, frame)` sends one packet starting at `words[0]`. The packet type determines its word count; extra words are ignored, so a received four-word `words` array can be passed directly. The frame is clamped into the current block (`0` through `frames - 1` for a nonempty block).
+
+Supported outgoing UMP types are utility, system, MIDI 1.0 channel voice, MIDI 2.0 channel voice, 64-bit and 128-bit data, and flex data. Reserved types and endpoint stream messages are rejected. The function returns `false` for an incomplete or unsupported packet, an unavailable UMP output, or a packet with no translation when the destination accepts only MIDI 1.0. The host translates packets for MIDI 1.0 destinations when possible.
+
+### Bytes, words, and timing
+
+MIDI bytes use `u8`, an unsigned integer from 0 to 255. For example, a channel-0 note-on has status `144` (`0x90`), not a negative signed-byte value. Use `as i32` when doing integer calculations with a byte and `as u8` when constructing outgoing byte arrays.
+
+UMP words use `u32`. Literals such as `4u` and `32768u` are unsigned 32-bit values. Use `<<`, `>>`, `&`, and `|` to construct and extract fields. MIDI 2.0 note velocity is a 16-bit field; a value of `32768` is about half its range, whereas MIDI 1.0 note velocity ranges from 0 to 127.
+
+For a timed pass-through, drain `receive_ump()` and call `send_ump(m.words, m.frame)` for each packet. See the [quick-start MIDI examples](quickstart.md#midi-input-and-output) for complete scripts and a MIDI 2.0 note-on construction example.
 
 ---
 

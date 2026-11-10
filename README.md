@@ -37,6 +37,7 @@ cargo test --workspace
 
 - [Lyte DSP Quick Start](docs/quickstart.md) - practical Audulus DSP node examples and current DSP authoring notes.
 - [Learning Lyte](docs/language-guide.md) - beginner-friendly language guide for current Lyte syntax and behavior.
+- [Optimization Tips for Lyte](docs/optimizing_lyte.md) - control-rate processing, timing, SIMD, and performance measurement.
 
 ### LLVM JIT Backend (Optional)
 
